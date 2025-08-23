@@ -4,12 +4,13 @@
 
 use crate::{
     data::{
-        Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
-        TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlHandle, TpmlPcrSelection, TpmsCertifyInfo,
-        TpmsCommandAuditInfo, TpmsCreationInfo, TpmsEccParms, TpmsEccPoint, TpmsKeyedhashParms,
-        TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo, TpmsNvPublic, TpmsNvPublicExpAttr,
-        TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor, TpmsSessionAuditInfo,
-        TpmsSignatureEcc, TpmsSignatureRsa, TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData,
+        Tpm2bSymKey, TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlHandle, TpmlPcrSelection,
+        TpmsCertifyInfo, TpmsCommandAuditInfo, TpmsCreationInfo, TpmsEccParms, TpmsEccPoint,
+        TpmsKeyedhashParms, TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo, TpmsNvPublic,
+        TpmsNvPublicExpAttr, TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor,
+        TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa, TpmsSymcipherParms,
+        TpmsTimeAttestInfo, TpmtHa,
     },
     tpm_hash_size, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult, TpmSized,
     TpmTagged, TpmWriter, TPM_MAX_COMMAND_SIZE,
@@ -285,7 +286,7 @@ impl TpmParseTagged for TpmuPublicParms {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TpmuSensitiveComposite {
-    Rsa(crate::data::Tpm2bSensitiveData),
+    Rsa(crate::data::Tpm2bPrivateKeyRsa),
     Ecc(Tpm2bEccParameter),
     Bits(Tpm2bSensitiveData),
     Sym(Tpm2bSymKey),
@@ -298,7 +299,7 @@ impl TpmTagged for TpmuSensitiveComposite {
 
 impl Default for TpmuSensitiveComposite {
     fn default() -> Self {
-        Self::Rsa(crate::data::Tpm2bSensitiveData::default())
+        Self::Rsa(crate::data::Tpm2bPrivateKeyRsa::default())
     }
 }
 
