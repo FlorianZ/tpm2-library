@@ -52,6 +52,7 @@ tpm_enum! {
         (Value, TPM_RC_FMT1 | 0x004, "TPM_RC_VALUE"),
         (Handle, TPM_RC_FMT1 | 0x00B, "TPM_RC_HANDLE"),
         (AuthFail, TPM_RC_FMT1 | 0x00E, "TPM_RC_AUTH_FAIL"),
+        (Size, TPM_RC_FMT1 | 0x015, "TPM_RC_SIZE"),
         (BadAuth, TPM_RC_FMT1 | 0x022, "TPM_RC_BAD_AUTH"),
         (Curve, TPM_RC_FMT1 | 0x026, "TPM_RC_CURVE"),
         (ContextGap, TPM_RC_WARN | 0x001, "TPM_RC_CONTEXT_GAP"),
