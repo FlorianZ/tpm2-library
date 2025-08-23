@@ -43,7 +43,7 @@ tpm2b!(Tpm2bName, { MAX_DIGEST_SIZE + 2 });
 tpm2b!(Tpm2bNonce, MAX_DIGEST_SIZE);
 tpm2b!(Tpm2bOperand, MAX_DIGEST_SIZE);
 tpm2b!(Tpm2bPrivate, MAX_PRIVATE_SIZE);
-tpm2b!(Tpm2bPrivateKeyRsa, MAX_RSA_KEY_BYTES);
+tpm2b!(Tpm2bPrivateKeyRsa, { MAX_RSA_KEY_BYTES / 2 });
 tpm2b!(Tpm2bPublicKeyRsa, MAX_RSA_KEY_BYTES);
 tpm2b!(Tpm2bSensitiveData, MAX_SENSITIVE_DATA);
 tpm2b!(Tpm2bSymKey, MAX_SYM_KEY_BYTES);

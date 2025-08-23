@@ -285,7 +285,7 @@ impl TpmParseTagged for TpmuPublicParms {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TpmuSensitiveComposite {
-    Rsa(crate::data::Tpm2bPrivateKeyRsa),
+    Rsa(crate::data::Tpm2bSensitiveData),
     Ecc(Tpm2bEccParameter),
     Bits(Tpm2bSensitiveData),
     Sym(Tpm2bSymKey),
@@ -298,7 +298,7 @@ impl TpmTagged for TpmuSensitiveComposite {
 
 impl Default for TpmuSensitiveComposite {
     fn default() -> Self {
-        Self::Rsa(crate::data::Tpm2bPrivateKeyRsa::default())
+        Self::Rsa(crate::data::Tpm2bSensitiveData::default())
     }
 }
 
@@ -306,10 +306,9 @@ impl TpmSized for TpmuSensitiveComposite {
     const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
-            Self::Rsa(val) => val.len(),
             Self::Ecc(val) => val.len(),
-            Self::Bits(val) => val.len(),
             Self::Sym(val) => val.len(),
+            Self::Rsa(val) | Self::Bits(val) => val.len(),
         }
     }
 }
@@ -317,10 +316,9 @@ impl TpmSized for TpmuSensitiveComposite {
 impl TpmBuild for TpmuSensitiveComposite {
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         match self {
-            Self::Rsa(val) => val.build(writer),
             Self::Ecc(val) => val.build(writer),
-            Self::Bits(val) => val.build(writer),
             Self::Sym(val) => val.build(writer),
+            Self::Rsa(val) | Self::Bits(val) => val.build(writer),
         }
     }
 }
