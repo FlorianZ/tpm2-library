@@ -35,7 +35,7 @@ tpm2b!(Tpm2b, TPM_MAX_COMMAND_SIZE);
 tpm2b!(Tpm2bAuth, MAX_DIGEST_SIZE);
 tpm2b!(Tpm2bDigest, MAX_DIGEST_SIZE);
 tpm2b!(Tpm2bEccParameter, MAX_ECC_KEY_BYTES);
-tpm2b!(Tpm2bEncryptedSecret, MAX_ECC_KEY_BYTES);
+tpm2b!(Tpm2bEncryptedSecret, MAX_RSA_KEY_BYTES);
 tpm2b!(Tpm2bEvent, MAX_EVENT_SIZE);
 tpm2b!(Tpm2bMaxBuffer, MAX_BUFFER_SIZE);
 tpm2b!(Tpm2bMaxNvBuffer, MAX_NV_BUFFER_SIZE);
