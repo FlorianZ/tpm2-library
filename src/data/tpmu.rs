@@ -4,13 +4,12 @@
 
 use crate::{
     data::{
-        Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData,
-        Tpm2bSymKey, TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlHandle, TpmlPcrSelection,
-        TpmsCertifyInfo, TpmsCommandAuditInfo, TpmsCreationInfo, TpmsEccParms, TpmsEccPoint,
-        TpmsKeyedhashParms, TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo, TpmsNvPublic,
-        TpmsNvPublicExpAttr, TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor,
-        TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa, TpmsSymcipherParms,
-        TpmsTimeAttestInfo, TpmtHa,
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
+        TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlHandle, TpmlPcrSelection, TpmsCertifyInfo,
+        TpmsCommandAuditInfo, TpmsCreationInfo, TpmsEccParms, TpmsEccPoint, TpmsKeyedhashParms,
+        TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo, TpmsNvPublic, TpmsNvPublicExpAttr,
+        TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor, TpmsSessionAuditInfo,
+        TpmsSignatureEcc, TpmsSignatureRsa, TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
     tpm_hash_size, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult, TpmSized,
     TpmTagged, TpmWriter, TPM_MAX_COMMAND_SIZE,
