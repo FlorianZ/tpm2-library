@@ -12,16 +12,19 @@ use std::{
 use tpm2_protocol::{
     build_tpm2b,
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bMaxBuffer, Tpm2bMaxNvBuffer, Tpm2bNonce, TpmAlgId, TpmCap,
-        TpmCc, TpmRc, TpmRcBase, TpmRcIndex, TpmRh, TpmaSession, TpmlPcrSelection, TpmsAuthCommand,
-        TpmsClockInfo, TpmtSymDef, TpmuSymKeyBits, TpmuSymMode,
+        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bMaxBuffer, Tpm2bMaxNvBuffer, Tpm2bNonce,
+        Tpm2bPublic, Tpm2bPublicKeyRsa, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCap,
+        TpmCc, TpmRc, TpmRcBase, TpmRcIndex, TpmRh, TpmSt, TpmaObject, TpmaSession, TpmlDigest,
+        TpmlDigestValues, TpmlPcrSelection, TpmsAuthCommand, TpmsAuthResponse, TpmsClockInfo,
+        TpmsPcrSelect, TpmsPcrSelection, TpmsRsaParms, TpmsSensitiveCreate, TpmtHa, TpmtPublic,
+        TpmtScheme, TpmtSymDef, TpmuHa, TpmuPublicId, TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
     },
     message::{
         tpm_build_command, tpm_build_response, tpm_parse_command, tpm_parse_response,
-        TpmAuthCommands, TpmCommandBody, TpmContextSaveCommand, TpmEvictControlCommand,
-        TpmFlushContextCommand, TpmFlushContextResponse, TpmGetCapabilityCommand, TpmHashCommand,
-        TpmNvWriteCommand, TpmPcrEventResponse, TpmPcrReadCommand, TpmPcrReadResponse,
-        TpmPolicyGetDigestResponse,
+        TpmAuthCommands, TpmCommandBody, TpmContextSaveCommand, TpmCreatePrimaryCommand,
+        TpmEvictControlCommand, TpmFlushContextCommand, TpmFlushContextResponse,
+        TpmGetCapabilityCommand, TpmHashCommand, TpmNvWriteCommand, TpmPcrEventResponse,
+        TpmPcrReadCommand, TpmPcrReadResponse, TpmPolicyGetDigestResponse,
     },
     TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmPersistent, TpmSession, TpmSized, TpmWriter,
     TPM_MAX_COMMAND_SIZE,
@@ -300,13 +303,7 @@ fn test_command_build_get_capability() {
     let mut buf = [0u8; 1024];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(
-            &cmd,
-            tpm2_protocol::data::TpmSt::NoSessions,
-            &[],
-            &mut writer,
-        )
-        .unwrap();
+        tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
         writer.len()
     };
     let generated_bytes = &buf[..len];
@@ -324,13 +321,7 @@ fn test_command_build_hash() {
     let mut buf = [0u8; 1024];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(
-            &cmd,
-            tpm2_protocol::data::TpmSt::NoSessions,
-            &[],
-            &mut writer,
-        )
-        .unwrap();
+        tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
         writer.len()
     };
     let generated_bytes = &buf[..len];
@@ -340,7 +331,7 @@ fn test_command_build_hash() {
 }
 
 fn test_response_build_pcr_read() {
-    let mut pcr_values = tpm2_protocol::data::TpmlDigest::new();
+    let mut pcr_values = TpmlDigest::new();
     pcr_values
         .try_push(Tpm2bDigest::try_from(&[0xDE; 32][..]).unwrap())
         .unwrap();
@@ -394,18 +385,18 @@ fn test_response_build_error() {
 }
 
 fn test_response_parse_pcr_event() {
-    let mut digests = tpm2_protocol::data::TpmlDigestValues::new();
+    let mut digests = TpmlDigestValues::new();
     digests
-        .try_push(tpm2_protocol::data::TpmtHa {
+        .try_push(TpmtHa {
             hash_alg: TpmAlgId::Sha256,
-            digest: tpm2_protocol::data::TpmuHa::Sha256([0xA1; 32]),
+            digest: TpmuHa::Sha256([0xA1; 32]),
         })
         .unwrap();
     let original_resp = TpmPcrEventResponse { digests };
 
     let mut sessions = tpm2_protocol::message::TpmAuthResponses::new();
     sessions
-        .try_push(tpm2_protocol::data::TpmsAuthResponse {
+        .try_push(TpmsAuthResponse {
             nonce: Tpm2bNonce::try_from(&[0xAA; 8][..]).unwrap(),
             session_attributes: TpmaSession::CONTINUE_SESSION,
             hmac: Tpm2bAuth::try_from(&[0xBB; 32][..]).unwrap(),
@@ -445,13 +436,7 @@ fn test_command_parse_get_capability() {
         let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(
-                &cmd,
-                tpm2_protocol::data::TpmSt::NoSessions,
-                &[],
-                &mut writer,
-            )
-            .unwrap();
+            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
             writer.len()
         };
         buf[..len].to_vec()
@@ -482,13 +467,7 @@ fn test_command_parse_hash() {
         let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(
-                &cmd,
-                tpm2_protocol::data::TpmSt::NoSessions,
-                &[],
-                &mut writer,
-            )
-            .unwrap();
+            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
             writer.len()
         };
         buf[..len].to_vec()
@@ -518,13 +497,7 @@ fn test_command_parse_flush_context() {
         let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(
-                &cmd,
-                tpm2_protocol::data::TpmSt::NoSessions,
-                &[],
-                &mut writer,
-            )
-            .unwrap();
+            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
             writer.len()
         };
         buf[..len].to_vec()
@@ -545,12 +518,11 @@ fn test_command_parse_flush_context() {
 }
 
 fn test_command_parse_pcr_read() {
-    let mut pcr_selection = tpm2_protocol::data::TpmlPcrSelection::new();
+    let mut pcr_selection = TpmlPcrSelection::new();
     pcr_selection
-        .try_push(tpm2_protocol::data::TpmsPcrSelection {
+        .try_push(TpmsPcrSelection {
             hash: TpmAlgId::Sha256,
-            pcr_select: tpm2_protocol::data::TpmsPcrSelect::try_from(&[0xFF, 0x80, 0x01][..])
-                .unwrap(),
+            pcr_select: TpmsPcrSelect::try_from(&[0xFF, 0x80, 0x01][..]).unwrap(),
         })
         .unwrap();
 
@@ -562,13 +534,7 @@ fn test_command_parse_pcr_read() {
         let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(
-                &cmd,
-                tpm2_protocol::data::TpmSt::NoSessions,
-                &[],
-                &mut writer,
-            )
-            .unwrap();
+            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
             writer.len()
         };
         buf[..len].to_vec()
@@ -597,13 +563,7 @@ fn test_command_parse_context_save() {
         let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(
-                &cmd,
-                tpm2_protocol::data::TpmSt::NoSessions,
-                &[],
-                &mut writer,
-            )
-            .unwrap();
+            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
             writer.len()
         };
         buf[..len].to_vec()
@@ -635,11 +595,11 @@ fn test_command_parse_evict_control() {
     };
     let mut sessions = TpmAuthCommands::new();
     sessions
-        .try_push(tpm2_protocol::data::TpmsAuthCommand {
+        .try_push(TpmsAuthCommand {
             session_handle: TpmSession(TpmRh::Password as u32),
-            nonce: tpm2_protocol::data::Tpm2bNonce::default(),
-            session_attributes: tpm2_protocol::data::TpmaSession::default(),
-            hmac: tpm2_protocol::data::Tpm2bAuth::try_from(&b"123"[..]).unwrap(),
+            nonce: Tpm2bNonce::default(),
+            session_attributes: TpmaSession::default(),
+            hmac: Tpm2bAuth::try_from(&b"123"[..]).unwrap(),
         })
         .unwrap();
 
@@ -647,13 +607,7 @@ fn test_command_parse_evict_control() {
         let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(
-                &cmd,
-                tpm2_protocol::data::TpmSt::Sessions,
-                &sessions,
-                &mut writer,
-            )
-            .unwrap();
+            tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
             writer.len()
         };
         buf[..len].to_vec()
@@ -686,13 +640,7 @@ fn test_command_build_evict_control() {
     let mut buf = [0u8; 1024];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(
-            &cmd,
-            tpm2_protocol::data::TpmSt::Sessions,
-            &sessions,
-            &mut writer,
-        )
-        .unwrap();
+        tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
         writer.len()
     };
     let generated_bytes = &buf[..len];
@@ -723,13 +671,7 @@ fn test_command_build_nv_write() {
     let mut buf = [0u8; 1024];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(
-            &cmd,
-            tpm2_protocol::data::TpmSt::Sessions,
-            &sessions,
-            &mut writer,
-        )
-        .unwrap();
+        tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
         writer.len()
     };
     let generated_bytes = &buf[..len];
@@ -741,10 +683,10 @@ fn test_command_build_nv_write() {
 }
 
 fn test_macro_response_parse_correctness() {
-    let mut digests = tpm2_protocol::data::TpmlDigestValues::new();
-    let digest = tpm2_protocol::data::TpmtHa {
+    let mut digests = TpmlDigestValues::new();
+    let digest = TpmtHa {
         hash_alg: TpmAlgId::Sha256,
-        digest: tpm2_protocol::data::TpmuHa::Sha256([0xA1; 32]),
+        digest: TpmuHa::Sha256([0xA1; 32]),
     };
     digests.try_push(digest).unwrap();
     let original_resp = TpmPcrEventResponse { digests };
@@ -859,7 +801,7 @@ fn test_response_parse_policy_get_digest() {
 }
 
 fn test_macro_response_parse_remainder() {
-    let mut pcr_values = tpm2_protocol::data::TpmlDigest::new();
+    let mut pcr_values = TpmlDigest::new();
     pcr_values
         .try_push(Tpm2bDigest::try_from(&[0xAA; 32][..]).unwrap())
         .unwrap();
@@ -899,6 +841,57 @@ fn test_macro_response_parse_remainder() {
             panic!("Parsing failed: {e:?}");
         }
     }
+}
+
+fn test_command_build_create_primary() {
+    let cmd = TpmCreatePrimaryCommand {
+        primary_handle: (TpmRh::Owner as u32).into(),
+        in_sensitive: Tpm2bSensitiveCreate::from(TpmsSensitiveCreate {
+            user_auth: Tpm2bAuth::try_from(b"parent_pw".as_slice()).unwrap(),
+            data: Tpm2bSensitiveData::default(),
+        }),
+        in_public: Tpm2bPublic::from(TpmtPublic {
+            object_type: TpmAlgId::Rsa,
+            name_alg: TpmAlgId::Sha256,
+            object_attributes: TpmaObject::FIXED_TPM
+                | TpmaObject::FIXED_PARENT
+                | TpmaObject::SENSITIVE_DATA_ORIGIN
+                | TpmaObject::USER_WITH_AUTH
+                | TpmaObject::DECRYPT
+                | TpmaObject::RESTRICTED,
+            auth_policy: Tpm2bDigest::default(),
+            parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
+                symmetric: TpmtSymDef {
+                    algorithm: TpmAlgId::Aes,
+                    key_bits: TpmuSymKeyBits::Aes(128),
+                    mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
+                },
+                scheme: TpmtScheme {
+                    scheme: TpmAlgId::Null,
+                },
+                key_bits: 2048,
+                exponent: 0,
+            }),
+            unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
+        }),
+        outside_info: Tpm2bData::default(),
+        creation_pcr: TpmlPcrSelection::default(),
+    };
+
+    let mut sessions = TpmAuthCommands::new();
+    sessions
+        .try_push(TpmsAuthCommand {
+            session_handle: TpmSession(TpmRh::Password as u32),
+            nonce: Tpm2bNonce::default(),
+            session_attributes: TpmaSession::default(),
+            hmac: Tpm2bAuth::try_from(b"parent_pw".as_slice()).unwrap(),
+        })
+        .unwrap();
+
+    let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
+    let mut writer = TpmWriter::new(&mut buf);
+
+    tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
 }
 
 fn print_ok() {
@@ -942,6 +935,7 @@ macro_rules! test_suite {
 }
 
 test_suite!(
+    test_command_build_create_primary,
     test_command_build_evict_control,
     test_command_build_get_capability,
     test_command_build_hash,
