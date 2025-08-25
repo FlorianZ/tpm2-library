@@ -157,22 +157,25 @@ fn get_base_code(value: u32) -> u32 {
 
 #[must_use]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub struct TpmRc(u32);
+pub struct TpmRc {
+    value: u32,
+    base: TpmRcBase,
+}
+
 impl TpmRc {
     /// Returns the base error code, with handle, parameter, or session index
     /// stripped out.
     ///
     /// # Errors
     ///
-    /// Returns a `TpmErrorKind::Unreachable` on error, as the error case
-    /// should be unreachable.
+    /// This method returns a `Result` in order to retain API compatibility.
     pub fn base(self) -> Result<TpmRcBase, TpmErrorKind> {
-        TpmRcBase::try_from(get_base_code(self.0)).map_err(|()| TpmErrorKind::Unreachable)
+        Ok(self.base)
     }
 
     #[must_use]
     pub fn index(self) -> Option<TpmRcIndex> {
-        let value = self.0;
+        let value = self.value;
         if (value & TPM_RC_FMT1) == 0 {
             return None;
         }
@@ -189,15 +192,15 @@ impl TpmRc {
 
     #[must_use]
     pub fn value(self) -> u32 {
-        self.0
+        self.value
     }
     #[must_use]
     pub fn is_warning(self) -> bool {
-        (self.0 & TPM_RC_WARN) == TPM_RC_WARN
+        (self.value & TPM_RC_WARN) == TPM_RC_WARN
     }
     #[must_use]
     pub fn is_error(self) -> bool {
-        !self.is_warning() && self.0 != 0
+        !self.is_warning() && self.value != 0
     }
 }
 
@@ -210,7 +213,7 @@ impl crate::TpmSized for TpmRc {
 
 impl crate::TpmBuild for TpmRc {
     fn build(&self, writer: &mut crate::TpmWriter) -> crate::TpmResult<()> {
-        self.0.build(writer)
+        self.value.build(writer)
     }
 }
 
@@ -226,19 +229,22 @@ impl TryFrom<u32> for TpmRc {
     type Error = TpmErrorKind;
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         let base_code = get_base_code(value);
-        TpmRcBase::try_from(base_code).map_err(|()| {
+        let base = TpmRcBase::try_from(base_code).map_err(|()| {
             TpmErrorKind::NotDiscriminant(
                 "TpmRcBase",
                 TpmNotDiscriminant::Unsigned(u64::from(base_code)),
             )
         })?;
-        Ok(Self(value))
+        Ok(Self { value, base })
     }
 }
 
 impl From<TpmRcBase> for TpmRc {
-    fn from(value: TpmRcBase) -> Self {
-        Self(value as u32)
+    fn from(base: TpmRcBase) -> Self {
+        Self {
+            value: base as u32,
+            base,
+        }
     }
 }
 
@@ -251,7 +257,7 @@ impl Display for TpmRc {
                 write!(f, "{base}")
             }
         } else {
-            write!(f, "TPM_RC_UNKNOWN(0x{:08X})", self.0)
+            write!(f, "TPM_RC_UNKNOWN(0x{:08X})", self.value())
         }
     }
 }
