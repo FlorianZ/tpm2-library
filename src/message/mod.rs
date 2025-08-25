@@ -65,7 +65,7 @@ pub trait TpmHeaderCommand: TpmHeader {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::Boundary` if the writer runs out of space.
+    /// * `TpmErrorKind::BuildOverflow` if the writer runs out of space.
     fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
     /// Builds the parameter area of the command.
@@ -73,7 +73,7 @@ pub trait TpmHeaderCommand: TpmHeader {
     /// # Errors
     ///
     /// * `TpmErrorKind::ParseCapacity` if the object contains a value that cannot be built.
-    /// * `TpmErrorKind::Boundary` if the writer runs out of space.
+    /// * `TpmErrorKind::BuildOverflow` if the writer runs out of space.
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
