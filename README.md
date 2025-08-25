@@ -5,9 +5,12 @@ and has zero dependencies.
 
 ## Development
 
-* Commits: [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification.
+* Commits: [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+  specification.
 * New commits should include a `Signed-off-by` trailer.
 * Versioning: [Semantic Versioning](https://semver.org/).
+* Patches: for the time being tpm2@lists.linux.dev is used. The lore archive
+  is available at https://lore.kernel.org/tpm2/.
 
 ### Build System
 
