@@ -142,7 +142,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>
     }
 
     let rc = TpmRc::try_from(code)?;
-    if rc.is_error() {
+    if rc.is_error() || rc.is_warning() {
         return Ok(Err((rc, body_buf)));
     }
 
