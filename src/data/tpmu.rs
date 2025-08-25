@@ -96,7 +96,7 @@ impl TpmBuild for TpmuHa {
 
 impl TpmParseTagged for TpmuHa {
     fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let digest_size = tpm_hash_size(&tag).ok_or(TpmErrorKind::InvalidValue)? as usize;
+        let digest_size = tpm_hash_size(&tag).ok_or(TpmErrorKind::InvalidValue)?;
         if buf.len() < digest_size {
             return Err(TpmErrorKind::Boundary);
         }
@@ -206,6 +206,7 @@ impl TpmParseTagged for TpmuPublicId {
                 let (point, rest) = TpmsEccPoint::parse(buf)?;
                 Ok((Self::Ecc(point), rest))
             }
+            TpmAlgId::Null => Ok((Self::Null, buf)),
             _ => Err(TpmErrorKind::InvalidValue),
         }
     }
@@ -275,6 +276,7 @@ impl TpmParseTagged for TpmuPublicParms {
                 let (details, buf) = TpmsEccParms::parse(buf)?;
                 Ok((Self::Ecc(details), buf))
             }
+            TpmAlgId::Null => Ok((Self::Null, buf)),
             _ => Err(TpmErrorKind::InvalidValue),
         }
     }
