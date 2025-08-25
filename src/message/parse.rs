@@ -20,12 +20,12 @@ pub type TpmParseResult<'a> = Result<(TpmRc, TpmResponseBody, TpmAuthResponses),
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::Boundary` if the buffer is too small
+/// * `TpmErrorKind::ParseUnderflow` if the buffer is too small
 /// * `TpmErrorKind::NotDiscriminant` if the buffer contains an unsupported command code or unexpected byte
 /// * `TpmErrorKind::TrailingData` if the command has after spurious data left
 pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, TpmAuthCommands)> {
     if buf.len() < TPM_HEADER_SIZE {
-        return Err(TpmErrorKind::Boundary);
+        return Err(TpmErrorKind::ParseUnderflow);
     }
     let command_len = buf.len();
 
@@ -37,7 +37,7 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
     let (cc_raw, body_buf) = u32::parse(buf)?;
 
     if command_len != size as usize {
-        return Err(TpmErrorKind::Boundary);
+        return Err(TpmErrorKind::ParseUnderflow);
     }
 
     let cc = TpmCc::try_from(cc_raw).map_err(|()| {
@@ -67,7 +67,7 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
 
     let handle_area_size = dispatch.3 * size_of::<u32>();
     if body_buf.len() < handle_area_size {
-        return Err(TpmErrorKind::Boundary);
+        return Err(TpmErrorKind::ParseUnderflow);
     }
     let (handle_area, after_handles) = body_buf.split_at(handle_area_size);
 
@@ -76,14 +76,14 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
         let (auth_area_size, buf_after_auth_size) = u32::parse(after_handles)?;
         let auth_area_size = auth_area_size as usize;
         if buf_after_auth_size.len() < auth_area_size {
-            return Err(TpmErrorKind::Boundary);
+            return Err(TpmErrorKind::ParseUnderflow);
         }
         let (mut auth_area, param_area) = buf_after_auth_size.split_at(auth_area_size);
         while !auth_area.is_empty() {
             let (session, rest) = TpmsAuthCommand::parse(auth_area)?;
             sessions
                 .try_push(session)
-                .map_err(|_| TpmErrorKind::ValueTooLarge)?;
+                .map_err(|_| TpmErrorKind::ParseCapacity)?;
             auth_area = rest;
         }
         if !auth_area.is_empty() {
@@ -97,7 +97,7 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
     let mut temp_body_buf = [0u8; TPM_MAX_COMMAND_SIZE];
     let full_body_len = handle_area.len() + param_area.len();
     if full_body_len > temp_body_buf.len() {
-        return Err(TpmErrorKind::ValueTooLarge);
+        return Err(TpmErrorKind::ParseCapacity);
     }
     let full_body_for_parser = &mut temp_body_buf[..full_body_len];
     full_body_for_parser[..handle_area.len()].copy_from_slice(handle_area);
@@ -124,13 +124,13 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::Boundary` if the buffer is too small
+/// * `TpmErrorKind::ParseUnderflow` if the buffer is too small
 /// * `TpmErrorKind::InvalidTag` if the tag in the buffer does not match expected
 /// * `TpmErrorKind::NotDiscriminant` if the buffer contains an unsupported command code
 /// * `TpmErrorKind::TrailingData` if the response has after spurious data left
 pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>> {
     if buf.len() < TPM_HEADER_SIZE {
-        return Err(TpmErrorKind::Boundary);
+        return Err(TpmErrorKind::ParseUnderflow);
     }
 
     let (tag_raw, remainder) = u16::parse(buf)?;
@@ -138,7 +138,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>
     let (code, body_buf) = u32::parse(remainder)?;
 
     if buf.len() != size as usize {
-        return Err(TpmErrorKind::Boundary);
+        return Err(TpmErrorKind::ParseUnderflow);
     }
 
     let rc = TpmRc::try_from(code)?;
@@ -168,7 +168,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>
             let (session, rest) = TpmsAuthResponse::parse(session_area)?;
             auth_responses
                 .try_push(session)
-                .map_err(|_| TpmErrorKind::ValueTooLarge)?;
+                .map_err(|_| TpmErrorKind::ParseCapacity)?;
             session_area = rest;
         }
     }

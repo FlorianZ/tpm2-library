@@ -98,7 +98,7 @@ impl TpmParseTagged for TpmuHa {
     fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let digest_size = tpm_hash_size(&tag).ok_or(TpmErrorKind::InvalidValue)?;
         if buf.len() < digest_size {
-            return Err(TpmErrorKind::Boundary);
+            return Err(TpmErrorKind::ParseUnderflow);
         }
 
         let (digest_bytes, buf) = buf.split_at(digest_size);

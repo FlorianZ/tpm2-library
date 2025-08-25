@@ -750,7 +750,7 @@ fn test_tpmbuffer_try_from_slice_too_large() {
 
     assert_eq!(
         result,
-        Err(TpmErrorKind::CapacityExceeded),
+        Err(TpmErrorKind::BuildCapacity),
         "Should reject creating a TpmBuffer from a slice larger than its capacity"
     );
 }
@@ -768,7 +768,7 @@ fn test_tpm2b_build_length_too_large() {
 
     let result = build_tpm2b(&mut writer, large_slice);
 
-    assert_eq!(result, Err(TpmErrorKind::ValueTooLarge),);
+    assert_eq!(result, Err(TpmErrorKind::BuildCapacity),);
 }
 
 fn test_response_parse_policy_get_digest() {

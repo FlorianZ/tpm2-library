@@ -127,7 +127,7 @@ macro_rules! tpm_struct {
                 $($crate::TpmBuild::build(&self.$handle_field, writer)?;)*
                 if $with_sessions {
                     let params_len_u32 = u32::try_from(params_len)
-                        .map_err(|_| $crate::TpmErrorKind::ValueTooLarge)?;
+                        .map_err(|_| $crate::TpmErrorKind::BuildCapacity)?;
                     $crate::TpmBuild::build(&params_len_u32, writer)?;
                 }
                 $($crate::TpmBuild::build(&self.$param_field, writer)?;)*
@@ -148,7 +148,7 @@ macro_rules! tpm_struct {
                     let (size, buf_after_size) = u32::parse(cursor)?;
                     let size = size as usize;
                     if buf_after_size.len() < size {
-                        return Err($crate::TpmErrorKind::Boundary);
+                        return Err($crate::TpmErrorKind::ParseUnderflow);
                     }
                     let (mut params_cursor, final_tail) = buf_after_size.split_at(size);
 

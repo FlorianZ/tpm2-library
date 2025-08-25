@@ -178,7 +178,7 @@ impl TpmBuild for TpmsPcrSelection {
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.hash.build(writer)?;
         let size =
-            u8::try_from(self.pcr_select.deref().len()).map_err(|_| TpmErrorKind::ValueTooLarge)?;
+            u8::try_from(self.pcr_select.deref().len()).map_err(|_| TpmErrorKind::ParseCapacity)?;
         size.build(writer)?;
         writer.write_bytes(&self.pcr_select)
     }
@@ -191,10 +191,10 @@ impl TpmParse for TpmsPcrSelection {
         let size = size as usize;
 
         if size > TPM_PCR_SELECT_MAX {
-            return Err(TpmErrorKind::ValueTooLarge);
+            return Err(TpmErrorKind::ParseCapacity);
         }
         if buf.len() < size {
-            return Err(TpmErrorKind::Boundary);
+            return Err(TpmErrorKind::ParseUnderflow);
         }
 
         let (pcr_bytes, buf) = buf.split_at(size);

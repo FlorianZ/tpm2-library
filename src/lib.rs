@@ -75,10 +75,10 @@ impl fmt::LowerHex for TpmNotDiscriminant {
 pub enum TpmErrorKind {
     /// A command requires an authorization session but none was provided
     AuthMissing,
-    /// Insufficient amount of bytes available
-    Boundary,
-    /// An operation would exceed the fixed capacity of a container
-    CapacityExceeded,
+    /// A protocol defined limit exceed
+    BuildCapacity,
+    /// Not enough space for writing
+    BuildOverflow,
     /// An unresolvable internal error
     Unreachable,
     /// Invalid magic number for the data
@@ -93,25 +93,22 @@ pub enum TpmErrorKind {
     InvalidValue,
     /// Not a valid discriminant for the target enum
     NotDiscriminant(&'static str, TpmNotDiscriminant),
+    /// A read count from buffer exceeds the protocol defined limit
+    ParseCapacity,
+    /// Not enough space for reading
+    ParseUnderflow,
     /// Trailing data after parsing
     TrailingData,
-    /// A size or count in the buffer is larger than the maximum allowed value
-    ValueTooLarge,
 }
 
 impl fmt::Display for TpmErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Boundary => write!(f, "Insufficient data in buffer"),
-            Self::TrailingData => write!(f, "Buffer has unexpected trailing data after parsing"),
-            Self::NotDiscriminant(type_name, value) => {
-                write!(f, "Invalid discriminant 0x{value:x} for type '{type_name}'")
-            }
+            Self::AuthMissing => write!(f, "auth value missing"),
+            Self::BuildCapacity => write!(f, "build capacity limit exceeded"),
+            Self::BuildOverflow => write!(f, "build buffer overflow"),
             Self::InvalidMagic { expected, got } => {
-                write!(
-                    f,
-                    "Invalid magic number: expected 0x{expected:x}, got 0x{got:x}"
-                )
+                write!(f, "invalid magic: expected 0x{expected:x}, got 0x{got:x}")
             }
             Self::InvalidTag {
                 type_name,
@@ -120,19 +117,19 @@ impl fmt::Display for TpmErrorKind {
             } => {
                 write!(
                     f,
-                    "Invalid tag for {type_name}: expected 0x{expected:x}, got 0x{got:x}"
+                    "invalid tag for {type_name}: expected 0x{expected:x}, got 0x{got:x}"
                 )
             }
-            Self::InvalidValue => write!(f, "A value is invalid or out of the expected range"),
-            Self::ValueTooLarge => {
-                write!(
-                    f,
-                    "A size or count is larger than the maximum allowed value"
-                )
+            Self::InvalidValue => write!(f, "invalid value"),
+            Self::NotDiscriminant(type_name, value) => {
+                write!(f, "unknown discriminant for '{type_name}': 0x{value:x} ")
             }
-            Self::CapacityExceeded => write!(f, "An operation would exceed a container's capacity"),
-            Self::AuthMissing => write!(f, "Command requires authorization but none was provided"),
-            Self::Unreachable => write!(f, "An unexpected internal error occurred"),
+            Self::ParseCapacity => {
+                write!(f, "parse capacity limit exceeded")
+            }
+            Self::ParseUnderflow => write!(f, "parse buffer underflow"),
+            Self::TrailingData => write!(f, "trailing data"),
+            Self::Unreachable => write!(f, "unreachable code path"),
         }
     }
 }
@@ -174,12 +171,12 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `TpmErrorKind::Boundary` if the writer does not have enough
+    /// Returns `TpmErrorKind::BuildOverflow` if the writer does not have enough
     /// capacity to hold the new bytes.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmErrorKind::Boundary);
+            return Err(TpmErrorKind::BuildOverflow);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
@@ -208,8 +205,8 @@ pub trait TpmBuild: TpmSized {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::ValueTooLarge` if the object contains a value that cannot be built.
-    /// * `TpmErrorKind::Boundary` if the writer runs out of space.
+    /// * `TpmErrorKind::ParseCapacity` if the object contains a value that cannot be built.
+    /// * `TpmErrorKind::BuildOverflow` if the writer runs out of space.
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
@@ -220,7 +217,7 @@ pub trait TpmParse: Sized + TpmSized {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::Boundary` if the buffer is too small to contain the object.
+    /// * `TpmErrorKind::ParseUnderflow` if the buffer is too small to contain the object.
     /// * `TpmErrorKind::NotDiscriminant` if a value in the buffer is invalid for the target type.
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
@@ -240,7 +237,7 @@ pub trait TpmParseTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmParse` implementation,
-    /// such as a `TpmErrorKind::Boundary` if the buffer is too small or an
+    /// such as a `TpmErrorKind::ParseUnderflow` if the buffer is too small or an
     /// `TpmErrorKind::InvalidValue` if the data is malformed.
     fn parse_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where
@@ -263,7 +260,7 @@ impl TpmBuild for u8 {
 
 impl TpmParse for u8 {
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (val, buf) = buf.split_first().ok_or(TpmErrorKind::Boundary)?;
+        let (val, buf) = buf.split_first().ok_or(TpmErrorKind::ParseUnderflow)?;
         Ok((*val, buf))
     }
 }
@@ -284,9 +281,9 @@ tpm_integer!(u64, Unsigned);
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::ValueTooLarge` if the data slice is too large to fit in a `u16` length.
+/// * `TpmErrorKind::ParseCapacity` if the data slice is too large to fit in a `u16` length.
 pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
-    let len_u16 = u16::try_from(data.len()).map_err(|_| TpmErrorKind::ValueTooLarge)?;
+    let len_u16 = u16::try_from(data.len()).map_err(|_| TpmErrorKind::BuildCapacity)?;
     TpmBuild::build(&len_u16, writer)?;
     writer.write_bytes(data)
 }
@@ -295,18 +292,18 @@ pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::Boundary` if the buffer is too small.
-/// * `TpmErrorKind::ValueTooLarge` if the size prefix exceeds `TPM_MAX_COMMAND_SIZE`.
+/// * `TpmErrorKind::ParseUnderflow` if the buffer is too small.
+/// * `TpmErrorKind::ParseCapacity` if the size prefix exceeds `TPM_MAX_COMMAND_SIZE`.
 pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
     let (size, buf) = u16::parse(buf)?;
     let size = size as usize;
 
     if size > TPM_MAX_COMMAND_SIZE {
-        return Err(TpmErrorKind::ValueTooLarge);
+        return Err(TpmErrorKind::ParseCapacity);
     }
 
     if buf.len() < size {
-        return Err(TpmErrorKind::Boundary);
+        return Err(TpmErrorKind::ParseUnderflow);
     }
     Ok(buf.split_at(size))
 }
