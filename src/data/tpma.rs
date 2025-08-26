@@ -18,6 +18,20 @@ tpm_bitflags! {
 }
 
 tpm_bitflags! {
+    /// `TPMA_CC` (Table 37)
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct TpmaCc(u32) {
+        const COMMAND_INDEX = 0x0000_FFFF, "COMMAND_INDEX";
+        const NV = 0x0040_0000, "NV";
+        const EXTENSIVE = 0x0080_0000, "EXTENSIVE";
+        const FLUSHED = 0x0100_0000, "FLUSHED";
+        const C_HANDLES = 0x0E00_0000, "C_HANDLES";
+        const R_HANDLE = 0x1000_0000, "R_HANDLE";
+        const V = 0x2000_0000, "V";
+    }
+}
+
+tpm_bitflags! {
     /// `TPMA_LOCALITY` (Table 41)
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct TpmaLocality(u8) {

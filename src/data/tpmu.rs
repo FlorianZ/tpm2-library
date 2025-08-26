@@ -5,11 +5,12 @@
 use crate::{
     data::{
         Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
-        TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlHandle, TpmlPcrSelection, TpmsCertifyInfo,
-        TpmsCommandAuditInfo, TpmsCreationInfo, TpmsEccParms, TpmsEccPoint, TpmsKeyedhashParms,
-        TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo, TpmsNvPublic, TpmsNvPublicExpAttr,
-        TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor, TpmsSessionAuditInfo,
-        TpmsSignatureEcc, TpmsSignatureRsa, TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
+        TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlCca, TpmlHandle, TpmlPcrSelection,
+        TpmsCertifyInfo, TpmsCommandAuditInfo, TpmsCreationInfo, TpmsEccParms, TpmsEccPoint,
+        TpmsKeyedhashParms, TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo, TpmsNvPublic,
+        TpmsNvPublicExpAttr, TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor,
+        TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa, TpmsSymcipherParms,
+        TpmsTimeAttestInfo, TpmtHa,
     },
     tpm_hash_size, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult, TpmSized,
     TpmTagged, TpmWriter, TPM_MAX_COMMAND_SIZE,
@@ -22,10 +23,12 @@ fn slice_to_fixed_array<const N: usize>(slice: &[u8]) -> TpmResult<[u8; N]> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum TpmuCapabilities {
     Algs(TpmlAlgProperty),
     Handles(TpmlHandle),
     Pcrs(TpmlPcrSelection),
+    Commands(TpmlCca),
 }
 
 impl TpmTagged for TpmuCapabilities {
@@ -40,6 +43,7 @@ impl TpmSized for TpmuCapabilities {
             Self::Algs(algs) => algs.len(),
             Self::Handles(handles) => handles.len(),
             Self::Pcrs(pcrs) => pcrs.len(),
+            Self::Commands(cmds) => cmds.len(),
         }
     }
 }
@@ -50,6 +54,7 @@ impl TpmBuild for TpmuCapabilities {
             Self::Algs(algs) => algs.build(writer),
             Self::Handles(handles) => handles.build(writer),
             Self::Pcrs(pcrs) => pcrs.build(writer),
+            Self::Commands(cmds) => cmds.build(writer),
         }
     }
 }
@@ -69,7 +74,10 @@ impl TpmParseTagged for TpmuCapabilities {
                 let (pcrs, buf) = TpmlPcrSelection::parse(buf)?;
                 Ok((Self::Pcrs(pcrs), buf))
             }
-            TpmCap::Commands => Err(TpmErrorKind::InvalidValue),
+            TpmCap::Commands => {
+                let (cmds, buf) = TpmlCca::parse(buf)?;
+                Ok((Self::Commands(cmds), buf))
+            }
         }
     }
 }

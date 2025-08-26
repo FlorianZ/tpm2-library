@@ -103,6 +103,7 @@ tpml!(TpmlAcCapabilities, TpmsAcOutput, 64);
 tpml!(TpmlAlgProperty, TpmsAlgProperty, 64);
 tpml!(TpmlAlg, TpmAlgId, 64);
 tpml!(TpmlCc, TpmCc, 256);
+tpml!(TpmlCca, TpmaCc, 256);
 tpml!(TpmlDigest, Tpm2bDigest, 8);
 tpml!(TpmlDigestValues, TpmtHa, 8);
 tpml!(TpmlHandle, u32, 128);
