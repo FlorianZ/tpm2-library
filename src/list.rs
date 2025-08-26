@@ -20,17 +20,10 @@ pub struct TpmList<T: Copy, const CAPACITY: usize> {
 
 impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     /// Creates a new, empty `TpmList`.
-    ///
-    /// # Safety
-    ///
-    /// This function uses `unsafe` to create an uninitialized array of
-    /// `MaybeUninit<T>`. This is a standard and safe pattern as `MaybeUninit`
-    /// does not require its contents to be valid.
-    #[allow(unsafe_code)]
     #[must_use]
     pub fn new() -> Self {
         Self {
-            items: unsafe { MaybeUninit::uninit().assume_init() },
+            items: [const { MaybeUninit::uninit() }; CAPACITY],
             len: 0,
         }
     }
