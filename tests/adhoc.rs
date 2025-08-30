@@ -105,7 +105,7 @@ fn test_tpm_rc_base_from_raw() {
 
     for (description, raw_rc, expected_base) in cases {
         let rc = TpmRc::try_from(raw_rc).unwrap();
-        assert_eq!(rc.base(), Ok(expected_base), "{description}");
+        assert_eq!(rc.base(), expected_base, "{description}");
     }
 }
 

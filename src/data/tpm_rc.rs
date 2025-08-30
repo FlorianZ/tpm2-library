@@ -165,12 +165,9 @@ pub struct TpmRc {
 impl TpmRc {
     /// Returns the base error code, with handle, parameter, or session index
     /// stripped out.
-    ///
-    /// # Errors
-    ///
-    /// This method returns a `Result` in order to retain API compatibility.
-    pub fn base(self) -> Result<TpmRcBase, TpmErrorKind> {
-        Ok(self.base)
+    #[must_use]
+    pub fn base(self) -> TpmRcBase {
+        self.base
     }
 
     #[must_use]
@@ -250,14 +247,11 @@ impl From<TpmRcBase> for TpmRc {
 
 impl Display for TpmRc {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if let Ok(base) = self.base() {
-            if let Some(index) = self.index() {
-                write!(f, "[{base}, {index}]")
-            } else {
-                write!(f, "{base}")
-            }
+        let base = self.base();
+        if let Some(index) = self.index() {
+            write!(f, "[{base}, {index}]")
         } else {
-            write!(f, "TPM_RC_UNKNOWN(0x{:08X})", self.value())
+            write!(f, "{base}")
         }
     }
 }
