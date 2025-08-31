@@ -245,32 +245,7 @@ pub trait TpmParseTagged: Sized {
         <Self as TpmTagged>::Tag: TpmParse + TpmBuild;
 }
 
-impl TpmSized for u8 {
-    const SIZE: usize = 1;
-    fn len(&self) -> usize {
-        1
-    }
-}
-
-impl TpmBuild for u8 {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        writer.write_bytes(&[*self])
-    }
-}
-
-impl TpmParse for u8 {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (val, buf) = buf.split_first().ok_or(TpmErrorKind::ParseUnderflow)?;
-        Ok((*val, buf))
-    }
-}
-
-impl From<u8> for TpmNotDiscriminant {
-    fn from(value: u8) -> Self {
-        Self::Unsigned(value.into())
-    }
-}
-
+tpm_integer!(u8, Unsigned);
 tpm_integer!(i8, Signed);
 tpm_integer!(i32, Signed);
 tpm_integer!(u16, Unsigned);
