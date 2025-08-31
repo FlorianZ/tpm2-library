@@ -172,6 +172,7 @@ macro_rules! tpm_dispatch {
         }
 
         /// A TPM command
+        #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
         pub enum TpmCommandBody {
             $( $variant($cmd), )*

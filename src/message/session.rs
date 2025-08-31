@@ -5,7 +5,7 @@
 //! 11.2 `TPM2_PolicyRestart`
 
 use crate::{
-    data::{Tpm2b, Tpm2bNonce, TpmAlgId, TpmCc, TpmSe, TpmtSymDefObject},
+    data::{Tpm2bEncryptedSecret, Tpm2bNonce, TpmAlgId, TpmCc, TpmSe, TpmtSymDefObject},
     tpm_struct, TpmSession,
 };
 use core::fmt::Debug;
@@ -23,7 +23,7 @@ tpm_struct! {
     },
     parameters: {
         pub nonce_caller: Tpm2bNonce,
-        pub encrypted_salt: Tpm2b,
+        pub encrypted_salt: Tpm2bEncryptedSecret,
         pub session_type: TpmSe,
         pub symmetric: TpmtSymDefObject,
         pub auth_hash: TpmAlgId,
