@@ -150,7 +150,10 @@ macro_rules! tpm_dispatch {
                     <$value as $crate::message::TpmHeader>::NO_SESSIONS,
                     <$value as $crate::message::TpmHeader>::WITH_SESSIONS,
                     <$value as $crate::message::TpmHeader>::HANDLES,
-                    |buf| <$value>::parse(buf).map(|(c, r)| (TpmCommandBody::$name(c), r)),
+                    |handles, params| {
+                        <$value as $crate::message::TpmCommandBodyParse>::parse_body(handles, params)
+                            .map(|(c, r)| (TpmCommandBody::$name(c), r))
+                    },
                 )
             };
         }
@@ -199,7 +202,7 @@ macro_rules! tpm_dispatch {
             )*
         }
 
-        pub type TpmCommandParser = for<'a> fn(&'a [u8]) -> $crate::TpmResult<(TpmCommandBody, &'a [u8])>;
+        pub type TpmCommandParser = for<'a> fn(&'a [u8], &'a [u8]) -> $crate::TpmResult<(TpmCommandBody, &'a [u8])>;
         pub type TpmResponseParser = for<'a> fn(&'a [u8]) -> $crate::TpmResult<(TpmResponseBody, &'a [u8])>;
 
         pub(crate) static PARSE_COMMAND_MAP: &[($crate::data::TpmCc, bool, bool, usize, TpmCommandParser)] =

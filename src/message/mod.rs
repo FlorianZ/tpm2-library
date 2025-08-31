@@ -52,7 +52,7 @@ pub type TpmAuthCommands = TpmList<data::TpmsAuthCommand, MAX_SESSIONS>;
 /// A fixed-capacity list for response authorization sessions.
 pub type TpmAuthResponses = TpmList<data::TpmsAuthResponse, MAX_SESSIONS>;
 /// A trait for TPM commands and responses that provides header information.
-pub trait TpmHeader: TpmBuild + TpmParse + Debug {
+pub trait TpmHeader: TpmBuild + Debug {
     const COMMAND: data::TpmCc;
     const NO_SESSIONS: bool;
     const WITH_SESSIONS: bool;
@@ -75,6 +75,18 @@ pub trait TpmHeaderCommand: TpmHeader {
     /// * `TpmErrorKind::ParseCapacity` if the object contains a value that cannot be built.
     /// * `TpmErrorKind::BuildOverflow` if the writer runs out of space.
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
+}
+
+/// Parses a command body from the slices point out to the handle area and
+/// parameter area of the original buffer.
+pub(crate) trait TpmCommandBodyParse: Sized {
+    /// Parses the command body from the handle and parameter area.
+    ///
+    /// # Errors
+    ///
+    /// * `TpmErrorKind::ParseCapacity` if the capacity limit is exceeded
+    /// * `TpmErrorKind::ParseUnderflow` if the parser runs out of bytes
+    fn parse_body<'a>(handles: &'a [u8], params: &'a [u8]) -> TpmResult<(Self, &'a [u8])>;
 }
 
 pub const TPM_HEADER_SIZE: usize = 10;

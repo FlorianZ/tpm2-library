@@ -55,18 +55,28 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::TpmParse for $name {
+        impl $crate::message::TpmCommandBodyParse for $name {
             #[allow(unused_mut)]
-            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let mut cursor = buf;
+            fn parse_body<'a>(
+                handles: &'a [u8],
+                params: &'a [u8],
+            ) -> $crate::TpmResult<(Self, &'a [u8])> {
+                let mut cursor = handles;
                 $(
-                    let ($handle_field, tail) = <$handle_type>::parse(cursor)?;
+                    let ($handle_field, tail) = <$handle_type as $crate::TpmParse>::parse(cursor)?;
                     cursor = tail;
                 )*
+
+                if !cursor.is_empty() {
+                    return Err($crate::TpmErrorKind::TrailingData);
+                }
+
+                let mut cursor = params;
                 $(
-                    let ($param_field, tail) = <$param_type>::parse(cursor)?;
+                    let ($param_field, tail) = <$param_type as $crate::TpmParse>::parse(cursor)?;
                     cursor = tail;
                 )*
+
                 Ok((
                     Self {
                         $($handle_field,)*

@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     data::{TpmCc, TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    TpmErrorKind, TpmNotDiscriminant, TpmParse, TpmResult, TPM_MAX_COMMAND_SIZE,
+    TpmErrorKind, TpmNotDiscriminant, TpmParse, TpmResult,
 };
 use core::{convert::TryFrom, mem::size_of};
 
@@ -94,18 +94,9 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
         after_handles
     };
 
-    let mut temp_body_buf = [0u8; TPM_MAX_COMMAND_SIZE];
-    let full_body_len = handle_area.len() + param_area.len();
-    if full_body_len > temp_body_buf.len() {
-        return Err(TpmErrorKind::ParseCapacity);
-    }
-    let full_body_for_parser = &mut temp_body_buf[..full_body_len];
-    full_body_for_parser[..handle_area.len()].copy_from_slice(handle_area);
-    full_body_for_parser[handle_area.len()..].copy_from_slice(param_area);
+    let (command_data, param_remainder) = (dispatch.4)(handle_area, param_area)?;
 
-    let (command_data, remainder) = (dispatch.4)(full_body_for_parser)?;
-
-    if !remainder.is_empty() {
+    if !param_remainder.is_empty() {
         return Err(TpmErrorKind::TrailingData);
     }
 
