@@ -60,7 +60,7 @@ pub trait TpmHeader: TpmBuild + Debug {
 }
 
 /// A trait for building command bodies in separate handle and parameter sections.
-pub trait TpmHeaderCommand: TpmHeader {
+pub trait TpmCommandBuild {
     /// Builds the handle area of the command.
     ///
     /// # Errors

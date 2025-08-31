@@ -4,7 +4,7 @@
 
 use crate::{
     data::{TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    message::{TpmHeader, TpmHeaderCommand, TPM_HEADER_SIZE},
+    message::{TpmCommandBuild, TpmHeader, TPM_HEADER_SIZE},
     TpmBuild, TpmErrorKind, TpmResult, TpmSized,
 };
 use core::mem::size_of;
@@ -21,7 +21,7 @@ pub fn tpm_build_command<C>(
     writer: &mut crate::TpmWriter,
 ) -> TpmResult<()>
 where
-    C: TpmHeaderCommand,
+    C: TpmHeader + TpmCommandBuild,
 {
     match tag {
         TpmSt::NoSessions => {
