@@ -84,6 +84,7 @@ impl TpmParseTagged for TpmuCapabilities {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuHa {
+    Null,
     Sha1([u8; 20]),
     Sha256([u8; 32]),
     Sha384([u8; 48]),
@@ -98,12 +99,19 @@ impl TpmTagged for TpmuHa {
 
 impl TpmBuild for TpmuHa {
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        writer.write_bytes(self)
+        match self {
+            Self::Null => Ok(()),
+            _ => writer.write_bytes(self),
+        }
     }
 }
 
 impl TpmParseTagged for TpmuHa {
     fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        if tag == TpmAlgId::Null {
+            return Ok((Self::Null, buf));
+        }
+
         let digest_size = tpm_hash_size(&tag).ok_or(TpmErrorKind::InvalidValue)?;
         if buf.len() < digest_size {
             return Err(TpmErrorKind::ParseUnderflow);
@@ -126,7 +134,7 @@ impl TpmParseTagged for TpmuHa {
 
 impl Default for TpmuHa {
     fn default() -> Self {
-        Self::Sha256([0; 32])
+        Self::Null
     }
 }
 
@@ -134,6 +142,7 @@ impl TpmSized for TpmuHa {
     const SIZE: usize = 64;
     fn len(&self) -> usize {
         match self {
+            Self::Null => 0,
             Self::Sha1(d) => d.len(),
             Self::Sha256(d) | Self::Sm3_256(d) => d.len(),
             Self::Sha384(d) => d.len(),
@@ -147,6 +156,7 @@ impl Deref for TpmuHa {
 
     fn deref(&self) -> &Self::Target {
         match self {
+            Self::Null => &[],
             Self::Sha1(d) => d,
             Self::Sha256(d) | Self::Sm3_256(d) => d,
             Self::Sha384(d) => d,
