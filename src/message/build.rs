@@ -13,7 +13,7 @@ use core::mem::size_of;
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::ParseCapacity` if the command has unknown state
+/// * `TpmErrorKind::BuildCapacity` if the command has unknown state
 pub fn tpm_build_command<C>(
     command: &C,
     tag: TpmSt,
@@ -58,7 +58,7 @@ where
 
     let total_body_len = handle_area_size + auth_area_size + param_area_size;
     let command_size =
-        u32::try_from(TPM_HEADER_SIZE + total_body_len).map_err(|_| TpmErrorKind::ParseCapacity)?;
+        u32::try_from(TPM_HEADER_SIZE + total_body_len).map_err(|_| TpmErrorKind::BuildCapacity)?;
 
     (tag as u16).build(writer)?;
     command_size.build(writer)?;
@@ -68,7 +68,7 @@ where
 
     if tag == TpmSt::Sessions {
         let sessions_len_u32 = u32::try_from(auth_area_size - size_of::<u32>())
-            .map_err(|_| TpmErrorKind::ParseCapacity)?;
+            .map_err(|_| TpmErrorKind::BuildCapacity)?;
         sessions_len_u32.build(writer)?;
         for s in sessions {
             s.build(writer)?;
@@ -82,7 +82,7 @@ where
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::ParseCapacity` if the response has unknown state
+/// * `TpmErrorKind::BuildCapacity` if the response has unknown state
 pub fn tpm_build_response<R>(
     response: &R,
     sessions: &[TpmsAuthResponse],
@@ -109,7 +109,7 @@ where
     let sessions_len: usize = sessions.iter().map(TpmSized::len).sum();
     let total_body_len = body_len + sessions_len;
     let response_size =
-        u32::try_from(TPM_HEADER_SIZE + total_body_len).map_err(|_| TpmErrorKind::ParseCapacity)?;
+        u32::try_from(TPM_HEADER_SIZE + total_body_len).map_err(|_| TpmErrorKind::BuildCapacity)?;
 
     (tag as u16).build(writer)?;
     response_size.build(writer)?;

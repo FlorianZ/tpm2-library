@@ -75,9 +75,9 @@ impl fmt::LowerHex for TpmNotDiscriminant {
 pub enum TpmErrorKind {
     /// A command requires an authorization session but none was provided
     AuthMissing,
-    /// A protocol defined limit exceed
+    /// A built value would exceed a capacity limit
     BuildCapacity,
-    /// Not enough space for writing
+    /// A writer would run out of space
     BuildOverflow,
     /// An unresolvable internal error
     Unreachable,
@@ -93,9 +93,9 @@ pub enum TpmErrorKind {
     InvalidValue,
     /// Not a valid discriminant for the target enum
     NotDiscriminant(&'static str, TpmNotDiscriminant),
-    /// A read count from buffer exceeds the protocol defined limit
+    /// A value would exceed a capacity limit
     ParseCapacity,
-    /// Not enough space for reading
+    /// Not enough bytes to parse the full data structure.
     ParseUnderflow,
     /// Trailing data after parsing
     TrailingData,
@@ -205,7 +205,7 @@ pub trait TpmBuild: TpmSized {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::ParseCapacity` if the object contains a value that cannot be built.
+    /// * `TpmErrorKind::BuildCapacity` if the object contains a value that cannot be built.
     /// * `TpmErrorKind::BuildOverflow` if the writer runs out of space.
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }

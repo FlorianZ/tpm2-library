@@ -17,8 +17,8 @@ use tpm2_protocol::{
         TpmCc, TpmRc, TpmRcBase, TpmRcIndex, TpmRh, TpmSe, TpmSt, TpmaObject, TpmaSession,
         TpmlDigest, TpmlDigestValues, TpmlPcrSelection, TpmsAuthCommand, TpmsAuthResponse,
         TpmsClockInfo, TpmsPcrSelect, TpmsPcrSelection, TpmsRsaParms, TpmsSensitiveCreate, TpmtHa,
-        TpmtPublic, TpmtScheme, TpmtSymDef, TpmtSymDefObject, TpmuHa, TpmuPublicId, TpmuPublicParms,
-        TpmuSymKeyBits, TpmuSymMode,
+        TpmtPublic, TpmtScheme, TpmtSymDef, TpmtSymDefObject, TpmuHa, TpmuPublicId,
+        TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
     },
     message::{
         tpm_build_command, tpm_build_response, tpm_parse_command, tpm_parse_response,
@@ -157,7 +157,6 @@ fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
 fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
-
 
 fn test_command_build_create_primary() {
     let cmd = TpmCreatePrimaryCommand {

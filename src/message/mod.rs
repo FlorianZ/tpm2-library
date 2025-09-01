@@ -65,15 +65,15 @@ pub trait TpmCommandBuild {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::BuildOverflow` if the writer runs out of space.
+    /// * `TpmErrorKind::BuildOverflow` if writer would run out of space.
     fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
     /// Builds the parameter area of the command.
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::ParseCapacity` if the object contains a value that cannot be built.
-    /// * `TpmErrorKind::BuildOverflow` if the writer runs out of space.
+    /// * `TpmErrorKind::BuildCapacity` if the object contains a value exceeding capacity limit.
+    /// * `TpmErrorKind::BuildOverflow` if writer would run out of space.
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
