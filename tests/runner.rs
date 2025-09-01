@@ -721,6 +721,70 @@ fn test_response_build_error() {
     );
 }
 
+fn test_response_build_warning() {
+    let resp = TpmFlushContextResponse::default();
+    let rc = TpmRc::try_from(TpmRcBase::ContextGap as u32).unwrap();
+
+    let generated_bytes = {
+        let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            tpm_build_response(&resp, &[], rc, &mut writer).unwrap();
+            writer.len()
+        };
+        buf[..len].to_vec()
+    };
+
+    assert_eq!(
+        generated_bytes.len(),
+        10,
+        "A warning response should only be 10 bytes long."
+    );
+
+    let (tag, _) = u16::parse(&generated_bytes).unwrap();
+    assert_eq!(
+        tag,
+        TpmSt::NoSessions as u16,
+        "A warning response must have a NO_SESSIONS tag."
+    );
+}
+
+fn test_response_build_warning_with_sessions() {
+    let resp = TpmStartAuthSessionResponse::default();
+    let rc = TpmRc::try_from(TpmRcBase::ContextGap as u32).unwrap();
+    let mut sessions = TpmAuthResponses::new();
+    sessions
+        .try_push(TpmsAuthResponse {
+            nonce: Tpm2bNonce::default(),
+            session_attributes: TpmaSession::default(),
+            hmac: Tpm2bAuth::default(),
+        })
+        .unwrap();
+
+    let generated_bytes = {
+        let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            tpm_build_response(&resp, &sessions, rc, &mut writer).unwrap();
+            writer.len()
+        };
+        buf[..len].to_vec()
+    };
+
+    assert_eq!(
+        generated_bytes.len(),
+        10,
+        "A warning response with sessions should only be 10 bytes long."
+    );
+
+    let (tag, _) = u16::parse(&generated_bytes).unwrap();
+    assert_eq!(
+        tag,
+        TpmSt::NoSessions as u16,
+        "A warning response with sessions must have a NO_SESSIONS tag."
+    );
+}
+
 fn test_response_build_pcr_read() {
     let mut pcr_values = TpmlDigest::new();
     pcr_values
@@ -1085,6 +1149,8 @@ test_suite!(
     test_macro_response_parse_correctness,
     test_macro_response_parse_remainder,
     test_response_build_error,
+    test_response_build_warning,
+    test_response_build_warning_with_sessions,
     test_response_build_pcr_read,
     test_response_parse_pcr_event,
     test_response_parse_policy_get_digest,

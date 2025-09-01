@@ -98,7 +98,7 @@ where
         TpmSt::NoSessions
     };
 
-    if rc.is_error() {
+    if rc.is_error() || rc.is_warning() {
         (TpmSt::NoSessions as u16).build(writer)?;
         u32::try_from(TPM_HEADER_SIZE)?.build(writer)?;
         rc.value().build(writer)?;
