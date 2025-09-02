@@ -26,7 +26,7 @@ use tpm2_protocol::{
         TpmCreatePrimaryCommand, TpmEvictControlCommand, TpmFlushContextCommand,
         TpmFlushContextResponse, TpmGetCapabilityCommand, TpmHashCommand, TpmNvWriteCommand,
         TpmPcrEventResponse, TpmPcrReadCommand, TpmPcrReadResponse, TpmPolicyGetDigestResponse,
-        TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
+        TpmResponseBody, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
     TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmPersistent, TpmSession, TpmSized, TpmWriter,
     TPM_MAX_COMMAND_SIZE,
@@ -947,6 +947,26 @@ fn test_response_start_auth_session_no_sessions() {
     assert_eq!(resp, original_resp);
 }
 
+fn test_response_start_auth_session_no_sessions_2() {
+    let response_hex = "8001000000300000000002000000002000647915de6106c955b26456b8b8a3b10546fa446405d4eb2e1fb0247fb52080";
+    let response_bytes = hex_to_bytes(response_hex).unwrap();
+    let (rc, body, sessions) = tpm_parse_response(TpmCc::StartAuthSession, &response_bytes)
+        .unwrap()
+        .unwrap();
+    let mut built_bytes = [0; TPM_MAX_COMMAND_SIZE];
+    let len = {
+        let mut writer = TpmWriter::new(&mut built_bytes);
+        match body {
+            TpmResponseBody::StartAuthSession(ref resp_struct) => {
+                tpm_build_response(resp_struct, &sessions, rc, &mut writer).unwrap();
+            }
+            _ => panic!("Parsed the wrong response type!"),
+        }
+        writer.len()
+    };
+    assert_eq!(&built_bytes[..len], &response_bytes);
+}
+
 fn test_tpm2b_build_length_too_large() {
     let large_slice: &[u8] = unsafe {
         std::slice::from_raw_parts(
@@ -1156,6 +1176,7 @@ test_suite!(
     test_response_parse_policy_get_digest,
     test_response_start_auth_session,
     test_response_start_auth_session_no_sessions,
+    test_response_start_auth_session_no_sessions_2,
     test_tpm2b_build_length_too_large,
     test_tpmbuffer_try_from_slice_too_large,
     test_tpm_rc_base_from_raw,
