@@ -68,6 +68,7 @@ tpm_enum! {
         (Handles, 0x0000_0001, "TPM_CAP_HANDLES"),
         (Commands, 0x0000_0002, "TPM_CAP_COMMANDS"),
         (Pcrs, 0x0000_0005, "TPM_CAP_PCRS"),
+        (EccCurves, 0x0000_0006, "TPM_CAP_ECC_CURVES"),
     }
 }
 
@@ -218,7 +219,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
+    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
     pub enum TpmEo(u16) {
         #[default]
         (Eq, 0x0000, "TPM_EO_EQ"),
