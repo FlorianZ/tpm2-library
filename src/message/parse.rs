@@ -151,7 +151,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>
             )
         })?;
 
-    let (body, mut session_area) = (dispatch.2)(body_buf)?;
+    let (body, mut session_area) = (dispatch.2)(tag, body_buf)?;
 
     let mut auth_responses = TpmAuthResponses::new();
     if tag == TpmSt::Sessions {

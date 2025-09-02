@@ -4,7 +4,7 @@
 
 use crate::{
     data::{TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    message::{TpmCommandBuild, TpmHeader, TPM_HEADER_SIZE},
+    message::{TpmCommandBuild, TpmHeader, TpmResponseBuild, TPM_HEADER_SIZE},
     TpmBuild, TpmErrorKind, TpmResult, TpmSized,
 };
 use core::mem::size_of;
@@ -90,7 +90,7 @@ pub fn tpm_build_response<R>(
     writer: &mut crate::TpmWriter,
 ) -> TpmResult<()>
 where
-    R: TpmHeader,
+    R: TpmHeader + TpmResponseBuild,
 {
     let tag = if !rc.is_error() && R::WITH_SESSIONS && !sessions.is_empty() {
         TpmSt::Sessions
@@ -105,9 +105,18 @@ where
         return Ok(());
     }
 
-    let body_len = response.len();
+    let handle_area_size = R::HANDLES * size_of::<u32>();
+    let param_area_size = response.len() - handle_area_size;
     let sessions_len: usize = sessions.iter().map(TpmSized::len).sum();
-    let total_body_len = body_len + sessions_len;
+
+    let parameter_area_size_field_len = if tag == TpmSt::Sessions {
+        size_of::<u32>()
+    } else {
+        0
+    };
+
+    let total_body_len =
+        handle_area_size + parameter_area_size_field_len + param_area_size + sessions_len;
     let response_size =
         u32::try_from(TPM_HEADER_SIZE + total_body_len).map_err(|_| TpmErrorKind::BuildCapacity)?;
 
@@ -115,7 +124,15 @@ where
     response_size.build(writer)?;
     rc.value().build(writer)?;
 
-    response.build(writer)?;
+    response.build_handles(writer)?;
+
+    if tag == TpmSt::Sessions {
+        let params_len_u32 =
+            u32::try_from(param_area_size).map_err(|_| TpmErrorKind::BuildCapacity)?;
+        params_len_u32.build(writer)?;
+    }
+
+    response.build_parameters(writer)?;
 
     if tag == TpmSt::Sessions {
         for s in sessions {

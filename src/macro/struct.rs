@@ -117,45 +117,47 @@ macro_rules! tpm_struct {
             $(pub $param_field: $param_type,)*
         }
 
-        impl $crate::TpmSized for $name {
-            const SIZE: usize = 0 $(+ <$handle_type>::SIZE)* $(+ <$param_type>::SIZE)*;
-            fn len(&self) -> usize {
-                let params_len: usize = 0 $(+ $crate::TpmSized::len(&self.$param_field))*;
-                let handles_len: usize = 0 $(+ $crate::TpmSized::len(&self.$handle_field))*;
-                let parameter_area_size_field_len: usize = if $with_sessions {
-                    core::mem::size_of::<u32>()
-                } else {
-                    0
-                };
-                handles_len + parameter_area_size_field_len + params_len
-            }
-        }
-
-        impl $crate::TpmBuild for $name {
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                let params_len: usize = 0 $(+ $crate::TpmSized::len(&self.$param_field))*;
+        impl $crate::message::TpmResponseBuild for $name {
+            #[allow(unused_variables)]
+            fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $($crate::TpmBuild::build(&self.$handle_field, writer)?;)*
-                if $with_sessions {
-                    let params_len_u32 = u32::try_from(params_len)
-                        .map_err(|_| $crate::TpmErrorKind::BuildCapacity)?;
-                    $crate::TpmBuild::build(&params_len_u32, writer)?;
-                }
+                Ok(())
+            }
+            #[allow(unused_variables)]
+            fn build_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $($crate::TpmBuild::build(&self.$param_field, writer)?;)*
                 Ok(())
             }
         }
 
-        impl $crate::TpmParse for $name {
+        impl $crate::TpmSized for $name {
+            const SIZE: usize = 0 $(+ <$handle_type>::SIZE)* $(+ <$param_type>::SIZE)*;
+            fn len(&self) -> usize {
+                0 $(+ $crate::TpmSized::len(&self.$handle_field))* $(+ $crate::TpmSized::len(&self.$param_field))*
+            }
+        }
+
+        impl $crate::TpmBuild for $name {
+            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                <Self as $crate::message::TpmResponseBuild>::build_handles(self, writer)?;
+                <Self as $crate::message::TpmResponseBuild>::build_parameters(self, writer)
+            }
+        }
+
+        impl $crate::message::TpmResponseBodyParse for $name {
             #[allow(unused_mut)]
-            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+            fn parse_body(
+                tag: $crate::data::TpmSt,
+                buf: &[u8],
+            ) -> $crate::TpmResult<(Self, &[u8])> {
                 let mut cursor = buf;
                 $(
-                    let ($handle_field, tail) = <$handle_type>::parse(cursor)?;
+                    let ($handle_field, tail) = <$handle_type as $crate::TpmParse>::parse(cursor)?;
                     cursor = tail;
                 )*
 
-                if $with_sessions {
-                    let (size, buf_after_size) = u32::parse(cursor)?;
+                if $with_sessions && tag == $crate::data::TpmSt::Sessions {
+                    let (size, buf_after_size) = <u32 as $crate::TpmParse>::parse(cursor)?;
                     let size = size as usize;
                     if buf_after_size.len() < size {
                         return Err($crate::TpmErrorKind::ParseUnderflow);
@@ -163,7 +165,7 @@ macro_rules! tpm_struct {
                     let (mut params_cursor, final_tail) = buf_after_size.split_at(size);
 
                     $(
-                        let ($param_field, tail) = <$param_type>::parse(params_cursor)?;
+                        let ($param_field, tail) = <$param_type as $crate::TpmParse>::parse(params_cursor)?;
                         params_cursor = tail;
                     )*
 
@@ -181,7 +183,7 @@ macro_rules! tpm_struct {
                 } else {
                     let mut params_cursor = cursor;
                     $(
-                        let ($param_field, tail) = <$param_type>::parse(params_cursor)?;
+                        let ($param_field, tail) = <$param_type as $crate::TpmParse>::parse(params_cursor)?;
                         params_cursor = tail;
                     )*
 

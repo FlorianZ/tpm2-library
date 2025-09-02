@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{data, tpm_dispatch, TpmBuild, TpmList, TpmParse, TpmResult, TpmWriter};
+use crate::{data, tpm_dispatch, TpmBuild, TpmList, TpmResult, TpmWriter};
 use core::fmt::Debug;
 
 mod asymmetric;
@@ -77,6 +77,24 @@ pub trait TpmCommandBuild {
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
+/// A trait for building response bodies in separate handle and parameter sections.
+pub trait TpmResponseBuild {
+    /// Builds the handle area of the response.
+    ///
+    /// # Errors
+    ///
+    /// * `TpmErrorKind::BuildOverflow` if writer would run out of space.
+    fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
+
+    /// Builds the parameter area of the response.
+    ///
+    /// # Errors
+    ///
+    /// * `TpmErrorKind::BuildCapacity` if the object contains a value exceeding capacity limit.
+    /// * `TpmErrorKind::BuildOverflow` if writer would run out of space.
+    fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
+}
+
 /// Parses a command body from the slices point out to the handle area and
 /// parameter area of the original buffer.
 pub(crate) trait TpmCommandBodyParse: Sized {
@@ -87,6 +105,19 @@ pub(crate) trait TpmCommandBodyParse: Sized {
     /// * `TpmErrorKind::ParseCapacity` if the capacity limit is exceeded
     /// * `TpmErrorKind::ParseUnderflow` if the parser runs out of bytes
     fn parse_body<'a>(handles: &'a [u8], params: &'a [u8]) -> TpmResult<(Self, &'a [u8])>;
+}
+
+/// Parses a response body using the response tag to handle structural variations.
+pub trait TpmResponseBodyParse: Sized {
+    /// Parses the response body from a buffer, using the response tag dynamically
+    /// to determine the structure.
+    ///
+    /// # Errors
+    ///
+    /// This method can return parsing errors such as:
+    /// * `TpmErrorKind::ParseUnderflow` if the buffer is too small.
+    /// * `TpmErrorKind::TrailingData` if the buffer has unconsumed data after parsing.
+    fn parse_body(tag: data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 
 pub const TPM_HEADER_SIZE: usize = 10;

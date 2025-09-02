@@ -6,8 +6,8 @@
 #![allow(clippy::pedantic)]
 
 use std::{
-    any::Any, collections::HashMap, convert::TryFrom, fmt::Debug, io::IsTerminal, mem::size_of,
-    string::ToString, vec::Vec,
+    any::Any, collections::HashMap, convert::TryFrom, fmt::Debug, io::IsTerminal, string::ToString,
+    vec::Vec,
 };
 use tpm2_protocol::{
     build_tpm2b,
@@ -28,7 +28,7 @@ use tpm2_protocol::{
         TpmPcrEventResponse, TpmPcrReadCommand, TpmPcrReadResponse, TpmPolicyGetDigestResponse,
         TpmResponseBody, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
-    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmPersistent, TpmSession, TpmSized, TpmWriter,
+    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmPersistent, TpmSession, TpmWriter,
     TPM_MAX_COMMAND_SIZE,
 };
 
@@ -631,28 +631,25 @@ fn test_macro_response_parse_correctness() {
     digests.try_push(digest).unwrap();
     let original_resp = TpmPcrEventResponse { digests };
 
-    let mut body_buf = [0u8; 1024];
-    let body_len = {
-        let mut writer = TpmWriter::new(&mut body_buf);
-        TpmBuild::build(&original_resp, &mut writer).unwrap();
+    let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
+    let len = {
+        let mut writer = TpmWriter::new(&mut buf);
+        tpm_build_response(
+            &original_resp,
+            &[],
+            TpmRc::from(TpmRcBase::Success),
+            &mut writer,
+        )
+        .unwrap();
         writer.len()
     };
-    let response_body_bytes = &body_buf[..body_len];
+    let response_bytes = &buf[..len];
 
-    let expected_len = size_of::<u32>() + original_resp.digests.len();
-    assert_eq!(body_len, expected_len);
-    assert_eq!(
-        &response_body_bytes[0..4],
-        &u32::to_be_bytes(original_resp.digests.len() as u32)
-    );
-    assert_eq!(&response_body_bytes[4..8], &1u32.to_be_bytes());
-
-    let result = TpmPcrEventResponse::parse(response_body_bytes);
-
-    assert!(result.is_ok(), "Parsing failed: {result:?}");
-    let (parsed_resp, tail) = result.unwrap();
+    let (_rc, body, _sessions) = tpm_parse_response(TpmCc::PcrEvent, response_bytes)
+        .unwrap()
+        .unwrap();
+    let parsed_resp = body.PcrEvent().unwrap();
     assert_eq!(parsed_resp, original_resp, "Response mismatch");
-    assert!(tail.is_empty(), "Tail data");
 }
 
 fn test_macro_response_parse_remainder() {
@@ -667,35 +664,26 @@ fn test_macro_response_parse_remainder() {
         pcr_values,
     };
 
-    let mut valid_body_bytes = Vec::new();
-    let mut writer_buf = [0u8; 1024];
+    let mut valid_full_response = [0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
-        let mut writer = TpmWriter::new(&mut writer_buf);
-        TpmBuild::build(&original_body, &mut writer).unwrap();
+        let mut writer = TpmWriter::new(&mut valid_full_response);
+        tpm_build_response(
+            &original_body,
+            &[],
+            TpmRc::from(TpmRcBase::Success),
+            &mut writer,
+        )
+        .unwrap();
         writer.len()
     };
-    valid_body_bytes.extend_from_slice(&writer_buf[..len]);
 
     let trailing_data = [0xDE, 0xAD, 0xBE, 0xEF];
-    let mut malformed_body_with_trailer = valid_body_bytes;
-    malformed_body_with_trailer.extend_from_slice(&trailing_data);
+    let mut response_with_trailer = valid_full_response[..len].to_vec();
+    response_with_trailer.extend_from_slice(&trailing_data);
 
-    let result = TpmPcrReadResponse::parse(&malformed_body_with_trailer);
-    match result {
-        Ok((parsed_body, remainder)) => {
-            assert_eq!(
-                parsed_body, original_body,
-                "Parsed body does not match original"
-            );
-            assert_eq!(
-                remainder, &trailing_data,
-                "Remainder does not match trailing data"
-            );
-        }
-        Err(e) => {
-            panic!("Parsing failed: {e:?}");
-        }
-    }
+    // This should fail, because the size in the header does not match the buffer length.
+    let result = tpm_parse_response(TpmCc::PcrRead, &response_with_trailer);
+    assert_eq!(result, Err(TpmErrorKind::ParseUnderflow));
 }
 
 fn test_response_build_error() {
@@ -846,12 +834,13 @@ fn test_response_parse_pcr_event() {
         buf[..len].to_vec()
     };
 
-    let (rc, parsed_resp, parsed_sessions) = tpm_parse_response(TpmCc::PcrEvent, &generated_bytes)
-        .unwrap()
-        .unwrap();
+    let (rc, parsed_resp_body, parsed_sessions) =
+        tpm_parse_response(TpmCc::PcrEvent, &generated_bytes)
+            .unwrap()
+            .unwrap();
 
     assert_eq!(rc.value(), 0);
-    let resp = parsed_resp.PcrEvent().unwrap();
+    let resp = parsed_resp_body.PcrEvent().unwrap();
 
     assert_eq!(resp, original_resp);
     assert_eq!(parsed_sessions, sessions);
@@ -871,19 +860,14 @@ fn test_response_parse_policy_get_digest() {
     };
     let response_bytes = &buf[..len];
 
-    let body_buf = &response_bytes[10..];
+    let (rc, body, sessions) = tpm_parse_response(TpmCc::PolicyGetDigest, response_bytes)
+        .unwrap()
+        .unwrap();
 
-    let result = TpmPolicyGetDigestResponse::parse(body_buf);
-    assert!(result.is_ok(), "Parsing failed: {result:?}");
-    let (parsed_resp, remainder) = result.unwrap();
-    assert_eq!(
-        parsed_resp, original_resp,
-        "Parsed response does not match original"
-    );
-    assert!(
-        remainder.is_empty(),
-        "Response should have no trailing data"
-    );
+    assert_eq!(rc.value(), 0);
+    assert!(sessions.is_empty());
+    let resp = body.PolicyGetDigest().unwrap();
+    assert_eq!(resp, original_resp);
 }
 
 fn test_response_start_auth_session() {
