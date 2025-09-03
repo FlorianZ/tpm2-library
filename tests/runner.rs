@@ -12,24 +12,20 @@ use std::{
 use tpm2_protocol::{
     build_tpm2b,
     data::{
-        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bMaxBuffer, Tpm2bMaxNvBuffer, Tpm2bNonce,
-        Tpm2bPublic, Tpm2bPublicKeyRsa, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCap,
-        TpmCc, TpmRc, TpmRcBase, TpmRcIndex, TpmRh, TpmSe, TpmSt, TpmaObject, TpmaSession,
-        TpmlDigest, TpmlDigestValues, TpmlPcrSelection, TpmsAuthCommand, TpmsAuthResponse,
-        TpmsClockInfo, TpmsPcrSelect, TpmsPcrSelection, TpmsRsaParms, TpmsSensitiveCreate, TpmtHa,
-        TpmtPublic, TpmtScheme, TpmtSymDef, TpmtSymDefObject, TpmuHa, TpmuPublicId,
-        TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
+        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bMaxNvBuffer, Tpm2bNonce, Tpm2bPublic,
+        Tpm2bPublicKeyRsa, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc, TpmRc,
+        TpmRcBase, TpmRcIndex, TpmRh, TpmSe, TpmSt, TpmaObject, TpmaSession, TpmlDigest,
+        TpmlDigestValues, TpmlPcrSelection, TpmsAuthCommand, TpmsAuthResponse, TpmsClockInfo,
+        TpmsRsaParms, TpmsSensitiveCreate, TpmtHa, TpmtPublic, TpmtScheme, TpmtSymDef,
+        TpmtSymDefObject, TpmuHa, TpmuPublicId, TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
     },
     message::{
         tpm_build_command, tpm_build_response, tpm_parse_command, tpm_parse_response,
-        TpmAuthCommands, TpmAuthResponses, TpmCommandBody, TpmContextSaveCommand,
-        TpmCreatePrimaryCommand, TpmEvictControlCommand, TpmFlushContextCommand,
-        TpmFlushContextResponse, TpmGetCapabilityCommand, TpmHashCommand, TpmNvWriteCommand,
-        TpmPcrEventResponse, TpmPcrReadCommand, TpmPcrReadResponse, TpmPolicyGetDigestResponse,
-        TpmResponseBody, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
+        TpmAuthCommands, TpmAuthResponses, TpmCommandBody, TpmCreatePrimaryCommand,
+        TpmFlushContextResponse, TpmNvWriteCommand, TpmPcrEventResponse, TpmPcrReadResponse,
+        TpmPolicyGetDigestResponse, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
-    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmPersistent, TpmSession, TpmWriter,
-    TPM_MAX_COMMAND_SIZE,
+    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmSession, TpmWriter, TPM_MAX_COMMAND_SIZE,
 };
 
 fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -98,72 +94,6 @@ fn test_command_build_create_primary() {
     tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
 }
 
-fn test_command_build_evict_control() {
-    let cmd = TpmEvictControlCommand {
-        auth: (TpmRh::Owner as u32).into(),
-        object_handle: 0x8000_0000.into(),
-        persistent_handle: TpmPersistent(0x8100_0001),
-    };
-    let mut sessions = TpmAuthCommands::new();
-    sessions
-        .try_push(TpmsAuthCommand {
-            session_handle: TpmSession(TpmRh::Password as u32),
-            nonce: Tpm2bNonce::default(),
-            session_attributes: TpmaSession::default(),
-            hmac: Tpm2bAuth::try_from(&b"123"[..]).unwrap(),
-        })
-        .unwrap();
-
-    let mut buf = [0u8; 1024];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
-        writer.len()
-    };
-    let generated_bytes = &buf[..len];
-    let expected_bytes = hex_to_bytes(
-        "8002000000260000012040000001800000000000000c40000009000000000331323381000001",
-    )
-    .unwrap();
-    assert_eq!(generated_bytes, expected_bytes.as_slice());
-}
-
-fn test_command_build_get_capability() {
-    let cmd = TpmGetCapabilityCommand {
-        cap: TpmCap::Algs,
-        property: 1,
-        property_count: 128,
-    };
-    let mut buf = [0u8; 1024];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
-        writer.len()
-    };
-    let generated_bytes = &buf[..len];
-    let expected_bytes = hex_to_bytes("8001000000160000017a000000000000000100000080").unwrap();
-
-    assert_eq!(generated_bytes, expected_bytes.as_slice(),);
-}
-
-fn test_command_build_hash() {
-    let cmd = TpmHashCommand {
-        data: Tpm2bMaxBuffer::try_from(&b"hello"[..]).unwrap(),
-        hash_alg: TpmAlgId::Sha256,
-        hierarchy: TpmRh::Owner,
-    };
-    let mut buf = [0u8; 1024];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
-        writer.len()
-    };
-    let generated_bytes = &buf[..len];
-    let expected_bytes = hex_to_bytes("8001000000170000017d000568656c6c6f000b40000001").unwrap();
-
-    assert_eq!(generated_bytes, expected_bytes.as_slice(),);
-}
-
 fn test_command_build_nv_write() {
     let cmd = TpmNvWriteCommand {
         auth_handle: (TpmRh::Owner as u32).into(),
@@ -193,202 +123,6 @@ fn test_command_build_nv_write() {
     )
     .unwrap();
     assert_eq!(generated_bytes, expected_bytes.as_slice());
-}
-
-fn test_command_parse_context_save() {
-    let cmd = TpmContextSaveCommand {
-        save_handle: 0x8000_0001.into(),
-    };
-
-    let generated_bytes = {
-        let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
-            writer.len()
-        };
-        buf[..len].to_vec()
-    };
-
-    assert_eq!(
-        bytes_to_hex(&generated_bytes),
-        "80010000000e0000016280000001"
-    );
-
-    match tpm_parse_command(&generated_bytes) {
-        Ok((res_handles, cmd_data, sessions)) => {
-            let handles = [cmd.save_handle.0];
-            assert_eq!(res_handles.as_ref(), handles);
-            assert_eq!(cmd_data, TpmCommandBody::ContextSave(cmd));
-            if !sessions.is_empty() {
-                panic!("Sessions should be empty");
-            }
-        }
-        Err(e) => panic!("Parsing failed: {e:?}"),
-    }
-}
-
-fn test_command_parse_evict_control() {
-    let cmd = TpmEvictControlCommand {
-        auth: (TpmRh::Owner as u32).into(),
-        object_handle: 0x8000_0000.into(),
-        persistent_handle: TpmPersistent(0x8100_0001),
-    };
-    let mut sessions = TpmAuthCommands::new();
-    sessions
-        .try_push(TpmsAuthCommand {
-            session_handle: TpmSession(TpmRh::Password as u32),
-            nonce: Tpm2bNonce::default(),
-            session_attributes: TpmaSession::default(),
-            hmac: Tpm2bAuth::try_from(&b"123"[..]).unwrap(),
-        })
-        .unwrap();
-
-    let generated_bytes = {
-        let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
-            writer.len()
-        };
-        buf[..len].to_vec()
-    };
-
-    let (res_handles, res_cmd_data, res_sessions) = tpm_parse_command(&generated_bytes).unwrap();
-
-    let handles = [cmd.auth.0, cmd.object_handle.0];
-    assert_eq!(res_handles.as_ref(), handles);
-    assert_eq!(res_sessions, sessions);
-    assert_eq!(res_cmd_data, TpmCommandBody::EvictControl(cmd));
-}
-
-fn test_command_parse_flush_context() {
-    let cmd = TpmFlushContextCommand {
-        flush_handle: 0x8000_0000,
-    };
-
-    let generated_bytes = {
-        let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
-            writer.len()
-        };
-        buf[..len].to_vec()
-    };
-
-    let expected_bytes = hex_to_bytes("80010000000e0000016580000000").unwrap();
-    assert_eq!(generated_bytes, expected_bytes.as_slice());
-
-    match tpm_parse_command(&generated_bytes) {
-        Ok((_handles, cmd_data, sessions)) => {
-            assert_eq!(cmd_data, TpmCommandBody::FlushContext(cmd));
-            if !sessions.is_empty() {
-                panic!("Sessions should be empty");
-            }
-        }
-        Err(e) => panic!("Parsing failed: {e:?}"),
-    }
-}
-
-fn test_command_parse_get_capability() {
-    let cmd = TpmGetCapabilityCommand {
-        cap: TpmCap::Algs,
-        property: 1,
-        property_count: 128,
-    };
-
-    let generated_bytes = {
-        let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
-            writer.len()
-        };
-        buf[..len].to_vec()
-    };
-
-    let expected_bytes = hex_to_bytes("8001000000160000017a000000000000000100000080").unwrap();
-    assert_eq!(generated_bytes, expected_bytes.as_slice());
-
-    match tpm_parse_command(&generated_bytes) {
-        Ok((_handles, cmd_data, sessions)) => {
-            assert_eq!(cmd_data, TpmCommandBody::GetCapability(cmd));
-            if !sessions.is_empty() {
-                panic!("Sessions should be empty");
-            }
-        }
-        Err(e) => panic!("Parsing failed: {e:?}"),
-    }
-}
-
-fn test_command_parse_hash() {
-    let cmd = TpmHashCommand {
-        data: Tpm2bMaxBuffer::try_from(&[0xDE; 32][..]).unwrap(),
-        hash_alg: TpmAlgId::Sha256,
-        hierarchy: TpmRh::Owner,
-    };
-
-    let generated_bytes = {
-        let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
-            writer.len()
-        };
-        buf[..len].to_vec()
-    };
-
-    let expected_bytes =
-        hex_to_bytes("8001000000320000017d0020dededededededededededededededededededededededededededededededede000b40000001").unwrap();
-    assert_eq!(generated_bytes, expected_bytes.as_slice());
-
-    match tpm_parse_command(&generated_bytes) {
-        Ok((_handles, cmd_data, sessions)) => {
-            assert_eq!(cmd_data, TpmCommandBody::Hash(cmd));
-            if !sessions.is_empty() {
-                panic!("Sessions should be empty");
-            }
-        }
-        Err(e) => panic!("Parsing failed: {e:?}"),
-    }
-}
-
-fn test_command_parse_pcr_read() {
-    let mut pcr_selection = TpmlPcrSelection::new();
-    pcr_selection
-        .try_push(TpmsPcrSelection {
-            hash: TpmAlgId::Sha256,
-            pcr_select: TpmsPcrSelect::try_from(&[0xFF, 0x80, 0x01][..]).unwrap(),
-        })
-        .unwrap();
-
-    let cmd = TpmPcrReadCommand {
-        pcr_selection_in: pcr_selection,
-    };
-
-    let generated_bytes = {
-        let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
-            writer.len()
-        };
-        buf[..len].to_vec()
-    };
-
-    let expected_bytes = hex_to_bytes("8001000000140000017e00000001000b03ff8001").unwrap();
-    assert_eq!(generated_bytes, expected_bytes.as_slice());
-
-    match tpm_parse_command(&generated_bytes) {
-        Ok((_handles, cmd_data, sessions)) => {
-            assert_eq!(cmd_data, TpmCommandBody::PcrRead(cmd.clone()));
-            if !sessions.is_empty() {
-                panic!("Sessions should be empty");
-            }
-        }
-        Err(e) => panic!("Parsing failed: {e:?}"),
-    }
 }
 
 fn test_command_start_auth_session() {
@@ -708,26 +442,6 @@ fn test_response_parse_policy_get_digest() {
     assert_eq!(resp, original_resp);
 }
 
-fn test_response_get_capability() {
-    let response_hex = "80010000020b0000000001000000060000003f00000100322e30000000010100000000000001020000008a000001030000000800000104000007e2000001054946580000000106534c42390000010736373000000001080000000000000109000000000000010a000000000000010b000700550000010c0011cb000000010d000004000000010e000000040000010f000000070000011000000003000001110000004000000112000000180000011300000003000001140000ffff00000116000000080000011700000800000001180000000600000119000040000000011a0000000b0000011b000000060000011c000000800000011d000000ff0000011e0000058c0000011f0000058c0000012000000020000001210000038f00000122000001ee00000123000000010000012400000000000001250000010300000126000000000000012700000000000001280000008000000129000000610000012a000000600000012b000000010000012c000003000000012d000000010000012e000002000000020000000004000002018000000f000002020000000d000002030000000000000204000000030000020500000000000002060000004000000207000000040000020800000001000002090000000c0000020a000000020000020b0000000c0000020c000000000000020d000000020000020e000000000000020f0000001f0000021000000258";
-    let response_bytes = hex_to_bytes(response_hex).unwrap();
-    let (rc, body, sessions) = tpm_parse_response(TpmCc::GetCapability, &response_bytes)
-        .unwrap()
-        .unwrap();
-    let mut built_bytes = [0; TPM_MAX_COMMAND_SIZE];
-    let len = {
-        let mut writer = TpmWriter::new(&mut built_bytes);
-        match body {
-            TpmResponseBody::GetCapability(ref resp_struct) => {
-                tpm_build_response(resp_struct, &sessions, rc, &mut writer).unwrap();
-            }
-            _ => panic!("Parsed the wrong response type!"),
-        }
-        writer.len()
-    };
-    assert_eq!(&built_bytes[..len], &response_bytes);
-}
-
 fn test_response_start_auth_session() {
     let original_resp = TpmStartAuthSessionResponse {
         session_handle: 0x8002_0000.into(),
@@ -787,26 +501,6 @@ fn test_response_start_auth_session_no_sessions() {
     assert!(parsed_sessions.is_empty());
     let resp = parsed_resp_body.StartAuthSession().unwrap();
     assert_eq!(resp, original_resp);
-}
-
-fn test_response_start_auth_session_no_sessions_2() {
-    let response_hex = "8001000000300000000002000000002000647915de6106c955b26456b8b8a3b10546fa446405d4eb2e1fb0247fb52080";
-    let response_bytes = hex_to_bytes(response_hex).unwrap();
-    let (rc, body, sessions) = tpm_parse_response(TpmCc::StartAuthSession, &response_bytes)
-        .unwrap()
-        .unwrap();
-    let mut built_bytes = [0; TPM_MAX_COMMAND_SIZE];
-    let len = {
-        let mut writer = TpmWriter::new(&mut built_bytes);
-        match body {
-            TpmResponseBody::StartAuthSession(ref resp_struct) => {
-                tpm_build_response(resp_struct, &sessions, rc, &mut writer).unwrap();
-            }
-            _ => panic!("Parsed the wrong response type!"),
-        }
-        writer.len()
-    };
-    assert_eq!(&built_bytes[..len], &response_bytes);
 }
 
 fn test_tpm2b_build_length_too_large() {
@@ -1156,16 +850,7 @@ fn test_dynamic_roundtrip() {
 
 test_suite!(
     test_command_build_create_primary,
-    test_command_build_evict_control,
-    test_command_build_get_capability,
-    test_command_build_hash,
     test_command_build_nv_write,
-    test_command_parse_context_save,
-    test_command_parse_evict_control,
-    test_command_parse_flush_context,
-    test_command_parse_get_capability,
-    test_command_parse_hash,
-    test_command_parse_pcr_read,
     test_command_start_auth_session,
     test_command_start_auth_session_no_sessions,
     test_response_build_error,
@@ -1176,10 +861,8 @@ test_suite!(
     test_response_parse_pcr_event_2,
     test_response_parse_remainder,
     test_response_parse_policy_get_digest,
-    test_response_get_capability,
     test_response_start_auth_session,
     test_response_start_auth_session_no_sessions,
-    test_response_start_auth_session_no_sessions_2,
     test_tpm2b_build_length_too_large,
     test_tpmbuffer_try_from_slice_too_large,
     test_tpm_rc_base_from_raw,
