@@ -5,7 +5,7 @@
 use crate::{
     data::{
         Tpm2b, Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bMaxNvBuffer, Tpm2bName,
-        Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmRh, TpmSt,
+        Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
         TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
         TpmiYesNo, TpmlPcrSelection, TpmtKdfScheme, TpmtScheme, TpmtSymDefObject, TpmuCapabilities,
     },
@@ -205,7 +205,7 @@ impl TpmParse for TpmsPcrSelection {
 }
 
 tpm_struct! {
-    #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct TpmsSensitiveCreate {
         pub user_auth: Tpm2bAuth,
         pub data: Tpm2bSensitiveData,
@@ -224,6 +224,14 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
     pub struct TpmsSymcipherParms {
         pub sym: TpmtSymDefObject,
+    }
+}
+
+tpm_struct! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub struct TpmsTaggedProperty {
+        pub property: TpmPt,
+        pub value: u32,
     }
 }
 

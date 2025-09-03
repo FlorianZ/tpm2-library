@@ -109,3 +109,4 @@ tpml!(TpmlDigestValues, TpmtHa, 8);
 tpml!(TpmlHandle, u32, 128);
 tpml!(TpmlPcrSelection, TpmsPcrSelection, 8);
 tpml!(TpmlEccCurve, TpmEccCurve, 64);
+tpml!(TpmlTaggedTpmProperty, TpmsTaggedProperty, 64);
