@@ -708,6 +708,26 @@ fn test_response_parse_policy_get_digest() {
     assert_eq!(resp, original_resp);
 }
 
+fn test_response_get_capability() {
+    let response_hex = "80010000020b0000000001000000060000003f00000100322e30000000010100000000000001020000008a000001030000000800000104000007e2000001054946580000000106534c42390000010736373000000001080000000000000109000000000000010a000000000000010b000700550000010c0011cb000000010d000004000000010e000000040000010f000000070000011000000003000001110000004000000112000000180000011300000003000001140000ffff00000116000000080000011700000800000001180000000600000119000040000000011a0000000b0000011b000000060000011c000000800000011d000000ff0000011e0000058c0000011f0000058c0000012000000020000001210000038f00000122000001ee00000123000000010000012400000000000001250000010300000126000000000000012700000000000001280000008000000129000000610000012a000000600000012b000000010000012c000003000000012d000000010000012e000002000000020000000004000002018000000f000002020000000d000002030000000000000204000000030000020500000000000002060000004000000207000000040000020800000001000002090000000c0000020a000000020000020b0000000c0000020c000000000000020d000000020000020e000000000000020f0000001f0000021000000258";
+    let response_bytes = hex_to_bytes(response_hex).unwrap();
+    let (rc, body, sessions) = tpm_parse_response(TpmCc::GetCapability, &response_bytes)
+        .unwrap()
+        .unwrap();
+    let mut built_bytes = [0; TPM_MAX_COMMAND_SIZE];
+    let len = {
+        let mut writer = TpmWriter::new(&mut built_bytes);
+        match body {
+            TpmResponseBody::GetCapability(ref resp_struct) => {
+                tpm_build_response(resp_struct, &sessions, rc, &mut writer).unwrap();
+            }
+            _ => panic!("Parsed the wrong response type!"),
+        }
+        writer.len()
+    };
+    assert_eq!(&built_bytes[..len], &response_bytes);
+}
+
 fn test_response_start_auth_session() {
     let original_resp = TpmStartAuthSessionResponse {
         session_handle: 0x8002_0000.into(),
@@ -1156,6 +1176,7 @@ test_suite!(
     test_response_parse_pcr_event_2,
     test_response_parse_remainder,
     test_response_parse_policy_get_digest,
+    test_response_get_capability,
     test_response_start_auth_session,
     test_response_start_auth_session_no_sessions,
     test_response_start_auth_session_no_sessions_2,
