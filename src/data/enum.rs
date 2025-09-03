@@ -248,6 +248,14 @@ tpm_enum! {
         (NistP256, 0x0003, "TPM_ECC_NIST_P256"),
         (NistP384, 0x0004, "TPM_ECC_NIST_P384"),
         (NistP521, 0x0005, "TPM_ECC_NIST_P521"),
+        (BnP256, 0x0010, "TPM_ECC_BN_P256"),
+        (BnP638, 0x0011, "TPM_ECC_BN_P638"),
+        (Sm2P256, 0x0020, "TPM_ECC_SM2_P256"),
+        (BpP256R1, 0x0030, "TPM_ECC_BP_P256_R1"),
+        (BpP384R1, 0x0031, "TPM_ECC_BP_P384_R1"),
+        (BpP512R1, 0x0032, "TPM_ECC_BP_P512_R1"),
+        (Curve25519, 0x0040, "TPM_ECC_CURVE_25519"),
+        (Curve448, 0x0041, "TPM_ECC_CURVE_448"),
     }
 }
 
