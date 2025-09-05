@@ -348,9 +348,6 @@ tpm_enum! {
     }
 }
 
-pub const TPM_RH_FIRST: u32 = 0x4000_0000;
-pub const TPM_RH_LAST: u32 = 0x4004_FFFF;
-
 tpm_enum! {
     #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
     pub enum TpmRh(u32) {

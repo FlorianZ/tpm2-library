@@ -2,6 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+mod r#const;
 mod r#enum;
 mod tpm_rc;
 mod tpma;
@@ -10,6 +11,7 @@ mod tpms;
 mod tpmt;
 mod tpmu;
 
+pub use self::r#const::*;
 pub use self::r#enum::*;
 pub use self::tpm_rc::*;
 pub use self::tpma::*;
