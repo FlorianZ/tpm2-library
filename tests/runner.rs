@@ -12,32 +12,17 @@ use std::{
 use tpm2_protocol::{
     build_tpm2b,
     data::{
-        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bMaxNvBuffer, Tpm2bNonce, Tpm2bPublic,
-        Tpm2bPublicKeyRsa, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc, TpmRc,
-        TpmRcBase, TpmRcIndex, TpmRh, TpmSe, TpmSt, TpmaObject, TpmaSession, TpmlDigest,
-        TpmlDigestValues, TpmlPcrSelection, TpmsAuthCommand, TpmsAuthResponse, TpmsClockInfo,
-        TpmsRsaParms, TpmsSensitiveCreate, TpmtHa, TpmtPublic, TpmtScheme, TpmtSymDef,
-        TpmtSymDefObject, TpmuHa, TpmuPublicId, TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
+        Tpm2bAuth, Tpm2bDigest, Tpm2bNonce, TpmAlgId, TpmCc, TpmRc, TpmRcBase, TpmRcIndex, TpmSt,
+        TpmaSession, TpmlDigest, TpmlDigestValues, TpmlPcrSelection, TpmsAuthResponse,
+        TpmsClockInfo, TpmtHa, TpmtSymDef, TpmuHa, TpmuSymKeyBits, TpmuSymMode,
     },
     message::{
-        tpm_build_command, tpm_build_response, tpm_parse_command, tpm_parse_response,
-        TpmAuthCommands, TpmAuthResponses, TpmCommandBody, TpmCreatePrimaryCommand,
-        TpmFlushContextResponse, TpmNvWriteCommand, TpmPcrEventResponse, TpmPcrReadResponse,
-        TpmPolicyGetDigestResponse, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
+        tpm_build_response, tpm_parse_response, TpmAuthResponses, TpmFlushContextResponse,
+        TpmPcrEventResponse, TpmPcrReadResponse, TpmPolicyGetDigestResponse,
+        TpmStartAuthSessionResponse,
     },
-    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmSession, TpmWriter, TPM_MAX_COMMAND_SIZE,
+    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmWriter, TPM_MAX_COMMAND_SIZE,
 };
-
-fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
-    if s.len() % 2 != 0 {
-        return Err("Hex string must have an even number of characters");
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect::<Result<Vec<u8>, _>>()
-        .map_err(|_| "Invalid hex character")
-}
 
 fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
