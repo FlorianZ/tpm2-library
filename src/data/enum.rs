@@ -348,18 +348,35 @@ tpm_enum! {
     }
 }
 
+pub const TPM_RH_FIRST: u32 = 0x4000_0000;
+pub const TPM_RH_LAST: u32 = 0x4004_FFFF;
+
 tpm_enum! {
     #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
     pub enum TpmRh(u32) {
+        (Srk, 0x4000_0000, "TPM_RH_SRK"),
         (Owner, 0x4000_0001, "TPM_RH_OWNER"),
+        (Revoke, 0x4000_0002, "TPM_RH_REVOKE"),
+        (Transport, 0x4000_0003, "TPM_RH_TRANSPORT"),
+        (Operator, 0x4000_0004, "TPM_RH_OPERATOR"),
+        (Admin, 0x4000_0005, "TPM_RH_ADMIN"),
+        (Ek, 0x4000_0006, "TPM_RH_EK"),
         #[default]
         (Null, 0x4000_0007, "TPM_RH_NULL"),
-        (Password, 0x4000_0009, "TPM_RH_PW"),
+        (Unassigned, 0x4000_0008, "TPM_RH_UNASSIGNED"),
+        (Pw, 0x4000_0009, "TPM_RS_PW"),
         (Lockout, 0x4000_000A, "TPM_RH_LOCKOUT"),
         (Endorsement, 0x4000_000B, "TPM_RH_ENDORSEMENT"),
         (Platform, 0x4000_000C, "TPM_RH_PLATFORM"),
-        (TransientFirst, 0x8000_0000, "First transient handle"),
-        (PersistentFirst, 0x8100_0000, "First persistent handle"),
+        (PlatformNv, 0x4000_000D, "TPM_RH_PLATFORM_NV"),
+        (FwOwner, 0x4000_0140, "TPM_RH_FW_OWNER"),
+        (FwEndorsement, 0x4000_0141, "TPM_RH_FW_ENDORSEMENT"),
+        (FwPlatform, 0x4000_0142, "TPM_RH_FW_PLATFORM"),
+        (FwNull, 0x4000_0143, "TPM_RH_FW_NULL"),
+        (SvnOwnerBase, 0x4001_0000, "TPM_RH_SVN_OWNER_BASE"),
+        (SvnEndorsementBase, 0x4002_0000, "TPM_RH_SVN_ENDORSEMENT_BASE"),
+        (SvnPlatformBase, 0x4003_0000, "TPM_RH_SVN_PLATFORM_BASE"),
+        (SvnNullBase, 0x4004_0000, "TPM_RH_SVN_NULL_BASE"),
     }
 }
 
