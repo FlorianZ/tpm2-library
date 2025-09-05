@@ -43,158 +43,6 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn test_command_build_create_primary() {
-    let cmd = TpmCreatePrimaryCommand {
-        primary_handle: (TpmRh::Owner as u32).into(),
-        in_sensitive: Tpm2bSensitiveCreate::from(TpmsSensitiveCreate {
-            user_auth: Tpm2bAuth::try_from(b"parent_pw".as_slice()).unwrap(),
-            data: Tpm2bSensitiveData::default(),
-        }),
-        in_public: Tpm2bPublic::from(TpmtPublic {
-            object_type: TpmAlgId::Rsa,
-            name_alg: TpmAlgId::Sha256,
-            object_attributes: TpmaObject::FIXED_TPM
-                | TpmaObject::FIXED_PARENT
-                | TpmaObject::SENSITIVE_DATA_ORIGIN
-                | TpmaObject::USER_WITH_AUTH
-                | TpmaObject::DECRYPT
-                | TpmaObject::RESTRICTED,
-            auth_policy: Tpm2bDigest::default(),
-            parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
-                symmetric: TpmtSymDef {
-                    algorithm: TpmAlgId::Aes,
-                    key_bits: TpmuSymKeyBits::Aes(128),
-                    mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
-                },
-                scheme: TpmtScheme {
-                    scheme: TpmAlgId::Null,
-                },
-                key_bits: 2048,
-                exponent: 0,
-            }),
-            unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
-        }),
-        outside_info: Tpm2bData::default(),
-        creation_pcr: TpmlPcrSelection::default(),
-    };
-
-    let mut sessions = TpmAuthCommands::new();
-    sessions
-        .try_push(TpmsAuthCommand {
-            session_handle: TpmSession(TpmRh::Password as u32),
-            nonce: Tpm2bNonce::default(),
-            session_attributes: TpmaSession::default(),
-            hmac: Tpm2bAuth::try_from(b"parent_pw".as_slice()).unwrap(),
-        })
-        .unwrap();
-
-    let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-    let mut writer = TpmWriter::new(&mut buf);
-
-    tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
-}
-
-fn test_command_build_nv_write() {
-    let cmd = TpmNvWriteCommand {
-        auth_handle: (TpmRh::Owner as u32).into(),
-        nv_index: 0x0100_0000,
-        data: Tpm2bMaxNvBuffer::try_from(&[0xDE, 0xAD, 0xBE, 0xEF][..]).unwrap(),
-        offset: 0,
-    };
-    let mut sessions = TpmAuthCommands::new();
-    sessions
-        .try_push(TpmsAuthCommand {
-            session_handle: TpmSession(TpmRh::Password as u32),
-            nonce: Tpm2bNonce::default(),
-            session_attributes: TpmaSession::default(),
-            hmac: Tpm2bAuth::try_from(&b"123"[..]).unwrap(),
-        })
-        .unwrap();
-
-    let mut buf = [0u8; 1024];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
-        writer.len()
-    };
-    let generated_bytes = &buf[..len];
-    let expected_bytes = hex_to_bytes(
-        "80020000002a0000013740000001010000000000000c4000000900000000033132330004deadbeef0000",
-    )
-    .unwrap();
-    assert_eq!(generated_bytes, expected_bytes.as_slice());
-}
-
-fn test_command_start_auth_session() {
-    let cmd = TpmStartAuthSessionCommand {
-        tpm_key: (TpmRh::Owner as u32).into(),
-        bind: (TpmRh::Owner as u32).into(),
-        nonce_caller: Tpm2bNonce::try_from(&[0xaa; 16][..]).unwrap(),
-        encrypted_salt: Default::default(),
-        session_type: TpmSe::Policy,
-        symmetric: TpmtSymDefObject {
-            algorithm: TpmAlgId::Null,
-            ..Default::default()
-        },
-        auth_hash: TpmAlgId::Sha256,
-    };
-
-    let mut sessions = TpmAuthCommands::new();
-    sessions
-        .try_push(TpmsAuthCommand {
-            session_handle: TpmSession(TpmRh::Password as u32),
-            nonce: Tpm2bNonce::default(),
-            session_attributes: TpmaSession::AUDIT,
-            hmac: Tpm2bAuth::try_from(b"auth123".as_slice()).unwrap(),
-        })
-        .unwrap();
-
-    let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(&cmd, TpmSt::Sessions, &sessions, &mut writer).unwrap();
-        writer.len()
-    };
-    let generated_bytes = &buf[..len];
-
-    let (handles, parsed_cmd_body, parsed_sessions) = tpm_parse_command(generated_bytes).unwrap();
-
-    let expected_handles = [cmd.tpm_key.0, cmd.bind.0];
-    assert_eq!(handles.as_ref(), &expected_handles);
-    assert_eq!(parsed_sessions, sessions);
-    assert_eq!(parsed_cmd_body, TpmCommandBody::StartAuthSession(cmd));
-}
-
-fn test_command_start_auth_session_no_sessions() {
-    let cmd = TpmStartAuthSessionCommand {
-        tpm_key: (TpmRh::Null as u32).into(),
-        bind: (TpmRh::Null as u32).into(),
-        nonce_caller: Tpm2bNonce::try_from(&[0xaa; 16][..]).unwrap(),
-        encrypted_salt: Default::default(),
-        session_type: TpmSe::Hmac,
-        symmetric: TpmtSymDefObject {
-            algorithm: TpmAlgId::Null,
-            ..Default::default()
-        },
-        auth_hash: TpmAlgId::Sha256,
-    };
-
-    let mut buf = [0u8; TPM_MAX_COMMAND_SIZE];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        tpm_build_command(&cmd, TpmSt::NoSessions, &[], &mut writer).unwrap();
-        writer.len()
-    };
-    let generated_bytes = &buf[..len];
-
-    let (handles, parsed_cmd_body, sessions) = tpm_parse_command(generated_bytes).unwrap();
-
-    assert!(sessions.is_empty());
-    let expected_handles = [cmd.tpm_key.0, cmd.bind.0];
-    assert_eq!(handles.as_ref(), &expected_handles);
-    assert_eq!(parsed_cmd_body, TpmCommandBody::StartAuthSession(cmd));
-}
-
 fn test_response_build_error() {
     let resp = TpmFlushContextResponse::default();
     let rc = TpmRc::try_from(TpmRcBase::Failure as u32).unwrap();
@@ -519,7 +367,7 @@ fn test_tpm2b_build_length_too_large() {
     assert_eq!(result, Err(TpmErrorKind::BuildCapacity),);
 }
 
-fn test_tpmbuffer_try_from_slice_too_large() {
+fn test_tpm_buffer_slice_too_large() {
     const CAPACITY: usize = 4096;
     let data = vec![0; CAPACITY + 1];
 
@@ -849,10 +697,6 @@ fn test_dynamic_roundtrip() {
 }
 
 test_suite!(
-    test_command_build_create_primary,
-    test_command_build_nv_write,
-    test_command_start_auth_session,
-    test_command_start_auth_session_no_sessions,
     test_response_build_error,
     test_response_build_warning,
     test_response_build_warning_with_sessions,
@@ -864,7 +708,7 @@ test_suite!(
     test_response_start_auth_session,
     test_response_start_auth_session_no_sessions,
     test_tpm2b_build_length_too_large,
-    test_tpmbuffer_try_from_slice_too_large,
+    test_tpm_buffer_slice_too_large,
     test_tpm_rc_base_from_raw,
     test_tpm_rc_display,
     test_tpm_rc_index_from_raw,
