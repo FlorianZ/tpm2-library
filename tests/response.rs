@@ -6,8 +6,10 @@
 
 use std::{convert::TryFrom, io::IsTerminal, panic, vec::Vec};
 use tpm2_protocol::{
-    data::TpmCc,
-    message::{tpm_build_response, tpm_parse_response, TpmResponseBody, TpmStartupResponse},
+    data::{TpmCc, TpmRc, TpmRcBase},
+    message::{
+        tpm_build_response, tpm_parse_response, TpmResponse, TpmResponseBody, TpmStartupResponse,
+    },
     TpmWriter, TPM_MAX_COMMAND_SIZE,
 };
 
@@ -83,8 +85,9 @@ fn main() {
 
             let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
             let built_len = match parse_result {
-                Ok((rc, Some((body, sessions)))) => {
+                Ok(TpmResponse::Success(body, sessions)) => {
                     let mut writer = TpmWriter::new(&mut built_bytes);
+                    let rc = TpmRc::from(TpmRcBase::Success);
                     let resp_struct = match body {
                         TpmResponseBody::NvUndefineSpaceSpecial(r) => {
                             tpm_build_response(&r, &sessions, rc, &mut writer)
@@ -459,7 +462,7 @@ fn main() {
                     resp_struct.unwrap();
                     writer.len()
                 }
-                Ok((rc, None)) => {
+                Ok(TpmResponse::ReturnCode(rc)) => {
                     assert!(original_bytes.len() == 10,);
                     let mut writer = TpmWriter::new(&mut built_bytes);
                     tpm_build_response(&TpmStartupResponse::default(), &[], rc, &mut writer)
