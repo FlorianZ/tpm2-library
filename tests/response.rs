@@ -79,11 +79,11 @@ fn main() {
             let cc = TpmCc::try_from(cc_val as u32).expect("unknown command code");
 
             let original_bytes = hex_to_bytes(hex_str).unwrap();
-            let parse_result = tpm_parse_response(cc, &original_bytes).unwrap();
+            let parse_result = tpm_parse_response(cc, &original_bytes);
 
             let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
             let built_len = match parse_result {
-                Ok((rc, body, sessions)) => {
+                Ok((rc, Some((body, sessions)))) => {
                     let mut writer = TpmWriter::new(&mut built_bytes);
                     let resp_struct = match body {
                         TpmResponseBody::NvUndefineSpaceSpecial(r) => {
@@ -459,13 +459,14 @@ fn main() {
                     resp_struct.unwrap();
                     writer.len()
                 }
-                Err((rc, _)) => {
+                Ok((rc, None)) => {
                     assert!(original_bytes.len() == 10,);
                     let mut writer = TpmWriter::new(&mut built_bytes);
                     tpm_build_response(&TpmStartupResponse::default(), &[], rc, &mut writer)
                         .unwrap();
                     writer.len()
                 }
+                Err(_) => unimplemented!(),
             };
             let rebuilt_slice = &built_bytes[..built_len];
             assert_eq!(

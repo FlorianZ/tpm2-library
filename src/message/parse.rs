@@ -12,10 +12,6 @@ use crate::{
 };
 use core::{convert::TryFrom, mem::size_of};
 
-/// The result of parsing a TPM response, containing either the successfully parsed
-/// body and auth areas (with a success or warning code) or a fatal error code.
-pub type TpmParseResult<'a> = Result<(TpmRc, TpmResponseBody, TpmAuthResponses), (TpmRc, &'a [u8])>;
-
 /// Parses a command from a TPM command buffer.
 ///
 /// # Errors
@@ -121,7 +117,10 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
 /// * `TpmErrorKind::InvalidTag` if the tag in the buffer does not match expected
 /// * `TpmErrorKind::NotDiscriminant` if the buffer contains an unsupported command code
 /// * `TpmErrorKind::TrailingData` if the response has after spurious data left
-pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>> {
+pub fn tpm_parse_response(
+    cc: TpmCc,
+    buf: &[u8],
+) -> TpmResult<(TpmRc, Option<(TpmResponseBody, TpmAuthResponses)>)> {
     if buf.len() < TPM_HEADER_SIZE {
         return Err(TpmErrorKind::ParseUnderflow);
     }
@@ -138,7 +137,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>
 
     let rc = TpmRc::try_from(code)?;
     if rc.is_error() || rc.is_warning() {
-        return Ok(Err((rc, body_buf)));
+        return Ok((rc, None));
     }
 
     let tag = TpmSt::try_from(tag_raw).map_err(|()| {
@@ -172,5 +171,5 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>
         return Err(TpmErrorKind::TrailingData);
     }
 
-    Ok(Ok((rc, body, auth_responses)))
+    Ok((rc, Some((body, auth_responses))))
 }
