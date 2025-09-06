@@ -27,7 +27,7 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
     if buf.len() < TPM_HEADER_SIZE {
         return Err(TpmErrorKind::ParseUnderflow);
     }
-    let command_len = buf.len();
+    let buf_len = buf.len();
 
     let (tag_raw, buf) = u16::parse(buf)?;
     let tag = TpmSt::try_from(tag_raw).map_err(|()| {
@@ -36,8 +36,10 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
     let (size, buf) = u32::parse(buf)?;
     let (cc_raw, body_buf) = u32::parse(buf)?;
 
-    if command_len != size as usize {
+    if buf_len < size as usize {
         return Err(TpmErrorKind::ParseUnderflow);
+    } else if buf_len > size as usize {
+        return Err(TpmErrorKind::TrailingData);
     }
 
     let cc = TpmCc::try_from(cc_raw).map_err(|()| {
@@ -128,8 +130,10 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmParseResult<'_>
     let (size, remainder) = u32::parse(remainder)?;
     let (code, body_buf) = u32::parse(remainder)?;
 
-    if buf.len() != size as usize {
+    if buf.len() < size as usize {
         return Err(TpmErrorKind::ParseUnderflow);
+    } else if buf.len() > size as usize {
+        return Err(TpmErrorKind::TrailingData);
     }
 
     let rc = TpmRc::try_from(code)?;

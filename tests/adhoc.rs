@@ -19,18 +19,16 @@ use tpm2_protocol::{
     TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmWriter, TPM_MAX_COMMAND_SIZE,
 };
 
-fn test_response_parse_remainder() {
+fn test_response_trailing_data() {
     let mut pcr_values = TpmlDigest::new();
     pcr_values
         .try_push(Tpm2bDigest::try_from(&[0xAA; 32][..]).unwrap())
         .unwrap();
-
     let original_body = TpmPcrReadResponse {
         pcr_update_counter: 1,
         pcr_selection_out: TpmlPcrSelection::default(),
         pcr_values,
     };
-
     let mut valid_full_response = [0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
         let mut writer = TpmWriter::new(&mut valid_full_response);
@@ -43,13 +41,11 @@ fn test_response_parse_remainder() {
         .unwrap();
         writer.len()
     };
-
     let trailing_data = [0xDE, 0xAD, 0xBE, 0xEF];
     let mut response_with_trailer = valid_full_response[..len].to_vec();
     response_with_trailer.extend_from_slice(&trailing_data);
-
     let result = tpm_parse_response(TpmCc::PcrRead, &response_with_trailer);
-    assert_eq!(result, Err(TpmErrorKind::ParseUnderflow));
+    assert_eq!(result, Err(TpmErrorKind::TrailingData));
 }
 
 fn test_tpm2b_build_length_too_large() {
@@ -59,21 +55,16 @@ fn test_tpm2b_build_length_too_large() {
             u16::MAX as usize + 1,
         )
     };
-
     let mut out_buf = [0u8; 10];
     let mut writer = TpmWriter::new(&mut out_buf);
-
     let result = build_tpm2b(&mut writer, large_slice);
-
     assert_eq!(result, Err(TpmErrorKind::BuildCapacity),);
 }
 
 fn test_tpm_buffer_slice_too_large() {
     const CAPACITY: usize = 4096;
     let data = vec![0; CAPACITY + 1];
-
     let result = TpmBuffer::<CAPACITY>::try_from(data.as_slice());
-
     assert_eq!(
         result,
         Err(TpmErrorKind::BuildCapacity),
@@ -162,7 +153,6 @@ fn test_tpm_rc_index_from_raw() {
         ("Session index 0", 0x088E, Some(TpmRcIndex::Session(0))),
         ("Session index 7", 0x0F8E, Some(TpmRcIndex::Session(7))),
     ];
-
     for (description, raw_rc, expected) in cases {
         let rc = TpmRc::try_from(raw_rc).unwrap();
         assert_eq!(rc.index(), expected, "{description}");
@@ -175,7 +165,6 @@ fn test_tpmt_roundtrip_sym_def_xor() {
         key_bits: TpmuSymKeyBits::Xor(TpmAlgId::Sha256),
         mode: TpmuSymMode::Xor(TpmAlgId::Null),
     };
-
     let mut buf = [0u8; 1024];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
@@ -183,9 +172,7 @@ fn test_tpmt_roundtrip_sym_def_xor() {
         writer.len()
     };
     let built_bytes = &buf[..len];
-
     let (parsed_sym_def, remainder) = TpmtSymDef::parse(built_bytes).unwrap();
-
     assert_eq!(
         parsed_sym_def, original_sym_def,
         "Parsed TpmtSymDef does not match original"
@@ -398,7 +385,7 @@ fn test_dynamic_roundtrip() {
 }
 
 test_suite!(
-    test_response_parse_remainder,
+    test_response_trailing_data,
     test_tpm2b_build_length_too_large,
     test_tpm_buffer_slice_too_large,
     test_tpm_rc_base_from_raw,
