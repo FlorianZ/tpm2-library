@@ -14,13 +14,13 @@ const COMMAND_DATA: &str = include_str!("command.txt");
 
 fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
     if s.len() % 2 != 0 {
-        return Err("Hex string must have an even number of characters");
+        return Err("invalid hex size");
     }
     (0..s.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
         .collect::<Result<Vec<u8>, _>>()
-        .map_err(|_| "Invalid hex character")
+        .map_err(|_| "invalid hex character")
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> String {
@@ -68,9 +68,8 @@ fn main() {
         test_count += 1;
         let test_name = format!("command_{}", i + 1);
         let success = run_test(&test_name, || {
-            let original_bytes = hex_to_bytes(trimmed).expect("Failed to parse hex");
-            let (_handles, body, sessions) =
-                tpm_parse_command(&original_bytes).expect("Failed to parse command");
+            let original_bytes = hex_to_bytes(trimmed).unwrap();
+            let (_handles, body, sessions) = tpm_parse_command(&original_bytes).unwrap();
 
             let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
             let built_len = {
@@ -427,7 +426,7 @@ fn main() {
                     }
                 };
 
-                cmd_struct.expect("Failed to build command");
+                cmd_struct.unwrap();
                 writer.len()
             };
             let rebuilt_slice = &built_bytes[..built_len];
