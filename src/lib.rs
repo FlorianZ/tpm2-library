@@ -104,11 +104,11 @@ pub enum TpmErrorKind {
 impl fmt::Display for TpmErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AuthMissing => write!(f, "auth value missing"),
-            Self::BuildCapacity => write!(f, "build capacity limit exceeded"),
-            Self::BuildOverflow => write!(f, "build buffer overflow"),
+            Self::AuthMissing => write!(f, "auth missing"),
+            Self::BuildCapacity => write!(f, "build capacity"),
+            Self::BuildOverflow => write!(f, "build overflow"),
             Self::InvalidMagic { expected, got } => {
-                write!(f, "invalid magic: expected 0x{expected:x}, got 0x{got:x}")
+                write!(f, "invalid magic 0x{got:x}: expected 0x{expected:x}")
             }
             Self::InvalidTag {
                 type_name,
@@ -117,19 +117,19 @@ impl fmt::Display for TpmErrorKind {
             } => {
                 write!(
                     f,
-                    "invalid tag for {type_name}: expected 0x{expected:x}, got 0x{got:x}"
+                    "invalid tag 0x{got:x} for {type_name}: expected 0x{expected:x}"
                 )
             }
             Self::InvalidValue => write!(f, "invalid value"),
             Self::NotDiscriminant(type_name, value) => {
-                write!(f, "unknown discriminant for '{type_name}': 0x{value:x} ")
+                write!(f, "not discriminant for {type_name}: 0x{value:x}")
             }
             Self::ParseCapacity => {
-                write!(f, "parse capacity limit exceeded")
+                write!(f, "parse capacity")
             }
-            Self::ParseUnderflow => write!(f, "parse buffer underflow"),
+            Self::ParseUnderflow => write!(f, "parse underflow"),
             Self::TrailingData => write!(f, "trailing data"),
-            Self::Unreachable => write!(f, "unreachable code path"),
+            Self::Unreachable => write!(f, "unreachable"),
         }
     }
 }
