@@ -13,12 +13,7 @@ use crate::{
 use core::{convert::TryFrom, mem::size_of};
 
 /// Represents the dualistic nature of responses.
-#[derive(Debug, PartialEq, Eq)]
-#[allow(clippy::large_enum_variant)]
-pub enum TpmResponse {
-    Success(TpmResponseBody, TpmAuthResponses),
-    ReturnCode(TpmRc),
-}
+pub type TpmResponseResult = Result<(TpmResponseBody, TpmAuthResponses), TpmRc>;
 
 /// Parses a command from a TPM command buffer.
 ///
@@ -125,7 +120,7 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
 /// * `TpmErrorKind::InvalidTag` if the tag in the buffer does not match expected
 /// * `TpmErrorKind::NotDiscriminant` if the buffer contains an unsupported command code
 /// * `TpmErrorKind::TrailingData` if the response has after spurious data left
-pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponse> {
+pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult> {
     if buf.len() < TPM_HEADER_SIZE {
         return Err(TpmErrorKind::ParseUnderflow);
     }
@@ -142,7 +137,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponse> {
 
     let rc = TpmRc::try_from(code)?;
     if rc.is_error() || rc.is_warning() {
-        return Ok(TpmResponse::ReturnCode(rc));
+        return Ok(Err(rc));
     }
 
     let tag = TpmSt::try_from(tag_raw).map_err(|()| {
@@ -176,5 +171,5 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponse> {
         return Err(TpmErrorKind::TrailingData);
     }
 
-    Ok(TpmResponse::Success(body, auth_responses))
+    Ok(Ok((body, auth_responses)))
 }
