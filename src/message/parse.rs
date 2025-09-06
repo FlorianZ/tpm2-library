@@ -4,10 +4,10 @@
 
 use super::{
     TpmAuthCommands, TpmAuthResponses, TpmCommandBody, TpmHandles, TpmResponseBody,
-    PARSE_COMMAND_MAP, PARSE_RESPONSE_MAP, TPM_HEADER_SIZE,
+    PARSE_COMMAND_MAP, PARSE_RESPONSE_MAP,
 };
 use crate::{
-    data::{TpmCc, TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
+    data::{TpmCc, TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse, TPM_HEADER_SIZE},
     TpmErrorKind, TpmNotDiscriminant, TpmParse, TpmResult,
 };
 use core::{convert::TryFrom, mem::size_of};

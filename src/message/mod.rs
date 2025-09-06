@@ -120,8 +120,6 @@ pub trait TpmResponseBodyParse: Sized {
     fn parse_body(tag: data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 
-pub const TPM_HEADER_SIZE: usize = 10;
-
 tpm_dispatch! {
     (TpmNvUndefineSpaceSpecialCommand, TpmNvUndefineSpaceSpecialResponse, NvUndefineSpaceSpecial),
     (TpmEvictControlCommand, TpmEvictControlResponse, EvictControl),

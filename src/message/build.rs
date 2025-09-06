@@ -3,8 +3,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    data::{TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    message::{TpmCommandBuild, TpmHeader, TpmResponseBuild, TPM_HEADER_SIZE},
+    data::{TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse, TPM_HEADER_SIZE},
+    message::{TpmCommandBuild, TpmHeader, TpmResponseBuild},
     TpmBuild, TpmErrorKind, TpmResult, TpmSized,
 };
 use core::mem::size_of;
