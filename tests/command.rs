@@ -1,59 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 #![allow(clippy::all)]
 #![allow(clippy::pedantic)]
 
-use std::{io::IsTerminal, panic, vec::Vec};
+mod common;
+
+use crate::common::{bytes_to_hex, hex_to_bytes, run_test};
 use tpm2_protocol::{
     message::{tpm_build_command, tpm_parse_command, TpmCommandBody},
     TpmWriter, TPM_MAX_COMMAND_SIZE,
 };
 
 const COMMAND_DATA: &str = include_str!("command.txt");
-
-fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
-    if s.len() % 2 != 0 {
-        return Err("invalid hex size");
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect::<Result<Vec<u8>, _>>()
-        .map_err(|_| "invalid hex character")
-}
-
-fn bytes_to_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn print_ok() {
-    if std::io::stderr().is_terminal() {
-        println!("\x1B[32mOK\x1B[0m");
-    } else {
-        println!("OK");
-    }
-}
-
-fn print_failed() {
-    if std::io::stderr().is_terminal() {
-        println!("\x1B[31mFAILED\x1B[0m");
-    } else {
-        println!("FAILED");
-    }
-}
-
-fn run_test(name: &str, test_fn: impl FnOnce() + panic::UnwindSafe) -> bool {
-    print!("Test {name} ... ");
-    let result = panic::catch_unwind(test_fn);
-    if result.is_err() {
-        print_failed();
-        false
-    } else {
-        print_ok();
-        true
-    }
-}
 
 fn main() {
     let mut failed_count = 0;

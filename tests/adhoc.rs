@@ -5,48 +5,20 @@
 #![allow(clippy::all)]
 #![allow(clippy::pedantic)]
 
+mod common;
+
+use crate::common::{print_failed, print_ok};
 use std::{
-    any::Any, collections::HashMap, convert::TryFrom, fmt::Debug, io::IsTerminal, string::ToString,
-    vec::Vec,
+    any::Any, collections::HashMap, convert::TryFrom, fmt::Debug, string::ToString, vec::Vec,
 };
 use tpm2_protocol::{
     build_tpm2b,
     data::{
-        Tpm2bDigest, TpmAlgId, TpmCc, TpmRc, TpmRcBase, TpmRcIndex, TpmaSession, TpmlDigest,
-        TpmlPcrSelection, TpmsClockInfo, TpmtSymDef, TpmuSymKeyBits, TpmuSymMode,
+        TpmAlgId, TpmRc, TpmRcBase, TpmRcIndex, TpmaSession, TpmsClockInfo, TpmtSymDef,
+        TpmuSymKeyBits, TpmuSymMode,
     },
-    message::{tpm_build_response, tpm_parse_response, TpmPcrReadResponse},
     TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmWriter, TPM_MAX_COMMAND_SIZE,
 };
-
-fn test_response_trailing_data() {
-    let mut pcr_values = TpmlDigest::new();
-    pcr_values
-        .try_push(Tpm2bDigest::try_from(&[0xAA; 32][..]).unwrap())
-        .unwrap();
-    let original_body = TpmPcrReadResponse {
-        pcr_update_counter: 1,
-        pcr_selection_out: TpmlPcrSelection::default(),
-        pcr_values,
-    };
-    let mut valid_full_response = [0u8; TPM_MAX_COMMAND_SIZE];
-    let len = {
-        let mut writer = TpmWriter::new(&mut valid_full_response);
-        tpm_build_response(
-            &original_body,
-            &[],
-            TpmRc::from(TpmRcBase::Success),
-            &mut writer,
-        )
-        .unwrap();
-        writer.len()
-    };
-    let trailing_data = [0xDE, 0xAD, 0xBE, 0xEF];
-    let mut response_with_trailer = valid_full_response[..len].to_vec();
-    response_with_trailer.extend_from_slice(&trailing_data);
-    let result = tpm_parse_response(TpmCc::PcrRead, &response_with_trailer);
-    assert_eq!(result, Err(TpmErrorKind::TrailingData));
-}
 
 fn test_tpm2b_build_length_too_large() {
     let large_slice: &[u8] = unsafe {
@@ -181,22 +153,6 @@ fn test_tpmt_roundtrip_sym_def_xor() {
         remainder.is_empty(),
         "Buffer not fully consumed after parsing TpmtSymDef"
     );
-}
-
-fn print_ok() {
-    if std::io::stderr().is_terminal() {
-        println!("\x1B[32mOK\x1B[0m");
-    } else {
-        println!("OK");
-    }
-}
-
-fn print_failed() {
-    if std::io::stderr().is_terminal() {
-        println!("\x1B[31mFAILED\x1B[0m");
-    } else {
-        println!("FAILED");
-    }
 }
 
 macro_rules! test_suite {
@@ -385,7 +341,6 @@ fn test_dynamic_roundtrip() {
 }
 
 test_suite!(
-    test_response_trailing_data,
     test_tpm2b_build_length_too_large,
     test_tpm_buffer_slice_too_large,
     test_tpm_rc_base_from_raw,
