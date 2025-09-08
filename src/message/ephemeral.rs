@@ -15,8 +15,6 @@ tpm_struct! {
     kind: Command,
     name: TpmCommitCommand,
     cc: TpmCc::Commit,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub sign_handle: crate::data::TpmiDhObject,
     },
@@ -32,8 +30,6 @@ tpm_struct! {
     kind: Response,
     name: TpmCommitResponse,
     cc: TpmCc::Commit,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub k: Tpm2bEccPoint,
@@ -48,8 +44,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEcEphemeralCommand,
     cc: TpmCc::EcEphemeral,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub curve_id: TpmEccCurve,
@@ -61,8 +55,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEcEphemeralResponse,
     cc: TpmCc::EcEphemeral,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub q: Tpm2bEccPoint,

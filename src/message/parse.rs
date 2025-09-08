@@ -51,22 +51,11 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
             TpmErrorKind::NotDiscriminant("TpmCc", TpmNotDiscriminant::Unsigned(u64::from(cc_raw)))
         })?;
 
-    if tag == TpmSt::Sessions && !dispatch.2 {
-        return Err(TpmErrorKind::InvalidTag {
-            type_name: "TpmSt",
-            expected: TpmSt::NoSessions as u16,
-            got: tag_raw,
-        });
-    }
-    if tag == TpmSt::NoSessions && !dispatch.1 {
-        return Err(TpmErrorKind::InvalidTag {
-            type_name: "TpmSt",
-            expected: TpmSt::Sessions as u16,
-            got: tag_raw,
-        });
+    if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
+        return Err(TpmErrorKind::InvalidValue);
     }
 
-    let handle_area_size = dispatch.3 * size_of::<u32>();
+    let handle_area_size = dispatch.1 * size_of::<u32>();
     if body_buf.len() < handle_area_size {
         return Err(TpmErrorKind::ParseUnderflow);
     }
@@ -95,7 +84,7 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
         after_handles
     };
 
-    let (command_data, param_remainder) = (dispatch.4)(handle_area, param_area)?;
+    let (command_data, param_remainder) = (dispatch.2)(handle_area, param_area)?;
 
     if !param_remainder.is_empty() {
         return Err(TpmErrorKind::TrailingData);
@@ -154,7 +143,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult>
             )
         })?;
 
-    let (body, mut session_area) = (dispatch.2)(tag, body_buf)?;
+    let (body, mut session_area) = (dispatch.1)(tag, body_buf)?;
 
     let mut auth_responses = TpmAuthResponses::new();
     if tag == TpmSt::Sessions {

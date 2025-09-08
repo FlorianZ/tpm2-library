@@ -18,8 +18,6 @@ tpm_struct! {
     kind: Command,
     name: TpmRsaEncryptCommand,
     cc: TpmCc::RsaEncrypt,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -35,8 +33,6 @@ tpm_struct! {
     kind: Response,
     name: TpmRsaEncryptResponse,
     cc: TpmCc::RsaEncrypt,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_data: Tpm2bPublicKeyRsa,
@@ -48,8 +44,6 @@ tpm_struct! {
     kind: Command,
     name: TpmRsaDecryptCommand,
     cc: TpmCc::RsaDecrypt,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -65,8 +59,6 @@ tpm_struct! {
     kind: Response,
     name: TpmRsaDecryptResponse,
     cc: TpmCc::RsaDecrypt,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub message: Tpm2bPublicKeyRsa,
@@ -78,8 +70,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEcdhKeyGenCommand,
     cc: TpmCc::EcdhKeyGen,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -91,8 +81,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEcdhKeyGenResponse,
     cc: TpmCc::EcdhKeyGen,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub z_point: Tpm2bEccPoint,
@@ -105,8 +93,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEcdhZGenCommand,
     cc: TpmCc::EcdhZGen,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -120,8 +106,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEcdhZGenResponse,
     cc: TpmCc::EcdhZGen,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_point: Tpm2bEccPoint,
@@ -133,8 +117,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEccParametersCommand,
     cc: TpmCc::EccParameters,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub curve_id: TpmEccCurve,
@@ -146,8 +128,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEccParametersResponse,
     cc: TpmCc::EccParameters,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub parameters: TpmsAlgorithmDetailEcc,
@@ -159,8 +139,6 @@ tpm_struct! {
     kind: Command,
     name: TpmZGen2PhaseCommand,
     cc: TpmCc::ZGen2Phase,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub key_a: crate::data::TpmiDhObject,
     },
@@ -177,8 +155,6 @@ tpm_struct! {
     kind: Response,
     name: TpmZGen2PhaseResponse,
     cc: TpmCc::ZGen2Phase,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_z1: Tpm2bEccPoint,
@@ -191,8 +167,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEccEncryptCommand,
     cc: TpmCc::EccEncrypt,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -207,8 +181,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEccEncryptResponse,
     cc: TpmCc::EccEncrypt,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub c1: Tpm2bEccPoint,
@@ -222,8 +194,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEccDecryptCommand,
     cc: TpmCc::EccDecrypt,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -240,8 +210,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEccDecryptResponse,
     cc: TpmCc::EccDecrypt,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub plaintext: crate::data::Tpm2bMaxBuffer,

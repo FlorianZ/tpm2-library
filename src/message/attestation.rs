@@ -17,8 +17,6 @@ tpm_struct! {
     kind: Command,
     name: TpmCertifyCommand,
     cc: TpmCc::Certify,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub object_handle: crate::data::TpmiDhObject,
         pub sign_handle: crate::data::TpmiDhObject,
@@ -34,8 +32,6 @@ tpm_struct! {
     kind: Response,
     name: TpmCertifyResponse,
     cc: TpmCc::Certify,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub certify_info: Tpm2bAttest,
@@ -48,8 +44,6 @@ tpm_struct! {
     kind: Command,
     name: TpmCertifyCreationCommand,
     cc: TpmCc::CertifyCreation,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub sign_handle: crate::data::TpmiDhObject,
         pub object_handle: crate::data::TpmiDhObject,
@@ -67,8 +61,6 @@ tpm_struct! {
     kind: Response,
     name: TpmCertifyCreationResponse,
     cc: TpmCc::CertifyCreation,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub certify_info: Tpm2bAttest,
@@ -81,8 +73,6 @@ tpm_struct! {
     kind: Command,
     name: TpmQuoteCommand,
     cc: TpmCc::Quote,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub sign_handle: crate::data::TpmiDhObject,
     },
@@ -98,8 +88,6 @@ tpm_struct! {
     kind: Response,
     name: TpmQuoteResponse,
     cc: TpmCc::Quote,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub quoted: Tpm2bAttest,
@@ -112,8 +100,6 @@ tpm_struct! {
     kind: Command,
     name: TpmGetSessionAuditDigestCommand,
     cc: TpmCc::GetSessionAuditDigest,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub privacy_admin_handle: crate::data::TpmiRhHierarchy,
         pub sign_handle: crate::data::TpmiDhObject,
@@ -130,8 +116,6 @@ tpm_struct! {
     kind: Response,
     name: TpmGetSessionAuditDigestResponse,
     cc: TpmCc::GetSessionAuditDigest,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub audit_info: Tpm2bAttest,
@@ -144,8 +128,6 @@ tpm_struct! {
     kind: Command,
     name: TpmGetCommandAuditDigestCommand,
     cc: TpmCc::GetCommandAuditDigest,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub privacy_admin_handle: crate::data::TpmiRhHierarchy,
         pub sign_handle: crate::data::TpmiDhObject,
@@ -161,8 +143,6 @@ tpm_struct! {
     kind: Response,
     name: TpmGetCommandAuditDigestResponse,
     cc: TpmCc::GetCommandAuditDigest,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub audit_info: Tpm2bAttest,
@@ -175,8 +155,6 @@ tpm_struct! {
     kind: Command,
     name: TpmGetTimeCommand,
     cc: TpmCc::GetTime,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub privacy_admin_handle: crate::data::TpmiRhHierarchy,
         pub sign_handle: crate::data::TpmiDhObject,
@@ -192,8 +170,6 @@ tpm_struct! {
     kind: Response,
     name: TpmGetTimeResponse,
     cc: TpmCc::GetTime,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub time_info: Tpm2bAttest,

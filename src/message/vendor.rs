@@ -12,8 +12,6 @@ tpm_struct! {
     kind: Command,
     name: TpmVendorTcgTestCommand,
     cc: TpmCc::VendorTcgTest,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub input_data: Tpm2bData,
@@ -25,8 +23,6 @@ tpm_struct! {
     kind: Response,
     name: TpmVendorTcgTestResponse,
     cc: TpmCc::VendorTcgTest,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub output_data: Tpm2bData,

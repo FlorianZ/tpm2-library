@@ -16,8 +16,6 @@ tpm_struct! {
     kind: Command,
     name: TpmTestParmsCommand,
     cc: TpmCc::TestParms,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub parameters: TpmtPublicParms,
@@ -29,8 +27,6 @@ tpm_struct! {
     kind: Response,
     name: TpmTestParmsResponse,
     cc: TpmCc::TestParms,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {}
 }
@@ -40,8 +36,6 @@ tpm_struct! {
     kind: Command,
     name: TpmGetCapabilityCommand,
     cc: TpmCc::GetCapability,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub cap: TpmCap,
@@ -55,8 +49,6 @@ tpm_struct! {
     kind: Response,
     name: TpmGetCapabilityResponse,
     cc: TpmCc::GetCapability,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub more_data: TpmiYesNo,

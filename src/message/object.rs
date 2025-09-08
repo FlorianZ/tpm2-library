@@ -21,8 +21,6 @@ tpm_struct! {
     kind: Command,
     name: TpmCreateCommand,
     cc: TpmCc::Create,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub parent_handle: crate::data::TpmiDhObject,
     },
@@ -39,8 +37,6 @@ tpm_struct! {
     kind: Response,
     name: TpmCreateResponse,
     cc: TpmCc::Create,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_private: Tpm2bPrivate,
@@ -56,8 +52,6 @@ tpm_struct! {
     kind: Command,
     name: TpmCreateLoadedCommand,
     cc: TpmCc::CreateLoaded,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub parent_handle: crate::data::TpmiDhParent,
     },
@@ -72,8 +66,6 @@ tpm_struct! {
     kind: Response,
     name: TpmCreateLoadedResponse,
     cc: TpmCc::CreateLoaded,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub object_handle: TpmTransient,
     },
@@ -89,8 +81,6 @@ tpm_struct! {
     kind: Command,
     name: TpmLoadCommand,
     cc: TpmCc::Load,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub parent_handle: crate::data::TpmiDhObject,
     },
@@ -105,8 +95,6 @@ tpm_struct! {
     kind: Response,
     name: TpmLoadResponse,
     cc: TpmCc::Load,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub object_handle: TpmTransient,
     },
@@ -120,8 +108,6 @@ tpm_struct! {
     kind: Command,
     name: TpmLoadExternalCommand,
     cc: TpmCc::LoadExternal,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub in_private: Tpm2bSensitive,
@@ -135,8 +121,6 @@ tpm_struct! {
     kind: Response,
     name: TpmLoadExternalResponse,
     cc: TpmCc::LoadExternal,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub object_handle: TpmTransient,
     },
@@ -150,8 +134,6 @@ tpm_struct! {
     kind: Command,
     name: TpmReadPublicCommand,
     cc: TpmCc::ReadPublic,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub object_handle: crate::data::TpmiDhObject,
     },
@@ -163,8 +145,6 @@ tpm_struct! {
     kind: Response,
     name: TpmReadPublicResponse,
     cc: TpmCc::ReadPublic,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub out_public: Tpm2bPublic,
@@ -178,8 +158,6 @@ tpm_struct! {
     kind: Command,
     name: TpmActivateCredentialCommand,
     cc: TpmCc::ActivateCredential,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub activate_handle: crate::data::TpmiDhObject,
         pub key_handle: crate::data::TpmiDhObject,
@@ -195,8 +173,6 @@ tpm_struct! {
     kind: Response,
     name: TpmActivateCredentialResponse,
     cc: TpmCc::ActivateCredential,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub cert_info: Tpm2bDigest,
@@ -208,8 +184,6 @@ tpm_struct! {
     kind: Command,
     name: TpmMakeCredentialCommand,
     cc: TpmCc::MakeCredential,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub handle: crate::data::TpmiDhObject,
     },
@@ -224,8 +198,6 @@ tpm_struct! {
     kind: Response,
     name: TpmMakeCredentialResponse,
     cc: TpmCc::MakeCredential,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub credential_blob: Tpm2bIdObject,
@@ -238,8 +210,6 @@ tpm_struct! {
     kind: Command,
     name: TpmUnsealCommand,
     cc: TpmCc::Unseal,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub item_handle: crate::data::TpmiDhObject,
     },
@@ -251,8 +221,6 @@ tpm_struct! {
     kind: Response,
     name: TpmUnsealResponse,
     cc: TpmCc::Unseal,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_data: Tpm2bSensitiveData,
@@ -264,8 +232,6 @@ tpm_struct! {
     kind: Command,
     name: TpmObjectChangeAuthCommand,
     cc: TpmCc::ObjectChangeAuth,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub object_handle: crate::data::TpmiDhObject,
         pub parent_handle: crate::data::TpmiDhObject,
@@ -280,8 +246,6 @@ tpm_struct! {
     kind: Response,
     name: TpmObjectChangeAuthResponse,
     cc: TpmCc::ObjectChangeAuth,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_private: Tpm2bPrivate,

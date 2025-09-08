@@ -25,8 +25,6 @@ tpm_struct! {
     kind: Command,
     name: TpmCreatePrimaryCommand,
     cc: TpmCc::CreatePrimary,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub primary_handle: crate::data::TpmiRhHierarchy,
     },
@@ -43,8 +41,6 @@ tpm_struct! {
     kind: Response,
     name: TpmCreatePrimaryResponse,
     cc: TpmCc::CreatePrimary,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub object_handle: TpmTransient,
     },
@@ -62,8 +58,6 @@ tpm_struct! {
     kind: Command,
     name: TpmHierarchyControlCommand,
     cc: TpmCc::HierarchyControl,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -78,8 +72,6 @@ tpm_struct! {
     kind: Response,
     name: TpmHierarchyControlResponse,
     cc: TpmCc::HierarchyControl,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -89,8 +81,6 @@ tpm_struct! {
     kind: Command,
     name: TpmHierarchyChangeAuthCommand,
     cc: TpmCc::HierarchyChangeAuth,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -104,8 +94,6 @@ tpm_struct! {
     kind: Response,
     name: TpmHierarchyChangeAuthResponse,
     cc: TpmCc::HierarchyChangeAuth,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -115,8 +103,6 @@ tpm_struct! {
     kind: Command,
     name: TpmChangePpsCommand,
     cc: TpmCc::ChangePps,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -128,8 +114,6 @@ tpm_struct! {
     kind: Response,
     name: TpmChangePpsResponse,
     cc: TpmCc::ChangePps,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -139,8 +123,6 @@ tpm_struct! {
     kind: Command,
     name: TpmChangeEpsCommand,
     cc: TpmCc::ChangeEps,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -152,8 +134,6 @@ tpm_struct! {
     kind: Response,
     name: TpmChangeEpsResponse,
     cc: TpmCc::ChangeEps,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -163,8 +143,6 @@ tpm_struct! {
     kind: Command,
     name: TpmClearCommand,
     cc: TpmCc::Clear,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -176,8 +154,6 @@ tpm_struct! {
     kind: Response,
     name: TpmClearResponse,
     cc: TpmCc::Clear,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -187,8 +163,6 @@ tpm_struct! {
     kind: Command,
     name: TpmClearControlCommand,
     cc: TpmCc::ClearControl,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth: crate::data::TpmiRhHierarchy,
     },
@@ -202,8 +176,6 @@ tpm_struct! {
     kind: Response,
     name: TpmClearControlResponse,
     cc: TpmCc::ClearControl,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -213,8 +185,6 @@ tpm_struct! {
     kind: Command,
     name: TpmSetPrimaryPolicyCommand,
     cc: TpmCc::SetPrimaryPolicy,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -229,8 +199,6 @@ tpm_struct! {
     kind: Response,
     name: TpmSetPrimaryPolicyResponse,
     cc: TpmCc::SetPrimaryPolicy,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -240,8 +208,6 @@ tpm_struct! {
     kind: Command,
     name: TpmReadOnlyControlCommand,
     cc: TpmCc::ReadOnlyControl,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -255,8 +221,6 @@ tpm_struct! {
     kind: Response,
     name: TpmReadOnlyControlResponse,
     cc: TpmCc::ReadOnlyControl,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

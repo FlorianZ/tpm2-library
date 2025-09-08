@@ -12,8 +12,6 @@ tpm_struct! {
     kind: Command,
     name: TpmDictionaryAttackLockResetCommand,
     cc: TpmCc::DictionaryAttackLockReset,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub lock_handle: crate::data::TpmiRhHierarchy,
     },
@@ -25,8 +23,6 @@ tpm_struct! {
     kind: Response,
     name: TpmDictionaryAttackLockResetResponse,
     cc: TpmCc::DictionaryAttackLockReset,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -36,8 +32,6 @@ tpm_struct! {
     kind: Command,
     name: TpmDictionaryAttackParametersCommand,
     cc: TpmCc::DictionaryAttackParameters,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub lock_handle: crate::data::TpmiRhHierarchy,
     },
@@ -53,8 +47,6 @@ tpm_struct! {
     kind: Response,
     name: TpmDictionaryAttackParametersResponse,
     cc: TpmCc::DictionaryAttackParameters,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

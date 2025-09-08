@@ -15,8 +15,6 @@ tpm_struct! {
     kind: Command,
     name: TpmStartAuthSessionCommand,
     cc: TpmCc::StartAuthSession,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub tpm_key: crate::data::TpmiDhObject,
         pub bind: crate::data::TpmiDhObject,
@@ -35,8 +33,6 @@ tpm_struct! {
     kind: Response,
     name: TpmStartAuthSessionResponse,
     cc: TpmCc::StartAuthSession,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub session_handle: TpmSession,
     },
@@ -50,8 +46,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyRestartCommand,
     cc: TpmCc::PolicyRestart,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub session_handle: crate::data::TpmiShAuthSession,
     },
@@ -63,8 +57,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyRestartResponse,
     cc: TpmCc::PolicyRestart,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

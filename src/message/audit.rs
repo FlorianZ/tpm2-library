@@ -14,8 +14,6 @@ tpm_struct! {
     kind: Command,
     name: TpmSetCommandCodeAuditStatusCommand,
     cc: TpmCc::SetCommandCodeAuditStatus,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth: crate::data::TpmiRhHierarchy,
     },
@@ -31,8 +29,6 @@ tpm_struct! {
     kind: Response,
     name: TpmSetCommandCodeAuditStatusResponse,
     cc: TpmCc::SetCommandCodeAuditStatus,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

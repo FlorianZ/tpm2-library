@@ -16,8 +16,6 @@ tpm_struct! {
     kind: Command,
     name: TpmSelfTestCommand,
     cc: TpmCc::SelfTest,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub full_test: TpmiYesNo,
@@ -29,8 +27,6 @@ tpm_struct! {
     kind: Response,
     name: TpmSelfTestResponse,
     cc: TpmCc::SelfTest,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -40,8 +36,6 @@ tpm_struct! {
     kind: Command,
     name: TpmIncrementalSelfTestCommand,
     cc: TpmCc::IncrementalSelfTest,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub to_test: TpmlAlg,
@@ -53,8 +47,6 @@ tpm_struct! {
     kind: Response,
     name: TpmIncrementalSelfTestResponse,
     cc: TpmCc::IncrementalSelfTest,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub to_do_list: TpmlAlg,
@@ -66,8 +58,6 @@ tpm_struct! {
     kind: Command,
     name: TpmGetTestResultCommand,
     cc: TpmCc::GetTestResult,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -77,8 +67,6 @@ tpm_struct! {
     kind: Response,
     name: TpmGetTestResultResponse,
     cc: TpmCc::GetTestResult,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_data: Tpm2bMaxBuffer,

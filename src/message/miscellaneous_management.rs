@@ -15,8 +15,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPpCommandsCommand,
     cc: TpmCc::PpCommands,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth: crate::data::TpmiRhHierarchy,
     },
@@ -31,8 +29,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPpCommandsResponse,
     cc: TpmCc::PpCommands,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -42,8 +38,6 @@ tpm_struct! {
     kind: Command,
     name: TpmSetAlgorithmSetCommand,
     cc: TpmCc::SetAlgorithmSet,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -57,8 +51,6 @@ tpm_struct! {
     kind: Response,
     name: TpmSetAlgorithmSetResponse,
     cc: TpmCc::SetAlgorithmSet,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

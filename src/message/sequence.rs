@@ -18,8 +18,6 @@ tpm_struct! {
     kind: Command,
     name: TpmHmacStartCommand,
     cc: TpmCc::HmacStart,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub handle: crate::data::TpmiDhObject,
     },
@@ -34,8 +32,6 @@ tpm_struct! {
     kind: Response,
     name: TpmHmacStartResponse,
     cc: TpmCc::HmacStart,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub sequence_handle: TpmTransient,
     },
@@ -47,8 +43,6 @@ tpm_struct! {
     kind: Command,
     name: TpmHashSequenceStartCommand,
     cc: TpmCc::HashSequenceStart,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub auth: Tpm2bAuth,
@@ -61,8 +55,6 @@ tpm_struct! {
     kind: Response,
     name: TpmHashSequenceStartResponse,
     cc: TpmCc::HashSequenceStart,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub sequence_handle: TpmTransient,
     },
@@ -74,8 +66,6 @@ tpm_struct! {
     kind: Command,
     name: TpmSequenceUpdateCommand,
     cc: TpmCc::SequenceUpdate,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub sequence_handle: crate::data::TpmiDhObject,
     },
@@ -89,8 +79,6 @@ tpm_struct! {
     kind: Response,
     name: TpmSequenceUpdateResponse,
     cc: TpmCc::SequenceUpdate,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -100,8 +88,6 @@ tpm_struct! {
     kind: Command,
     name: TpmSequenceCompleteCommand,
     cc: TpmCc::SequenceComplete,
-    no_sessions: true,
-    with_sessions: true,
     handles: {
         pub sequence_handle: crate::data::TpmiDhObject,
     },
@@ -116,8 +102,6 @@ tpm_struct! {
     kind: Response,
     name: TpmSequenceCompleteResponse,
     cc: TpmCc::SequenceComplete,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub result: Tpm2bDigest,
@@ -130,8 +114,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEventSequenceCompleteCommand,
     cc: TpmCc::EventSequenceComplete,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub pcr_handle: u32,
         pub sequence_handle: crate::data::TpmiDhObject,
@@ -146,8 +128,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEventSequenceCompleteResponse,
     cc: TpmCc::EventSequenceComplete,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub results: TpmlDigestValues,

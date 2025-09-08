@@ -16,8 +16,6 @@ tpm_struct! {
     kind: Command,
     name: TpmContextLoadCommand,
     cc: TpmCc::ContextLoad,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub context: TpmsContext,
@@ -29,8 +27,6 @@ tpm_struct! {
     kind: Response,
     name: TpmContextLoadResponse,
     cc: TpmCc::ContextLoad,
-    no_sessions: true,
-    with_sessions: false,
     handles: {
         pub loaded_handle: TpmTransient,
     },
@@ -42,8 +38,6 @@ tpm_struct! {
     kind: Command,
     name: TpmContextSaveCommand,
     cc: TpmCc::ContextSave,
-    no_sessions: true,
-    with_sessions: false,
     handles: {
         pub save_handle: TpmTransient,
     },
@@ -55,8 +49,6 @@ tpm_struct! {
     kind: Response,
     name: TpmContextSaveResponse,
     cc: TpmCc::ContextSave,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub context: TpmsContext,
@@ -68,8 +60,6 @@ tpm_struct! {
     kind: Command,
     name: TpmFlushContextCommand,
     cc: TpmCc::FlushContext,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub flush_handle: u32,
@@ -81,8 +71,6 @@ tpm_struct! {
     kind: Response,
     name: TpmFlushContextResponse,
     cc: TpmCc::FlushContext,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {}
 }
@@ -92,8 +80,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEvictControlCommand,
     cc: TpmCc::EvictControl,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth: crate::data::TpmiRhHierarchy,
         pub object_handle: crate::data::TpmiDhObject,
@@ -108,8 +94,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEvictControlResponse,
     cc: TpmCc::EvictControl,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

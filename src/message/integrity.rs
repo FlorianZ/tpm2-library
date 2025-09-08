@@ -18,8 +18,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrEventCommand,
     cc: TpmCc::PcrEvent,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub pcr_handle: u32,
     },
@@ -33,8 +31,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrEventResponse,
     cc: TpmCc::PcrEvent,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub digests: TpmlDigestValues,
@@ -46,8 +42,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrReadCommand,
     cc: TpmCc::PcrRead,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub pcr_selection_in: TpmlPcrSelection,
@@ -59,8 +53,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrReadResponse,
     cc: TpmCc::PcrRead,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub pcr_update_counter: u32,
@@ -74,8 +66,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrExtendCommand,
     cc: TpmCc::PcrExtend,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub pcr_handle: u32,
     },
@@ -89,8 +79,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrExtendResponse,
     cc: TpmCc::PcrExtend,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -100,8 +88,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrAllocateCommand,
     cc: TpmCc::PcrAllocate,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -115,8 +101,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrAllocateResponse,
     cc: TpmCc::PcrAllocate,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub allocation_success: TpmiYesNo,
@@ -131,8 +115,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrSetAuthPolicyCommand,
     cc: TpmCc::PcrSetAuthPolicy,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -148,8 +130,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrSetAuthPolicyResponse,
     cc: TpmCc::PcrSetAuthPolicy,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -159,8 +139,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrSetAuthValueCommand,
     cc: TpmCc::PcrSetAuthValue,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub pcr_handle: u32,
     },
@@ -174,8 +152,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrSetAuthValueResponse,
     cc: TpmCc::PcrSetAuthValue,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -185,8 +161,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrResetCommand,
     cc: TpmCc::PcrReset,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub pcr_handle: u32,
     },
@@ -198,8 +172,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrResetResponse,
     cc: TpmCc::PcrReset,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

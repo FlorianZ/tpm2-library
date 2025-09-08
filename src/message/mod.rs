@@ -54,8 +54,6 @@ pub type TpmAuthResponses = TpmList<data::TpmsAuthResponse, MAX_SESSIONS>;
 /// A trait for TPM commands and responses that provides header information.
 pub trait TpmHeader: TpmBuild + Debug {
     const COMMAND: data::TpmCc;
-    const NO_SESSIONS: bool;
-    const WITH_SESSIONS: bool;
     const HANDLES: usize;
 }
 

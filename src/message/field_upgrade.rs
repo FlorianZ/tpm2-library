@@ -15,8 +15,6 @@ tpm_struct! {
     kind: Command,
     name: TpmFieldUpgradeStartCommand,
     cc: TpmCc::FieldUpgradeStart,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub authorization: crate::data::TpmiRhHierarchy,
         pub key_handle: crate::data::TpmiDhObject,
@@ -32,8 +30,6 @@ tpm_struct! {
     kind: Response,
     name: TpmFieldUpgradeStartResponse,
     cc: TpmCc::FieldUpgradeStart,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -43,8 +39,6 @@ tpm_struct! {
     kind: Command,
     name: TpmFieldUpgradeDataCommand,
     cc: TpmCc::FieldUpgradeData,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub fu_data: crate::data::Tpm2bMaxBuffer,
@@ -56,8 +50,6 @@ tpm_struct! {
     kind: Response,
     name: TpmFieldUpgradeDataResponse,
     cc: TpmCc::FieldUpgradeData,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub next_digest: TpmtHa,
@@ -70,8 +62,6 @@ tpm_struct! {
     kind: Command,
     name: TpmFirmwareReadCommand,
     cc: TpmCc::FirmwareRead,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub sequence_number: u32,
@@ -83,8 +73,6 @@ tpm_struct! {
     kind: Response,
     name: TpmFirmwareReadResponse,
     cc: TpmCc::FirmwareRead,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub fu_data: crate::data::Tpm2bMaxBuffer,

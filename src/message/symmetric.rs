@@ -23,8 +23,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEncryptDecryptCommand,
     cc: TpmCc::EncryptDecrypt,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -41,8 +39,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEncryptDecryptResponse,
     cc: TpmCc::EncryptDecrypt,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_data: Tpm2bMaxBuffer,
@@ -55,8 +51,6 @@ tpm_struct! {
     kind: Command,
     name: TpmEncryptDecrypt2Command,
     cc: TpmCc::EncryptDecrypt2,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -73,8 +67,6 @@ tpm_struct! {
     kind: Response,
     name: TpmEncryptDecrypt2Response,
     cc: TpmCc::EncryptDecrypt2,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_data: Tpm2bMaxBuffer,
@@ -87,8 +79,6 @@ tpm_struct! {
     kind: Command,
     name: TpmHashCommand,
     cc: TpmCc::Hash,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub data: Tpm2bMaxBuffer,
@@ -102,8 +92,6 @@ tpm_struct! {
     kind: Response,
     name: TpmHashResponse,
     cc: TpmCc::Hash,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub out_hash: Tpm2bDigest,
@@ -116,8 +104,6 @@ tpm_struct! {
     kind: Command,
     name: TpmHmacCommand,
     cc: TpmCc::Hmac,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub handle: crate::data::TpmiDhObject,
     },
@@ -132,8 +118,6 @@ tpm_struct! {
     kind: Response,
     name: TpmHmacResponse,
     cc: TpmCc::Hmac,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_hmac: Tpm2bDigest,

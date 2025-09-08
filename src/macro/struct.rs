@@ -9,8 +9,6 @@ macro_rules! tpm_struct {
         kind: Command,
         name: $name:ident,
         cc: $cc:expr,
-        no_sessions: $no_sessions:expr,
-        with_sessions: $with_sessions:expr,
         handles: {
             $(pub $handle_field:ident: $handle_type:ty),*
             $(,)?
@@ -89,8 +87,6 @@ macro_rules! tpm_struct {
 
         impl $crate::message::TpmHeader for $name {
             const COMMAND: $crate::data::TpmCc = $cc;
-            const NO_SESSIONS: bool = $no_sessions;
-            const WITH_SESSIONS: bool = $with_sessions;
             const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
     };
@@ -100,8 +96,6 @@ macro_rules! tpm_struct {
         kind: Response,
         name: $name:ident,
         cc: $cc:expr,
-        no_sessions: $no_sessions:expr,
-        with_sessions: $with_sessions:expr,
         handles: {
             $(pub $handle_field:ident: $handle_type:ty),*
             $(,)?
@@ -156,7 +150,7 @@ macro_rules! tpm_struct {
                     cursor = tail;
                 )*
 
-                if $with_sessions && tag == $crate::data::TpmSt::Sessions {
+                if tag == $crate::data::TpmSt::Sessions {
                     let (size, buf_after_size) = <u32 as $crate::TpmParse>::parse(cursor)?;
                     let size = size as usize;
                     if buf_after_size.len() < size {
@@ -200,8 +194,6 @@ macro_rules! tpm_struct {
 
         impl $crate::message::TpmHeader for $name {
             const COMMAND: $crate::data::TpmCc = $cc;
-            const NO_SESSIONS: bool = $no_sessions;
-            const WITH_SESSIONS: bool = $with_sessions;
             const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
     };

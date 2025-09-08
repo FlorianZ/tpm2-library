@@ -23,28 +23,8 @@ pub fn tpm_build_command<C>(
 where
     C: TpmHeader + TpmCommandBuild,
 {
-    match tag {
-        TpmSt::NoSessions => {
-            if !C::NO_SESSIONS {
-                return Err(TpmErrorKind::InvalidTag {
-                    type_name: "TpmSt",
-                    expected: TpmSt::Sessions as u16,
-                    got: tag as u16,
-                });
-            }
-        }
-        TpmSt::Sessions => {
-            if !C::WITH_SESSIONS {
-                return Err(TpmErrorKind::InvalidTag {
-                    type_name: "TpmSt",
-                    expected: TpmSt::NoSessions as u16,
-                    got: tag as u16,
-                });
-            }
-        }
-        _ => {
-            return Err(TpmErrorKind::InvalidValue);
-        }
+    if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
+        return Err(TpmErrorKind::InvalidValue);
     }
 
     let handle_area_size = C::HANDLES * size_of::<u32>();
@@ -92,7 +72,7 @@ pub fn tpm_build_response<R>(
 where
     R: TpmHeader + TpmResponseBuild,
 {
-    let tag = if !rc.is_error() && R::WITH_SESSIONS && !sessions.is_empty() {
+    let tag = if !rc.is_error() && !sessions.is_empty() {
         TpmSt::Sessions
     } else {
         TpmSt::NoSessions

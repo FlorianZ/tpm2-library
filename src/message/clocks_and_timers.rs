@@ -15,8 +15,6 @@ tpm_struct! {
     kind: Command,
     name: TpmReadClockCommand,
     cc: TpmCc::ReadClock,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {}
 }
@@ -26,8 +24,6 @@ tpm_struct! {
     kind: Response,
     name: TpmReadClockResponse,
     cc: TpmCc::ReadClock,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub current_time: TpmsTimeInfo,
@@ -39,8 +35,6 @@ tpm_struct! {
     kind: Command,
     name: TpmClockSetCommand,
     cc: TpmCc::ClockSet,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth: crate::data::TpmiRhHierarchy,
     },
@@ -54,8 +48,6 @@ tpm_struct! {
     kind: Response,
     name: TpmClockSetResponse,
     cc: TpmCc::ClockSet,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -65,8 +57,6 @@ tpm_struct! {
     kind: Command,
     name: TpmClockRateAdjustCommand,
     cc: TpmCc::ClockRateAdjust,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth: crate::data::TpmiRhHierarchy,
     },
@@ -80,8 +70,6 @@ tpm_struct! {
     kind: Response,
     name: TpmClockRateAdjustResponse,
     cc: TpmCc::ClockRateAdjust,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

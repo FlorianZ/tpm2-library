@@ -15,8 +15,6 @@ tpm_struct! {
     kind: Command,
     name: TpmAcGetCapabilityCommand,
     cc: TpmCc::AcGetCapability,
-    no_sessions: true,
-    with_sessions: false,
     handles: {
         pub ac: u32,
     },
@@ -31,8 +29,6 @@ tpm_struct! {
     kind: Response,
     name: TpmAcGetCapabilityResponse,
     cc: TpmCc::AcGetCapability,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub more_data: TpmiYesNo,
@@ -45,8 +41,6 @@ tpm_struct! {
     kind: Command,
     name: TpmAcSendCommand,
     cc: TpmCc::AcSend,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub send_object: crate::data::TpmiDhObject,
         pub auth_handle: crate::data::TpmiDhObject,
@@ -62,8 +56,6 @@ tpm_struct! {
     kind: Response,
     name: TpmAcSendResponse,
     cc: TpmCc::AcSend,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub ac_data_out: TpmsAcOutput,
@@ -75,8 +67,6 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAcSendSelectCommand,
     cc: TpmCc::PolicyAcSendSelect,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
     },
@@ -93,8 +83,6 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyAcSendSelectResponse,
     cc: TpmCc::PolicyAcSendSelect,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -104,8 +92,6 @@ tpm_struct! {
     kind: Command,
     name: TpmActSetTimeoutCommand,
     cc: TpmCc::ActSetTimeout,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub act_handle: u32,
     },
@@ -119,8 +105,6 @@ tpm_struct! {
     kind: Response,
     name: TpmActSetTimeoutResponse,
     cc: TpmCc::ActSetTimeout,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

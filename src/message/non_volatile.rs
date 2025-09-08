@@ -18,8 +18,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvDefineSpaceCommand,
     cc: TpmCc::NvDefineSpace,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -34,8 +32,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvDefineSpaceResponse,
     cc: TpmCc::NvDefineSpace,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -45,8 +41,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvUndefineSpaceCommand,
     cc: TpmCc::NvUndefineSpace,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
         pub nv_index: u32,
@@ -59,8 +53,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvUndefineSpaceResponse,
     cc: TpmCc::NvUndefineSpace,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -70,8 +62,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvUndefineSpaceSpecialCommand,
     cc: TpmCc::NvUndefineSpaceSpecial,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub nv_index: u32,
         pub platform: crate::data::TpmiRhHierarchy,
@@ -84,8 +74,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvUndefineSpaceSpecialResponse,
     cc: TpmCc::NvUndefineSpaceSpecial,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -95,8 +83,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvReadPublicCommand,
     cc: TpmCc::NvReadPublic,
-    no_sessions: true,
-    with_sessions: false,
     handles: {
         pub nv_index: u32,
     },
@@ -108,8 +94,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvReadPublicResponse,
     cc: TpmCc::NvReadPublic,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub nv_public: Tpm2bNvPublic,
@@ -122,8 +106,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvWriteCommand,
     cc: TpmCc::NvWrite,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
         pub nv_index: u32,
@@ -139,8 +121,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvWriteResponse,
     cc: TpmCc::NvWrite,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -150,8 +130,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvIncrementCommand,
     cc: TpmCc::NvIncrement,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
         pub nv_index: u32,
@@ -164,8 +142,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvIncrementResponse,
     cc: TpmCc::NvIncrement,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -175,8 +151,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvExtendCommand,
     cc: TpmCc::NvExtend,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
         pub nv_index: u32,
@@ -191,8 +165,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvExtendResponse,
     cc: TpmCc::NvExtend,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -202,8 +174,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvSetBitsCommand,
     cc: TpmCc::NvSetBits,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
         pub nv_index: u32,
@@ -218,8 +188,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvSetBitsResponse,
     cc: TpmCc::NvSetBits,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -229,8 +197,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvWriteLockCommand,
     cc: TpmCc::NvWriteLock,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
         pub nv_index: u32,
@@ -243,8 +209,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvWriteLockResponse,
     cc: TpmCc::NvWriteLock,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -254,8 +218,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvGlobalWriteLockCommand,
     cc: TpmCc::NvGlobalWriteLock,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -267,8 +229,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvGlobalWriteLockResponse,
     cc: TpmCc::NvGlobalWriteLock,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -278,8 +238,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvReadCommand,
     cc: TpmCc::NvRead,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
         pub nv_index: u32,
@@ -295,8 +253,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvReadResponse,
     cc: TpmCc::NvRead,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub data: Tpm2bMaxNvBuffer,
@@ -308,8 +264,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvReadLockCommand,
     cc: TpmCc::NvReadLock,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
         pub nv_index: u32,
@@ -322,8 +276,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvReadLockResponse,
     cc: TpmCc::NvReadLock,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -333,8 +285,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvChangeAuthCommand,
     cc: TpmCc::NvChangeAuth,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub nv_index: u32,
     },
@@ -348,8 +298,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvChangeAuthResponse,
     cc: TpmCc::NvChangeAuth,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -359,8 +307,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvCertifyCommand,
     cc: TpmCc::NvCertify,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub sign_handle: crate::data::TpmiDhObject,
         pub auth_handle: crate::data::TpmiDhObject,
@@ -379,8 +325,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvCertifyResponse,
     cc: TpmCc::NvCertify,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub certify_info: Tpm2bAttest,
@@ -393,8 +337,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvDefineSpace2Command,
     cc: TpmCc::NvDefineSpace2,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiRhHierarchy,
     },
@@ -409,8 +351,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvDefineSpace2Response,
     cc: TpmCc::NvDefineSpace2,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }
@@ -420,8 +360,6 @@ tpm_struct! {
     kind: Command,
     name: TpmNvReadPublic2Command,
     cc: TpmCc::NvReadPublic2,
-    no_sessions: true,
-    with_sessions: false,
     handles: {
         pub nv_index: u32,
     },
@@ -433,8 +371,6 @@ tpm_struct! {
     kind: Response,
     name: TpmNvReadPublic2Response,
     cc: TpmCc::NvReadPublic2,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub nv_public: crate::data::Tpm2bNvPublic2,

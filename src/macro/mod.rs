@@ -147,8 +147,6 @@ macro_rules! tpm_dispatch {
             ($value:ty, $name:ident) => {
                 (
                     <$value as $crate::message::TpmHeader>::COMMAND,
-                    <$value as $crate::message::TpmHeader>::NO_SESSIONS,
-                    <$value as $crate::message::TpmHeader>::WITH_SESSIONS,
                     <$value as $crate::message::TpmHeader>::HANDLES,
                     |handles, params| {
                         <$value as $crate::message::TpmCommandBodyParse>::parse_body(handles, params)
@@ -162,7 +160,6 @@ macro_rules! tpm_dispatch {
             ($rsp_ty:ty, $enum_variant:ident) => {
                 (
                     <$rsp_ty as $crate::message::TpmHeader>::COMMAND,
-                    <$rsp_ty as $crate::message::TpmHeader>::WITH_SESSIONS,
                     |tag, buf| {
                         <$rsp_ty as $crate::message::TpmResponseBodyParse>::parse_body(tag, buf)
                             .map(|(r, rest)| (TpmResponseBody::$enum_variant(r), rest))
@@ -206,10 +203,10 @@ macro_rules! tpm_dispatch {
         pub type TpmCommandParser = for<'a> fn(&'a [u8], &'a [u8]) -> $crate::TpmResult<(TpmCommandBody, &'a [u8])>;
         pub type TpmResponseParser = for<'a> fn($crate::data::TpmSt, &'a [u8]) -> $crate::TpmResult<(TpmResponseBody, &'a [u8])>;
 
-        pub(crate) static PARSE_COMMAND_MAP: &[($crate::data::TpmCc, bool, bool, usize, TpmCommandParser)] =
+        pub(crate) static PARSE_COMMAND_MAP: &[($crate::data::TpmCc, usize, TpmCommandParser)] =
             &[$(tpm_command_parser!($cmd, $variant),)*];
 
-        pub(crate) static PARSE_RESPONSE_MAP: &[($crate::data::TpmCc, bool, TpmResponseParser)] =
+        pub(crate) static PARSE_RESPONSE_MAP: &[($crate::data::TpmCc, TpmResponseParser)] =
             &[$(tpm_response_parser!($resp, $variant),)*];
 
         const _: () = {

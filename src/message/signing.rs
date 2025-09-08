@@ -15,8 +15,6 @@ tpm_struct! {
     kind: Command,
     name: TpmSignCommand,
     cc: TpmCc::Sign,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -32,8 +30,6 @@ tpm_struct! {
     kind: Response,
     name: TpmSignResponse,
     cc: TpmCc::Sign,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub signature: TpmtSignature,
@@ -45,8 +41,6 @@ tpm_struct! {
     kind: Command,
     name: TpmVerifySignatureCommand,
     cc: TpmCc::VerifySignature,
-    no_sessions: true,
-    with_sessions: false,
     handles: {
         pub key_handle: crate::data::TpmiDhObject,
     },
@@ -61,8 +55,6 @@ tpm_struct! {
     kind: Response,
     name: TpmVerifySignatureResponse,
     cc: TpmCc::VerifySignature,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub validation: TpmtTkVerified,

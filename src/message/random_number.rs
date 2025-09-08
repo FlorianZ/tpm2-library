@@ -15,8 +15,6 @@ tpm_struct! {
     kind: Command,
     name: TpmGetRandomCommand,
     cc: TpmCc::GetRandom,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub bytes_requested: u16,
@@ -28,8 +26,6 @@ tpm_struct! {
     kind: Response,
     name: TpmGetRandomResponse,
     cc: TpmCc::GetRandom,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub random_bytes: Tpm2bDigest,
@@ -41,8 +37,6 @@ tpm_struct! {
     kind: Command,
     name: TpmStirRandomCommand,
     cc: TpmCc::StirRandom,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub in_data: Tpm2bSensitiveData,
@@ -54,8 +48,6 @@ tpm_struct! {
     kind: Response,
     name: TpmStirRandomResponse,
     cc: TpmCc::StirRandom,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

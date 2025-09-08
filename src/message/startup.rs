@@ -13,8 +13,6 @@ tpm_struct! {
     kind: Command,
     name: TpmStartupCommand,
     cc: TpmCc::Startup,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {
         pub startup_type: TpmSu,
@@ -26,8 +24,6 @@ tpm_struct! {
     kind: Response,
     name: TpmStartupResponse,
     cc: TpmCc::Startup,
-    no_sessions: true,
-    with_sessions: false,
     handles: {},
     parameters: {}
 }
@@ -37,8 +33,6 @@ tpm_struct! {
     kind: Command,
     name: TpmShutdownCommand,
     cc: TpmCc::Shutdown,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub shutdown_type: TpmSu,
@@ -50,8 +44,6 @@ tpm_struct! {
     kind: Response,
     name: TpmShutdownResponse,
     cc: TpmCc::Shutdown,
-    no_sessions: true,
-    with_sessions: true,
     handles: {},
     parameters: {}
 }

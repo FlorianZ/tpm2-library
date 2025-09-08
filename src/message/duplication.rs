@@ -19,8 +19,6 @@ tpm_struct! {
     kind: Command,
     name: TpmDuplicateCommand,
     cc: TpmCc::Duplicate,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub object_handle: crate::data::TpmiDhObject,
         pub new_parent_handle: crate::data::TpmiDhObject,
@@ -36,8 +34,6 @@ tpm_struct! {
     kind: Response,
     name: TpmDuplicateResponse,
     cc: TpmCc::Duplicate,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub encryption_key_out: Tpm2bData,
@@ -51,8 +47,6 @@ tpm_struct! {
     kind: Command,
     name: TpmRewrapCommand,
     cc: TpmCc::Rewrap,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub old_parent: crate::data::TpmiDhObject,
         pub new_parent: crate::data::TpmiDhObject,
@@ -69,8 +63,6 @@ tpm_struct! {
     kind: Response,
     name: TpmRewrapResponse,
     cc: TpmCc::Rewrap,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_duplicate: Tpm2bPrivate,
@@ -83,8 +75,6 @@ tpm_struct! {
     kind: Command,
     name: TpmImportCommand,
     cc: TpmCc::Import,
-    no_sessions: false,
-    with_sessions: true,
     handles: {
         pub parent_handle: crate::data::TpmiDhObject,
     },
@@ -102,8 +92,6 @@ tpm_struct! {
     kind: Response,
     name: TpmImportResponse,
     cc: TpmCc::Import,
-    no_sessions: false,
-    with_sessions: true,
     handles: {},
     parameters: {
         pub out_private: Tpm2bPrivate,
