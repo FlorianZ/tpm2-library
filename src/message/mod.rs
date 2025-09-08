@@ -55,6 +55,14 @@ pub type TpmAuthResponses = TpmList<data::TpmsAuthResponse, MAX_SESSIONS>;
 pub trait TpmHeader: TpmBuild + Debug {
     const COMMAND: data::TpmCc;
     const HANDLES: usize;
+
+    fn tpm_cc(&self) -> data::TpmCc {
+        Self::COMMAND
+    }
+
+    fn tpm_handle_count(&self) -> usize {
+        Self::HANDLES
+    }
 }
 
 /// A trait for building command bodies in separate handle and parameter sections.

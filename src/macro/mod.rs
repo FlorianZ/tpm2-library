@@ -175,6 +175,22 @@ macro_rules! tpm_dispatch {
             $( $variant($cmd), )*
         }
 
+        impl TpmCommandBody {
+            #[must_use]
+            pub fn tpm_cc(&self) -> $crate::data::TpmCc {
+                match self {
+                    $( Self::$variant(c) => c.tpm_cc(), )*
+                }
+            }
+
+            #[must_use]
+            pub fn tpm_handle_count(&self) -> usize {
+                match self {
+                    $( Self::$variant(c) => c.tpm_handle_count(), )*
+                }
+            }
+        }
+
         /// A TPM response body
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
@@ -183,6 +199,20 @@ macro_rules! tpm_dispatch {
         }
 
         impl TpmResponseBody {
+            #[must_use]
+            pub fn tpm_cc(&self) -> $crate::data::TpmCc {
+                match self {
+                    $( Self::$variant(r) => r.tpm_cc(), )*
+                }
+            }
+
+            #[must_use]
+            pub fn tpm_handle_count(&self) -> usize {
+                match self {
+                    $( Self::$variant(r) => r.tpm_handle_count(), )*
+                }
+            }
+
             $(
                 /// Attempts to convert the `TpmResponseBody` into a specific response type.
                 ///
