@@ -62,7 +62,7 @@ tpm_struct! (
     kind: Response,
     name: TpmPolicySignedResponse,
     cc: TpmCc::PolicySigned,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {
@@ -76,7 +76,7 @@ tpm_struct! (
     kind: Command,
     name: TpmPolicySecretCommand,
     cc: TpmCc::PolicySecret,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
@@ -95,7 +95,7 @@ tpm_struct! (
     kind: Response,
     name: TpmPolicySecretResponse,
     cc: TpmCc::PolicySecret,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -125,7 +125,7 @@ tpm_struct! (
     kind: Response,
     name: TpmPolicyTicketResponse,
     cc: TpmCc::PolicyTicket,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -151,7 +151,7 @@ tpm_struct! (
     kind: Response,
     name: TpmPolicyOrResponse,
     cc: TpmCc::PolicyOR,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -162,7 +162,7 @@ tpm_struct! (
     kind: Command,
     name: TpmPolicyPcrCommand,
     cc: TpmCc::PolicyPcr,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -178,7 +178,7 @@ tpm_struct! (
     kind: Response,
     name: TpmPolicyPcrResponse,
     cc: TpmCc::PolicyPcr,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -189,7 +189,7 @@ tpm_struct! (
     kind: Command,
     name: TpmPolicyLocalityCommand,
     cc: TpmCc::PolicyLocality,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -204,7 +204,7 @@ tpm_struct! (
     kind: Response,
     name: TpmPolicyLocalityResponse,
     cc: TpmCc::PolicyLocality,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -215,7 +215,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyNvCommand,
     cc: TpmCc::PolicyNv,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
@@ -234,7 +234,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyNvResponse,
     cc: TpmCc::PolicyNv,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -245,7 +245,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyCounterTimerCommand,
     cc: TpmCc::PolicyCounterTimer,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -262,7 +262,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyCounterTimerResponse,
     cc: TpmCc::PolicyCounterTimer,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -273,7 +273,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyCommandCodeCommand,
     cc: TpmCc::PolicyCommandCode,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -288,7 +288,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyCommandCodeResponse,
     cc: TpmCc::PolicyCommandCode,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -299,7 +299,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyPhysicalPresenceCommand,
     cc: TpmCc::PolicyPhysicalPresence,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -312,7 +312,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyPhysicalPresenceResponse,
     cc: TpmCc::PolicyPhysicalPresence,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -323,7 +323,7 @@ tpm_struct! (
     kind: Command,
     name: TpmPolicyCpHashCommand,
     cc: TpmCc::PolicyCpHash,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -338,7 +338,7 @@ tpm_struct! (
     kind: Response,
     name: TpmPolicyCpHashResponse,
     cc: TpmCc::PolicyCpHash,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -349,7 +349,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyNameHashCommand,
     cc: TpmCc::PolicyNameHash,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -364,7 +364,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyNameHashResponse,
     cc: TpmCc::PolicyNameHash,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -375,7 +375,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyDuplicationSelectCommand,
     cc: TpmCc::PolicyDuplicationSelect,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -392,7 +392,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyDuplicationSelectResponse,
     cc: TpmCc::PolicyDuplicationSelect,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -403,7 +403,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAuthorizeCommand,
     cc: TpmCc::PolicyAuthorize,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -421,7 +421,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyAuthorizeResponse,
     cc: TpmCc::PolicyAuthorize,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -432,7 +432,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAuthValueCommand,
     cc: TpmCc::PolicyAuthValue,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -445,7 +445,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyAuthValueResponse,
     cc: TpmCc::PolicyAuthValue,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -456,7 +456,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyPasswordCommand,
     cc: TpmCc::PolicyPassword,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -469,7 +469,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyPasswordResponse,
     cc: TpmCc::PolicyPassword,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -480,7 +480,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyGetDigestResponse,
     cc: TpmCc::PolicyGetDigest,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {
@@ -506,7 +506,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyNvWrittenCommand,
     cc: TpmCc::PolicyNvWritten,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -521,7 +521,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyNvWrittenResponse,
     cc: TpmCc::PolicyNvWritten,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -532,7 +532,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyTemplateCommand,
     cc: TpmCc::PolicyTemplate,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -547,7 +547,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyTemplateResponse,
     cc: TpmCc::PolicyTemplate,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -558,7 +558,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAuthorizeNvCommand,
     cc: TpmCc::PolicyAuthorizeNv,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub auth_handle: crate::data::TpmiDhObject,
@@ -573,7 +573,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyAuthorizeNvResponse,
     cc: TpmCc::PolicyAuthorizeNv,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -584,7 +584,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyCapabilityCommand,
     cc: TpmCc::PolicyCapability,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -602,7 +602,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyCapabilityResponse,
     cc: TpmCc::PolicyCapability,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -613,7 +613,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyParametersCommand,
     cc: TpmCc::PolicyParameters,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -628,7 +628,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyParametersResponse,
     cc: TpmCc::PolicyParameters,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
@@ -639,7 +639,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyTransportSpdmCommand,
     cc: TpmCc::PolicyTransportSpdm,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {
         pub policy_session: crate::data::TpmiShAuthSession,
@@ -655,7 +655,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyTransportSpdmResponse,
     cc: TpmCc::PolicyTransportSpdm,
-    no_sessions: false,
+    no_sessions: true,
     with_sessions: true,
     handles: {},
     parameters: {}
