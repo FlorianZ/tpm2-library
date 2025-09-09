@@ -101,7 +101,6 @@ pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmErrorKind, &'static str> {
     match s {
         "AuthMissing" => return Ok(TpmErrorKind::AuthMissing),
         "BuildCapacity" => return Ok(TpmErrorKind::BuildCapacity),
-        "BuildOverflow" => return Ok(TpmErrorKind::BuildOverflow),
         "Unreachable" => return Ok(TpmErrorKind::Unreachable),
         "InvalidValue" => return Ok(TpmErrorKind::InvalidValue),
         "ParseCapacity" => return Ok(TpmErrorKind::ParseCapacity),

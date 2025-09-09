@@ -77,8 +77,6 @@ pub enum TpmErrorKind {
     AuthMissing,
     /// A built value would exceed a capacity limit
     BuildCapacity,
-    /// A writer would run out of space
-    BuildOverflow,
     /// An unresolvable internal error
     Unreachable,
     /// Invalid magic number for the data
@@ -100,7 +98,6 @@ impl fmt::Display for TpmErrorKind {
         match self {
             Self::AuthMissing => write!(f, "auth missing"),
             Self::BuildCapacity => write!(f, "build capacity"),
-            Self::BuildOverflow => write!(f, "build overflow"),
             Self::InvalidMagic { expected, got } => {
                 write!(f, "invalid magic 0x{got:x}: expected 0x{expected:x}")
             }
@@ -155,12 +152,12 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `TpmErrorKind::BuildOverflow` if the writer does not have enough
+    /// Returns `TpmErrorKind::Unreachable` if the writer does not have enough
     /// capacity to hold the new bytes.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmErrorKind::BuildOverflow);
+            return Err(TpmErrorKind::Unreachable);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
@@ -190,7 +187,6 @@ pub trait TpmBuild: TpmSized {
     /// # Errors
     ///
     /// * `TpmErrorKind::BuildCapacity` if the object contains a value that cannot be built.
-    /// * `TpmErrorKind::BuildOverflow` if the writer runs out of space.
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 

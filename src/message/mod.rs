@@ -67,7 +67,7 @@ pub trait TpmCommandBuild {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::BuildOverflow` if writer would run out of space.
+    /// * `TpmErrorKind::Unreachable` if writer would run out of space.
     fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
     /// Builds the parameter area of the command.
@@ -75,7 +75,6 @@ pub trait TpmCommandBuild {
     /// # Errors
     ///
     /// * `TpmErrorKind::BuildCapacity` if the object contains a value exceeding capacity limit.
-    /// * `TpmErrorKind::BuildOverflow` if writer would run out of space.
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
@@ -85,7 +84,7 @@ pub trait TpmResponseBuild {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::BuildOverflow` if writer would run out of space.
+    /// * `TpmErrorKind::Unreachable` if writer would run out of space.
     fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
     /// Builds the parameter area of the response.
@@ -93,7 +92,6 @@ pub trait TpmResponseBuild {
     /// # Errors
     ///
     /// * `TpmErrorKind::BuildCapacity` if the object contains a value exceeding capacity limit.
-    /// * `TpmErrorKind::BuildOverflow` if writer would run out of space.
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
