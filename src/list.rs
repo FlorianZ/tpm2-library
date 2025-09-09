@@ -38,11 +38,11 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns a `TpmErrorKind::BuildCapacity` error if the list is already at
+    /// Returns a `TpmErrorKind::Capacity` error if the list is already at
     /// full capacity.
     pub fn try_push(&mut self, item: T) -> Result<(), TpmErrorKind> {
         if self.len >= CAPACITY {
-            return Err(TpmErrorKind::BuildCapacity);
+            return Err(TpmErrorKind::Capacity(CAPACITY));
         }
         self.items[self.len].write(item);
         self.len += 1;
@@ -94,8 +94,9 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 
 impl<T: TpmBuild + Copy, const CAPACITY: usize> TpmBuild for TpmList<T, CAPACITY> {
     fn build(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len_u32 = u32::try_from(self.len).map_err(|_| TpmErrorKind::ParseCapacity)?;
-        TpmBuild::build(&len_u32, writer)?;
+        let len = u16::try_from(self.len).map_err(|_| TpmErrorKind::Capacity(u16::MAX.into()))?;
+        let len: u32 = len.into();
+        TpmBuild::build(&len, writer)?;
         for item in &**self {
             TpmBuild::build(item, writer)?;
         }
@@ -108,7 +109,7 @@ impl<T: TpmParse + Copy, const CAPACITY: usize> TpmParse for TpmList<T, CAPACITY
         let (count_u32, mut buf) = u32::parse(buf)?;
         let count = count_u32 as usize;
         if count > CAPACITY {
-            return Err(TpmErrorKind::ParseCapacity);
+            return Err(TpmErrorKind::Capacity(CAPACITY));
         }
 
         let mut list = Self::new();

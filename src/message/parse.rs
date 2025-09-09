@@ -71,9 +71,7 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
         let (mut auth_area, param_area) = buf_after_auth_size.split_at(auth_area_size);
         while !auth_area.is_empty() {
             let (session, rest) = TpmsAuthCommand::parse(auth_area)?;
-            sessions
-                .try_push(session)
-                .map_err(|_| TpmErrorKind::ParseCapacity)?;
+            sessions.try_push(session)?;
             auth_area = rest;
         }
         if !auth_area.is_empty() {
@@ -148,9 +146,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult>
     if tag == TpmSt::Sessions {
         while !session_area.is_empty() {
             let (session, rest) = TpmsAuthResponse::parse(session_area)?;
-            auth_responses
-                .try_push(session)
-                .map_err(|_| TpmErrorKind::ParseCapacity)?;
+            auth_responses.try_push(session)?;
             session_area = rest;
         }
     }

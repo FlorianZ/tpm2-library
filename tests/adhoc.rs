@@ -30,18 +30,14 @@ fn test_tpm2b_build_length_too_large() {
     let mut out_buf = [0u8; 10];
     let mut writer = TpmWriter::new(&mut out_buf);
     let result = build_tpm2b(&mut writer, large_slice);
-    assert_eq!(result, Err(TpmErrorKind::BuildCapacity),);
+    assert_eq!(result, Err(TpmErrorKind::Capacity(u16::MAX.into())));
 }
 
 fn test_tpm_buffer_slice_too_large() {
     const CAPACITY: usize = 4096;
     let data = vec![0; CAPACITY + 1];
     let result = TpmBuffer::<CAPACITY>::try_from(data.as_slice());
-    assert_eq!(
-        result,
-        Err(TpmErrorKind::BuildCapacity),
-        "Should reject creating a TpmBuffer from a slice larger than its capacity"
-    );
+    assert_eq!(result, Err(TpmErrorKind::Capacity(CAPACITY)),);
 }
 
 fn test_tpm_rc_base_from_raw() {

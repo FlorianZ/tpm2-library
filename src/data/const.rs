@@ -5,7 +5,7 @@
 pub const TPM_HEADER_SIZE: usize = 10;
 
 /// 6.2 `TPM_CONSTANTS32`
-pub const TPM_GENERATED_VALUE: u32 = 0xFF544347;
+pub const TPM_GENERATED_VALUE: u32 = 0xFF54_4347;
 
 pub const TPM_RH_FIRST: u32 = 0x4000_0000;
 pub const TPM_RH_LAST: u32 = 0x4004_FFFF;

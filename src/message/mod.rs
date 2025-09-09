@@ -67,14 +67,14 @@ pub trait TpmCommandBuild {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::Unreachable` if writer would run out of space.
+    /// Returns `Err(TpmErrorKind)` on a build failure.
     fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
     /// Builds the parameter area of the command.
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::BuildCapacity` if the object contains a value exceeding capacity limit.
+    /// Returns `Err(TpmErrorKind)` on a build failure.
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
@@ -84,14 +84,14 @@ pub trait TpmResponseBuild {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::Unreachable` if writer would run out of space.
+    /// Returns `Err(TpmErrorKind)` on a build failure.
     fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
     /// Builds the parameter area of the response.
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::BuildCapacity` if the object contains a value exceeding capacity limit.
+    /// Returns `Err(TpmErrorKind)` on a build failure.
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
@@ -102,21 +102,18 @@ pub(crate) trait TpmCommandBodyParse: Sized {
     ///
     /// # Errors
     ///
-    /// * `TpmErrorKind::ParseCapacity` if the capacity limit is exceeded
-    /// * `TpmErrorKind::ParseUnderflow` if the parser runs out of bytes
+    /// Returns `Err(TpmErrorKind)` on a parse failure.
     fn parse_body<'a>(handles: &'a [u8], params: &'a [u8]) -> TpmResult<(Self, &'a [u8])>;
 }
 
 /// Parses a response body using the response tag to handle structural variations.
 pub trait TpmResponseBodyParse: Sized {
-    /// Parses the response body from a buffer, using the response tag dynamically
-    /// to determine the structure.
+    /// Parses the response body from a buffer, using the response tag
+    /// dynamically to determine the structure.
     ///
     /// # Errors
     ///
-    /// This method can return parsing errors such as:
-    /// * `TpmErrorKind::ParseUnderflow` if the buffer is too small.
-    /// * `TpmErrorKind::TrailingData` if the buffer has unconsumed data after parsing.
+    /// Returns `Err(TpmErrorKind)` on a parse failure.
     fn parse_body(tag: data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 

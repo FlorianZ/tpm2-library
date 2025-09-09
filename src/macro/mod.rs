@@ -336,7 +336,7 @@ macro_rules! tpm2b_struct {
             fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 u16::try_from(inner_len)
-                    .map_err(|_| $crate::TpmErrorKind::ParseCapacity)?
+                    .map_err(|_| $crate::TpmErrorKind::Capacity(u16::MAX.into()))?
                     .build(writer)?;
                 $crate::TpmBuild::build(&self.inner, writer)
             }
