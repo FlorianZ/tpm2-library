@@ -83,12 +83,6 @@ pub enum TpmErrorKind {
     Unreachable,
     /// Invalid magic number for the data
     InvalidMagic { expected: u32, got: u32 },
-    /// Invalid tag for the data
-    InvalidTag {
-        type_name: &'static str,
-        expected: u16,
-        got: u16,
-    },
     /// Invalid value
     InvalidValue,
     /// Not a valid discriminant for the target enum
@@ -109,16 +103,6 @@ impl fmt::Display for TpmErrorKind {
             Self::BuildOverflow => write!(f, "build overflow"),
             Self::InvalidMagic { expected, got } => {
                 write!(f, "invalid magic 0x{got:x}: expected 0x{expected:x}")
-            }
-            Self::InvalidTag {
-                type_name,
-                expected,
-                got,
-            } => {
-                write!(
-                    f,
-                    "invalid tag 0x{got:x} for {type_name}: expected 0x{expected:x}"
-                )
             }
             Self::InvalidValue => write!(f, "invalid value"),
             Self::NotDiscriminant(type_name, value) => {

@@ -134,39 +134,6 @@ pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmErrorKind, &'static str> {
         return Ok(TpmErrorKind::InvalidMagic { expected, got });
     }
 
-    if let Some(rest) = s.strip_prefix("InvalidTag") {
-        let content = rest
-            .trim()
-            .strip_prefix('{')
-            .and_then(|s| s.strip_suffix('}'))
-            .ok_or("InvalidTag: missing braces")?
-            .trim();
-
-        let mut parts = content.split(',');
-        let type_name_part = parts.next().ok_or("InvalidTag: missing 'type_name' part")?;
-        let expected_part = parts.next().ok_or("InvalidTag: missing 'expected' part")?;
-        let got_part = parts.next().ok_or("InvalidTag: missing 'got' part")?;
-
-        if parts.next().is_some() {
-            return Err("InvalidTag: Extra content after comma");
-        }
-
-        let type_name_val = parse_key_value_str(type_name_part, "type_name")?;
-        let expected = parse_key_value_u16(expected_part, "expected")?;
-        let got = parse_key_value_u16(got_part, "got")?;
-
-        let type_name = match type_name_val {
-            "TpmSt" => "TpmSt",
-            _ => return Err("InvalidTag: unsupported type_name"),
-        };
-
-        return Ok(TpmErrorKind::InvalidTag {
-            type_name,
-            expected,
-            got,
-        });
-    }
-
     if let Some(rest) = s.strip_prefix("NotDiscriminant") {
         let content = rest
             .trim()

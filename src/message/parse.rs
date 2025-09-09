@@ -106,7 +106,6 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
 /// # Errors
 ///
 /// * `TpmErrorKind::ParseUnderflow` if the buffer is too small
-/// * `TpmErrorKind::InvalidTag` if the tag in the buffer does not match expected
 /// * `TpmErrorKind::NotDiscriminant` if the buffer contains an unsupported command code
 /// * `TpmErrorKind::TrailingData` if the response has after spurious data left
 pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult> {
