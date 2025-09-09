@@ -101,7 +101,7 @@ pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmErrorKind, &'static str> {
     match s {
         "Unreachable" => return Ok(TpmErrorKind::Unreachable),
         "InvalidValue" => return Ok(TpmErrorKind::InvalidValue),
-        "ParseUnderflow" => return Ok(TpmErrorKind::ParseUnderflow),
+        "Underflow" => return Ok(TpmErrorKind::Underflow),
         "TrailingData" => return Ok(TpmErrorKind::TrailingData),
         _ => {}
     }

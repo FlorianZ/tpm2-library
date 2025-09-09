@@ -195,7 +195,7 @@ impl TpmParse for TpmsPcrSelection {
             return Err(TpmErrorKind::Capacity(TPM_PCR_SELECT_MAX));
         }
         if buf.len() < size {
-            return Err(TpmErrorKind::ParseUnderflow);
+            return Err(TpmErrorKind::Underflow);
         }
 
         let (pcr_bytes, buf) = buf.split_at(size);

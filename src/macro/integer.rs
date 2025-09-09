@@ -9,7 +9,7 @@ macro_rules! tpm_integer {
             fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
                 let size = size_of::<$ty>();
                 if buf.len() < size {
-                    return Err(TpmErrorKind::ParseUnderflow);
+                    return Err(TpmErrorKind::Underflow);
                 }
                 let (bytes, buf) = buf.split_at(size);
                 let array = bytes.try_into().map_err(|_| TpmErrorKind::Unreachable)?;

@@ -154,7 +154,7 @@ macro_rules! tpm_struct {
                     let (size, buf_after_size) = <u32 as $crate::TpmParse>::parse(cursor)?;
                     let size = size as usize;
                     if buf_after_size.len() < size {
-                        return Err($crate::TpmErrorKind::ParseUnderflow);
+                        return Err($crate::TpmErrorKind::Underflow);
                     }
                     let (mut params_cursor, final_tail) = buf_after_size.split_at(size);
 

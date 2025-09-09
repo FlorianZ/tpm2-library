@@ -128,7 +128,7 @@ impl TpmParseTagged for TpmuHa {
 
         let digest_size = tpm_hash_size(&tag).ok_or(TpmErrorKind::InvalidValue)?;
         if buf.len() < digest_size {
-            return Err(TpmErrorKind::ParseUnderflow);
+            return Err(TpmErrorKind::Underflow);
         }
 
         let (digest_bytes, buf) = buf.split_at(digest_size);

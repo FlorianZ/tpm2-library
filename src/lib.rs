@@ -75,16 +75,16 @@ impl fmt::LowerHex for TpmNotDiscriminant {
 pub enum TpmErrorKind {
     /// A value would exceed a capacity limit
     Capacity(usize),
-    /// An unresolvable internal error
-    Unreachable,
     /// Invalid value
     InvalidValue,
     /// Not a valid discriminant for the target enum
     NotDiscriminant(&'static str, TpmNotDiscriminant),
-    /// Not enough bytes to parse the full data structure.
-    ParseUnderflow,
     /// Trailing left data after parsing
     TrailingData,
+    /// Not enough bytes to parse the full data structure.
+    Underflow,
+    /// An unresolvable internal error
+    Unreachable,
 }
 
 impl fmt::Display for TpmErrorKind {
@@ -95,8 +95,8 @@ impl fmt::Display for TpmErrorKind {
             Self::NotDiscriminant(type_name, value) => {
                 write!(f, "not discriminant for {type_name}: 0x{value:x}")
             }
-            Self::ParseUnderflow => write!(f, "parse underflow"),
             Self::TrailingData => write!(f, "trailing data"),
+            Self::Underflow => write!(f, "parse underflow"),
             Self::Unreachable => write!(f, "unreachable"),
         }
     }
@@ -203,7 +203,7 @@ pub trait TpmParseTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmParse` implementation,
-    /// such as a `TpmErrorKind::ParseUnderflow` if the buffer is too small or an
+    /// such as a `TpmErrorKind::Underflow` if the buffer is too small or an
     /// `TpmErrorKind::InvalidValue` if the data is malformed.
     fn parse_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where
@@ -233,7 +233,7 @@ pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::ParseUnderflow` if the buffer is too small.
+/// * `TpmErrorKind::Underflow` if the buffer is too small.
 /// * `TpmErrorKind::Capacity` if the size prefix exceeds `TPM_MAX_COMMAND_SIZE`.
 pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
     let (size, buf) = u16::parse(buf)?;
@@ -244,7 +244,7 @@ pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
     }
 
     if buf.len() < size {
-        return Err(TpmErrorKind::ParseUnderflow);
+        return Err(TpmErrorKind::Underflow);
     }
     Ok(buf.split_at(size))
 }
