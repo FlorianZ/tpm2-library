@@ -7,7 +7,7 @@ use crate::{
     message::{TpmCommandBuild, TpmHeader, TpmResponseBuild},
     TpmBuild, TpmErrorKind, TpmResult, TpmSized,
 };
-use core::mem::size_of;
+use core::{convert::TryFrom, mem::size_of};
 
 /// Builds a TPM command into a writer and returns the total bytes written.
 ///
@@ -37,9 +37,8 @@ where
     };
 
     let total_body_len = handle_area_size + auth_area_size + param_area_size;
-    let command_size = u16::try_from(TPM_HEADER_SIZE + total_body_len)
-        .map_err(|_| TpmErrorKind::Capacity(u16::MAX.into()))?;
-    let command_size: u32 = command_size.into();
+    let command_size = u32::try_from(TPM_HEADER_SIZE + total_body_len)
+        .map_err(|_| TpmErrorKind::Capacity(usize::try_from(u32::MAX).unwrap_or(usize::MAX)))?;
 
     (tag as u16).build(writer)?;
     command_size.build(writer)?;
@@ -48,9 +47,8 @@ where
     command.build_handles(writer)?;
 
     if tag == TpmSt::Sessions {
-        let sessions_len = u16::try_from(auth_area_size - size_of::<u32>())
-            .map_err(|_| TpmErrorKind::Capacity(u16::MAX.into()))?;
-        let sessions_len: u32 = sessions_len.into();
+        let sessions_len = u32::try_from(auth_area_size - size_of::<u32>())
+            .map_err(|_| TpmErrorKind::Capacity(usize::try_from(u32::MAX).unwrap_or(usize::MAX)))?;
         sessions_len.build(writer)?;
         for s in sessions {
             s.build(writer)?;
@@ -100,9 +98,8 @@ where
     let total_body_len =
         handle_area_size + parameter_area_size_field_len + param_area_size + sessions_len;
 
-    let response_size = u16::try_from(TPM_HEADER_SIZE + total_body_len)
-        .map_err(|_| TpmErrorKind::Capacity(u16::MAX.into()))?;
-    let response_size: u32 = response_size.into();
+    let response_size = u32::try_from(TPM_HEADER_SIZE + total_body_len)
+        .map_err(|_| TpmErrorKind::Capacity(usize::try_from(u32::MAX).unwrap_or(usize::MAX)))?;
 
     (tag as u16).build(writer)?;
     response_size.build(writer)?;
@@ -111,9 +108,8 @@ where
     response.build_handles(writer)?;
 
     if tag == TpmSt::Sessions {
-        let params_len =
-            u16::try_from(param_area_size).map_err(|_| TpmErrorKind::Capacity(u16::MAX.into()))?;
-        let params_len: u32 = params_len.into();
+        let params_len = u32::try_from(param_area_size)
+            .map_err(|_| TpmErrorKind::Capacity(usize::try_from(u32::MAX).unwrap_or(usize::MAX)))?;
         params_len.build(writer)?;
     }
 

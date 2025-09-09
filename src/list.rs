@@ -94,8 +94,8 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 
 impl<T: TpmBuild + Copy, const CAPACITY: usize> TpmBuild for TpmList<T, CAPACITY> {
     fn build(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len = u16::try_from(self.len).map_err(|_| TpmErrorKind::Capacity(u16::MAX.into()))?;
-        let len: u32 = len.into();
+        let len = u32::try_from(self.len)
+            .map_err(|_| TpmErrorKind::Capacity(usize::try_from(u32::MAX).unwrap_or(usize::MAX)))?;
         TpmBuild::build(&len, writer)?;
         for item in &**self {
             TpmBuild::build(item, writer)?;
