@@ -146,7 +146,7 @@ macro_rules! tpm_dispatch {
         macro_rules! tpm_command_parser {
             ($value:ty, $name:ident) => {
                 (
-                    <$value as $crate::message::TpmHeader>::COMMAND,
+                    <$value as $crate::message::TpmHeader>::CC,
                     <$value as $crate::message::TpmHeader>::HANDLES,
                     |handles, params| {
                         <$value as $crate::message::TpmCommandBodyParse>::parse_body(handles, params)
@@ -159,7 +159,7 @@ macro_rules! tpm_dispatch {
         macro_rules! tpm_response_parser {
             ($rsp_ty:ty, $enum_variant:ident) => {
                 (
-                    <$rsp_ty as $crate::message::TpmHeader>::COMMAND,
+                    <$rsp_ty as $crate::message::TpmHeader>::CC,
                     |tag, buf| {
                         <$rsp_ty as $crate::message::TpmResponseBodyParse>::parse_body(tag, buf)
                             .map(|(r, rest)| (TpmResponseBody::$enum_variant(r), rest))
@@ -177,16 +177,9 @@ macro_rules! tpm_dispatch {
 
         impl TpmCommandBody {
             #[must_use]
-            pub fn tpm_cc(&self) -> $crate::data::TpmCc {
+            pub fn cc(&self) -> $crate::data::TpmCc {
                 match self {
-                    $( Self::$variant(c) => c.tpm_cc(), )*
-                }
-            }
-
-            #[must_use]
-            pub fn tpm_handle_count(&self) -> usize {
-                match self {
-                    $( Self::$variant(c) => c.tpm_handle_count(), )*
+                    $( Self::$variant(c) => c.cc(), )*
                 }
             }
         }
@@ -200,16 +193,9 @@ macro_rules! tpm_dispatch {
 
         impl TpmResponseBody {
             #[must_use]
-            pub fn tpm_cc(&self) -> $crate::data::TpmCc {
+            pub fn cc(&self) -> $crate::data::TpmCc {
                 match self {
-                    $( Self::$variant(r) => r.tpm_cc(), )*
-                }
-            }
-
-            #[must_use]
-            pub fn tpm_handle_count(&self) -> usize {
-                match self {
-                    $( Self::$variant(r) => r.tpm_handle_count(), )*
+                    $( Self::$variant(r) => r.cc(), )*
                 }
             }
 

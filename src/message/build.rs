@@ -42,7 +42,7 @@ where
 
     (tag as u16).build(writer)?;
     command_size.build(writer)?;
-    (C::COMMAND as u32).build(writer)?;
+    (C::CC as u32).build(writer)?;
 
     command.build_handles(writer)?;
 

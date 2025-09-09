@@ -86,7 +86,7 @@ macro_rules! tpm_struct {
         }
 
         impl $crate::message::TpmHeader for $name {
-            const COMMAND: $crate::data::TpmCc = $cc;
+            const CC: $crate::data::TpmCc = $cc;
             const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
     };
@@ -193,7 +193,7 @@ macro_rules! tpm_struct {
         }
 
         impl $crate::message::TpmHeader for $name {
-            const COMMAND: $crate::data::TpmCc = $cc;
+            const CC: $crate::data::TpmCc = $cc;
             const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
     };

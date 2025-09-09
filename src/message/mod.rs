@@ -53,15 +53,11 @@ pub type TpmAuthCommands = TpmList<data::TpmsAuthCommand, MAX_SESSIONS>;
 pub type TpmAuthResponses = TpmList<data::TpmsAuthResponse, MAX_SESSIONS>;
 /// A trait for TPM commands and responses that provides header information.
 pub trait TpmHeader: TpmBuild + Debug {
-    const COMMAND: data::TpmCc;
+    const CC: data::TpmCc;
     const HANDLES: usize;
 
-    fn tpm_cc(&self) -> data::TpmCc {
-        Self::COMMAND
-    }
-
-    fn tpm_handle_count(&self) -> usize {
-        Self::HANDLES
+    fn cc(&self) -> data::TpmCc {
+        Self::CC
     }
 }
 
