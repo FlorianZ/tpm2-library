@@ -73,8 +73,6 @@ impl fmt::LowerHex for TpmNotDiscriminant {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TpmErrorKind {
-    /// A command requires an authorization session but none was provided
-    AuthMissing,
     /// A built value would exceed a capacity limit
     BuildCapacity,
     /// An unresolvable internal error
@@ -96,7 +94,6 @@ pub enum TpmErrorKind {
 impl fmt::Display for TpmErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AuthMissing => write!(f, "auth missing"),
             Self::BuildCapacity => write!(f, "build capacity"),
             Self::InvalidMagic { expected, got } => {
                 write!(f, "invalid magic 0x{got:x}: expected 0x{expected:x}")

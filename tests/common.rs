@@ -99,7 +99,6 @@ fn parse_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static
 #[allow(dead_code)]
 pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmErrorKind, &'static str> {
     match s {
-        "AuthMissing" => return Ok(TpmErrorKind::AuthMissing),
         "BuildCapacity" => return Ok(TpmErrorKind::BuildCapacity),
         "Unreachable" => return Ok(TpmErrorKind::Unreachable),
         "InvalidValue" => return Ok(TpmErrorKind::InvalidValue),
