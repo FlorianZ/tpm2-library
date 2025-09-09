@@ -108,30 +108,6 @@ pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmErrorKind, &'static str> {
         _ => {}
     }
 
-    if let Some(rest) = s.strip_prefix("InvalidMagic") {
-        let content = rest
-            .trim()
-            .strip_prefix('{')
-            .and_then(|s| s.strip_suffix('}'))
-            .ok_or("InvalidMagic: missing braces")?
-            .trim();
-
-        let mut parts = content.split(',');
-        let expected_part = parts
-            .next()
-            .ok_or("InvalidMagic: missing 'expected' part")?;
-        let got_part = parts.next().ok_or("InvalidMagic: missing 'got' part")?;
-
-        if parts.next().is_some() {
-            return Err("InvalidMagic: Extra content after comma");
-        }
-
-        let expected = parse_key_value_u32(expected_part, "expected")?;
-        let got = parse_key_value_u32(got_part, "got")?;
-
-        return Ok(TpmErrorKind::InvalidMagic { expected, got });
-    }
-
     if let Some(rest) = s.strip_prefix("NotDiscriminant") {
         let content = rest
             .trim()

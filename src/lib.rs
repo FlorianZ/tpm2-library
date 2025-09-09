@@ -77,8 +77,6 @@ pub enum TpmErrorKind {
     BuildCapacity,
     /// An unresolvable internal error
     Unreachable,
-    /// Invalid magic number for the data
-    InvalidMagic { expected: u32, got: u32 },
     /// Invalid value
     InvalidValue,
     /// Not a valid discriminant for the target enum
@@ -95,9 +93,6 @@ impl fmt::Display for TpmErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BuildCapacity => write!(f, "build capacity"),
-            Self::InvalidMagic { expected, got } => {
-                write!(f, "invalid magic 0x{got:x}: expected 0x{expected:x}")
-            }
             Self::InvalidValue => write!(f, "invalid value"),
             Self::NotDiscriminant(type_name, value) => {
                 write!(f, "not discriminant for {type_name}: 0x{value:x}")

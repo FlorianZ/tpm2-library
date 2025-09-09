@@ -8,6 +8,7 @@ use crate::{
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
         TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
         TpmiYesNo, TpmlPcrSelection, TpmtKdfScheme, TpmtScheme, TpmtSymDefObject, TpmuCapabilities,
+        TPM_GENERATED_VALUE,
     },
     tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult, TpmSized,
     TpmTagged, TpmWriter,
@@ -394,11 +395,8 @@ impl TpmBuild for TpmsAttest {
 impl TpmParse for TpmsAttest {
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (magic, buf) = u32::parse(buf)?;
-        if magic != 0xff54_4347 {
-            return Err(TpmErrorKind::InvalidMagic {
-                expected: 0xff54_4347,
-                got: magic,
-            });
+        if magic != TPM_GENERATED_VALUE {
+            return Err(TpmErrorKind::InvalidValue);
         }
         let (attest_type, buf) = TpmSt::parse(buf)?;
         let (qualified_signer, buf) = Tpm2bName::parse(buf)?;
