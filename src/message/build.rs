@@ -5,7 +5,7 @@
 use crate::{
     constant::TPM_HEADER_SIZE,
     data::{TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    message::{TpmCommandBuild, TpmHeader, TpmResponseBuild},
+    message::{TpmBodyBuild, TpmHeader},
     TpmBuild, TpmErrorKind, TpmResult, TpmSized,
 };
 use core::{convert::TryFrom, mem::size_of};
@@ -22,7 +22,7 @@ pub fn tpm_build_command<C>(
     writer: &mut crate::TpmWriter,
 ) -> TpmResult<()>
 where
-    C: TpmHeader + TpmCommandBuild,
+    C: TpmHeader + TpmBodyBuild,
 {
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
         return Err(TpmErrorKind::InvalidValue);
@@ -71,7 +71,7 @@ pub fn tpm_build_response<R>(
     writer: &mut crate::TpmWriter,
 ) -> TpmResult<()>
 where
-    R: TpmHeader + TpmResponseBuild,
+    R: TpmHeader + TpmBodyBuild,
 {
     let tag = if !rc.is_error() && !sessions.is_empty() {
         TpmSt::Sessions

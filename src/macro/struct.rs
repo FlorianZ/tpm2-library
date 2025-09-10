@@ -34,12 +34,12 @@ macro_rules! tpm_struct {
         impl $crate::TpmBuild for $name {
             #[allow(unused_variables)]
             fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                <Self as $crate::message::TpmCommandBuild>::build_handles(self, writer)?;
-                <Self as $crate::message::TpmCommandBuild>::build_parameters(self, writer)
+                <Self as $crate::message::TpmBodyBuild>::build_handles(self, writer)?;
+                <Self as $crate::message::TpmBodyBuild>::build_parameters(self, writer)
             }
         }
 
-        impl $crate::message::TpmCommandBuild for $name {
+        impl $crate::message::TpmBodyBuild for $name {
             #[allow(unused_variables)]
             fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $($crate::TpmBuild::build(&self.$handle_field, writer)?;)*
@@ -111,7 +111,7 @@ macro_rules! tpm_struct {
             $(pub $param_field: $param_type,)*
         }
 
-        impl $crate::message::TpmResponseBuild for $name {
+        impl $crate::message::TpmBodyBuild for $name {
             #[allow(unused_variables)]
             fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $($crate::TpmBuild::build(&self.$handle_field, writer)?;)*
@@ -133,8 +133,8 @@ macro_rules! tpm_struct {
 
         impl $crate::TpmBuild for $name {
             fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                <Self as $crate::message::TpmResponseBuild>::build_handles(self, writer)?;
-                <Self as $crate::message::TpmResponseBuild>::build_parameters(self, writer)
+                <Self as $crate::message::TpmBodyBuild>::build_handles(self, writer)?;
+                <Self as $crate::message::TpmBodyBuild>::build_parameters(self, writer)
             }
         }
 

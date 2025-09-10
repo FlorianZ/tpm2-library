@@ -62,33 +62,16 @@ pub trait TpmHeader: TpmBuild + Debug {
     }
 }
 
-/// A trait for building command bodies in separate handle and parameter sections.
-pub trait TpmCommandBuild {
-    /// Builds the handle area of the command.
+/// A trait for building command/response bodies in separate handle and parameter sections.
+pub trait TpmBodyBuild {
+    /// Builds the handle area.
     ///
     /// # Errors
     ///
     /// Returns `Err(TpmErrorKind)` on a build failure.
     fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
-    /// Builds the parameter area of the command.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err(TpmErrorKind)` on a build failure.
-    fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
-}
-
-/// A trait for building response bodies in separate handle and parameter sections.
-pub trait TpmResponseBuild {
-    /// Builds the handle area of the response.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err(TpmErrorKind)` on a build failure.
-    fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
-
-    /// Builds the parameter area of the response.
+    /// Builds the parameter area.
     ///
     /// # Errors
     ///
