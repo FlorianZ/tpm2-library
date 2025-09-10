@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    constant::TPM_MAX_COMMAND_SIZE,
+    constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
         TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle,
@@ -13,15 +13,10 @@ use crate::{
         TpmsSchemeHash, TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa,
         TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
-    tpm_hash_size, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult, TpmSized,
-    TpmTagged, TpmWriter,
+    tpm_hash_size, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult,
+    TpmSized, TpmTagged, TpmWriter,
 };
 use core::ops::Deref;
-
-/// A helper to convert a slice into a fixed-size array, returning an internal error on failure.
-fn slice_to_fixed_array<const N: usize>(slice: &[u8]) -> TpmResult<[u8; N]> {
-    slice.try_into().map_err(|_| TpmErrorKind::Unreachable)
-}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -100,11 +95,7 @@ impl TpmParseTagged for TpmuCapabilities {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuHa {
     Null,
-    Sha1([u8; 20]),
-    Sha256([u8; 32]),
-    Sha384([u8; 48]),
-    Sha512([u8; 64]),
-    Sm3_256([u8; 32]),
+    Digest(TpmBuffer<MAX_DIGEST_SIZE>),
 }
 
 impl TpmTagged for TpmuHa {
@@ -116,7 +107,7 @@ impl TpmBuild for TpmuHa {
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         match self {
             Self::Null => Ok(()),
-            _ => writer.write_bytes(self),
+            Self::Digest(d) => writer.write_bytes(d),
         }
     }
 }
@@ -134,14 +125,7 @@ impl TpmParseTagged for TpmuHa {
 
         let (digest_bytes, buf) = buf.split_at(digest_size);
 
-        let digest = match tag {
-            TpmAlgId::Sha1 => Self::Sha1(slice_to_fixed_array(digest_bytes)?),
-            TpmAlgId::Sha256 => Self::Sha256(slice_to_fixed_array(digest_bytes)?),
-            TpmAlgId::Sha384 => Self::Sha384(slice_to_fixed_array(digest_bytes)?),
-            TpmAlgId::Sha512 => Self::Sha512(slice_to_fixed_array(digest_bytes)?),
-            TpmAlgId::Sm3_256 => Self::Sm3_256(slice_to_fixed_array(digest_bytes)?),
-            _ => return Err(TpmErrorKind::InvalidValue),
-        };
+        let digest = Self::Digest(TpmBuffer::try_from(digest_bytes)?);
 
         Ok((digest, buf))
     }
@@ -154,14 +138,11 @@ impl Default for TpmuHa {
 }
 
 impl TpmSized for TpmuHa {
-    const SIZE: usize = 64;
+    const SIZE: usize = MAX_DIGEST_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::Null => 0,
-            Self::Sha1(d) => d.len(),
-            Self::Sha256(d) | Self::Sm3_256(d) => d.len(),
-            Self::Sha384(d) => d.len(),
-            Self::Sha512(d) => d.len(),
+            Self::Digest(d) => d.deref().len(),
         }
     }
 }
@@ -172,10 +153,7 @@ impl Deref for TpmuHa {
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Null => &[],
-            Self::Sha1(d) => d,
-            Self::Sha256(d) | Self::Sm3_256(d) => d,
-            Self::Sha384(d) => d,
-            Self::Sha512(d) => d,
+            Self::Digest(d) => d,
         }
     }
 }
