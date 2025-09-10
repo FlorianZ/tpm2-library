@@ -99,7 +99,7 @@ fn parse_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static
 #[allow(dead_code)]
 pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmErrorKind, &'static str> {
     match s {
-        "Unreachable" => return Ok(TpmErrorKind::Unreachable),
+        "Failure" => return Ok(TpmErrorKind::Failure),
         "InvalidValue" => return Ok(TpmErrorKind::InvalidValue),
         "Underflow" => return Ok(TpmErrorKind::Underflow),
         "TrailingData" => return Ok(TpmErrorKind::TrailingData),

@@ -82,7 +82,7 @@ pub enum TpmErrorKind {
     /// Not enough bytes to parse the full data structure.
     Underflow,
     /// An unresolvable internal error
-    Unreachable,
+    Failure,
 }
 
 impl fmt::Display for TpmErrorKind {
@@ -95,14 +95,14 @@ impl fmt::Display for TpmErrorKind {
             }
             Self::TrailingData => write!(f, "trailing data"),
             Self::Underflow => write!(f, "parse underflow"),
-            Self::Unreachable => write!(f, "unreachable"),
+            Self::Failure => write!(f, "unreachable"),
         }
     }
 }
 
 impl From<core::num::TryFromIntError> for TpmErrorKind {
     fn from(_: core::num::TryFromIntError) -> Self {
-        Self::Unreachable
+        Self::Failure
     }
 }
 
@@ -137,12 +137,12 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `TpmErrorKind::Unreachable` if the writer does not have enough
+    /// Returns `TpmErrorKind::Failure` if the writer does not have enough
     /// capacity to hold the new bytes.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmErrorKind::Unreachable);
+            return Err(TpmErrorKind::Failure);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
