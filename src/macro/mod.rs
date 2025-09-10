@@ -143,31 +143,6 @@ macro_rules! tpm_bool {
 #[macro_export]
 macro_rules! tpm_dispatch {
     ( $( ($cmd:ident, $resp:ident, $variant:ident) ),* $(,)? ) => {
-        macro_rules! tpm_command_parser {
-            ($value:ty, $name:ident) => {
-                (
-                    <$value as $crate::message::TpmHeader>::CC,
-                    <$value as $crate::message::TpmHeader>::HANDLES,
-                    |handles, params| {
-                        <$value as $crate::message::TpmCommandBodyParse>::parse_body(handles, params)
-                            .map(|(c, r)| (TpmCommandBody::$name(c), r))
-                    },
-                )
-            };
-        }
-
-        macro_rules! tpm_response_parser {
-            ($rsp_ty:ty, $enum_variant:ident) => {
-                (
-                    <$rsp_ty as $crate::message::TpmHeader>::CC,
-                    |tag, buf| {
-                        <$rsp_ty as $crate::message::TpmResponseBodyParse>::parse_body(tag, buf)
-                            .map(|(r, rest)| (TpmResponseBody::$enum_variant(r), rest))
-                    },
-                )
-            };
-        }
-
         /// A TPM command
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
@@ -216,30 +191,28 @@ macro_rules! tpm_dispatch {
             )*
         }
 
-        pub type TpmCommandParser = for<'a> fn(&'a [u8], &'a [u8]) -> $crate::TpmResult<(TpmCommandBody, &'a [u8])>;
-        pub type TpmResponseParser = for<'a> fn($crate::data::TpmSt, &'a [u8]) -> $crate::TpmResult<(TpmResponseBody, &'a [u8])>;
-
-        pub(crate) static PARSE_COMMAND_MAP: &[($crate::data::TpmCc, usize, TpmCommandParser)] =
-            &[$(tpm_command_parser!($cmd, $variant),)*];
-
-        pub(crate) static PARSE_RESPONSE_MAP: &[($crate::data::TpmCc, TpmResponseParser)] =
-            &[$(tpm_response_parser!($resp, $variant),)*];
-
-        const _: () = {
-            let mut i = 1;
-            while i < PARSE_COMMAND_MAP.len() {
-                if PARSE_COMMAND_MAP[i - 1].0 as u32 > PARSE_COMMAND_MAP[i].0 as u32 {
-                    panic!("PARSE_COMMAND_MAP must be sorted by TpmCc.");
-                }
-                i += 1;
-            }
-        };
+        pub(crate) static TPM_DISPATCH_TABLE: &[$crate::message::TpmDispatch] = &[
+            $(
+                $crate::message::TpmDispatch {
+                    cc: <$cmd as $crate::message::TpmHeader>::CC,
+                    handles: <$cmd as $crate::message::TpmHeader>::HANDLES,
+                    command_parser: |handles, params| {
+                        <$cmd as $crate::message::TpmCommandBodyParse>::parse_body(handles, params)
+                            .map(|(c, r)| (TpmCommandBody::$variant(c), r))
+                    },
+                    response_parser: |tag, buf| {
+                        <$resp as $crate::message::TpmResponseBodyParse>::parse_body(tag, buf)
+                            .map(|(r, rest)| (TpmResponseBody::$variant(r), rest))
+                    },
+                },
+            )*
+        ];
 
         const _: () = {
             let mut i = 1;
-            while i < PARSE_RESPONSE_MAP.len() {
-                if PARSE_RESPONSE_MAP[i - 1].0 as u32 > PARSE_RESPONSE_MAP[i].0 as u32 {
-                    panic!("PARSE_RESPONSE_MAP must be sorted by TpmCc.");
+            while i < TPM_DISPATCH_TABLE.len() {
+                if TPM_DISPATCH_TABLE[i - 1].cc as u32 > TPM_DISPATCH_TABLE[i].cc as u32 {
+                    panic!("TPM_DISPATCH_TABLE must be sorted by TpmCc.");
                 }
                 i += 1;
             }
