@@ -3,19 +3,19 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    constant::TPM_GENERATED_VALUE,
+    constant::TPM_PCR_SELECT_MAX,
     data::{
         Tpm2b, Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bMaxNvBuffer, Tpm2bName,
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
         TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
         TpmiYesNo, TpmlPcrSelection, TpmtKdfScheme, TpmtScheme, TpmtSymDefObject, TpmuCapabilities,
-        TPM_GENERATED_VALUE,
     },
     tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult, TpmSized,
     TpmTagged, TpmWriter,
 };
 use core::{convert::TryFrom, mem::size_of, ops::Deref};
 
-pub const TPM_PCR_SELECT_MAX: usize = 3;
 pub type TpmsPcrSelect = TpmBuffer<TPM_PCR_SELECT_MAX>;
 
 tpm_struct! {

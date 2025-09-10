@@ -7,7 +7,8 @@ use super::{
     PARSE_COMMAND_MAP, PARSE_RESPONSE_MAP,
 };
 use crate::{
-    data::{TpmCc, TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse, TPM_HEADER_SIZE},
+    constant::TPM_HEADER_SIZE,
+    data::{TpmCc, TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     TpmErrorKind, TpmNotDiscriminant, TpmParse, TpmResult,
 };
 use core::{convert::TryFrom, mem::size_of};

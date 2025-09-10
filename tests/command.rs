@@ -9,8 +9,9 @@ mod common;
 
 use crate::common::{bytes_to_hex, hex_to_bytes, run_test};
 use tpm2_protocol::{
+    constant::TPM_MAX_COMMAND_SIZE,
     message::{tpm_build_command, tpm_parse_command, TpmCommandBody},
-    TpmWriter, TPM_MAX_COMMAND_SIZE,
+    TpmWriter,
 };
 
 const COMMAND_DATA: &str = include_str!("command.txt");

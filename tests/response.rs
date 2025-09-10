@@ -10,9 +10,10 @@ mod common;
 use crate::common::{bytes_to_hex, hex_to_bytes, parse_tpm_error_kind_str, run_test};
 use std::convert::TryFrom;
 use tpm2_protocol::{
+    constant::TPM_MAX_COMMAND_SIZE,
     data::{TpmCc, TpmRc, TpmRcBase},
     message::{tpm_build_response, tpm_parse_response, TpmResponseBody, TpmStartupResponse},
-    TpmWriter, TPM_MAX_COMMAND_SIZE,
+    TpmWriter,
 };
 
 const RESPONSE_DATA: &str = include_str!("response.txt");

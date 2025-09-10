@@ -23,11 +23,12 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-#[macro_use]
-pub mod r#macro;
 pub mod buffer;
+pub mod constant;
 pub mod data;
 pub mod list;
+#[macro_use]
+pub mod r#macro;
 pub mod message;
 
 use crate::data::TpmAlgId;
@@ -52,9 +53,6 @@ tpm_handle! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
     TpmPersistent
 }
-
-/// The maximum size of a TPM command or response buffer.
-pub const TPM_MAX_COMMAND_SIZE: usize = 4096;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TpmNotDiscriminant {
@@ -239,8 +237,10 @@ pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
     let (size, buf) = u16::parse(buf)?;
     let size = size as usize;
 
-    if size > TPM_MAX_COMMAND_SIZE {
-        return Err(TpmErrorKind::Capacity(TPM_MAX_COMMAND_SIZE));
+    if size > crate::constant::TPM_MAX_COMMAND_SIZE {
+        return Err(TpmErrorKind::Capacity(
+            crate::constant::TPM_MAX_COMMAND_SIZE,
+        ));
     }
 
     if buf.len() < size {

@@ -3,6 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
         TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle,
@@ -13,7 +14,7 @@ use crate::{
         TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
     tpm_hash_size, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult, TpmSized,
-    TpmTagged, TpmWriter, TPM_MAX_COMMAND_SIZE,
+    TpmTagged, TpmWriter,
 };
 use core::ops::Deref;
 

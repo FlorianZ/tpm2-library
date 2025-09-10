@@ -2,7 +2,6 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-mod r#const;
 mod r#enum;
 mod tpm_rc;
 mod tpma;
@@ -11,7 +10,6 @@ mod tpms;
 mod tpmt;
 mod tpmu;
 
-pub use self::r#const::*;
 pub use self::r#enum::*;
 pub use self::tpm_rc::*;
 pub use self::tpma::*;
@@ -20,18 +18,15 @@ pub use self::tpms::*;
 pub use self::tpmt::*;
 pub use self::tpmu::*;
 
-use crate::{tpm2b, tpm2b_struct, tpml, TPM_MAX_COMMAND_SIZE};
+use crate::{
+    constant::{
+        MAX_BUFFER_SIZE, MAX_DIGEST_SIZE, MAX_ECC_KEY_BYTES, MAX_EVENT_SIZE, MAX_NV_BUFFER_SIZE,
+        MAX_PRIVATE_SIZE, MAX_RSA_KEY_BYTES, MAX_SENSITIVE_DATA, MAX_SYM_KEY_BYTES,
+        TPM_MAX_COMMAND_SIZE,
+    },
+    tpm2b, tpm2b_struct, tpml,
+};
 use core::{convert::TryFrom, fmt::Debug};
-
-pub const MAX_DIGEST_SIZE: usize = 64;
-pub const MAX_ECC_KEY_BYTES: usize = 66;
-pub const MAX_SYM_KEY_BYTES: usize = 32;
-pub const MAX_RSA_KEY_BYTES: usize = 512;
-pub const MAX_SENSITIVE_DATA: usize = 256;
-pub const MAX_BUFFER_SIZE: usize = 1024;
-pub const MAX_NV_BUFFER_SIZE: usize = 1024;
-pub const MAX_PRIVATE_SIZE: usize = 1408;
-pub const MAX_EVENT_SIZE: usize = 1024;
 
 tpm2b!(Tpm2b, TPM_MAX_COMMAND_SIZE);
 tpm2b!(Tpm2bAuth, MAX_DIGEST_SIZE);

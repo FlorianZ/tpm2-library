@@ -13,11 +13,12 @@ use std::{
 };
 use tpm2_protocol::{
     build_tpm2b,
+    constant::TPM_MAX_COMMAND_SIZE,
     data::{
         TpmAlgId, TpmRc, TpmRcBase, TpmRcIndex, TpmaSession, TpmsClockInfo, TpmtSymDef,
         TpmuSymKeyBits, TpmuSymMode,
     },
-    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmWriter, TPM_MAX_COMMAND_SIZE,
+    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmWriter,
 };
 
 fn test_tpm2b_build_length_too_large() {

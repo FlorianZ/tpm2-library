@@ -10,8 +10,8 @@ use super::{
     Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmHt, TpmRh, TpmSt, TpmaObject,
 };
 use crate::{
-    tpm_struct, tpm_tagged_struct, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult,
-    TpmSized, TpmTagged, TpmWriter, TPM_MAX_COMMAND_SIZE,
+    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, tpm_tagged_struct, TpmBuild, TpmErrorKind,
+    TpmParse, TpmParseTagged, TpmResult, TpmSized, TpmTagged, TpmWriter,
 };
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TpmtPublic {

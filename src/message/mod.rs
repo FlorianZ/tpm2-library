@@ -41,16 +41,17 @@ pub use self::{
     sequence::*, session::*, signing::*, startup::*, symmetric::*, testing::*, vendor::*,
 };
 
-/// The maximum number of handles a command can have.
-pub const MAX_HANDLES: usize = 8;
-/// The maximum number of sessions a command can have.
-pub const MAX_SESSIONS: usize = 8;
+use crate::constant::{MAX_HANDLES, MAX_SESSIONS};
+
 /// A fixed-capacity list for TPM handles.
 pub type TpmHandles = TpmList<u32, MAX_HANDLES>;
+
 /// A fixed-capacity list for command authorization sessions.
 pub type TpmAuthCommands = TpmList<data::TpmsAuthCommand, MAX_SESSIONS>;
+
 /// A fixed-capacity list for response authorization sessions.
 pub type TpmAuthResponses = TpmList<data::TpmsAuthResponse, MAX_SESSIONS>;
+
 /// A trait for TPM commands and responses that provides header information.
 pub trait TpmHeader: TpmBuild + Debug {
     const CC: data::TpmCc;
