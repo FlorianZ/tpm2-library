@@ -2,44 +2,14 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{data, tpm_dispatch, TpmBuild, TpmList, TpmResult, TpmWriter};
+use crate::{tpm_dispatch, TpmBuild, TpmList, TpmResult, TpmWriter};
 use core::fmt::Debug;
 
-mod asymmetric;
-mod attached;
-mod attestation;
-mod audit;
 mod build;
-mod capability;
-mod clocks_and_timers;
-mod context;
-mod dictionary_attack;
-mod duplication;
-mod enhanced_authorization;
-mod ephemeral;
-mod field_upgrade;
-mod hierarchy;
-mod integrity;
-mod miscellaneous_management;
-mod non_volatile;
-mod object;
+mod data;
 mod parse;
-mod random_number;
-mod sequence;
-mod session;
-mod signing;
-mod startup;
-mod symmetric;
-mod testing;
-mod vendor;
 
-pub use self::{
-    asymmetric::*, attached::*, attestation::*, audit::*, build::*, capability::*,
-    clocks_and_timers::*, context::*, dictionary_attack::*, duplication::*,
-    enhanced_authorization::*, ephemeral::*, field_upgrade::*, hierarchy::*, integrity::*,
-    miscellaneous_management::*, non_volatile::*, object::*, parse::*, random_number::*,
-    sequence::*, session::*, signing::*, startup::*, symmetric::*, testing::*, vendor::*,
-};
+pub use self::{build::*, data::*, parse::*};
 
 use crate::constant::{MAX_HANDLES, MAX_SESSIONS};
 
@@ -47,17 +17,17 @@ use crate::constant::{MAX_HANDLES, MAX_SESSIONS};
 pub type TpmHandles = TpmList<u32, MAX_HANDLES>;
 
 /// A fixed-capacity list for command authorization sessions.
-pub type TpmAuthCommands = TpmList<data::TpmsAuthCommand, MAX_SESSIONS>;
+pub type TpmAuthCommands = TpmList<crate::data::TpmsAuthCommand, MAX_SESSIONS>;
 
 /// A fixed-capacity list for response authorization sessions.
-pub type TpmAuthResponses = TpmList<data::TpmsAuthResponse, MAX_SESSIONS>;
+pub type TpmAuthResponses = TpmList<crate::data::TpmsAuthResponse, MAX_SESSIONS>;
 
 /// A trait for TPM commands and responses that provides header information.
 pub trait TpmHeader: TpmBuild + Debug {
-    const CC: data::TpmCc;
+    const CC: crate::data::TpmCc;
     const HANDLES: usize;
 
-    fn cc(&self) -> data::TpmCc {
+    fn cc(&self) -> crate::data::TpmCc {
         Self::CC
     }
 }
@@ -98,7 +68,7 @@ pub trait TpmResponseBodyParse: Sized {
     /// # Errors
     ///
     /// Returns `Err(TpmErrorKind)` on a parse failure.
-    fn parse_body(tag: data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
+    fn parse_body(tag: crate::data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 
 tpm_dispatch! {

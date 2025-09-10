@@ -53,31 +53,39 @@ tpm2b_struct! {
     Tpm2bPublic,
     TpmtPublic
 }
+
+pub type Tpm2bTemplate = Tpm2bPublic;
+
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
     Tpm2bSensitiveCreate,
     TpmsSensitiveCreate
 }
+
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     Tpm2bSensitive,
     TpmtSensitive
 }
+
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
     Tpm2bCreationData,
     TpmsCreationData
 }
+
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     Tpm2bAttest,
     TpmsAttest
 }
+
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     Tpm2bNvPublic,
     TpmsNvPublic
 }
+
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
     Tpm2bIdObject,

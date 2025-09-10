@@ -45,6 +45,8 @@ tpm_enum! {
     }
 }
 
+pub type TpmiAlgCipherMode = TpmAlgId;
+
 tpm_enum! {
     #[derive(Debug, PartialEq, Eq, Copy, Clone)]
     pub enum TpmAt(u32) {
