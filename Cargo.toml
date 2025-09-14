@@ -20,11 +20,6 @@ path = "tests/adhoc.rs"
 harness = false
 
 [[test]]
-name = "command"
-path = "tests/command.rs"
-harness = false
-
-[[test]]
-name = "response"
-path = "tests/response.rs"
+name = "message"
+path = "tests/message.rs"
 harness = false

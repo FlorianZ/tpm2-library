@@ -7,24 +7,17 @@
 TARGET_DIR := target
 TARGET := $(TARGET_DIR)/libtpm2_protocol.rlib
 TEST := $(TARGET_DIR)/adhoc
-COMMAND_TEST := $(TARGET_DIR)/command_adhoc
-RESPONSE_TEST := $(TARGET_DIR)/response_adhoc
+MESSAGE_TEST := $(TARGET_DIR)/message_adhoc
 
-test: $(TEST) $(COMMAND_TEST) $(RESPONSE_TEST)
+test: $(TEST) $(MESSAGE_TEST)
 	@echo "Running kselftests..."
 	@./$(TEST)
-	@echo "Running command tests..."
-	@./$(COMMAND_TEST)
-	@echo "Running response tests..."
-	@./$(RESPONSE_TEST)
+	@echo "Running message tests..."
+	@./$(MESSAGE_TEST)
 
-$(COMMAND_TEST): tests/command.rs tests/command.txt $(TARGET)
-	@echo "Compiling command test adhoc..."
-	@rustc tests/command.rs --crate-name command_adhoc --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(COMMAND_TEST)
-
-$(RESPONSE_TEST): tests/response.rs tests/response.txt $(TARGET)
-	@echo "Compiling response test adhoc..."
-	@rustc tests/response.rs --crate-name response_adhoc --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(RESPONSE_TEST)
+$(MESSAGE_TEST): tests/message.rs tests/message.txt $(TARGET)
+	@echo "Compiling message test adhoc..."
+	@rustc tests/message.rs --crate-name message_adhoc --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(MESSAGE_TEST)
 
 $(TEST): $(TARGET) tests/adhoc.rs
 	@echo "Compiling test adhoc..."
