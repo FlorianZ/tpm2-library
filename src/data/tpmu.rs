@@ -6,11 +6,11 @@ use crate::{
     constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
-        TpmAlgId, TpmCap, TpmHt, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle,
-        TpmlPcrSelection, TpmlTaggedTpmProperty, TpmsCertifyInfo, TpmsCommandAuditInfo,
-        TpmsCreationInfo, TpmsEccParms, TpmsEccPoint, TpmsKeyedhashParms, TpmsNvCertifyInfo,
-        TpmsNvDigestCertifyInfo, TpmsNvPublic, TpmsNvPublicExpAttr, TpmsQuoteInfo, TpmsRsaParms,
-        TpmsSchemeHash, TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa,
+        TpmAlgId, TpmHt, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection,
+        TpmlTaggedTpmProperty, TpmsCertifyInfo, TpmsCommandAuditInfo, TpmsCreationInfo,
+        TpmsEccParms, TpmsEccPoint, TpmsKeyedhashParms, TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo,
+        TpmsNvPublic, TpmsNvPublicExpAttr, TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash,
+        TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa,
         TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
     tpm_hash_size, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult,
@@ -27,11 +27,6 @@ pub enum TpmuCapabilities {
     Commands(TpmlCca),
     TpmProperties(TpmlTaggedTpmProperty),
     EccCurves(TpmlEccCurve),
-}
-
-impl TpmTagged for TpmuCapabilities {
-    type Tag = TpmCap;
-    type Value = ();
 }
 
 impl TpmSized for TpmuCapabilities {
@@ -57,37 +52,6 @@ impl TpmBuild for TpmuCapabilities {
             Self::Commands(cmds) => cmds.build(writer),
             Self::TpmProperties(props) => props.build(writer),
             Self::EccCurves(curves) => curves.build(writer),
-        }
-    }
-}
-
-impl TpmParseTagged for TpmuCapabilities {
-    fn parse_tagged(tag: TpmCap, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmCap::Algs => {
-                let (algs, buf) = TpmlAlgProperty::parse(buf)?;
-                Ok((Self::Algs(algs), buf))
-            }
-            TpmCap::Handles => {
-                let (handles, buf) = TpmlHandle::parse(buf)?;
-                Ok((Self::Handles(handles), buf))
-            }
-            TpmCap::Pcrs => {
-                let (pcrs, buf) = TpmlPcrSelection::parse(buf)?;
-                Ok((Self::Pcrs(pcrs), buf))
-            }
-            TpmCap::Commands => {
-                let (cmds, buf) = TpmlCca::parse(buf)?;
-                Ok((Self::Commands(cmds), buf))
-            }
-            TpmCap::TpmProperties => {
-                let (props, buf) = TpmlTaggedTpmProperty::parse(buf)?;
-                Ok((Self::TpmProperties(props), buf))
-            }
-            TpmCap::EccCurves => {
-                let (curves, buf) = TpmlEccCurve::parse(buf)?;
-                Ok((Self::EccCurves(curves), buf))
-            }
         }
     }
 }
@@ -168,11 +132,6 @@ pub enum TpmuPublicId {
     Null,
 }
 
-impl TpmTagged for TpmuPublicId {
-    type Tag = TpmAlgId;
-    type Value = ();
-}
-
 impl TpmSized for TpmuPublicId {
     const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
@@ -194,31 +153,6 @@ impl TpmBuild for TpmuPublicId {
             Self::Rsa(data) => data.build(writer),
             Self::Ecc(point) => point.build(writer),
             Self::Null => Ok(()),
-        }
-    }
-}
-
-impl TpmParseTagged for TpmuPublicId {
-    fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::KeyedHash => {
-                let (val, rest) = Tpm2bDigest::parse(buf)?;
-                Ok((Self::KeyedHash(val), rest))
-            }
-            TpmAlgId::SymCipher => {
-                let (val, rest) = Tpm2bSymKey::parse(buf)?;
-                Ok((Self::SymCipher(val), rest))
-            }
-            TpmAlgId::Rsa => {
-                let (val, rest) = Tpm2bPublicKeyRsa::parse(buf)?;
-                Ok((Self::Rsa(val), rest))
-            }
-            TpmAlgId::Ecc => {
-                let (point, rest) = TpmsEccPoint::parse(buf)?;
-                Ok((Self::Ecc(point), rest))
-            }
-            TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmErrorKind::InvalidValue),
         }
     }
 }
@@ -302,11 +236,6 @@ pub enum TpmuSensitiveComposite {
     Sym(Tpm2bSymKey),
 }
 
-impl TpmTagged for TpmuSensitiveComposite {
-    type Tag = TpmAlgId;
-    type Value = ();
-}
-
 impl Default for TpmuSensitiveComposite {
     fn default() -> Self {
         Self::Rsa(crate::data::Tpm2bPrivateKeyRsa::default())
@@ -334,30 +263,6 @@ impl TpmBuild for TpmuSensitiveComposite {
     }
 }
 
-impl TpmParseTagged for TpmuSensitiveComposite {
-    fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Rsa => {
-                let (val, buf) = crate::data::Tpm2bPrivateKeyRsa::parse(buf)?;
-                Ok((Self::Rsa(val), buf))
-            }
-            TpmAlgId::Ecc => {
-                let (val, buf) = Tpm2bEccParameter::parse(buf)?;
-                Ok((Self::Ecc(val), buf))
-            }
-            TpmAlgId::KeyedHash => {
-                let (val, buf) = Tpm2bSensitiveData::parse(buf)?;
-                Ok((Self::Bits(val), buf))
-            }
-            TpmAlgId::SymCipher => {
-                let (val, buf) = Tpm2bSymKey::parse(buf)?;
-                Ok((Self::Sym(val), buf))
-            }
-            _ => Err(TpmErrorKind::InvalidValue),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuSymKeyBits {
     Aes(u16),
@@ -365,11 +270,6 @@ pub enum TpmuSymKeyBits {
     Camellia(u16),
     Xor(TpmAlgId),
     Null,
-}
-
-impl TpmTagged for TpmuSymKeyBits {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl Default for TpmuSymKeyBits {
@@ -385,31 +285,6 @@ impl TpmSized for TpmuSymKeyBits {
             Self::Aes(val) | Self::Sm4(val) | Self::Camellia(val) => val.len(),
             Self::Xor(val) => val.len(),
             Self::Null => 0,
-        }
-    }
-}
-
-impl TpmParseTagged for TpmuSymKeyBits {
-    fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Aes => {
-                let (val, buf) = u16::parse(buf)?;
-                Ok((Self::Aes(val), buf))
-            }
-            TpmAlgId::Sm4 => {
-                let (val, buf) = u16::parse(buf)?;
-                Ok((Self::Sm4(val), buf))
-            }
-            TpmAlgId::Camellia => {
-                let (val, buf) = u16::parse(buf)?;
-                Ok((Self::Camellia(val), buf))
-            }
-            TpmAlgId::Xor => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
-                Ok((Self::Xor(val), buf))
-            }
-            TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmErrorKind::InvalidValue),
         }
     }
 }
@@ -433,11 +308,6 @@ pub enum TpmuSymMode {
     Null,
 }
 
-impl TpmTagged for TpmuSymMode {
-    type Tag = TpmAlgId;
-    type Value = ();
-}
-
 impl Default for TpmuSymMode {
     fn default() -> Self {
         Self::Null
@@ -450,31 +320,6 @@ impl TpmSized for TpmuSymMode {
         match self {
             Self::Aes(val) | Self::Sm4(val) | Self::Camellia(val) | Self::Xor(val) => val.len(),
             Self::Null => 0,
-        }
-    }
-}
-
-impl TpmParseTagged for TpmuSymMode {
-    fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Aes => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
-                Ok((Self::Aes(val), buf))
-            }
-            TpmAlgId::Sm4 => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
-                Ok((Self::Sm4(val), buf))
-            }
-            TpmAlgId::Camellia => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
-                Ok((Self::Camellia(val), buf))
-            }
-            TpmAlgId::Xor => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
-                Ok((Self::Xor(val), buf))
-            }
-            TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmErrorKind::InvalidValue),
         }
     }
 }
@@ -580,11 +425,6 @@ pub enum TpmuAttest {
     NvDigest(TpmsNvDigestCertifyInfo),
 }
 
-impl TpmTagged for TpmuAttest {
-    type Tag = crate::data::TpmSt;
-    type Value = ();
-}
-
 impl TpmSized for TpmuAttest {
     const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
@@ -612,46 +452,6 @@ impl TpmBuild for TpmuAttest {
             Self::Time(i) => i.build(writer),
             Self::Nv(i) => i.build(writer),
             Self::NvDigest(i) => i.build(writer),
-        }
-    }
-}
-
-impl TpmParseTagged for TpmuAttest {
-    fn parse_tagged(tag: crate::data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            crate::data::TpmSt::AttestCertify => {
-                let (val, buf) = TpmsCertifyInfo::parse(buf)?;
-                Ok((Self::Certify(val), buf))
-            }
-            crate::data::TpmSt::AttestCreation => {
-                let (val, buf) = TpmsCreationInfo::parse(buf)?;
-                Ok((Self::Creation(val), buf))
-            }
-            crate::data::TpmSt::AttestQuote => {
-                let (val, buf) = TpmsQuoteInfo::parse(buf)?;
-                Ok((Self::Quote(val), buf))
-            }
-            crate::data::TpmSt::AttestCommandAudit => {
-                let (val, buf) = TpmsCommandAuditInfo::parse(buf)?;
-                Ok((Self::CommandAudit(val), buf))
-            }
-            crate::data::TpmSt::AttestSessionAudit => {
-                let (val, buf) = TpmsSessionAuditInfo::parse(buf)?;
-                Ok((Self::SessionAudit(val), buf))
-            }
-            crate::data::TpmSt::AttestTime => {
-                let (val, buf) = TpmsTimeAttestInfo::parse(buf)?;
-                Ok((Self::Time(val), buf))
-            }
-            crate::data::TpmSt::AttestNv => {
-                let (val, buf) = TpmsNvCertifyInfo::parse(buf)?;
-                Ok((Self::Nv(val), buf))
-            }
-            crate::data::TpmSt::AttestNvDigest => {
-                let (val, buf) = TpmsNvDigestCertifyInfo::parse(buf)?;
-                Ok((Self::NvDigest(val), buf))
-            }
-            _ => Err(TpmErrorKind::InvalidValue),
         }
     }
 }

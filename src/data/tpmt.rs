@@ -3,16 +3,61 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{
-    tpmu::{
-        TpmuHa, TpmuKeyedhashScheme, TpmuNvPublic2, TpmuPublicId, TpmuPublicParms,
-        TpmuSensitiveComposite, TpmuSigScheme, TpmuSymKeyBits, TpmuSymMode,
-    },
-    Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmHt, TpmRh, TpmSt, TpmaObject,
+    Tpm2bAuth, Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
+    TpmAlgId, TpmHt, TpmRh, TpmSt, TpmaObject, TpmsEccPoint, TpmuHa, TpmuKeyedhashScheme,
+    TpmuNvPublic2, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite, TpmuSigScheme,
+    TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
-    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, tpm_tagged_struct, TpmBuild, TpmErrorKind,
-    TpmParse, TpmParseTagged, TpmResult, TpmSized, TpmTagged, TpmWriter,
+    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged,
+    TpmResult, TpmSized, TpmWriter,
 };
+
+macro_rules! tpm_struct_tagged {
+    (
+        $(#[$outer:meta])*
+        $vis:vis struct $name:ident {
+            pub $tag_field:ident: $tag_ty:ty,
+            pub $value_field:ident: $value_ty:ty,
+        }
+    ) => {
+        $(#[$outer])*
+        $vis struct $name {
+            pub $tag_field: $tag_ty,
+            pub $value_field: $value_ty,
+        }
+
+        impl $crate::TpmSized for $name {
+            const SIZE: usize = <$tag_ty>::SIZE + <$value_ty>::SIZE;
+            fn len(&self) -> usize {
+                $crate::TpmSized::len(&self.$tag_field) + $crate::TpmSized::len(&self.$value_field)
+            }
+        }
+
+        impl $crate::TpmBuild for $name {
+            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $crate::TpmBuild::build(&self.$tag_field, writer)?;
+                $crate::TpmBuild::build(&self.$value_field, writer)
+            }
+        }
+
+        impl $crate::TpmParse for $name {
+            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                let ($tag_field, buf) = <$tag_ty>::parse(buf)?;
+                let ($value_field, buf) =
+                    <$value_ty as $crate::TpmParseTagged>::parse_tagged($tag_field, buf)?;
+                Ok((
+                    Self {
+                        $tag_field,
+                        $value_field,
+                    },
+                    buf,
+                ))
+            }
+        }
+    };
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TpmtPublic {
     pub object_type: TpmAlgId,
@@ -21,11 +66,6 @@ pub struct TpmtPublic {
     pub auth_policy: Tpm2bDigest,
     pub parameters: TpmuPublicParms,
     pub unique: TpmuPublicId,
-}
-
-impl TpmTagged for TpmtPublic {
-    type Tag = TpmAlgId;
-    type Value = TpmuPublicParms;
 }
 
 impl TpmSized for TpmtPublic {
@@ -58,7 +98,26 @@ impl TpmParse for TpmtPublic {
         let (object_attributes, buf) = TpmaObject::parse(buf)?;
         let (auth_policy, buf) = Tpm2bDigest::parse(buf)?;
         let (parameters, buf) = TpmuPublicParms::parse_tagged(object_type, buf)?;
-        let (unique, buf) = TpmuPublicId::parse_tagged(object_type, buf)?;
+        let (unique, buf) = match object_type {
+            TpmAlgId::KeyedHash => {
+                let (val, rest) = Tpm2bDigest::parse(buf)?;
+                (TpmuPublicId::KeyedHash(val), rest)
+            }
+            TpmAlgId::SymCipher => {
+                let (val, rest) = Tpm2bSymKey::parse(buf)?;
+                (TpmuPublicId::SymCipher(val), rest)
+            }
+            TpmAlgId::Rsa => {
+                let (val, rest) = Tpm2bPublicKeyRsa::parse(buf)?;
+                (TpmuPublicId::Rsa(val), rest)
+            }
+            TpmAlgId::Ecc => {
+                let (point, rest) = TpmsEccPoint::parse(buf)?;
+                (TpmuPublicId::Ecc(point), rest)
+            }
+            TpmAlgId::Null => (TpmuPublicId::Null, buf),
+            _ => return Err(TpmErrorKind::InvalidValue),
+        };
         let public_area = Self {
             object_type,
             name_alg,
@@ -84,7 +143,7 @@ impl Default for TpmtPublic {
     }
 }
 
-tpm_tagged_struct! {
+tpm_struct_tagged! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct TpmtPublicParms {
         pub object_type: TpmAlgId,
@@ -106,7 +165,7 @@ tpm_struct! {
     }
 }
 
-tpm_tagged_struct! {
+tpm_struct_tagged! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtRsaDecrypt {
         pub scheme: TpmAlgId,
@@ -165,11 +224,6 @@ impl TpmtSensitive {
     }
 }
 
-impl TpmTagged for TpmtSensitive {
-    type Tag = TpmAlgId;
-    type Value = TpmuSensitiveComposite;
-}
-
 impl TpmSized for TpmtSensitive {
     const SIZE: usize =
         TpmAlgId::SIZE + Tpm2bAuth::SIZE + Tpm2bDigest::SIZE + TpmuSensitiveComposite::SIZE;
@@ -195,7 +249,25 @@ impl TpmParse for TpmtSensitive {
         let (sensitive_type, buf) = TpmAlgId::parse(buf)?;
         let (auth_value, buf) = Tpm2bAuth::parse(buf)?;
         let (seed_value, buf) = Tpm2bDigest::parse(buf)?;
-        let (sensitive, buf) = TpmuSensitiveComposite::parse_tagged(sensitive_type, buf)?;
+        let (sensitive, buf) = match sensitive_type {
+            TpmAlgId::Rsa => {
+                let (val, buf) = crate::data::Tpm2bPrivateKeyRsa::parse(buf)?;
+                (TpmuSensitiveComposite::Rsa(val), buf)
+            }
+            TpmAlgId::Ecc => {
+                let (val, buf) = Tpm2bEccParameter::parse(buf)?;
+                (TpmuSensitiveComposite::Ecc(val), buf)
+            }
+            TpmAlgId::KeyedHash => {
+                let (val, buf) = Tpm2bSensitiveData::parse(buf)?;
+                (TpmuSensitiveComposite::Bits(val), buf)
+            }
+            TpmAlgId::SymCipher => {
+                let (val, buf) = Tpm2bSymKey::parse(buf)?;
+                (TpmuSensitiveComposite::Sym(val), buf)
+            }
+            _ => return Err(TpmErrorKind::InvalidValue),
+        };
         Ok((
             Self {
                 sensitive_type,
@@ -213,11 +285,6 @@ pub struct TpmtSymDef {
     pub algorithm: TpmAlgId,
     pub key_bits: TpmuSymKeyBits,
     pub mode: TpmuSymMode,
-}
-
-impl TpmTagged for TpmtSymDef {
-    type Tag = TpmAlgId;
-    type Value = TpmuSymKeyBits;
 }
 
 impl TpmSized for TpmtSymDef {
@@ -255,9 +322,46 @@ impl TpmParse for TpmtSymDef {
                 buf,
             ));
         }
-
-        let (key_bits, buf) = TpmuSymKeyBits::parse_tagged(algorithm, buf)?;
-        let (mode, buf) = TpmuSymMode::parse_tagged(algorithm, buf)?;
+        let (key_bits, buf) = match algorithm {
+            TpmAlgId::Aes => {
+                let (val, buf) = u16::parse(buf)?;
+                (TpmuSymKeyBits::Aes(val), buf)
+            }
+            TpmAlgId::Sm4 => {
+                let (val, buf) = u16::parse(buf)?;
+                (TpmuSymKeyBits::Sm4(val), buf)
+            }
+            TpmAlgId::Camellia => {
+                let (val, buf) = u16::parse(buf)?;
+                (TpmuSymKeyBits::Camellia(val), buf)
+            }
+            TpmAlgId::Xor => {
+                let (val, buf) = TpmAlgId::parse(buf)?;
+                (TpmuSymKeyBits::Xor(val), buf)
+            }
+            TpmAlgId::Null => (TpmuSymKeyBits::Null, buf),
+            _ => return Err(TpmErrorKind::InvalidValue),
+        };
+        let (mode, buf) = match algorithm {
+            TpmAlgId::Aes => {
+                let (val, buf) = TpmAlgId::parse(buf)?;
+                (TpmuSymMode::Aes(val), buf)
+            }
+            TpmAlgId::Sm4 => {
+                let (val, buf) = TpmAlgId::parse(buf)?;
+                (TpmuSymMode::Sm4(val), buf)
+            }
+            TpmAlgId::Camellia => {
+                let (val, buf) = TpmAlgId::parse(buf)?;
+                (TpmuSymMode::Camellia(val), buf)
+            }
+            TpmAlgId::Xor => {
+                let (val, buf) = TpmAlgId::parse(buf)?;
+                (TpmuSymMode::Xor(val), buf)
+            }
+            TpmAlgId::Null => (TpmuSymMode::Null, buf),
+            _ => return Err(TpmErrorKind::InvalidValue),
+        };
         Ok((
             Self {
                 algorithm,
@@ -271,7 +375,7 @@ impl TpmParse for TpmtSymDef {
 
 pub type TpmtSymDefObject = TpmtSymDef;
 
-tpm_tagged_struct! {
+tpm_struct_tagged! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtNvPublic2 {
         pub handle_type: TpmHt,
@@ -315,7 +419,7 @@ tpm_struct! {
     }
 }
 
-tpm_tagged_struct! {
+tpm_struct_tagged! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtHa {
         pub hash_alg: TpmAlgId,
@@ -332,7 +436,7 @@ impl Default for TpmtHa {
     }
 }
 
-tpm_tagged_struct! {
+tpm_struct_tagged! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct TpmtSignature {
         pub sig_alg: TpmAlgId,
@@ -340,7 +444,7 @@ tpm_tagged_struct! {
     }
 }
 
-tpm_tagged_struct! {
+tpm_struct_tagged! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtKeyedhashScheme {
         pub scheme: TpmAlgId,
@@ -348,7 +452,7 @@ tpm_tagged_struct! {
     }
 }
 
-tpm_tagged_struct! {
+tpm_struct_tagged! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtSigScheme {
         pub scheme: TpmAlgId,

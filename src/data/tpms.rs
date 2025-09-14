@@ -9,10 +9,11 @@ use crate::{
         Tpm2b, Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bMaxNvBuffer, Tpm2bName,
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
         TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
-        TpmiYesNo, TpmlPcrSelection, TpmtKdfScheme, TpmtScheme, TpmtSymDefObject, TpmuCapabilities,
+        TpmiYesNo, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection,
+        TpmlTaggedTpmProperty, TpmtKdfScheme, TpmtScheme, TpmtSymDefObject, TpmuAttest,
+        TpmuCapabilities,
     },
-    tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult, TpmSized,
-    TpmTagged, TpmWriter,
+    tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmResult, TpmSized, TpmWriter,
 };
 use core::{convert::TryFrom, mem::size_of, ops::Deref};
 
@@ -59,11 +60,6 @@ pub struct TpmsCapabilityData {
     pub data: TpmuCapabilities,
 }
 
-impl TpmTagged for TpmsCapabilityData {
-    type Tag = TpmCap;
-    type Value = ();
-}
-
 impl TpmSized for TpmsCapabilityData {
     const SIZE: usize = size_of::<u32>() + TpmuCapabilities::SIZE;
     fn len(&self) -> usize {
@@ -81,7 +77,32 @@ impl TpmBuild for TpmsCapabilityData {
 impl TpmParse for TpmsCapabilityData {
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (capability, buf) = TpmCap::parse(buf)?;
-        let (data, buf) = TpmuCapabilities::parse_tagged(capability, buf)?;
+        let (data, buf) = match capability {
+            TpmCap::Algs => {
+                let (algs, buf) = TpmlAlgProperty::parse(buf)?;
+                (TpmuCapabilities::Algs(algs), buf)
+            }
+            TpmCap::Handles => {
+                let (handles, buf) = TpmlHandle::parse(buf)?;
+                (TpmuCapabilities::Handles(handles), buf)
+            }
+            TpmCap::Pcrs => {
+                let (pcrs, buf) = TpmlPcrSelection::parse(buf)?;
+                (TpmuCapabilities::Pcrs(pcrs), buf)
+            }
+            TpmCap::Commands => {
+                let (cmds, buf) = TpmlCca::parse(buf)?;
+                (TpmuCapabilities::Commands(cmds), buf)
+            }
+            TpmCap::TpmProperties => {
+                let (props, buf) = TpmlTaggedTpmProperty::parse(buf)?;
+                (TpmuCapabilities::TpmProperties(props), buf)
+            }
+            TpmCap::EccCurves => {
+                let (curves, buf) = TpmlEccCurve::parse(buf)?;
+                (TpmuCapabilities::EccCurves(curves), buf)
+            }
+        };
         Ok((Self { capability, data }, buf))
     }
 }
@@ -353,12 +374,7 @@ pub struct TpmsAttest {
     pub extra_data: Tpm2bData,
     pub clock_info: TpmsClockInfo,
     pub firmware_version: u64,
-    pub attested: crate::data::TpmuAttest,
-}
-
-impl TpmTagged for TpmsAttest {
-    type Tag = TpmSt;
-    type Value = crate::data::TpmuAttest;
+    pub attested: TpmuAttest,
 }
 
 impl TpmSized for TpmsAttest {
@@ -368,7 +384,7 @@ impl TpmSized for TpmsAttest {
         + Tpm2bData::SIZE
         + TpmsClockInfo::SIZE
         + size_of::<u64>()
-        + crate::data::TpmuAttest::SIZE;
+        + TpmuAttest::SIZE;
     fn len(&self) -> usize {
         size_of::<u32>()
             + self.attest_type.len()
@@ -403,7 +419,41 @@ impl TpmParse for TpmsAttest {
         let (extra_data, buf) = Tpm2bData::parse(buf)?;
         let (clock_info, buf) = TpmsClockInfo::parse(buf)?;
         let (firmware_version, buf) = u64::parse(buf)?;
-        let (attested, buf) = crate::data::TpmuAttest::parse_tagged(attest_type, buf)?;
+        let (attested, buf) = match attest_type {
+            TpmSt::AttestCertify => {
+                let (val, buf) = TpmsCertifyInfo::parse(buf)?;
+                (TpmuAttest::Certify(val), buf)
+            }
+            TpmSt::AttestCreation => {
+                let (val, buf) = TpmsCreationInfo::parse(buf)?;
+                (TpmuAttest::Creation(val), buf)
+            }
+            TpmSt::AttestQuote => {
+                let (val, buf) = TpmsQuoteInfo::parse(buf)?;
+                (TpmuAttest::Quote(val), buf)
+            }
+            TpmSt::AttestCommandAudit => {
+                let (val, buf) = TpmsCommandAuditInfo::parse(buf)?;
+                (TpmuAttest::CommandAudit(val), buf)
+            }
+            TpmSt::AttestSessionAudit => {
+                let (val, buf) = TpmsSessionAuditInfo::parse(buf)?;
+                (TpmuAttest::SessionAudit(val), buf)
+            }
+            TpmSt::AttestTime => {
+                let (val, buf) = TpmsTimeAttestInfo::parse(buf)?;
+                (TpmuAttest::Time(val), buf)
+            }
+            TpmSt::AttestNv => {
+                let (val, buf) = TpmsNvCertifyInfo::parse(buf)?;
+                (TpmuAttest::Nv(val), buf)
+            }
+            TpmSt::AttestNvDigest => {
+                let (val, buf) = TpmsNvDigestCertifyInfo::parse(buf)?;
+                (TpmuAttest::NvDigest(val), buf)
+            }
+            _ => return Err(TpmErrorKind::InvalidValue),
+        };
 
         Ok((
             Self {
