@@ -445,7 +445,7 @@ tpm_struct_tagged! {
 }
 
 tpm_struct_tagged! {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtKeyedhashScheme {
         pub scheme: TpmAlgId,
         pub details: TpmuKeyedhashScheme,

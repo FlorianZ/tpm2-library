@@ -10,8 +10,8 @@ use crate::{
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
         TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
         TpmiYesNo, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection,
-        TpmlTaggedTpmProperty, TpmtKdfScheme, TpmtScheme, TpmtSymDefObject, TpmuAttest,
-        TpmuCapabilities,
+        TpmlTaggedTpmProperty, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtScheme, TpmtSymDefObject,
+        TpmuAttest, TpmuCapabilities,
     },
     tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmResult, TpmSized, TpmWriter,
 };
@@ -156,7 +156,7 @@ tpm_struct! {
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
     pub struct TpmsKeyedhashParms {
-        pub scheme: TpmtScheme,
+        pub scheme: TpmtKeyedhashScheme,
     }
 }
 

@@ -456,10 +456,11 @@ impl TpmBuild for TpmuAttest {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuKeyedhashScheme {
     Hmac(TpmsSchemeHash),
     Xor(TpmsSchemeXor),
+    #[default]
     Null,
 }
 
