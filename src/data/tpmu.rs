@@ -513,6 +513,12 @@ pub enum TpmuSigScheme {
     Null,
 }
 
+impl Default for TpmuSigScheme {
+    fn default() -> Self {
+        Self::Null
+    }
+}
+
 impl TpmTagged for TpmuSigScheme {
     type Tag = TpmAlgId;
     type Value = ();

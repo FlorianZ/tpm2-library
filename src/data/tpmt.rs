@@ -144,17 +144,10 @@ impl Default for TpmtPublic {
 }
 
 tpm_struct_tagged! {
-    #[derive(Debug, PartialEq, Eq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtPublicParms {
         pub object_type: TpmAlgId,
         pub parameters: TpmuPublicParms,
-    }
-}
-
-tpm_struct! {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
-    pub struct TpmtScheme {
-        pub scheme: TpmAlgId,
     }
 }
 
@@ -177,7 +170,7 @@ impl Default for TpmtRsaDecrypt {
     fn default() -> Self {
         Self {
             scheme: TpmAlgId::Null,
-            details: crate::data::tpmu::TpmuAsymScheme::Null,
+            details: crate::data::tpmu::TpmuAsymScheme::default(),
         }
     }
 }
@@ -457,5 +450,48 @@ tpm_struct_tagged! {
     pub struct TpmtSigScheme {
         pub scheme: TpmAlgId,
         pub details: TpmuSigScheme,
+    }
+}
+
+impl Default for TpmtSigScheme {
+    fn default() -> Self {
+        Self {
+            scheme: TpmAlgId::Null,
+            details: TpmuSigScheme::default(),
+        }
+    }
+}
+
+tpm_struct_tagged! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub struct TpmtRsaScheme {
+        pub scheme: TpmAlgId,
+        pub details: crate::data::tpmu::TpmuAsymScheme,
+    }
+}
+
+impl Default for TpmtRsaScheme {
+    fn default() -> Self {
+        Self {
+            scheme: TpmAlgId::Null,
+            details: crate::data::tpmu::TpmuAsymScheme::default(),
+        }
+    }
+}
+
+tpm_struct_tagged! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub struct TpmtEccScheme {
+        pub scheme: TpmAlgId,
+        pub details: crate::data::tpmu::TpmuAsymScheme,
+    }
+}
+
+impl Default for TpmtEccScheme {
+    fn default() -> Self {
+        Self {
+            scheme: TpmAlgId::Null,
+            details: crate::data::tpmu::TpmuAsymScheme::default(),
+        }
     }
 }

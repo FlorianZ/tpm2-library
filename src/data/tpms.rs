@@ -10,8 +10,8 @@ use crate::{
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
         TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
         TpmiYesNo, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection,
-        TpmlTaggedTpmProperty, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtScheme, TpmtSymDefObject,
-        TpmuAttest, TpmuCapabilities,
+        TpmlTaggedTpmProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtRsaScheme,
+        TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
     },
     tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmResult, TpmSized, TpmWriter,
 };
@@ -355,7 +355,7 @@ tpm_struct! {
         pub curve_id: TpmEccCurve,
         pub key_size: u16,
         pub kdf: TpmtKdfScheme,
-        pub sign: TpmtScheme,
+        pub sign: TpmtEccScheme,
         pub p: Tpm2bEccParameter,
         pub a: Tpm2bEccParameter,
         pub b: Tpm2bEccParameter,
@@ -489,7 +489,7 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     pub struct TpmsRsaParms {
         pub symmetric: TpmtSymDefObject,
-        pub scheme: TpmtScheme,
+        pub scheme: TpmtRsaScheme,
         pub key_bits: u16,
         pub exponent: u32,
     }
@@ -499,7 +499,7 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     pub struct TpmsEccParms {
         pub symmetric: TpmtSymDefObject,
-        pub scheme: TpmtScheme,
+        pub scheme: TpmtEccScheme,
         pub curve_id: TpmEccCurve,
         pub kdf: TpmtKdfScheme,
     }
