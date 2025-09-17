@@ -477,6 +477,8 @@ tpm_struct! {
     }
 }
 
+pub type TpmsSchemeHmac = TpmsSchemeHash;
+
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     pub struct TpmsSchemeXor {

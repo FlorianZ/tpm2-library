@@ -10,13 +10,60 @@ use crate::{
         TpmlTaggedTpmProperty, TpmsCertifyInfo, TpmsCommandAuditInfo, TpmsCreationInfo,
         TpmsEccParms, TpmsEccPoint, TpmsKeyedhashParms, TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo,
         TpmsNvPublic, TpmsNvPublicExpAttr, TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash,
-        TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa,
+        TpmsSchemeHmac, TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa,
         TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
     tpm_hash_size, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged, TpmResult,
     TpmSized, TpmTagged, TpmWriter,
 };
 use core::ops::Deref;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum TpmuAsymScheme {
+    Any(TpmsSchemeHash),
+    Null,
+}
+
+impl Default for TpmuAsymScheme {
+    fn default() -> Self {
+        Self::Null
+    }
+}
+
+impl TpmTagged for TpmuAsymScheme {
+    type Tag = TpmAlgId;
+    type Value = ();
+}
+
+impl TpmSized for TpmuAsymScheme {
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    fn len(&self) -> usize {
+        match self {
+            Self::Any(s) => s.len(),
+            Self::Null => 0,
+        }
+    }
+}
+
+impl TpmBuild for TpmuAsymScheme {
+    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        match self {
+            Self::Any(s) => s.build(writer),
+            Self::Null => Ok(()),
+        }
+    }
+}
+
+impl TpmParseTagged for TpmuAsymScheme {
+    fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        if tag == TpmAlgId::Null {
+            Ok((Self::Null, buf))
+        } else {
+            let (val, buf) = TpmsSchemeHash::parse(buf)?;
+            Ok((Self::Any(val), buf))
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -510,6 +557,7 @@ impl TpmParseTagged for TpmuKeyedhashScheme {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuSigScheme {
     Any(TpmsSchemeHash),
+    Hmac(TpmsSchemeHmac),
     Null,
 }
 
@@ -529,6 +577,7 @@ impl TpmSized for TpmuSigScheme {
     fn len(&self) -> usize {
         match self {
             Self::Any(s) => s.len(),
+            Self::Hmac(s) => s.len(),
             Self::Null => 0,
         }
     }
@@ -538,6 +587,7 @@ impl TpmBuild for TpmuSigScheme {
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         match self {
             Self::Any(s) => s.build(writer),
+            Self::Hmac(s) => s.build(writer),
             Self::Null => Ok(()),
         }
     }
@@ -553,8 +603,6 @@ impl TpmParseTagged for TpmuSigScheme {
         }
     }
 }
-
-pub type TpmuAsymScheme = TpmuSigScheme;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuNvPublic2 {
