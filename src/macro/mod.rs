@@ -142,6 +142,19 @@ macro_rules! tpm_bool {
 
 #[macro_export]
 macro_rules! tpm_dispatch {
+    (@const_check_sorted) => {};
+    (@const_check_sorted $prev_cmd:ty, $( $rest_cmd:ty, )*) => {
+        $crate::tpm_dispatch!(@const_check_sorted_impl $prev_cmd, $( $rest_cmd, )*);
+    };
+    (@const_check_sorted_impl $prev_cmd:ty,) => {};
+    (@const_check_sorted_impl $prev_cmd:ty, $current_cmd:ty, $( $rest_cmd:ty, )* ) => {
+        const _: () = assert!(
+            <$prev_cmd as $crate::message::TpmHeader>::CC as u32 <= <$current_cmd as $crate::message::TpmHeader>::CC as u32,
+            "TPM_DISPATCH_TABLE must be sorted by TpmCc."
+        );
+        $crate::tpm_dispatch!(@const_check_sorted_impl $current_cmd, $( $rest_cmd, )*);
+    };
+
     ( $( ($cmd:ident, $resp:ident, $variant:ident) ),* $(,)? ) => {
         /// A TPM command
         #[allow(clippy::large_enum_variant)]
@@ -208,15 +221,7 @@ macro_rules! tpm_dispatch {
             )*
         ];
 
-        const _: () = {
-            let mut i = 1;
-            while i < TPM_DISPATCH_TABLE.len() {
-                if TPM_DISPATCH_TABLE[i - 1].cc as u32 > TPM_DISPATCH_TABLE[i].cc as u32 {
-                    panic!("TPM_DISPATCH_TABLE must be sorted by TpmCc.");
-                }
-                i += 1;
-            }
-        };
+        $crate::tpm_dispatch!(@const_check_sorted $( $cmd, )*);
     };
 }
 
