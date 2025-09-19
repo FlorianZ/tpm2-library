@@ -576,8 +576,7 @@ impl TpmSized for TpmuSigScheme {
     const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
-            Self::Any(s) => s.len(),
-            Self::Hmac(s) => s.len(),
+            Self::Any(s) | Self::Hmac(s) => s.len(),
             Self::Null => 0,
         }
     }
@@ -586,8 +585,7 @@ impl TpmSized for TpmuSigScheme {
 impl TpmBuild for TpmuSigScheme {
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         match self {
-            Self::Any(s) => s.build(writer),
-            Self::Hmac(s) => s.build(writer),
+            Self::Any(s) | Self::Hmac(s) => s.build(writer),
             Self::Null => Ok(()),
         }
     }
