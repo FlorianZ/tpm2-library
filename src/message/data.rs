@@ -2326,7 +2326,10 @@ tpm_struct! {
     name: TpmPolicySecretResponse,
     cc: TpmCc::PolicySecret,
     handles: {},
-    parameters: {}
+    parameters: {
+        pub timeout: Tpm2bTimeout,
+        pub policy_ticket: TpmtTkAuth,
+    }
 }
 
 tpm_struct! {
