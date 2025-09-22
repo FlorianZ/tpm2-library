@@ -22,6 +22,7 @@
 #![deny(unsafe_code)]
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
+#![recursion_limit = "256"]
 
 pub mod buffer;
 pub mod constant;

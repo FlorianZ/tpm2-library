@@ -163,11 +163,36 @@ macro_rules! tpm_dispatch {
             $( $variant($cmd), )*
         }
 
+        impl $crate::TpmSized for TpmCommandBody {
+            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE;
+            fn len(&self) -> usize {
+                match self {
+                    $( Self::$variant(c) => $crate::TpmSized::len(c), )*
+                }
+            }
+        }
+
         impl TpmCommandBody {
             #[must_use]
             pub fn cc(&self) -> $crate::data::TpmCc {
                 match self {
                     $( Self::$variant(c) => c.cc(), )*
+                }
+            }
+
+            /// Builds a command body into a writer.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmErrorKind)` on a build failure.
+            pub fn build(
+                &self,
+                tag: $crate::data::TpmSt,
+                sessions: &$crate::message::TpmAuthCommands,
+                writer: &mut $crate::TpmWriter,
+            ) -> $crate::TpmResult<()> {
+                match self {
+                    $( Self::$variant(c) => $crate::message::tpm_build_command(c, tag, sessions, writer), )*
                 }
             }
         }
@@ -177,6 +202,15 @@ macro_rules! tpm_dispatch {
         #[derive(Debug, PartialEq, Eq, Clone)]
         pub enum TpmResponseBody {
             $( $variant($resp), )*
+        }
+
+        impl $crate::TpmSized for TpmResponseBody {
+            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE;
+            fn len(&self) -> usize {
+                match self {
+                    $( Self::$variant(r) => $crate::TpmSized::len(r), )*
+                }
+            }
         }
 
         impl TpmResponseBody {
@@ -202,6 +236,22 @@ macro_rules! tpm_dispatch {
                     }
                 }
             )*
+
+            /// Builds a response body into a writer.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmErrorKind)` on a build failure.
+            pub fn build(
+                &self,
+                rc: $crate::data::TpmRc,
+                sessions: &$crate::message::TpmAuthResponses,
+                writer: &mut $crate::TpmWriter,
+            ) -> $crate::TpmResult<()> {
+                match self {
+                    $( Self::$variant(r) => $crate::message::tpm_build_response(r, sessions, rc, writer), )*
+                }
+            }
         }
 
         pub(crate) static TPM_DISPATCH_TABLE: &[$crate::message::TpmDispatch] = &[
