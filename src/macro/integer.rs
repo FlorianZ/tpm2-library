@@ -12,7 +12,8 @@ macro_rules! tpm_integer {
                     return Err(TpmErrorKind::Underflow);
                 }
                 let (bytes, buf) = buf.split_at(size);
-                let array = bytes.try_into().map_err(|_| TpmErrorKind::Failure)?;
+                let mut array = [0u8; size_of::<$ty>()];
+                array.copy_from_slice(bytes);
                 let val = <$ty>::from_be_bytes(array);
                 Ok((val, buf))
             }

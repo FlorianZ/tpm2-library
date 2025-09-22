@@ -103,7 +103,7 @@ impl fmt::Display for TpmErrorKind {
 
 impl From<core::num::TryFromIntError> for TpmErrorKind {
     fn from(_: core::num::TryFromIntError) -> Self {
-        Self::Failure
+        Self::Capacity(usize::MAX)
     }
 }
 
