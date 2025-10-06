@@ -183,40 +183,6 @@ pub struct TpmtSensitive {
     pub sensitive: TpmuSensitiveComposite,
 }
 
-impl TpmtSensitive {
-    /// Constructs a `TpmtSensitive` from a given key algorithm and raw private key bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `TpmErrorKind::InvalidValue` if the key algorithm is not supported for this operation.
-    pub fn from_private_bytes(
-        key_alg: TpmAlgId,
-        private_bytes: &[u8],
-    ) -> Result<Self, TpmErrorKind> {
-        let sensitive = match key_alg {
-            TpmAlgId::Rsa => TpmuSensitiveComposite::Rsa(
-                crate::data::Tpm2bPrivateKeyRsa::try_from(private_bytes)?,
-            ),
-            TpmAlgId::Ecc => TpmuSensitiveComposite::Ecc(crate::data::Tpm2bEccParameter::try_from(
-                private_bytes,
-            )?),
-            TpmAlgId::KeyedHash => TpmuSensitiveComposite::Bits(
-                crate::data::Tpm2bSensitiveData::try_from(private_bytes)?,
-            ),
-            TpmAlgId::SymCipher => {
-                TpmuSensitiveComposite::Sym(crate::data::Tpm2bSymKey::try_from(private_bytes)?)
-            }
-            _ => return Err(TpmErrorKind::InvalidValue),
-        };
-        Ok(Self {
-            sensitive_type: key_alg,
-            auth_value: Tpm2bAuth::default(),
-            seed_value: Tpm2bDigest::default(),
-            sensitive,
-        })
-    }
-}
-
 impl TpmSized for TpmtSensitive {
     const SIZE: usize =
         TpmAlgId::SIZE + Tpm2bAuth::SIZE + Tpm2bDigest::SIZE + TpmuSensitiveComposite::SIZE;
