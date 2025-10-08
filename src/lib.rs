@@ -233,16 +233,9 @@ pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
 /// # Errors
 ///
 /// * `TpmErrorKind::Underflow` if the buffer is too small.
-/// * `TpmErrorKind::Capacity` if the size prefix exceeds `TPM_MAX_COMMAND_SIZE`.
 pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
     let (size, buf) = u16::parse(buf)?;
     let size = size as usize;
-
-    if size > crate::constant::TPM_MAX_COMMAND_SIZE {
-        return Err(TpmErrorKind::Capacity(
-            crate::constant::TPM_MAX_COMMAND_SIZE,
-        ));
-    }
 
     if buf.len() < size {
         return Err(TpmErrorKind::Underflow);
