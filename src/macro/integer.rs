@@ -8,14 +8,10 @@ macro_rules! tpm_integer {
         impl TpmParse for $ty {
             fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
                 let size = size_of::<$ty>();
-                if buf.len() < size {
-                    return Err(TpmErrorKind::Underflow);
-                }
-                let (bytes, buf) = buf.split_at(size);
-                let mut array = [0u8; size_of::<$ty>()];
-                array.copy_from_slice(bytes);
+                let bytes = buf.get(..size).ok_or(TpmErrorKind::Underflow)?;
+                let array = bytes.try_into().map_err(|_| TpmErrorKind::Failure)?;
                 let val = <$ty>::from_be_bytes(array);
-                Ok((val, buf))
+                Ok((val, &buf[size..]))
             }
         }
 
