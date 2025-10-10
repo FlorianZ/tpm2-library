@@ -104,7 +104,7 @@ pub fn tpm_parse_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommandBody, T
     let mut temp_handle_cursor = handle_area;
     while !temp_handle_cursor.is_empty() {
         let (handle, rest) = u32::parse(temp_handle_cursor)?;
-        handles.try_push(handle)?;
+        handles.try_push(handle.into())?;
         temp_handle_cursor = rest;
     }
 

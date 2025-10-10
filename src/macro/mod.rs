@@ -143,13 +143,13 @@ macro_rules! tpm_bool {
 #[macro_export]
 macro_rules! tpm_dispatch {
     (@const_check_sorted) => {};
-    (@const_check_sorted $prev_cmd:ty, $( $rest_cmd:ty, )*) => {
+    (@const_check_sorted $prev_cmd:ident, $( $rest_cmd:ident, )*) => {
         $crate::tpm_dispatch!(@const_check_sorted_impl $prev_cmd, $( $rest_cmd, )*);
     };
-    (@const_check_sorted_impl $prev_cmd:ty,) => {};
-    (@const_check_sorted_impl $prev_cmd:ty, $current_cmd:ty, $( $rest_cmd:ty, )* ) => {
+    (@const_check_sorted_impl $prev_cmd:ident,) => {};
+    (@const_check_sorted_impl $prev_cmd:ident, $current_cmd:ident, $( $rest_cmd:ident, )* ) => {
         const _: () = assert!(
-            <$prev_cmd as $crate::message::TpmHeader>::CC as u32 <= <$current_cmd as $crate::message::TpmHeader>::CC as u32,
+            <$crate::message::data::$prev_cmd as $crate::message::TpmHeader>::CC as u32 <= <$crate::message::data::$current_cmd as $crate::message::TpmHeader>::CC as u32,
             "TPM_DISPATCH_TABLE must be sorted by TpmCc."
         );
         $crate::tpm_dispatch!(@const_check_sorted_impl $current_cmd, $( $rest_cmd, )*);
@@ -160,7 +160,7 @@ macro_rules! tpm_dispatch {
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
         pub enum TpmCommandBody {
-            $( $variant($cmd), )*
+            $( $variant($crate::message::data::$cmd), )*
         }
 
         impl $crate::TpmSized for TpmCommandBody {
@@ -201,7 +201,7 @@ macro_rules! tpm_dispatch {
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
         pub enum TpmResponseBody {
-            $( $variant($resp), )*
+            $( $variant($crate::message::data::$resp), )*
         }
 
         impl $crate::TpmSized for TpmResponseBody {
@@ -228,7 +228,7 @@ macro_rules! tpm_dispatch {
                 ///
                 /// Returns the original `TpmResponseBody` as an error if the enum variant does not match.
                 #[allow(non_snake_case, clippy::result_large_err)]
-                pub fn $variant(self) -> Result<$resp, Self> {
+                pub fn $variant(self) -> Result<$crate::message::data::$resp, Self> {
                     if let Self::$variant(r) = self {
                         Ok(r)
                     } else {
@@ -257,14 +257,14 @@ macro_rules! tpm_dispatch {
         pub(crate) static TPM_DISPATCH_TABLE: &[$crate::message::TpmDispatch] = &[
             $(
                 $crate::message::TpmDispatch {
-                    cc: <$cmd as $crate::message::TpmHeader>::CC,
-                    handles: <$cmd as $crate::message::TpmHeader>::HANDLES,
+                    cc: <$crate::message::data::$cmd as $crate::message::TpmHeader>::CC,
+                    handles: <$crate::message::data::$cmd as $crate::message::TpmHeader>::HANDLES,
                     command_parser: |handles, params| {
-                        <$cmd as $crate::message::TpmCommandBodyParse>::parse_body(handles, params)
+                        <$crate::message::data::$cmd as $crate::message::TpmCommandBodyParse>::parse_body(handles, params)
                             .map(|(c, r)| (TpmCommandBody::$variant(c), r))
                     },
                     response_parser: |tag, buf| {
-                        <$resp as $crate::message::TpmResponseBodyParse>::parse_body(tag, buf)
+                        <$crate::message::data::$resp as $crate::message::TpmResponseBodyParse>::parse_body(tag, buf)
                             .map(|(r, rest)| (TpmResponseBody::$variant(r), rest))
                     },
                 },
@@ -272,67 +272,6 @@ macro_rules! tpm_dispatch {
         ];
 
         $crate::tpm_dispatch!(@const_check_sorted $( $cmd, )*);
-    };
-}
-
-#[macro_export]
-macro_rules! tpm_handle {
-    (
-        $(#[$meta:meta])*
-        $name:ident
-    ) => {
-        $(#[$meta])*
-        pub struct $name(pub u32);
-
-        impl From<u32> for $name {
-            fn from(val: u32) -> Self {
-                Self(val)
-            }
-        }
-
-        impl From<$name> for u32 {
-            fn from(val: $name) -> Self {
-                val.0
-            }
-        }
-
-        impl $crate::TpmBuild for $name {
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $crate::TpmBuild::build(&self.0, writer)
-            }
-        }
-
-        impl $crate::TpmParse for $name {
-            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = u32::parse(buf)?;
-                Ok((Self(val), buf))
-            }
-        }
-
-        impl $crate::TpmSized for $name {
-            const SIZE: usize = core::mem::size_of::<u32>();
-            fn len(&self) -> usize {
-                Self::SIZE
-            }
-        }
-
-        impl core::fmt::Display for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                core::fmt::Display::fmt(&self.0, f)
-            }
-        }
-
-        impl core::fmt::LowerHex for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                core::fmt::LowerHex::fmt(&self.0, f)
-            }
-        }
-
-        impl core::fmt::UpperHex for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                core::fmt::UpperHex::fmt(&self.0, f)
-            }
-        }
     };
 }
 

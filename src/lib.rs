@@ -42,17 +42,59 @@ use core::{
 };
 pub use list::TpmList;
 
-tpm_handle! {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    TpmTransient
+/// A TPM handle, which is a 32-bit unsigned integer.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct TpmHandle(pub u32);
+
+impl From<u32> for TpmHandle {
+    fn from(val: u32) -> Self {
+        Self(val)
+    }
 }
-tpm_handle! {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    TpmSession
+
+impl From<TpmHandle> for u32 {
+    fn from(val: TpmHandle) -> Self {
+        val.0
+    }
 }
-tpm_handle! {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    TpmPersistent
+
+impl TpmBuild for TpmHandle {
+    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        TpmBuild::build(&self.0, writer)
+    }
+}
+
+impl TpmParse for TpmHandle {
+    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (val, buf) = u32::parse(buf)?;
+        Ok((Self(val), buf))
+    }
+}
+
+impl TpmSized for TpmHandle {
+    const SIZE: usize = size_of::<u32>();
+    fn len(&self) -> usize {
+        Self::SIZE
+    }
+}
+
+impl fmt::Display for TpmHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl fmt::LowerHex for TpmHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::LowerHex::fmt(&self.0, f)
+    }
+}
+
+impl fmt::UpperHex for TpmHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::UpperHex::fmt(&self.0, f)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

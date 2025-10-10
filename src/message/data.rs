@@ -15,7 +15,8 @@ use crate::{
         TpmtHa, TpmtKdfScheme, TpmtPublicParms, TpmtRsaDecrypt, TpmtSignature, TpmtSymDef,
         TpmtSymDefObject, TpmtTkAuth, TpmtTkCreation, TpmtTkHashcheck, TpmtTkVerified,
     },
-    tpm_struct, TpmPersistent, TpmSession, TpmTransient,
+    message::TpmHeader,
+    tpm_struct, TpmHandle,
 };
 use core::fmt::Debug;
 
@@ -25,7 +26,7 @@ tpm_struct! {
     name: TpmAcGetCapabilityCommand,
     cc: TpmCc::AcGetCapability,
     handles: {
-        pub ac: u32,
+        ac
     },
     parameters: {
         pub capability: TpmAt,
@@ -51,9 +52,9 @@ tpm_struct! {
     name: TpmAcSendCommand,
     cc: TpmCc::AcSend,
     handles: {
-        pub send_object: crate::data::TpmiDhObject,
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub ac: u32,
+        send_object,
+        auth_handle,
+        ac
     },
     parameters: {
         pub ac_data_in: Tpm2bMaxBuffer,
@@ -77,8 +78,8 @@ tpm_struct! {
     name: TpmActivateCredentialCommand,
     cc: TpmCc::ActivateCredential,
     handles: {
-        pub activate_handle: crate::data::TpmiDhObject,
-        pub key_handle: crate::data::TpmiDhObject,
+        activate_handle,
+        key_handle
     },
     parameters: {
         pub credential_blob: Tpm2bIdObject,
@@ -103,7 +104,7 @@ tpm_struct! {
     name: TpmActSetTimeoutCommand,
     cc: TpmCc::ActSetTimeout,
     handles: {
-        pub act_handle: u32,
+        act_handle
     },
     parameters: {
         pub start_timeout: u32,
@@ -125,7 +126,7 @@ tpm_struct! {
     name: TpmChangeEpsCommand,
     cc: TpmCc::ChangeEps,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {}
 }
@@ -145,7 +146,7 @@ tpm_struct! {
     name: TpmChangePpsCommand,
     cc: TpmCc::ChangePps,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {}
 }
@@ -165,8 +166,8 @@ tpm_struct! {
     name: TpmCertifyCommand,
     cc: TpmCc::Certify,
     handles: {
-        pub object_handle: crate::data::TpmiDhObject,
-        pub sign_handle: crate::data::TpmiDhObject,
+        object_handle,
+        sign_handle
     },
     parameters: {
         pub qualifying_data: Tpm2bData,
@@ -192,8 +193,8 @@ tpm_struct! {
     name: TpmCertifyCreationCommand,
     cc: TpmCc::CertifyCreation,
     handles: {
-        pub sign_handle: crate::data::TpmiDhObject,
-        pub object_handle: crate::data::TpmiDhObject,
+        sign_handle,
+        object_handle
     },
     parameters: {
         pub qualifying_data: Tpm2bData,
@@ -221,7 +222,7 @@ tpm_struct! {
     name: TpmClearCommand,
     cc: TpmCc::Clear,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {}
 }
@@ -241,7 +242,7 @@ tpm_struct! {
     name: TpmClearControlCommand,
     cc: TpmCc::ClearControl,
     handles: {
-        pub auth: crate::data::TpmiRhHierarchy,
+        auth
     },
     parameters: {
         pub disable: TpmiYesNo,
@@ -263,7 +264,7 @@ tpm_struct! {
     name: TpmClockRateAdjustCommand,
     cc: TpmCc::ClockRateAdjust,
     handles: {
-        pub auth: crate::data::TpmiRhHierarchy,
+        auth
     },
     parameters: {
         pub rate_adjust: TpmClockAdjust,
@@ -285,7 +286,7 @@ tpm_struct! {
     name: TpmClockSetCommand,
     cc: TpmCc::ClockSet,
     handles: {
-        pub auth: crate::data::TpmiRhHierarchy,
+        auth
     },
     parameters: {
         pub new_time: u64,
@@ -307,7 +308,7 @@ tpm_struct! {
     name: TpmCommitCommand,
     cc: TpmCc::Commit,
     handles: {
-        pub sign_handle: crate::data::TpmiDhObject,
+        sign_handle
     },
     parameters: {
         pub p1: Tpm2bEccPoint,
@@ -347,7 +348,7 @@ tpm_struct! {
     name: TpmContextLoadResponse,
     cc: TpmCc::ContextLoad,
     handles: {
-        pub loaded_handle: TpmTransient,
+        loaded_handle
     },
     parameters: {}
 }
@@ -358,7 +359,7 @@ tpm_struct! {
     name: TpmContextSaveCommand,
     cc: TpmCc::ContextSave,
     handles: {
-        pub save_handle: TpmTransient,
+        save_handle
     },
     parameters: {}
 }
@@ -380,7 +381,7 @@ tpm_struct! {
     name: TpmCreateCommand,
     cc: TpmCc::Create,
     handles: {
-        pub parent_handle: crate::data::TpmiDhObject,
+        parent_handle
     },
     parameters: {
         pub in_sensitive: Tpm2bSensitiveCreate,
@@ -411,7 +412,7 @@ tpm_struct! {
     name: TpmCreateLoadedCommand,
     cc: TpmCc::CreateLoaded,
     handles: {
-        pub parent_handle: crate::data::TpmiDhParent,
+        parent_handle
     },
     parameters: {
         pub in_sensitive: Tpm2bSensitiveCreate,
@@ -425,7 +426,7 @@ tpm_struct! {
     name: TpmCreateLoadedResponse,
     cc: TpmCc::CreateLoaded,
     handles: {
-        pub object_handle: TpmTransient,
+        object_handle
     },
     parameters: {
         pub out_private: Tpm2bPrivate,
@@ -440,7 +441,7 @@ tpm_struct! {
     name: TpmCreatePrimaryCommand,
     cc: TpmCc::CreatePrimary,
     handles: {
-        pub primary_handle: crate::data::TpmiRhHierarchy,
+        primary_handle
     },
     parameters: {
         pub in_sensitive: Tpm2bSensitiveCreate,
@@ -456,7 +457,7 @@ tpm_struct! {
     name: TpmCreatePrimaryResponse,
     cc: TpmCc::CreatePrimary,
     handles: {
-        pub object_handle: TpmTransient,
+        object_handle
     },
     parameters: {
         pub out_public: Tpm2bPublic,
@@ -473,7 +474,7 @@ tpm_struct! {
     name: TpmDictionaryAttackLockResetCommand,
     cc: TpmCc::DictionaryAttackLockReset,
     handles: {
-        pub lock_handle: crate::data::TpmiRhHierarchy,
+        lock_handle
     },
     parameters: {}
 }
@@ -493,7 +494,7 @@ tpm_struct! {
     name: TpmDictionaryAttackParametersCommand,
     cc: TpmCc::DictionaryAttackParameters,
     handles: {
-        pub lock_handle: crate::data::TpmiRhHierarchy,
+        lock_handle
     },
     parameters: {
         pub new_max_tries: u32,
@@ -517,8 +518,8 @@ tpm_struct! {
     name: TpmDuplicateCommand,
     cc: TpmCc::Duplicate,
     handles: {
-        pub object_handle: crate::data::TpmiDhObject,
-        pub new_parent_handle: crate::data::TpmiDhObject,
+        object_handle,
+        new_parent_handle
     },
     parameters: {
         pub encryption_key_in: Tpm2bData,
@@ -545,7 +546,7 @@ tpm_struct! {
     name: TpmEccDecryptCommand,
     cc: TpmCc::EccDecrypt,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub c1: Tpm2bEccPoint,
@@ -595,7 +596,7 @@ tpm_struct! {
     name: TpmEccEncryptCommand,
     cc: TpmCc::EccEncrypt,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub plaintext: Tpm2bMaxBuffer,
@@ -644,7 +645,7 @@ tpm_struct! {
     name: TpmEcdhKeyGenCommand,
     cc: TpmCc::EcdhKeyGen,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {}
 }
@@ -667,7 +668,7 @@ tpm_struct! {
     name: TpmEcdhZGenCommand,
     cc: TpmCc::EcdhZGen,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub in_point: Tpm2bEccPoint,
@@ -691,7 +692,7 @@ tpm_struct! {
     name: TpmEncryptDecryptCommand,
     cc: TpmCc::EncryptDecrypt,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub decrypt: TpmiYesNo,
@@ -719,7 +720,7 @@ tpm_struct! {
     name: TpmEncryptDecrypt2Command,
     cc: TpmCc::EncryptDecrypt2,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub in_data: Tpm2bMaxBuffer,
@@ -747,8 +748,8 @@ tpm_struct! {
     name: TpmEventSequenceCompleteCommand,
     cc: TpmCc::EventSequenceComplete,
     handles: {
-        pub pcr_handle: u32,
-        pub sequence_handle: crate::data::TpmiDhObject,
+        pcr_handle,
+        sequence_handle
     },
     parameters: {
         pub buffer: Tpm2bMaxBuffer,
@@ -772,11 +773,11 @@ tpm_struct! {
     name: TpmEvictControlCommand,
     cc: TpmCc::EvictControl,
     handles: {
-        pub auth: crate::data::TpmiRhHierarchy,
-        pub object_handle: crate::data::TpmiDhObject,
+        auth,
+        object_handle
     },
     parameters: {
-        pub persistent_handle: TpmPersistent,
+        pub persistent_handle: TpmHandle,
     }
 }
 
@@ -818,8 +819,8 @@ tpm_struct! {
     name: TpmFieldUpgradeStartCommand,
     cc: TpmCc::FieldUpgradeStart,
     handles: {
-        pub authorization: crate::data::TpmiRhHierarchy,
-        pub key_handle: crate::data::TpmiDhObject,
+        authorization,
+        key_handle
     },
     parameters: {
         pub fu_digest: Tpm2bDigest,
@@ -863,10 +864,10 @@ tpm_struct! {
     kind: Command,
     name: TpmFlushContextCommand,
     cc: TpmCc::FlushContext,
-    handles: {},
-    parameters: {
-        pub flush_handle: u32,
-    }
+    handles: {
+        flush_handle
+    },
+    parameters: {}
 }
 
 tpm_struct! {
@@ -909,8 +910,8 @@ tpm_struct! {
     name: TpmGetCommandAuditDigestCommand,
     cc: TpmCc::GetCommandAuditDigest,
     handles: {
-        pub privacy_admin_handle: crate::data::TpmiRhHierarchy,
-        pub sign_handle: crate::data::TpmiDhObject,
+        privacy_admin_handle,
+        sign_handle
     },
     parameters: {
         pub qualifying_data: Tpm2bData,
@@ -958,9 +959,9 @@ tpm_struct! {
     name: TpmGetSessionAuditDigestCommand,
     cc: TpmCc::GetSessionAuditDigest,
     handles: {
-        pub privacy_admin_handle: crate::data::TpmiRhHierarchy,
-        pub sign_handle: crate::data::TpmiDhObject,
-        pub session_handle: crate::data::TpmiShAuthSession,
+        privacy_admin_handle,
+        sign_handle,
+        session_handle
     },
     parameters: {
         pub qualifying_data: Tpm2bData,
@@ -1007,8 +1008,8 @@ tpm_struct! {
     name: TpmGetTimeCommand,
     cc: TpmCc::GetTime,
     handles: {
-        pub privacy_admin_handle: crate::data::TpmiRhHierarchy,
-        pub sign_handle: crate::data::TpmiDhObject,
+        privacy_admin_handle,
+        sign_handle
     },
     parameters: {
         pub qualifying_data: Tpm2bData,
@@ -1071,7 +1072,7 @@ tpm_struct! {
     name: TpmHashSequenceStartResponse,
     cc: TpmCc::HashSequenceStart,
     handles: {
-        pub sequence_handle: TpmTransient,
+        sequence_handle
     },
     parameters: {}
 }
@@ -1082,7 +1083,7 @@ tpm_struct! {
     name: TpmHierarchyChangeAuthCommand,
     cc: TpmCc::HierarchyChangeAuth,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub new_auth: Tpm2bAuth,
@@ -1104,7 +1105,7 @@ tpm_struct! {
     name: TpmHierarchyControlCommand,
     cc: TpmCc::HierarchyControl,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub enable: TpmRh,
@@ -1127,7 +1128,7 @@ tpm_struct! {
     name: TpmHmacCommand,
     cc: TpmCc::Hmac,
     handles: {
-        pub handle: crate::data::TpmiDhObject,
+        handle
     },
     parameters: {
         pub buffer: Tpm2bMaxBuffer,
@@ -1152,7 +1153,7 @@ tpm_struct! {
     name: TpmHmacStartCommand,
     cc: TpmCc::HmacStart,
     handles: {
-        pub handle: crate::data::TpmiDhObject,
+        handle
     },
     parameters: {
         pub auth: Tpm2bAuth,
@@ -1166,7 +1167,7 @@ tpm_struct! {
     name: TpmHmacStartResponse,
     cc: TpmCc::HmacStart,
     handles: {
-        pub sequence_handle: TpmTransient,
+        sequence_handle
     },
     parameters: {}
 }
@@ -1177,7 +1178,7 @@ tpm_struct! {
     name: TpmImportCommand,
     cc: TpmCc::Import,
     handles: {
-        pub parent_handle: crate::data::TpmiDhObject,
+        parent_handle
     },
     parameters: {
         pub encryption_key: Tpm2bData,
@@ -1227,7 +1228,7 @@ tpm_struct! {
     name: TpmLoadCommand,
     cc: TpmCc::Load,
     handles: {
-        pub parent_handle: crate::data::TpmiDhObject,
+        parent_handle
     },
     parameters: {
         pub in_private: Tpm2bPrivate,
@@ -1241,7 +1242,7 @@ tpm_struct! {
     name: TpmLoadResponse,
     cc: TpmCc::Load,
     handles: {
-        pub object_handle: TpmTransient,
+        object_handle
     },
     parameters: {
         pub name: Tpm2bName,
@@ -1267,7 +1268,7 @@ tpm_struct! {
     name: TpmLoadExternalResponse,
     cc: TpmCc::LoadExternal,
     handles: {
-        pub object_handle: TpmTransient,
+        object_handle
     },
     parameters: {
         pub name: Tpm2bName,
@@ -1280,7 +1281,7 @@ tpm_struct! {
     name: TpmMakeCredentialCommand,
     cc: TpmCc::MakeCredential,
     handles: {
-        pub handle: crate::data::TpmiDhObject,
+        handle
     },
     parameters: {
         pub credential: Tpm2bDigest,
@@ -1306,9 +1307,9 @@ tpm_struct! {
     name: TpmNvCertifyCommand,
     cc: TpmCc::NvCertify,
     handles: {
-        pub sign_handle: crate::data::TpmiDhObject,
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
+        sign_handle,
+        auth_handle,
+        nv_index
     },
     parameters: {
         pub qualifying_data: Tpm2bData,
@@ -1336,7 +1337,7 @@ tpm_struct! {
     name: TpmNvChangeAuthCommand,
     cc: TpmCc::NvChangeAuth,
     handles: {
-        pub nv_index: u32,
+        nv_index
     },
     parameters: {
         pub new_auth: Tpm2bAuth,
@@ -1358,7 +1359,7 @@ tpm_struct! {
     name: TpmNvDefineSpaceCommand,
     cc: TpmCc::NvDefineSpace,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub auth: Tpm2bAuth,
@@ -1381,7 +1382,7 @@ tpm_struct! {
     name: TpmNvDefineSpace2Command,
     cc: TpmCc::NvDefineSpace2,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub auth: Tpm2bAuth,
@@ -1404,8 +1405,8 @@ tpm_struct! {
     name: TpmNvExtendCommand,
     cc: TpmCc::NvExtend,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
+        auth_handle,
+        nv_index
     },
     parameters: {
         pub data: Tpm2bMaxNvBuffer,
@@ -1427,7 +1428,7 @@ tpm_struct! {
     name: TpmNvGlobalWriteLockCommand,
     cc: TpmCc::NvGlobalWriteLock,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {}
 }
@@ -1447,8 +1448,8 @@ tpm_struct! {
     name: TpmNvIncrementCommand,
     cc: TpmCc::NvIncrement,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
+        auth_handle,
+        nv_index
     },
     parameters: {}
 }
@@ -1468,8 +1469,8 @@ tpm_struct! {
     name: TpmNvReadCommand,
     cc: TpmCc::NvRead,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
+        auth_handle,
+        nv_index
     },
     parameters: {
         pub size: u16,
@@ -1494,8 +1495,8 @@ tpm_struct! {
     name: TpmNvReadLockCommand,
     cc: TpmCc::NvReadLock,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
+        auth_handle,
+        nv_index
     },
     parameters: {}
 }
@@ -1515,7 +1516,7 @@ tpm_struct! {
     name: TpmNvReadPublicCommand,
     cc: TpmCc::NvReadPublic,
     handles: {
-        pub nv_index: u32,
+        nv_index
     },
     parameters: {}
 }
@@ -1538,7 +1539,7 @@ tpm_struct! {
     name: TpmNvReadPublic2Command,
     cc: TpmCc::NvReadPublic2,
     handles: {
-        pub nv_index: u32,
+        nv_index
     },
     parameters: {}
 }
@@ -1561,8 +1562,8 @@ tpm_struct! {
     name: TpmNvSetBitsCommand,
     cc: TpmCc::NvSetBits,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
+        auth_handle,
+        nv_index
     },
     parameters: {
         pub bits: u64,
@@ -1584,8 +1585,8 @@ tpm_struct! {
     name: TpmNvUndefineSpaceCommand,
     cc: TpmCc::NvUndefineSpace,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
-        pub nv_index: u32,
+        auth_handle,
+        nv_index
     },
     parameters: {}
 }
@@ -1605,8 +1606,8 @@ tpm_struct! {
     name: TpmNvUndefineSpaceSpecialCommand,
     cc: TpmCc::NvUndefineSpaceSpecial,
     handles: {
-        pub nv_index: u32,
-        pub platform: crate::data::TpmiRhHierarchy,
+        nv_index,
+        platform
     },
     parameters: {}
 }
@@ -1626,8 +1627,8 @@ tpm_struct! {
     name: TpmNvWriteCommand,
     cc: TpmCc::NvWrite,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
+        auth_handle,
+        nv_index
     },
     parameters: {
         pub data: Tpm2bMaxNvBuffer,
@@ -1650,8 +1651,8 @@ tpm_struct! {
     name: TpmNvWriteLockCommand,
     cc: TpmCc::NvWriteLock,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
+        auth_handle,
+        nv_index
     },
     parameters: {}
 }
@@ -1671,8 +1672,8 @@ tpm_struct! {
     name: TpmObjectChangeAuthCommand,
     cc: TpmCc::ObjectChangeAuth,
     handles: {
-        pub object_handle: crate::data::TpmiDhObject,
-        pub parent_handle: crate::data::TpmiDhObject,
+        object_handle,
+        parent_handle
     },
     parameters: {
         pub new_auth: Tpm2bAuth,
@@ -1696,7 +1697,7 @@ tpm_struct! {
     name: TpmPcrAllocateCommand,
     cc: TpmCc::PcrAllocate,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub pcr_allocation: TpmlPcrSelection,
@@ -1723,7 +1724,7 @@ tpm_struct! {
     name: TpmPcrEventCommand,
     cc: TpmCc::PcrEvent,
     handles: {
-        pub pcr_handle: u32,
+        pcr_handle
     },
     parameters: {
         pub event_data: Tpm2bEvent,
@@ -1747,7 +1748,7 @@ tpm_struct! {
     name: TpmPcrExtendCommand,
     cc: TpmCc::PcrExtend,
     handles: {
-        pub pcr_handle: u32,
+        pcr_handle
     },
     parameters: {
         pub digests: TpmlDigestValues,
@@ -1769,7 +1770,7 @@ tpm_struct! {
     name: TpmPcrResetCommand,
     cc: TpmCc::PcrReset,
     handles: {
-        pub pcr_handle: u32,
+        pcr_handle
     },
     parameters: {}
 }
@@ -1813,7 +1814,7 @@ tpm_struct! {
     name: TpmPcrSetAuthPolicyCommand,
     cc: TpmCc::PcrSetAuthPolicy,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub auth_policy: Tpm2bDigest,
@@ -1837,7 +1838,7 @@ tpm_struct! {
     name: TpmPcrSetAuthValueCommand,
     cc: TpmCc::PcrSetAuthValue,
     handles: {
-        pub pcr_handle: u32,
+        pcr_handle
     },
     parameters: {
         pub auth: Tpm2bDigest,
@@ -1859,7 +1860,7 @@ tpm_struct! {
     name: TpmPolicyAcSendSelectCommand,
     cc: TpmCc::PolicyAcSendSelect,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub object_name: Tpm2bName,
@@ -1884,7 +1885,7 @@ tpm_struct! {
     name: TpmPolicyAuthorizeCommand,
     cc: TpmCc::PolicyAuthorize,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub approved_policy: Tpm2bDigest,
@@ -1909,9 +1910,9 @@ tpm_struct! {
     name: TpmPolicyAuthorizeNvCommand,
     cc: TpmCc::PolicyAuthorizeNv,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
-        pub policy_session: crate::data::TpmiShAuthSession,
+        auth_handle,
+        nv_index,
+        policy_session
     },
     parameters: {}
 }
@@ -1931,7 +1932,7 @@ tpm_struct! {
     name: TpmPolicyAuthValueCommand,
     cc: TpmCc::PolicyAuthValue,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {}
 }
@@ -1951,7 +1952,7 @@ tpm_struct! {
     name: TpmPolicyCapabilityCommand,
     cc: TpmCc::PolicyCapability,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub capability: TpmCap,
@@ -1976,7 +1977,7 @@ tpm_struct! {
     name: TpmPolicyCommandCodeCommand,
     cc: TpmCc::PolicyCommandCode,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub code: TpmCc,
@@ -1998,7 +1999,7 @@ tpm_struct! {
     name: TpmPolicyCounterTimerCommand,
     cc: TpmCc::PolicyCounterTimer,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub operand_b: Tpm2bMaxBuffer,
@@ -2022,7 +2023,7 @@ tpm_struct! {
     name: TpmPolicyCpHashCommand,
     cc: TpmCc::PolicyCpHash,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub cp_hash_a: Tpm2bDigest,
@@ -2044,7 +2045,7 @@ tpm_struct! {
     name: TpmPolicyDuplicationSelectCommand,
     cc: TpmCc::PolicyDuplicationSelect,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub object_name: Tpm2bName,
@@ -2068,7 +2069,7 @@ tpm_struct! {
     name: TpmPolicyGetDigestCommand,
     cc: TpmCc::PolicyGetDigest,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {}
 }
@@ -2090,7 +2091,7 @@ tpm_struct! {
     name: TpmPolicyLocalityCommand,
     cc: TpmCc::PolicyLocality,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub locality: TpmaLocality,
@@ -2112,7 +2113,7 @@ tpm_struct! {
     name: TpmPolicyNameHashCommand,
     cc: TpmCc::PolicyNameHash,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub name_hash: Tpm2bDigest,
@@ -2134,9 +2135,9 @@ tpm_struct! {
     name: TpmPolicyNvCommand,
     cc: TpmCc::PolicyNv,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub nv_index: u32,
-        pub policy_session: crate::data::TpmiShAuthSession,
+        auth_handle,
+        nv_index,
+        policy_session
     },
     parameters: {
         pub operand_b: Tpm2bMaxBuffer,
@@ -2160,7 +2161,7 @@ tpm_struct! {
     name: TpmPolicyNvWrittenCommand,
     cc: TpmCc::PolicyNvWritten,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub written_set: TpmiYesNo,
@@ -2182,7 +2183,7 @@ tpm_struct! {
     name: TpmPolicyOrCommand,
     cc: TpmCc::PolicyOR,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub p_hash_list: TpmlDigest,
@@ -2204,7 +2205,7 @@ tpm_struct! {
     name: TpmPolicyParametersCommand,
     cc: TpmCc::PolicyParameters,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub p_hash: Tpm2bDigest,
@@ -2226,7 +2227,7 @@ tpm_struct! {
     name: TpmPolicyPasswordCommand,
     cc: TpmCc::PolicyPassword,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {}
 }
@@ -2246,7 +2247,7 @@ tpm_struct! {
     name: TpmPolicyPhysicalPresenceCommand,
     cc: TpmCc::PolicyPhysicalPresence,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {}
 }
@@ -2266,7 +2267,7 @@ tpm_struct! (
     name: TpmPolicyPcrCommand,
     cc: TpmCc::PolicyPcr,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub pcr_digest: Tpm2bDigest,
@@ -2289,7 +2290,7 @@ tpm_struct! {
     name: TpmPolicyRestartCommand,
     cc: TpmCc::PolicyRestart,
     handles: {
-        pub session_handle: crate::data::TpmiShAuthSession,
+        session_handle
     },
     parameters: {}
 }
@@ -2309,8 +2310,8 @@ tpm_struct! {
     name: TpmPolicySecretCommand,
     cc: TpmCc::PolicySecret,
     handles: {
-        pub auth_handle: crate::data::TpmiDhObject,
-        pub policy_session: crate::data::TpmiShAuthSession,
+        auth_handle,
+        policy_session
     },
     parameters: {
         pub nonce_tpm: Tpm2bNonce,
@@ -2338,8 +2339,8 @@ tpm_struct! {
     name: TpmPolicySignedCommand,
     cc: TpmCc::PolicySigned,
     handles: {
-        pub auth_object: crate::data::TpmiDhObject,
-        pub policy_session: crate::data::TpmiShAuthSession,
+        auth_object,
+        policy_session
     },
     parameters: {
         pub nonce_tpm: Tpm2bNonce,
@@ -2368,7 +2369,7 @@ tpm_struct! {
     name: TpmPolicyTemplateCommand,
     cc: TpmCc::PolicyTemplate,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub template_hash: Tpm2bDigest,
@@ -2390,7 +2391,7 @@ tpm_struct! {
     name: TpmPolicyTicketCommand,
     cc: TpmCc::PolicyTicket,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub timeout: Tpm2bTimeout,
@@ -2416,7 +2417,7 @@ tpm_struct! {
     name: TpmPolicyTransportSpdmCommand,
     cc: TpmCc::PolicyTransportSpdm,
     handles: {
-        pub policy_session: crate::data::TpmiShAuthSession,
+        policy_session
     },
     parameters: {
         pub req_key_name: Tpm2bName,
@@ -2439,7 +2440,7 @@ tpm_struct! {
     name: TpmPpCommandsCommand,
     cc: TpmCc::PpCommands,
     handles: {
-        pub auth: crate::data::TpmiRhHierarchy,
+        auth
     },
     parameters: {
         pub set_list: TpmlCc,
@@ -2462,7 +2463,7 @@ tpm_struct! {
     name: TpmQuoteCommand,
     cc: TpmCc::Quote,
     handles: {
-        pub sign_handle: crate::data::TpmiDhObject,
+        sign_handle
     },
     parameters: {
         pub qualifying_data: Tpm2bData,
@@ -2509,7 +2510,7 @@ tpm_struct! {
     name: TpmReadOnlyControlCommand,
     cc: TpmCc::ReadOnlyControl,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub state: TpmiYesNo,
@@ -2531,7 +2532,7 @@ tpm_struct! {
     name: TpmReadPublicCommand,
     cc: TpmCc::ReadPublic,
     handles: {
-        pub object_handle: crate::data::TpmiDhObject,
+        object_handle
     },
     parameters: {}
 }
@@ -2555,8 +2556,8 @@ tpm_struct! {
     name: TpmRewrapCommand,
     cc: TpmCc::Rewrap,
     handles: {
-        pub old_parent: crate::data::TpmiDhObject,
-        pub new_parent: crate::data::TpmiDhObject,
+        old_parent,
+        new_parent
     },
     parameters: {
         pub in_duplicate: Tpm2bPrivate,
@@ -2583,7 +2584,7 @@ tpm_struct! {
     name: TpmRsaDecryptCommand,
     cc: TpmCc::RsaDecrypt,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub cipher_text: Tpm2bPublicKeyRsa,
@@ -2609,7 +2610,7 @@ tpm_struct! {
     name: TpmRsaEncryptCommand,
     cc: TpmCc::RsaEncrypt,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub message: Tpm2bPublicKeyRsa,
@@ -2655,7 +2656,7 @@ tpm_struct! {
     name: TpmSequenceCompleteCommand,
     cc: TpmCc::SequenceComplete,
     handles: {
-        pub sequence_handle: crate::data::TpmiDhObject,
+        sequence_handle
     },
     parameters: {
         pub buffer: Tpm2bMaxBuffer,
@@ -2681,7 +2682,7 @@ tpm_struct! {
     name: TpmSequenceUpdateCommand,
     cc: TpmCc::SequenceUpdate,
     handles: {
-        pub sequence_handle: crate::data::TpmiDhObject,
+        sequence_handle
     },
     parameters: {
         pub buffer: Tpm2bMaxBuffer,
@@ -2703,7 +2704,7 @@ tpm_struct! {
     name: TpmSetAlgorithmSetCommand,
     cc: TpmCc::SetAlgorithmSet,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub algorithm_set: u32,
@@ -2725,7 +2726,7 @@ tpm_struct! {
     name: TpmSetCommandCodeAuditStatusCommand,
     cc: TpmCc::SetCommandCodeAuditStatus,
     handles: {
-        pub auth: crate::data::TpmiRhHierarchy,
+        auth
     },
     parameters: {
         pub audit_alg: TpmiAlgHash,
@@ -2749,7 +2750,7 @@ tpm_struct! {
     name: TpmSetPrimaryPolicyCommand,
     cc: TpmCc::SetPrimaryPolicy,
     handles: {
-        pub auth_handle: crate::data::TpmiRhHierarchy,
+        auth_handle
     },
     parameters: {
         pub auth_policy: Tpm2bDigest,
@@ -2792,7 +2793,7 @@ tpm_struct! {
     name: TpmSignCommand,
     cc: TpmCc::Sign,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub digest: Tpm2bDigest,
@@ -2818,8 +2819,8 @@ tpm_struct! {
     name: TpmStartAuthSessionCommand,
     cc: TpmCc::StartAuthSession,
     handles: {
-        pub tpm_key: crate::data::TpmiDhObject,
-        pub bind: crate::data::TpmiDhObject,
+        tpm_key,
+        bind
     },
     parameters: {
         pub nonce_caller: Tpm2bNonce,
@@ -2836,7 +2837,7 @@ tpm_struct! {
     name: TpmStartAuthSessionResponse,
     cc: TpmCc::StartAuthSession,
     handles: {
-        pub session_handle: TpmSession,
+        session_handle
     },
     parameters: {
         pub nonce_tpm: Tpm2bNonce,
@@ -2909,7 +2910,7 @@ tpm_struct! {
     name: TpmUnsealCommand,
     cc: TpmCc::Unseal,
     handles: {
-        pub item_handle: crate::data::TpmiDhObject,
+        item_handle
     },
     parameters: {}
 }
@@ -2953,7 +2954,7 @@ tpm_struct! {
     name: TpmVerifySignatureCommand,
     cc: TpmCc::VerifySignature,
     handles: {
-        pub key_handle: crate::data::TpmiDhObject,
+        key_handle
     },
     parameters: {
         pub digest: Tpm2bDigest,
@@ -2978,7 +2979,7 @@ tpm_struct! {
     name: TpmZGen2PhaseCommand,
     cc: TpmCc::ZGen2Phase,
     handles: {
-        pub key_a: crate::data::TpmiDhObject,
+        key_a
     },
     parameters: {
         pub in_qsb: Tpm2bEccPoint,

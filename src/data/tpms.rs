@@ -13,7 +13,8 @@ use crate::{
         TpmlTaggedTpmProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtRsaScheme,
         TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
     },
-    tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmResult, TpmSized, TpmWriter,
+    tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmResult, TpmSized,
+    TpmWriter,
 };
 use core::{convert::TryFrom, mem::size_of, ops::Deref};
 
@@ -38,7 +39,7 @@ tpm_struct! {
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     pub struct TpmsAuthCommand {
-        pub session_handle: crate::TpmSession,
+        pub session_handle: TpmHandle,
         pub nonce: Tpm2bNonce,
         pub session_attributes: TpmaSession,
         pub hmac: Tpm2bAuth,
@@ -121,7 +122,7 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct TpmsContext {
         pub sequence: u64,
-        pub saved_handle: crate::TpmTransient,
+        pub saved_handle: TpmHandle,
         pub hierarchy: TpmRh,
         pub context_blob: Tpm2b,
     }
@@ -163,7 +164,7 @@ tpm_struct! {
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
     pub struct TpmsNvPublic {
-        pub nv_index: u32,
+        pub nv_index: TpmHandle,
         pub name_alg: TpmAlgId,
         pub attributes: TpmaNv,
         pub auth_policy: Tpm2bDigest,

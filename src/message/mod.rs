@@ -14,7 +14,7 @@ pub use self::{build::*, data::*, parse::*};
 use crate::constant::{MAX_HANDLES, MAX_SESSIONS};
 
 /// A fixed-capacity list for TPM handles.
-pub type TpmHandles = TpmList<u32, MAX_HANDLES>;
+pub type TpmHandles = TpmList<crate::TpmHandle, MAX_HANDLES>;
 
 /// A fixed-capacity list for command authorization sessions.
 pub type TpmAuthCommands = TpmList<crate::data::TpmsAuthCommand, MAX_SESSIONS>;

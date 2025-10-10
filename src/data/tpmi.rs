@@ -3,7 +3,7 @@
 
 use crate::{
     data::{TpmAlgId, TpmSt},
-    tpm_bool, tpm_enum, tpm_handle, TpmNotDiscriminant,
+    tpm_bool, tpm_enum, TpmHandle, TpmNotDiscriminant,
 };
 
 tpm_bool! {
@@ -26,27 +26,8 @@ pub type TpmiAlgHash = TpmAlgId;
 pub type TpmiAlgSymObject = TpmAlgId;
 pub type TpmiStCommandTag = TpmSt;
 
-tpm_handle! {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    TpmiDhObject
-}
-
-tpm_handle! {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    TpmiDhParent
-}
-
-tpm_handle! {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    TpmiShAuthSession
-}
-
-tpm_handle! {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    TpmiRhHierarchy
-}
-
-tpm_handle! {
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    TpmiRhNvExpIndex
-}
+pub type TpmiDhObject = TpmHandle;
+pub type TpmiDhParent = TpmHandle;
+pub type TpmiShAuthSession = TpmHandle;
+pub type TpmiRhHierarchy = TpmHandle;
+pub type TpmiRhNvExpIndex = TpmHandle;

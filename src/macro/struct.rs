@@ -10,7 +10,7 @@ macro_rules! tpm_struct {
         name: $name:ident,
         cc: $cc:expr,
         handles: {
-            $(pub $handle_field:ident: $handle_type:ty),*
+            $($handle_field:ident),*
             $(,)?
         },
         parameters: {
@@ -20,12 +20,17 @@ macro_rules! tpm_struct {
     ) => {
         $(#[$meta])*
         pub struct $name {
-            $(pub $handle_field: $handle_type,)*
+            $(pub $handle_field: $crate::TpmHandle,)*
             $(pub $param_field: $param_type,)*
         }
 
+        impl $crate::message::TpmHeader for $name {
+            const CC: $crate::data::TpmCc = $cc;
+            const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
+        }
+
         impl $crate::TpmSized for $name {
-            const SIZE: usize = 0 $(+ <$handle_type>::SIZE)* $(+ <$param_type>::SIZE)*;
+            const SIZE: usize = (Self::HANDLES * <$crate::TpmHandle>::SIZE) $(+ <$param_type>::SIZE)*;
             fn len(&self) -> usize {
                 0 $(+ $crate::TpmSized::len(&self.$handle_field))* $(+ $crate::TpmSized::len(&self.$param_field))*
             }
@@ -54,14 +59,14 @@ macro_rules! tpm_struct {
         }
 
         impl $crate::message::TpmCommandBodyParse for $name {
-            #[allow(unused_mut)]
+            #[allow(unused_mut, unused_variables)]
             fn parse_body<'a>(
                 handles: &'a [u8],
                 params: &'a [u8],
             ) -> $crate::TpmResult<(Self, &'a [u8])> {
                 let mut cursor = handles;
                 $(
-                    let ($handle_field, tail) = <$handle_type as $crate::TpmParse>::parse(cursor)?;
+                    let ($handle_field, tail) = <$crate::TpmHandle as $crate::TpmParse>::parse(cursor)?;
                     cursor = tail;
                 )*
 
@@ -84,11 +89,6 @@ macro_rules! tpm_struct {
                 ))
             }
         }
-
-        impl $crate::message::TpmHeader for $name {
-            const CC: $crate::data::TpmCc = $cc;
-            const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
-        }
     };
 
     (
@@ -97,7 +97,7 @@ macro_rules! tpm_struct {
         name: $name:ident,
         cc: $cc:expr,
         handles: {
-            $(pub $handle_field:ident: $handle_type:ty),*
+            $($handle_field:ident),*
             $(,)?
         },
         parameters: {
@@ -107,8 +107,13 @@ macro_rules! tpm_struct {
     ) => {
         $(#[$meta])*
         pub struct $name {
-            $(pub $handle_field: $handle_type,)*
+            $(pub $handle_field: $crate::TpmHandle,)*
             $(pub $param_field: $param_type,)*
+        }
+
+        impl $crate::message::TpmHeader for $name {
+            const CC: $crate::data::TpmCc = $cc;
+            const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
 
         impl $crate::message::TpmBodyBuild for $name {
@@ -125,7 +130,7 @@ macro_rules! tpm_struct {
         }
 
         impl $crate::TpmSized for $name {
-            const SIZE: usize = 0 $(+ <$handle_type>::SIZE)* $(+ <$param_type>::SIZE)*;
+            const SIZE: usize = (Self::HANDLES * <$crate::TpmHandle>::SIZE) $(+ <$param_type>::SIZE)*;
             fn len(&self) -> usize {
                 0 $(+ $crate::TpmSized::len(&self.$handle_field))* $(+ $crate::TpmSized::len(&self.$param_field))*
             }
@@ -139,14 +144,14 @@ macro_rules! tpm_struct {
         }
 
         impl $crate::message::TpmResponseBodyParse for $name {
-            #[allow(unused_mut)]
+            #[allow(unused_mut, unused_variables)]
             fn parse_body(
                 tag: $crate::data::TpmSt,
                 buf: &[u8],
             ) -> $crate::TpmResult<(Self, &[u8])> {
                 let mut cursor = buf;
                 $(
-                    let ($handle_field, tail) = <$handle_type as $crate::TpmParse>::parse(cursor)?;
+                    let ($handle_field, tail) = <$crate::TpmHandle as $crate::TpmParse>::parse(cursor)?;
                     cursor = tail;
                 )*
 
@@ -190,11 +195,6 @@ macro_rules! tpm_struct {
                     ))
                 }
             }
-        }
-
-        impl $crate::message::TpmHeader for $name {
-            const CC: $crate::data::TpmCc = $cc;
-            const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
     };
 
