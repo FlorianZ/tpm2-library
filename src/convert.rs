@@ -13,18 +13,20 @@ use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE, data::TpmRc, TpmBuild, TpmErrorKind, TpmHandle, TpmWriter,
 };
 
-/// Parses a handle string (decimal or hex with "0x" prefix) into a `TpmHandle`.
+/// Parses a 16 character hex string with an optional `0x` prefix into
+/// `TpmHandle`.
 ///
 /// # Errors
 ///
-/// Returns a `String` error if the string is not a valid integer.
-pub fn from_str_to_handle(s: &str) -> Result<TpmHandle, String> {
-    let result = if let Some(hex_val) = s.strip_prefix("0x") {
-        u32::from_str_radix(hex_val, 16)
-    } else {
-        s.parse::<u32>()
+/// Returns `String` with `ParseIntError` converted to string.
+pub fn from_str_to_handle(input: &str) -> Result<TpmHandle, String> {
+    let input = match input.strip_prefix("0x") {
+        Some(input) => input,
+        None => input,
     };
-    result.map(TpmHandle).map_err(|e| e.to_string())
+    u32::from_str_radix(input, 16)
+        .map(TpmHandle)
+        .map_err(|e| e.to_string())
 }
 
 /// A helper to build a `TpmBuild` type into a `Vec<u8>`.
