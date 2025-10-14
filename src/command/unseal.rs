@@ -3,14 +3,14 @@
 
 use super::CommandError;
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::{get_command_auth_list, SubCommand},
     context::ContextCache,
-    device::{self, Auth, Device, DeviceError},
+    device::{self, Device, DeviceError},
     uri::Uri,
 };
 use argh::FromArgs;
 use std::{cell::RefCell, rc::Rc, str::FromStr};
-use tpm2_protocol::{data::TpmCc, data::TpmSe, message::TpmUnsealCommand};
+use tpm2_protocol::{data::TpmCc, message::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
 #[derive(FromArgs, Debug)]
@@ -49,38 +49,11 @@ impl SubCommand for Unseal {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth = match (self.auth.as_ref(), self.hmac_auth.as_ref()) {
-            (Some(_), Some(_)) => {
-                return Err(CommandError::InvalidInput(
-                    "Cannot use --auth and --hmac-auth at the same time".to_string(),
-                ));
-            }
-            (Some(auth_str), None) => get_auth(
-                Some(auth_str),
-                "TPM2SH_AUTH",
-                &context.session_map,
-                &[TpmSe::Policy],
-            )?,
-            (None, Some(hmac_auth_str)) => get_auth(
-                Some(hmac_auth_str),
-                "TPM2SH_HMAC_AUTH",
-                &context.session_map,
-                &[TpmSe::Hmac],
-            )?,
-            (None, None) => {
-                let auth = get_auth(None, "TPM2SH_AUTH", &context.session_map, &[TpmSe::Policy])?;
-                if matches!(&auth, Auth::Password(p) if p.is_empty()) {
-                    get_auth(
-                        None,
-                        "TPM2SH_HMAC_AUTH",
-                        &context.session_map,
-                        &[TpmSe::Hmac],
-                    )?
-                } else {
-                    auth
-                }
-            }
-        };
+        let auth_list = get_command_auth_list(
+            self.auth.as_ref(),
+            self.hmac_auth.as_ref(),
+            &context.session_map,
+        )?;
         device::with_device(device, |device| {
             let input_uri = Uri::from_str(&self.input)?;
 
@@ -94,9 +67,9 @@ impl SubCommand for Unseal {
                 item_handle: item_handle.0.into(),
             };
             let unseal_handles = [item_handle.0];
-            let auths = &[auth];
 
-            let (unseal_resp, _) = context.execute(device, &unseal_cmd, &unseal_handles, auths)?;
+            let (unseal_resp, _) =
+                context.execute(device, &unseal_cmd, &unseal_handles, &auth_list)?;
 
             let out_data = unseal_resp
                 .Unseal()

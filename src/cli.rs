@@ -49,6 +49,31 @@ pub(crate) fn get_auth(
     }
 }
 
+pub(crate) fn get_command_auth_list(
+    auth_str: Option<&String>,
+    hmac_auth_str: Option<&String>,
+    session_map: &SessionCache,
+) -> Result<Vec<Auth>, CommandError> {
+    let mut auths = Vec::new();
+
+    let object_auth = get_auth(auth_str, "TPM2SH_AUTH", session_map, &[TpmSe::Policy])?;
+    if !matches!(&object_auth, Auth::Password(p) if p.is_empty()) {
+        auths.push(object_auth);
+    }
+
+    let hmac_auth = get_auth(
+        hmac_auth_str,
+        "TPM2SH_HMAC_AUTH",
+        session_map,
+        &[TpmSe::Hmac],
+    )?;
+    if !matches!(&hmac_auth, Auth::Password(p) if p.is_empty()) {
+        auths.push(hmac_auth);
+    }
+
+    Ok(auths)
+}
+
 /// A subcommand of the main CLI application.
 pub trait SubCommand {
     /// Runs a command.

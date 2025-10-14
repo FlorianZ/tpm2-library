@@ -4,14 +4,14 @@
 
 use super::{CommandError, ContextError, DeviceError};
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::{get_command_auth_list, SubCommand},
     context::ContextCache,
-    device::{self, Auth, Device},
+    device::{self, Device},
 };
 use argh::FromArgs;
 use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::{
-    data::{TpmCc, TpmRcBase, TpmRh, TpmSe},
+    data::{TpmCc, TpmRcBase, TpmRh},
     message::TpmDictionaryAttackLockResetCommand,
 };
 
@@ -37,46 +37,18 @@ impl SubCommand for ResetLock {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth = match (self.auth.as_ref(), self.hmac_auth.as_ref()) {
-            (Some(_), Some(_)) => {
-                return Err(CommandError::InvalidInput(
-                    "Cannot use --auth and --hmac-auth at the same time".to_string(),
-                ));
-            }
-            (Some(auth_str), None) => get_auth(
-                Some(auth_str),
-                "TPM2SH_AUTH",
-                &context.session_map,
-                &[TpmSe::Policy],
-            )?,
-            (None, Some(hmac_auth_str)) => get_auth(
-                Some(hmac_auth_str),
-                "TPM2SH_HMAC_AUTH",
-                &context.session_map,
-                &[TpmSe::Hmac],
-            )?,
-            (None, None) => {
-                let auth = get_auth(None, "TPM2SH_AUTH", &context.session_map, &[TpmSe::Policy])?;
-                if matches!(&auth, Auth::Password(p) if p.is_empty()) {
-                    get_auth(
-                        None,
-                        "TPM2SH_HMAC_AUTH",
-                        &context.session_map,
-                        &[TpmSe::Hmac],
-                    )?
-                } else {
-                    auth
-                }
-            }
-        };
+        let auth_list = get_command_auth_list(
+            self.auth.as_ref(),
+            self.hmac_auth.as_ref(),
+            &context.session_map,
+        )?;
         device::with_device(device, |device| {
             let command = TpmDictionaryAttackLockResetCommand {
                 lock_handle: (TpmRh::Lockout as u32).into(),
             };
             let handles = [TpmRh::Lockout as u32];
-            let auths = &[auth];
 
-            let (resp, _) = match context.execute(device, &command, &handles, auths) {
+            let (resp, _) = match context.execute(device, &command, &handles, &auth_list) {
                 Ok(result) => result,
                 Err(ContextError::Device(DeviceError::TpmRc(rc)))
                     if rc.base() == TpmRcBase::Lockout =>

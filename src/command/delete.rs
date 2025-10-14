@@ -4,14 +4,13 @@
 
 use super::CommandError;
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::{get_command_auth_list, SubCommand},
     context::ContextCache,
-    device::{self, Auth, Device},
+    device::{self, Device},
     uri::Uri,
 };
 use argh::FromArgs;
 use std::{cell::RefCell, rc::Rc, str::FromStr};
-use tpm2_protocol::data::TpmSe;
 
 /// Deletes TPM objects, and cached keys and sessions.
 #[derive(FromArgs, Debug)]
@@ -39,38 +38,11 @@ impl SubCommand for Delete {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth = match (self.auth.as_ref(), self.hmac_auth.as_ref()) {
-            (Some(_), Some(_)) => {
-                return Err(CommandError::InvalidInput(
-                    "Cannot use --auth and --hmac-auth at the same time".to_string(),
-                ));
-            }
-            (Some(auth_str), None) => get_auth(
-                Some(auth_str),
-                "TPM2SH_AUTH",
-                &context.session_map,
-                &[TpmSe::Policy],
-            )?,
-            (None, Some(hmac_auth_str)) => get_auth(
-                Some(hmac_auth_str),
-                "TPM2SH_HMAC_AUTH",
-                &context.session_map,
-                &[TpmSe::Hmac],
-            )?,
-            (None, None) => {
-                let auth = get_auth(None, "TPM2SH_AUTH", &context.session_map, &[TpmSe::Policy])?;
-                if matches!(&auth, Auth::Password(p) if p.is_empty()) {
-                    get_auth(
-                        None,
-                        "TPM2SH_HMAC_AUTH",
-                        &context.session_map,
-                        &[TpmSe::Hmac],
-                    )?
-                } else {
-                    auth
-                }
-            }
-        };
+        let auth_list = get_command_auth_list(
+            self.auth.as_ref(),
+            self.hmac_auth.as_ref(),
+            &context.session_map,
+        )?;
 
         let uris: Vec<Uri> = self
             .inputs
@@ -109,7 +81,7 @@ impl SubCommand for Delete {
                             writeln!(context.writer, "{uri}")?;
                         }
                         Uri::Tpm(_) => {
-                            let handle = context.delete(dev, &uri, std::slice::from_ref(&auth))?;
+                            let handle = context.delete(dev, &uri, &auth_list)?;
                             writeln!(context.writer, "tpm://{handle:08x}")?;
                         }
                         Uri::Context(_) | Uri::Path(_) | Uri::Password(_) => unreachable!(),

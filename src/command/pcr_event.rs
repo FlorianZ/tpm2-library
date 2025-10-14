@@ -3,10 +3,10 @@
 
 use super::CommandError;
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::{get_command_auth_list, SubCommand},
     context::ContextCache,
     convert::{from_input_to_bytes, from_str_to_handle},
-    device::{self, Auth, Device, DeviceError},
+    device::{self, Device, DeviceError},
     key::Tpm2shAlgId,
     pcr::pcr_get_bank_list,
     uri::Uri,
@@ -14,7 +14,7 @@ use crate::{
 use argh::FromArgs;
 use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::{
-    data::{Tpm2bEvent, TpmCc, TpmSe, TpmuHa},
+    data::{Tpm2bEvent, TpmCc, TpmuHa},
     message::TpmPcrEventCommand,
     TpmHandle,
 };
@@ -63,42 +63,14 @@ impl SubCommand for PcrEvent {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth = match (self.auth.as_ref(), self.hmac_auth.as_ref()) {
-            (Some(_), Some(_)) => {
-                return Err(CommandError::InvalidInput(
-                    "Cannot use --auth and --hmac-auth at the same time".to_string(),
-                ));
-            }
-            (Some(auth_str), None) => get_auth(
-                Some(auth_str),
-                "TPM2SH_AUTH",
-                &context.session_map,
-                &[TpmSe::Policy],
-            )?,
-            (None, Some(hmac_auth_str)) => get_auth(
-                Some(hmac_auth_str),
-                "TPM2SH_HMAC_AUTH",
-                &context.session_map,
-                &[TpmSe::Hmac],
-            )?,
-            (None, None) => {
-                let auth = get_auth(None, "TPM2SH_AUTH", &context.session_map, &[TpmSe::Policy])?;
-                if matches!(&auth, Auth::Password(p) if p.is_empty()) {
-                    get_auth(
-                        None,
-                        "TPM2SH_HMAC_AUTH",
-                        &context.session_map,
-                        &[TpmSe::Hmac],
-                    )?
-                } else {
-                    auth
-                }
-            }
-        };
+        let auth_list = get_command_auth_list(
+            self.auth.as_ref(),
+            self.hmac_auth.as_ref(),
+            &context.session_map,
+        )?;
         device::with_device(device, |device| {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
-            let auths = &[auth];
 
             let data_bytes = from_input_to_bytes(self.input.as_ref())?;
 
@@ -108,7 +80,7 @@ impl SubCommand for PcrEvent {
                 event_data,
             };
 
-            let (resp, _) = context.execute(device, &command, &handles, auths)?;
+            let (resp, _) = context.execute(device, &command, &handles, &auth_list)?;
 
             let pcr_resp = resp
                 .PcrEvent()
