@@ -1,117 +1,131 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
+use super::CommandError;
 use crate::{
-    arg_parser::{format_subcommand_help, CommandLineArgument, CommandLineOption},
-    cli::{self, Commands, Delete, Object},
-    get_auth_sessions, parse_args, parse_hex_u32, Command, CommandIo, TpmDevice, TpmError,
+    cli::{get_auth, SubCommand},
+    context::ContextCache,
+    device::{self, Auth, Device},
+    uri::Uri,
 };
-use lexopt::prelude::*;
-use tpm2_protocol::{
-    data::TpmRh,
-    message::{TpmEvictControlCommand, TpmFlushContextCommand},
-    TpmPersistent, TpmTransient,
-};
+use argh::FromArgs;
+use std::{cell::RefCell, rc::Rc, str::FromStr};
+use tpm2_protocol::data::TpmSe;
 
-const ABOUT: &str = "Deletes a transient or persistent object";
-const USAGE: &str = "tpm2sh delete [OPTIONS] <HANDLE>";
-const ARGS: &[CommandLineArgument] = &[(
-    "HANDLE",
-    "Handle of the object to delete, or '-' to read from stdin",
-)];
-const OPTIONS: &[CommandLineOption] = &[
-    (None, "--password", "<PASSWORD>", "Authorization value"),
-    (Some("-h"), "--help", "", "Print help information"),
-];
+/// Deletes TPM objects, and cached keys and sessions.
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "delete")]
+pub struct Delete {
+    /// inputs: 'tpm://<handle>', 'key://<name grip>', or 'session://<handle>'
+    #[argh(positional)]
+    pub inputs: Vec<String>,
 
-impl Command for Delete {
-    fn help() {
-        println!(
-            "{}",
-            format_subcommand_help("delete", ABOUT, USAGE, ARGS, OPTIONS)
-        );
-    }
+    /// auth for the object: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'a')]
+    pub auth: Option<String>,
 
-    fn parse(parser: &mut lexopt::Parser) -> Result<Commands, TpmError> {
-        let mut args = Delete::default();
-        let mut handle_arg = None;
+    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
+    pub hmac_auth: Option<String>,
+}
 
-        parse_args!(parser, arg, Self::help, {
-            Long("password") => {
-                args.password.password = Some(parser.value()?.string()?);
-            }
-            Value(val) if handle_arg.is_none() => {
-                handle_arg = Some(val.string()?);
-            }
-            _ => {
-                return Err(TpmError::from(arg.unexpected()));
-            }
-        });
-
-        if let Some(handle) = handle_arg {
-            args.handle = handle;
-            Ok(Commands::Delete(args))
-        } else {
-            Self::help();
-            Err(TpmError::HelpDisplayed)
-        }
-    }
-
-    /// Runs `delete`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `TpmError` if the execution fails
+impl SubCommand for Delete {
     fn run(
         &self,
-        device: &mut Option<TpmDevice>,
-        log_format: cli::LogFormat,
-    ) -> Result<(), TpmError> {
-        let chip = device.as_mut().unwrap();
-        let mut io = CommandIo::new(std::io::stdout(), log_format)?;
-        let session = io.take_session()?;
-
-        let handle = if self.handle == "-" {
-            let obj = io.consume_object(|_| true)?;
-            let Object::TpmObject(hex_string) = obj;
-            parse_hex_u32(&hex_string)?
-        } else {
-            parse_hex_u32(&self.handle)?
+        device: Option<Rc<RefCell<Device>>>,
+        context: &mut ContextCache,
+        _plain: bool,
+    ) -> Result<(), CommandError> {
+        let auth = match (self.auth.as_ref(), self.hmac_auth.as_ref()) {
+            (Some(_), Some(_)) => {
+                return Err(CommandError::InvalidInput(
+                    "Cannot use --auth and --hmac-auth at the same time".to_string(),
+                ));
+            }
+            (Some(auth_str), None) => get_auth(
+                Some(auth_str),
+                "TPM2SH_AUTH",
+                &context.session_map,
+                &[TpmSe::Policy],
+            )?,
+            (None, Some(hmac_auth_str)) => get_auth(
+                Some(hmac_auth_str),
+                "TPM2SH_HMAC_AUTH",
+                &context.session_map,
+                &[TpmSe::Hmac],
+            )?,
+            (None, None) => {
+                let auth = get_auth(None, "TPM2SH_AUTH", &context.session_map, &[TpmSe::Policy])?;
+                if matches!(&auth, Auth::Password(p) if p.is_empty()) {
+                    get_auth(
+                        None,
+                        "TPM2SH_HMAC_AUTH",
+                        &context.session_map,
+                        &[TpmSe::Hmac],
+                    )?
+                } else {
+                    auth
+                }
+            }
         };
 
-        if handle >= TpmRh::PersistentFirst as u32 {
-            let persistent_handle = TpmPersistent(handle);
-            let auth_handle = TpmRh::Owner;
-            let handles = [auth_handle as u32, persistent_handle.into()];
-            let evict_cmd = TpmEvictControlCommand {
-                auth: (auth_handle as u32).into(),
-                object_handle: persistent_handle.0.into(),
-                persistent_handle,
-            };
-            let sessions = get_auth_sessions(
-                &evict_cmd,
-                &handles,
-                session.as_ref(),
-                self.password.password.as_deref(),
-            )?;
-            let (resp, _) = chip.execute(&evict_cmd, &sessions, log_format)?;
-            resp.EvictControl()
-                .map_err(|e| TpmError::UnexpectedResponse(format!("{e:?}")))?;
-            println!("{persistent_handle:#010x}");
-        } else if handle >= TpmRh::TransientFirst as u32 {
-            let flush_handle = TpmTransient(handle);
-            let flush_cmd = TpmFlushContextCommand {
-                flush_handle: flush_handle.into(),
-            };
-            let (resp, _) = chip.execute(&flush_cmd, &[], log_format)?;
-            resp.FlushContext()
-                .map_err(|e| TpmError::UnexpectedResponse(format!("{e:?}")))?;
-            println!("{flush_handle:#010x}");
-        } else {
-            return Err(TpmError::InvalidHandle(format!(
-                "'{handle:#010x}' is not a transient or persistent handle"
-            )));
+        let uris: Vec<Uri> = self
+            .inputs
+            .iter()
+            .map(|s| Uri::from_str(s))
+            .collect::<Result<_, _>>()?;
+
+        let (device_ops, local_ops): (Vec<_>, Vec<_>) = uris
+            .into_iter()
+            .partition(|uri| matches!(uri, Uri::Tpm(_) | Uri::Session(_)));
+
+        for uri in local_ops {
+            match uri {
+                Uri::Context(ref grip) => {
+                    context.remove_context(grip)?;
+                    writeln!(context.writer, "{uri}")?;
+                }
+                Uri::Path(_) | Uri::Password(_) => {
+                    return Err(CommandError::InvalidInput(uri.to_string()));
+                }
+                Uri::Tpm(_) | Uri::Session(_) => unreachable!(),
+            }
         }
+
+        if !device_ops.is_empty() {
+            device::with_device(device, |dev| -> Result<(), CommandError> {
+                for uri in device_ops {
+                    match uri {
+                        Uri::Session(_) => {
+                            let uri_str = uri.to_string();
+                            if let Some(session) = context.session_map.remove(&uri_str)? {
+                                if let Err(err) = dev.flush_session(session.context) {
+                                    log::warn!("{uri}: {err}");
+                                }
+                            }
+                            writeln!(context.writer, "{uri}")?;
+                        }
+                        Uri::Tpm(_) => {
+                            let handle = context.delete(dev, &uri, std::slice::from_ref(&auth))?;
+                            writeln!(context.writer, "tpm://{handle:08x}")?;
+                        }
+                        Uri::Context(_) | Uri::Path(_) | Uri::Password(_) => unreachable!(),
+                    }
+                }
+                Ok(())
+            })?;
+        }
+
         Ok(())
+    }
+
+    fn is_local(&self) -> bool {
+        !self
+            .inputs
+            .iter()
+            .any(|s| s.starts_with("tpm://") || s.starts_with("session://"))
     }
 }

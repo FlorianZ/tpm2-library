@@ -2,69 +2,96 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
+use super::{CommandError, ContextError, DeviceError};
 use crate::{
-    arg_parser::{format_subcommand_help, CommandLineOption},
-    cli::{self, Commands, ResetLock},
-    get_auth_sessions, parse_args, Command, CommandIo, TpmDevice, TpmError,
+    cli::{get_auth, SubCommand},
+    context::ContextCache,
+    device::{self, Auth, Device},
 };
-use lexopt::prelude::*;
-use tpm2_protocol::{data::TpmRh, message::TpmDictionaryAttackLockResetCommand};
+use argh::FromArgs;
+use std::{cell::RefCell, rc::Rc};
+use tpm2_protocol::{
+    data::{TpmCc, TpmRcBase, TpmRh, TpmSe},
+    message::TpmDictionaryAttackLockResetCommand,
+};
 
-const ABOUT: &str = "Resets the dictionary attack lockout timer";
-const USAGE: &str = "tpm2sh reset-lock [OPTIONS]";
-const OPTIONS: &[CommandLineOption] = &[
-    (None, "--password", "<PASSWORD>", "Authorization value"),
-    (Some("-h"), "--help", "", "Print help information"),
-];
+/// Resets the dictionary attack lockout counter.
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "reset-lock")]
+pub struct ResetLock {
+    /// auth for the lockout hierarchy: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'a')]
+    pub auth: Option<String>,
 
-impl Command for ResetLock {
-    fn help() {
-        println!(
-            "{}",
-            format_subcommand_help("reset-lock", ABOUT, USAGE, &[], OPTIONS)
-        );
-    }
+    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
+    pub hmac_auth: Option<String>,
+}
 
-    fn parse(parser: &mut lexopt::Parser) -> Result<Commands, TpmError> {
-        let mut args = ResetLock::default();
-        parse_args!(parser, arg, Self::help, {
-            Long("password") => {
-                args.password.password = Some(parser.value()?.string()?);
-            }
-            _ => {
-                return Err(TpmError::from(arg.unexpected()));
-            }
-        });
-        Ok(Commands::ResetLock(args))
-    }
-
-    /// Runs `reset-lock`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `TpmError` if the execution fails
+impl SubCommand for ResetLock {
     fn run(
         &self,
-        device: &mut Option<TpmDevice>,
-        log_format: cli::LogFormat,
-    ) -> Result<(), TpmError> {
-        let chip = device.as_mut().unwrap();
-        let mut io = CommandIo::new(std::io::stdout(), log_format)?;
-        let session = io.take_session()?;
-
-        let command = TpmDictionaryAttackLockResetCommand {
-            lock_handle: (TpmRh::Lockout as u32).into(),
+        device: Option<Rc<RefCell<Device>>>,
+        context: &mut ContextCache,
+        _plain: bool,
+    ) -> Result<(), CommandError> {
+        let auth = match (self.auth.as_ref(), self.hmac_auth.as_ref()) {
+            (Some(_), Some(_)) => {
+                return Err(CommandError::InvalidInput(
+                    "Cannot use --auth and --hmac-auth at the same time".to_string(),
+                ));
+            }
+            (Some(auth_str), None) => get_auth(
+                Some(auth_str),
+                "TPM2SH_AUTH",
+                &context.session_map,
+                &[TpmSe::Policy],
+            )?,
+            (None, Some(hmac_auth_str)) => get_auth(
+                Some(hmac_auth_str),
+                "TPM2SH_HMAC_AUTH",
+                &context.session_map,
+                &[TpmSe::Hmac],
+            )?,
+            (None, None) => {
+                let auth = get_auth(None, "TPM2SH_AUTH", &context.session_map, &[TpmSe::Policy])?;
+                if matches!(&auth, Auth::Password(p) if p.is_empty()) {
+                    get_auth(
+                        None,
+                        "TPM2SH_HMAC_AUTH",
+                        &context.session_map,
+                        &[TpmSe::Hmac],
+                    )?
+                } else {
+                    auth
+                }
+            }
         };
-        let handles = [TpmRh::Lockout as u32];
-        let sessions = get_auth_sessions(
-            &command,
-            &handles,
-            session.as_ref(),
-            self.password.password.as_deref(),
-        )?;
-        let (resp, _) = chip.execute(&command, &sessions, log_format)?;
-        resp.DictionaryAttackLockReset()
-            .map_err(|e| TpmError::UnexpectedResponse(format!("{e:?}")))?;
-        io.finalize()
+        device::with_device(device, |device| {
+            let command = TpmDictionaryAttackLockResetCommand {
+                lock_handle: (TpmRh::Lockout as u32).into(),
+            };
+            let handles = [TpmRh::Lockout as u32];
+            let auths = &[auth];
+
+            let (resp, _) = match context.execute(device, &command, &handles, auths) {
+                Ok(result) => result,
+                Err(ContextError::Device(DeviceError::TpmRc(rc)))
+                    if rc.base() == TpmRcBase::Lockout =>
+                {
+                    return Err(CommandError::DictionaryAttackLocked);
+                }
+                Err(e) => return Err(e.into()),
+            };
+
+            resp.DictionaryAttackLockReset()
+                .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;
+
+            writeln!(context.writer, "done")?;
+
+            Ok(())
+        })
     }
 }

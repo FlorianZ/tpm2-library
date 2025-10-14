@@ -2,20 +2,134 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use cli::{execute_cli, TpmError};
-use log::error;
+use argh::FromArgs;
+use cli::{
+    cli::{SubCommand, TopLevel},
+    command::CommandError,
+    context::ContextCache,
+    device::{Device, DeviceError},
+    session::SessionCache,
+    transport::FileTransport,
+};
+use std::{env, fs, io::Write, os::unix::io::AsRawFd, process, sync::atomic::Ordering};
 
+struct ContextGuard<'a> {
+    context: ContextCache<'a>,
+    device: Option<std::rc::Rc<std::cell::RefCell<Device>>>,
+}
+
+impl Drop for ContextGuard<'_> {
+    fn drop(&mut self) {
+        self.context.teardown(self.device.clone());
+    }
+}
+
+/// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
+/// external signal indexed by the signal number.
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_micros()
         .init();
 
-    match execute_cli() {
-        Ok(()) => {}
-        Err(TpmError::HelpDisplayed) => {}
-        Err(err) => {
-            error!("{err}");
-            std::process::exit(1);
-        }
+    if ctrlc::set_handler(move || {
+        cli::TEARDOWN.store(true, Ordering::Relaxed);
+        let mut stderr = std::io::stderr();
+        let _ = write!(stderr, "\x1B[?25h");
+        let _ = stderr.flush();
+    })
+    .is_err()
+    {
+        eprintln!("CTRL-C handler failed");
+        process::exit(1);
     }
+
+    let args: Vec<String> = env::args().collect();
+    let arg_strs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+
+    let cli: TopLevel = match TopLevel::from_args(&[arg_strs[0]], &arg_strs[1..]) {
+        Ok(cli) => cli,
+        Err(e) => {
+            eprintln!("{}", e.output);
+            process::exit(if e.status.is_ok() { 0 } else { 2 });
+        }
+    };
+
+    let Some(project) = directories::ProjectDirs::from("", "", "tpm2sh") else {
+        eprintln!("Could not determine directory.");
+        std::process::exit(1);
+    };
+    let cache_dir = project.cache_dir();
+    if let Err(e) = fs::create_dir_all(cache_dir) {
+        eprintln!("Failed to create cache directory: {e}");
+        process::exit(1);
+    }
+
+    if let Err(err) = execute_cli(&cli, cache_dir) {
+        eprintln!("{:#}", err);
+        process::exit(1);
+    }
+
+    if cli::TEARDOWN.load(Ordering::Relaxed) {
+        process::exit(130);
+    }
+}
+
+fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), CommandError> {
+    let shared_device = init_device(cli)?;
+    let mut stdout = std::io::stdout();
+
+    let mut session_map = SessionCache::new(cache_dir);
+    session_map.load_sessions()?;
+
+    let mut guard = if let Some(dev_rc) = &shared_device {
+        let mut dev_guard = dev_rc
+            .try_borrow_mut()
+            .map_err(|_| DeviceError::AlreadyBorrowed)?;
+
+        if let Err(e) = session_map.refresh_sessions(&mut dev_guard) {
+            log::warn!("One or more sessions failed to refresh: {e}");
+        }
+
+        let context = ContextCache::new(Some(&mut dev_guard), cache_dir, &mut stdout, session_map)?;
+        ContextGuard {
+            context,
+            device: shared_device.clone(),
+        }
+    } else {
+        let context = ContextCache::new(None, cache_dir, &mut stdout, session_map)?;
+        ContextGuard {
+            context,
+            device: None,
+        }
+    };
+
+    cli.command
+        .run(guard.device.clone(), &mut guard.context, cli.plain)
+}
+
+fn init_device(
+    cli: &TopLevel,
+) -> Result<Option<std::rc::Rc<std::cell::RefCell<Device>>>, CommandError> {
+    if cli.command.is_local() {
+        return Ok(None);
+    }
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&cli.device)
+        .map_err(CommandError::Io)?;
+
+    let fd = file.as_raw_fd();
+    let flags = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFL)
+        .map_err(|e| CommandError::from(DeviceError::from(e)))?;
+    let mut oflags = nix::fcntl::OFlag::from_bits_truncate(flags);
+    oflags.insert(nix::fcntl::OFlag::O_NONBLOCK);
+    nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFL(oflags))
+        .map_err(|e| CommandError::from(DeviceError::from(e)))?;
+
+    let transport = FileTransport(file);
+    let device = Device::new(transport, cli.log_format)?;
+
+    Ok(Some(std::rc::Rc::new(std::cell::RefCell::new(device))))
 }

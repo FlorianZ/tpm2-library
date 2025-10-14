@@ -1,111 +1,111 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
+use super::CommandError;
 use crate::{
-    arg_parser::{format_subcommand_help, CommandLineOption},
-    cli::{self, Commands, Unseal},
-    get_auth_sessions, parse_args, parse_parent_handle_from_json, pop_object_data,
-    with_loaded_object, Command, CommandIo, TpmDevice, TpmError,
+    cli::{get_auth, SubCommand},
+    context::ContextCache,
+    device::{self, Auth, Device, DeviceError},
+    uri::Uri,
 };
-use base64::{engine::general_purpose::STANDARD as base64_engine, Engine};
-use lexopt::prelude::*;
-use std::io::{self, IsTerminal, Write};
-use tpm2_protocol::{
-    data::{Tpm2bPrivate, Tpm2bPublic},
-    message::TpmUnsealCommand,
-    TpmParse,
-};
+use argh::FromArgs;
+use std::{cell::RefCell, rc::Rc, str::FromStr};
+use tpm2_protocol::{data::TpmCc, data::TpmSe, message::TpmUnsealCommand};
 
-const ABOUT: &str = "Unseals a keyedhash object";
-const USAGE: &str = "tpm2sh unseal [OPTIONS]";
-const OPTIONS: &[CommandLineOption] = &[
-    (None, "--password", "<PASSWORD>", "Authorization value"),
-    (Some("-h"), "--help", "", "Print help information"),
-];
+/// Retrieves data from a sealed data object.
+#[derive(FromArgs, Debug)]
+#[argh(
+    subcommand,
+    name = "unseal",
+    note = "Retrieves data from a sealed data object."
+)]
+pub struct Unseal {
+    /// input: 'tpm://<handle>' or 'key://<grip>'
+    #[argh(positional)]
+    pub input: String,
 
-impl Command for Unseal {
-    fn help() {
-        println!(
-            "{}",
-            format_subcommand_help("unseal", ABOUT, USAGE, &[], OPTIONS)
-        );
-    }
+    /// auth for the sealed object: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'a')]
+    pub auth: Option<String>,
 
-    fn parse(parser: &mut lexopt::Parser) -> Result<Commands, TpmError> {
-        let mut args = Unseal::default();
-        parse_args!(parser, arg, Self::help, {
-            Long("password") => {
-                args.password.password = Some(parser.value()?.string()?);
-            }
-            _ => {
-                return Err(TpmError::from(arg.unexpected()));
-            }
-        });
-        Ok(Commands::Unseal(args))
-    }
+    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
+    pub hmac_auth: Option<String>,
+}
 
-    /// Runs `unseal`.
+impl SubCommand for Unseal {
+    /// `unseal` requires authorization for the sealed object itself.
     ///
-    /// # Errors
-    ///
-    /// Returns a `TpmError` if the execution fails
+    /// 1.  The sealed object's context is loaded into the TPM if it is not
+    ///     already active. This step does not require authorization.
+    /// 2.  The data is retrieved using `TPM2_Unseal`. This command must be
+    ///     authorized by the sealed object's own authorization policy. The
+    ///     session provided via `--auth` is used for this step.
     fn run(
         &self,
-        device: &mut Option<TpmDevice>,
-        log_format: cli::LogFormat,
-    ) -> Result<(), TpmError> {
-        let chip = device.as_mut().unwrap();
-        if std::io::stdin().is_terminal() {
-            Self::help();
-            std::process::exit(1);
-        }
+        device: Option<Rc<RefCell<Device>>>,
+        context: &mut ContextCache,
+        _plain: bool,
+    ) -> Result<(), CommandError> {
+        let auth = match (self.auth.as_ref(), self.hmac_auth.as_ref()) {
+            (Some(_), Some(_)) => {
+                return Err(CommandError::InvalidInput(
+                    "Cannot use --auth and --hmac-auth at the same time".to_string(),
+                ));
+            }
+            (Some(auth_str), None) => get_auth(
+                Some(auth_str),
+                "TPM2SH_AUTH",
+                &context.session_map,
+                &[TpmSe::Policy],
+            )?,
+            (None, Some(hmac_auth_str)) => get_auth(
+                Some(hmac_auth_str),
+                "TPM2SH_HMAC_AUTH",
+                &context.session_map,
+                &[TpmSe::Hmac],
+            )?,
+            (None, None) => {
+                let auth = get_auth(None, "TPM2SH_AUTH", &context.session_map, &[TpmSe::Policy])?;
+                if matches!(&auth, Auth::Password(p) if p.is_empty()) {
+                    get_auth(
+                        None,
+                        "TPM2SH_HMAC_AUTH",
+                        &context.session_map,
+                        &[TpmSe::Hmac],
+                    )?
+                } else {
+                    auth
+                }
+            }
+        };
+        device::with_device(device, |device| {
+            let input_uri = Uri::from_str(&self.input)?;
 
-        let mut io = CommandIo::new(io::stdout(), log_format)?;
-        let session = io.take_session()?;
-        let object_data = pop_object_data(&mut io)?;
+            if matches!(input_uri, Uri::Path(_) | Uri::Password(_)) {
+                return Err(CommandError::InvalidInput("{input_uri}".to_string()));
+            }
 
-        let parent_handle = parse_parent_handle_from_json(&object_data)?;
+            let item_handle = context.load_context(device, &input_uri)?;
 
-        let pub_bytes = base64_engine
-            .decode(object_data.public)
-            .map_err(|e| TpmError::Parse(e.to_string()))?;
-        let priv_bytes = base64_engine
-            .decode(object_data.private)
-            .map_err(|e| TpmError::Parse(e.to_string()))?;
-        let (in_public, _) = Tpm2bPublic::parse(&pub_bytes)?;
-        let (in_private, _) = Tpm2bPrivate::parse(&priv_bytes)?;
-        let output = with_loaded_object(
-            chip,
-            parent_handle,
-            &self.password,
-            session.as_ref(),
-            in_public,
-            in_private,
-            log_format,
-            |chip, object_handle| {
-                let unseal_cmd = TpmUnsealCommand {
-                    item_handle: object_handle.0.into(),
-                };
-                let unseal_handles = [object_handle.into()];
-                let sessions = get_auth_sessions(
-                    &unseal_cmd,
-                    &unseal_handles,
-                    session.as_ref(),
-                    self.password.password.as_deref(),
-                )?;
+            let unseal_cmd = TpmUnsealCommand {
+                item_handle: item_handle.0.into(),
+            };
+            let unseal_handles = [item_handle.0];
+            let auths = &[auth];
 
-                let (unseal_resp, _) = chip.execute(&unseal_cmd, &sessions, log_format)?;
+            let (unseal_resp, _) = context.execute(device, &unseal_cmd, &unseal_handles, auths)?;
 
-                let unseal_resp = unseal_resp
-                    .Unseal()
-                    .map_err(|e| TpmError::UnexpectedResponse(format!("{e:?}")))?;
+            let out_data = unseal_resp
+                .Unseal()
+                .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Unseal))?
+                .out_data;
 
-                Ok(unseal_resp.out_data.to_vec())
-            },
-        )?;
-        io::stdout().write_all(&output)?;
+            context.write_data(None, &out_data)?;
 
-        io.finalize()
+            Ok(())
+        })
     }
 }

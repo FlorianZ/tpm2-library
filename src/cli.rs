@@ -2,88 +2,171 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{Alg, Command, TpmDevice, TpmError};
-use std::str::FromStr;
-use tpm2_protocol::{
-    data::{TpmRc, TpmRh},
-    TpmPersistent,
-};
+#![allow(clippy::doc_markdown)]
 
-#[derive(Debug, Clone)]
-pub enum Object {
-    TpmObject(String),
+use crate::{
+    command::{
+        session::SessionType, Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary,
+        Delete, Key, Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Save, Seal, Session,
+        StartSession, Unseal,
+    },
+    device::{Auth, Device},
+    session::SessionCache,
+    uri::Uri,
+};
+use argh::FromArgs;
+use std::{cell::RefCell, env, path::PathBuf, rc::Rc, str::FromStr};
+use strum::{Display, EnumString};
+use tpm2_protocol::data::{TpmRh, TpmSe};
+
+pub(crate) fn get_auth(
+    arg: Option<&String>,
+    env_var: &str,
+    session_map: &SessionCache,
+    allowed_types: &[TpmSe],
+) -> Result<Auth, CommandError> {
+    let auth_str = arg.cloned().or_else(|| env::var(env_var).ok());
+
+    let Some(s) = auth_str else {
+        return Ok(Auth::Password(Vec::new()));
+    };
+
+    let uri = Uri::from_str(&s)?;
+    match uri {
+        Uri::Password(p) => Ok(Auth::Password(p)),
+        Uri::Session(h) => {
+            let session = session_map.get(&uri.to_string())?;
+            if allowed_types.contains(&session.session_type) {
+                Ok(Auth::Tracked(h))
+            } else {
+                let session_type_str = SessionType::from(session.session_type).to_string();
+                Err(CommandError::UnsupportedSession(session_type_str))
+            }
+        }
+        _ => Err(CommandError::InvalidInput(
+            "auth must be a session:// or password:// URI".to_string(),
+        )),
+    }
 }
 
-impl Object {
-    #[must_use]
-    pub fn to_json(&self) -> json::JsonValue {
-        match self {
-            Object::TpmObject(s) => json::object! { "tpm-object": s.clone() },
-        }
-    }
-
-    /// Deserializes an `Object` from a `json::JsonValue`.
+/// A subcommand of the main CLI application.
+pub trait SubCommand {
+    /// Runs a command.
     ///
     /// # Errors
     ///
-    /// Returns a `TpmError::Parse` if the JSON object is malformed.
-    pub fn from_json(value: &json::JsonValue) -> Result<Self, TpmError> {
-        if !value.is_object() {
-            return Err(TpmError::Parse("expected a JSON object".to_string()));
-        }
+    /// Returns an error if the execution fails.
+    fn run(
+        &self,
+        device: Option<Rc<RefCell<Device>>>,
+        context: &mut crate::context::ContextCache,
+        plain: bool,
+    ) -> Result<(), CommandError>;
 
-        let hex_string = value["tpm-object"]
-            .as_str()
-            .ok_or_else(|| TpmError::Parse("missing or invalid 'tpm-object' key".to_string()))?;
-
-        Ok(Object::TpmObject(hex_string.to_string()))
+    /// Returns `true` if the command can be run without a TPM device.
+    #[must_use]
+    fn is_local(&self) -> bool {
+        false
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Display, EnumString)]
+#[strum(serialize_all = "kebab-case")]
 pub enum LogFormat {
     #[default]
     Plain,
     Pretty,
 }
 
-impl FromStr for LogFormat {
-    type Err = TpmError;
+/// TPM 2.0 shell
+#[derive(FromArgs, Debug)]
+pub struct TopLevel {
+    /// device path
+    #[argh(option, short = 'd', default = "PathBuf::from(\"/dev/tpmrm0\")")]
+    pub device: PathBuf,
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "plain" => Ok(Self::Plain),
-            "pretty" => Ok(Self::Pretty),
-            _ => Err(TpmError::Usage(format!("invalid log format: {s}"))),
+    /// log format: 'plain' or 'pretty'
+    #[argh(option, default = "Default::default()")]
+    pub log_format: LogFormat,
+
+    /// print tables without headers and with space-separated columns
+    #[argh(switch, short = 'P')]
+    pub plain: bool,
+
+    #[argh(subcommand)]
+    pub command: Command,
+}
+
+#[derive(FromArgs, Debug)]
+#[argh(subcommand)]
+pub enum Command {
+    Algorithm(Algorithm),
+    Certificate(Certificate),
+    Convert(Convert),
+    Create(Create),
+    CreatePrimary(CreatePrimary),
+    Delete(Delete),
+    Key(Key),
+    Load(Load),
+    Memory(Memory),
+    PcrEvent(PcrEvent),
+    Policy(Policy),
+    ReturnCode(ReturnCode),
+    ResetLock(ResetLock),
+    Save(Save),
+    Seal(Seal),
+    Session(Session),
+    StartSession(StartSession),
+    Unseal(Unseal),
+}
+
+impl Command {
+    fn as_subcommand(&self) -> &dyn SubCommand {
+        match self {
+            Self::Algorithm(cmd) => cmd,
+            Self::Certificate(cmd) => cmd,
+            Self::Convert(cmd) => cmd,
+            Self::Create(cmd) => cmd,
+            Self::CreatePrimary(cmd) => cmd,
+            Self::Delete(cmd) => cmd,
+            Self::Key(cmd) => cmd,
+            Self::Load(cmd) => cmd,
+            Self::Memory(cmd) => cmd,
+            Self::PcrEvent(cmd) => cmd,
+            Self::Policy(cmd) => cmd,
+            Self::ReturnCode(cmd) => cmd,
+            Self::ResetLock(cmd) => cmd,
+            Self::Save(cmd) => cmd,
+            Self::Seal(cmd) => cmd,
+            Self::Session(cmd) => cmd,
+            Self::StartSession(cmd) => cmd,
+            Self::Unseal(cmd) => cmd,
         }
     }
 }
 
-#[derive(Debug, Default)]
-pub struct Cli {
-    pub device: String,
-    pub log_format: LogFormat,
-    pub command: Option<Commands>,
+impl SubCommand for Command {
+    fn run(
+        &self,
+        device: Option<Rc<RefCell<Device>>>,
+        context: &mut crate::context::ContextCache,
+        plain: bool,
+    ) -> Result<(), CommandError> {
+        self.as_subcommand().run(device, context, plain)
+    }
+
+    fn is_local(&self) -> bool {
+        self.as_subcommand().is_local()
+    }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Display, EnumString)]
+#[strum(serialize_all = "kebab-case")]
 pub enum Hierarchy {
     #[default]
     Owner,
     Platform,
     Endorsement,
-}
-
-impl FromStr for Hierarchy {
-    type Err = TpmError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "owner" => Ok(Hierarchy::Owner),
-            "platform" => Ok(Hierarchy::Platform),
-            "endorsement" => Ok(Hierarchy::Endorsement),
-            _ => Err(TpmError::Usage(format!("invalid hierarchy: {s}"))),
-        }
-    }
 }
 
 impl From<Hierarchy> for TpmRh {
@@ -94,282 +177,4 @@ impl From<Hierarchy> for TpmRh {
             Hierarchy::Endorsement => TpmRh::Endorsement,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SessionType {
-    #[default]
-    Hmac,
-    Policy,
-    Trial,
-}
-
-impl FromStr for SessionType {
-    type Err = TpmError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "hmac" => Ok(SessionType::Hmac),
-            "policy" => Ok(SessionType::Policy),
-            "trial" => Ok(SessionType::Trial),
-            _ => Err(TpmError::Usage(format!("invalid session type: {s}"))),
-        }
-    }
-}
-
-impl From<SessionType> for tpm2_protocol::data::TpmSe {
-    fn from(val: SessionType) -> Self {
-        match val {
-            SessionType::Hmac => Self::Hmac,
-            SessionType::Policy => Self::Policy,
-            SessionType::Trial => Self::Trial,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub enum SessionHashAlg {
-    #[default]
-    Sha256,
-    Sha384,
-    Sha512,
-}
-
-impl FromStr for SessionHashAlg {
-    type Err = TpmError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "sha256" => Ok(SessionHashAlg::Sha256),
-            "sha384" => Ok(SessionHashAlg::Sha384),
-            "sha512" => Ok(SessionHashAlg::Sha512),
-            _ => Err(TpmError::Usage(format!(
-                "invalid session hash algorithm: {s}"
-            ))),
-        }
-    }
-}
-
-impl From<SessionHashAlg> for tpm2_protocol::data::TpmAlgId {
-    fn from(alg: SessionHashAlg) -> Self {
-        match alg {
-            SessionHashAlg::Sha256 => Self::Sha256,
-            SessionHashAlg::Sha384 => Self::Sha384,
-            SessionHashAlg::Sha512 => Self::Sha512,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum KeyFormat {
-    #[default]
-    Json,
-    Pem,
-    Der,
-}
-
-impl FromStr for KeyFormat {
-    type Err = TpmError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "json" => Ok(KeyFormat::Json),
-            "pem" => Ok(KeyFormat::Pem),
-            "der" => Ok(KeyFormat::Der),
-            _ => Err(TpmError::Usage(format!("invalid key format: {s}"))),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Commands {
-    Algorithms(Algorithms),
-    Convert(Convert),
-    CreatePrimary(CreatePrimary),
-    Delete(Delete),
-    Import(Import),
-    Load(Load),
-    Objects(Objects),
-    PcrEvent(PcrEvent),
-    PcrRead(PcrRead),
-    Policy(Policy),
-    PrintError(PrintError),
-    PrintStack(PrintStack),
-    ResetLock(ResetLock),
-    Save(Save),
-    Seal(Seal),
-    StartSession(StartSession),
-    Unseal(Unseal),
-}
-
-impl Command for Commands {
-    fn help()
-    where
-        Self: Sized,
-    {
-        unimplemented!();
-    }
-
-    fn parse(_parser: &mut lexopt::Parser) -> Result<Self, TpmError>
-    where
-        Self: Sized,
-    {
-        unimplemented!();
-    }
-
-    fn is_local(&self) -> bool {
-        match self {
-            Self::Algorithms(args) => args.is_local(),
-            Self::Convert(args) => args.is_local(),
-            Self::CreatePrimary(args) => args.is_local(),
-            Self::Delete(args) => args.is_local(),
-            Self::Import(args) => args.is_local(),
-            Self::Load(args) => args.is_local(),
-            Self::Objects(args) => args.is_local(),
-            Self::PcrEvent(args) => args.is_local(),
-            Self::PcrRead(args) => args.is_local(),
-            Self::Policy(args) => args.is_local(),
-            Self::PrintError(args) => args.is_local(),
-            Self::PrintStack(args) => args.is_local(),
-            Self::ResetLock(args) => args.is_local(),
-            Self::Save(args) => args.is_local(),
-            Self::Seal(args) => args.is_local(),
-            Self::StartSession(args) => args.is_local(),
-            Self::Unseal(args) => args.is_local(),
-        }
-    }
-
-    fn run(
-        &self,
-        device: &mut Option<TpmDevice>,
-        log_format: crate::cli::LogFormat,
-    ) -> Result<(), crate::TpmError> {
-        match self {
-            Self::Algorithms(args) => args.run(device, log_format),
-            Self::Convert(args) => args.run(device, log_format),
-            Self::CreatePrimary(args) => args.run(device, log_format),
-            Self::Delete(args) => args.run(device, log_format),
-            Self::Import(args) => args.run(device, log_format),
-            Self::Load(args) => args.run(device, log_format),
-            Self::Objects(args) => args.run(device, log_format),
-            Self::PcrEvent(args) => args.run(device, log_format),
-            Self::PcrRead(args) => args.run(device, log_format),
-            Self::Policy(args) => args.run(device, log_format),
-            Self::PrintError(args) => args.run(device, log_format),
-            Self::PrintStack(args) => args.run(device, log_format),
-            Self::ResetLock(args) => args.run(device, log_format),
-            Self::Save(args) => args.run(device, log_format),
-            Self::Seal(args) => args.run(device, log_format),
-            Self::StartSession(args) => args.run(device, log_format),
-            Self::Unseal(args) => args.run(device, log_format),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct PasswordArgs {
-    pub password: Option<String>,
-}
-
-#[derive(Debug, Default)]
-pub struct CreatePrimary {
-    pub hierarchy: Hierarchy,
-    pub algorithm: Alg,
-    pub handle: Option<TpmPersistent>,
-    pub password: PasswordArgs,
-}
-
-#[derive(Debug, Default)]
-pub struct Save {
-    pub from: String,
-    pub to: String,
-    pub password: PasswordArgs,
-}
-
-#[derive(Debug, Default)]
-pub struct Delete {
-    pub handle: String,
-    pub password: PasswordArgs,
-}
-
-#[derive(Debug, Default)]
-pub struct Import {
-    pub parent_password: PasswordArgs,
-}
-
-#[derive(Debug, Default)]
-pub struct Algorithms {
-    pub filter: Option<String>,
-}
-
-#[derive(Debug, Default)]
-pub struct Load {
-    pub parent_password: PasswordArgs,
-}
-
-#[derive(Debug, Default)]
-pub struct Objects {}
-
-#[derive(Debug, Default)]
-pub struct PcrRead {
-    pub selection: String,
-}
-
-#[derive(Debug, Default)]
-pub struct PcrEvent {
-    pub handle: u32,
-    pub data: String,
-    pub password: PasswordArgs,
-}
-
-#[derive(Debug)]
-pub struct PrintError {
-    pub rc: TpmRc,
-}
-
-#[derive(Debug, Default)]
-pub struct PrintStack {}
-
-#[derive(Debug, Default)]
-pub struct ResetLock {
-    pub password: PasswordArgs,
-}
-
-#[derive(Debug, Default)]
-pub struct StartSession {
-    pub session_type: SessionType,
-    pub hash_alg: SessionHashAlg,
-}
-
-#[derive(Debug, Default)]
-pub struct Seal {
-    pub parent_password: PasswordArgs,
-    pub object_password: PasswordArgs,
-}
-
-#[derive(Debug, Default)]
-pub struct Unseal {
-    pub password: PasswordArgs,
-}
-
-#[derive(Debug, Default)]
-pub struct Convert {
-    pub from: KeyFormat,
-    pub to: KeyFormat,
-}
-
-#[derive(Debug, Default)]
-pub struct Policy {
-    pub expression: String,
-    pub password: PasswordArgs,
-}
-
-/// Retrieves all handles of a specific type from the TPM.
-///
-/// # Errors
-///
-/// Returns a `TpmError` if the `get_capability` call to the TPM device fails.
-pub fn get_handles(
-    device: &mut crate::TpmDevice,
-    handle_type: TpmRh,
-    log_format: LogFormat,
-) -> Result<Vec<u32>, TpmError> {
-    device.get_all_handles(handle_type, log_format)
 }

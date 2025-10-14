@@ -2,145 +2,259 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli, device, key::tpm_alg_id_to_str, PcrOutput, TpmDevice, TpmError};
-use pest::Parser as PestParser;
-use pest_derive::Parser;
-use std::collections::BTreeMap;
-use std::str::FromStr;
-use tpm2_protocol::{data, message};
+//! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
-#[derive(Parser)]
-#[grammar = "command/pcr_selection.pest"]
-pub struct PcrSelectionParser;
+use crate::{
+    crypto::{crypto_digest, CryptoError},
+    device::{Device, DeviceError},
+    key::from_str_to_alg_id,
+};
+use std::{convert::TryFrom, fmt, str::FromStr};
+use thiserror::Error;
+use tpm2_protocol::{
+    constant::TPM_PCR_SELECT_MAX,
+    data::{TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelection, TpmuCapabilities},
+    message::TpmPcrReadCommand,
+    tpm_hash_size, TpmBuffer, TpmErrorKind,
+};
 
-/// Gets the number of PCRs from the TPM.
-pub(crate) fn get_pcr_count(
-    chip: &mut TpmDevice,
-    log_format: cli::LogFormat,
-) -> Result<usize, TpmError> {
-    let cap_data = chip.get_capability(
-        data::TpmCap::Pcrs,
-        0,
-        device::TPM_CAP_PROPERTY_MAX,
-        log_format,
-    )?;
-    let Some(first_cap) = cap_data.into_iter().next() else {
-        return Err(TpmError::Execution(
-            "TPM reported no capabilities for PCRs.".to_string(),
-        ));
-    };
+#[derive(Debug, Error)]
+pub enum PcrError {
+    #[error("device: {0}")]
+    Device(#[from] DeviceError),
+    #[error("invalid algorithm: {0:?}")]
+    InvalidAlgorithm(TpmAlgId),
+    #[error("invalid PCR selection: {0}")]
+    InvalidPcrSelection(String),
+    #[error("TPM: {0}")]
+    Tpm(TpmErrorKind),
+    #[error("crypto: {0}")]
+    Crypto(#[from] CryptoError),
+}
 
-    if let data::TpmuCapabilities::Pcrs(pcrs) = first_cap.data {
-        if let Some(first_bank) = pcrs.iter().next() {
-            Ok(first_bank.pcr_select.len() * 8)
-        } else {
-            Err(TpmError::Execution(
-                "TPM reported no active PCR banks.".to_string(),
-            ))
-        }
-    } else {
-        Err(TpmError::Execution(
-            "Unexpected capability data type when querying for PCRs.".to_string(),
-        ))
+impl From<TpmErrorKind> for PcrError {
+    fn from(err: TpmErrorKind) -> Self {
+        Self::Tpm(err)
     }
 }
 
-/// Converts a `TpmPcrReadResponse` to the structured `PcrOutput` format.
-pub(crate) fn pcr_response_to_output(
-    resp: &message::TpmPcrReadResponse,
-) -> Result<PcrOutput, TpmError> {
-    let mut pcr_output = PcrOutput {
-        update_counter: resp.pcr_update_counter,
-        banks: BTreeMap::new(),
+/// Represents the state of a single PCR register.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pcr {
+    pub bank: TpmAlgId,
+    pub index: u32,
+    pub value: Vec<u8>,
+}
+
+/// Represents the properties of a single PCR bank.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PcrBank {
+    pub alg: TpmAlgId,
+    pub count: usize,
+}
+
+/// Represents a user's selection of PCR indices for a specific bank.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PcrSelection {
+    pub alg: TpmAlgId,
+    pub indices: Vec<u32>,
+}
+
+impl fmt::Display for PcrSelection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let indices_str = self
+            .indices
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        write!(f, "{}:{}", crate::key::Tpm2shAlgId(self.alg), indices_str)
+    }
+}
+
+impl FromStr for PcrSelection {
+    type Err = PcrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (alg_str, indices_str) = s
+            .split_once(':')
+            .ok_or_else(|| PcrError::InvalidPcrSelection(format!("invalid bank format: '{s}'")))?;
+        let alg = from_str_to_alg_id(alg_str)
+            .map_err(|e| PcrError::InvalidPcrSelection(e.to_string()))?;
+        let indices: Vec<u32> = indices_str
+            .split(',')
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .map_err(|e: std::num::ParseIntError| PcrError::InvalidPcrSelection(e.to_string()))?;
+        Ok(PcrSelection { alg, indices })
+    }
+}
+
+/// Discovers the list of available PCR banks and their sizes from the TPM.
+///
+/// # Errors
+///
+/// Returns a `PcrError` if the TPM capability query fails or if the TPM reports
+/// no active PCR banks.
+pub fn pcr_get_bank_list(device: &mut Device) -> Result<Vec<PcrBank>, PcrError> {
+    let (_, cap_data) = device.get_capability(TpmCap::Pcrs, 0, 1)?;
+    let mut banks = Vec::new();
+    if let TpmuCapabilities::Pcrs(pcrs) = cap_data.data {
+        for bank in pcrs.iter() {
+            banks.push(PcrBank {
+                alg: bank.hash,
+                count: bank.pcr_select.len() * 8,
+            });
+        }
+    }
+    if banks.is_empty() {
+        return Err(PcrError::InvalidPcrSelection(
+            "TPM reported no active PCR banks.".to_string(),
+        ));
+    }
+    banks.sort_by_key(|b| b.alg);
+    Ok(banks)
+}
+
+/// Parses a PCR selection string (e.g., "sha256:0,7+sha1:1") into a vector of
+/// `PcrSelection`.
+///
+/// # Errors
+///
+/// Returns a `PcrError` if the selection string is malformed, contains an
+/// invalid algorithm name, or has non-numeric PCR indices.
+pub fn pcr_selection_vec_from_str(selection_str: &str) -> Result<Vec<PcrSelection>, PcrError> {
+    selection_str
+        .split('+')
+        .map(PcrSelection::from_str)
+        .collect()
+}
+
+/// Parses a full PCR policy string, including an optional composite digest.
+///
+/// # Errors
+///
+/// Returns a `PcrError` if the selection part of the string is malformed.
+pub fn parse_pcr_policy_string(
+    policy_str: &str,
+) -> Result<(Vec<PcrSelection>, Option<String>), PcrError> {
+    let (selection_part, digest_part) =
+        if let Some((selection, digest)) = policy_str.rsplit_once(':') {
+            let is_digest = !digest.is_empty()
+                && digest.len() >= tpm_hash_size(&TpmAlgId::Sha1).unwrap_or(20) * 2
+                && digest.chars().all(|c| c.is_ascii_hexdigit());
+
+            if is_digest {
+                (selection, Some(digest.to_string()))
+            } else {
+                (policy_str, None)
+            }
+        } else {
+            (policy_str, None)
+        };
+
+    let selections = pcr_selection_vec_from_str(selection_part)?;
+    Ok((selections, digest_part))
+}
+
+/// Converts a vector of `PcrSelection` into the low-level `TpmlPcrSelection`
+/// format.
+///
+/// # Errors
+///
+/// Returns a `PcrError` if a selected algorithm is not present in the provided
+/// list of banks, or if a selected PCR index is out of bounds for its bank.
+pub fn pcr_selection_vec_to_tpml(
+    selections: &[PcrSelection],
+    banks: &[PcrBank],
+) -> Result<TpmlPcrSelection, PcrError> {
+    let mut list = TpmlPcrSelection::new();
+    for selection in selections {
+        let bank = banks
+            .iter()
+            .find(|b| b.alg == selection.alg)
+            .ok_or_else(|| {
+                PcrError::InvalidPcrSelection(format!(
+                    "PCR bank for algorithm {:?} not found or supported by TPM",
+                    selection.alg
+                ))
+            })?;
+        let pcr_select_size = bank.count.div_ceil(8);
+        if pcr_select_size > TPM_PCR_SELECT_MAX {
+            return Err(PcrError::InvalidPcrSelection(format!(
+                "invalid select size {pcr_select_size} (> {TPM_PCR_SELECT_MAX})"
+            )));
+        }
+        let mut pcr_select_bytes = vec![0u8; pcr_select_size];
+        for &pcr_index in &selection.indices {
+            let pcr_index = pcr_index as usize;
+            if pcr_index >= bank.count {
+                return Err(PcrError::InvalidPcrSelection(format!(
+                    "invalid index {pcr_index} for {:?} bank (max is {})",
+                    bank.alg,
+                    bank.count - 1
+                )));
+            }
+            pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
+        }
+        list.try_push(TpmsPcrSelection {
+            hash: selection.alg,
+            pcr_select: TpmBuffer::try_from(pcr_select_bytes.as_slice())?,
+        })?;
+    }
+    Ok(list)
+}
+
+/// Reads the selected PCRs and returns them in a structured format.
+///
+/// # Errors
+///
+/// Returns a `PcrError` if the `TPM2_PcrRead` command fails or if the TPM's
+/// response does not contain the expected number of digests for the selection.
+pub fn pcr_read(
+    device: &mut Device,
+    pcr_selection_in: &TpmlPcrSelection,
+) -> Result<(Vec<Pcr>, u32), PcrError> {
+    let cmd = TpmPcrReadCommand {
+        pcr_selection_in: *pcr_selection_in,
     };
-    let mut digest_iter = resp.pcr_values.iter();
-
-    for selection in resp.pcr_selection_out.iter() {
-        let bank_name = tpm_alg_id_to_str(selection.hash).to_string();
-        let bank_map = pcr_output.banks.entry(bank_name).or_default();
-
+    let (resp, _) = device.execute(&cmd, &[])?;
+    let pcr_read_resp = resp
+        .PcrRead()
+        .map_err(|_| DeviceError::ResponseMismatch(TpmCc::PcrRead))?;
+    let mut pcrs = Vec::new();
+    let mut digest_iter = pcr_read_resp.pcr_values.iter();
+    for selection in pcr_read_resp.pcr_selection_out.iter() {
         for (byte_idx, &byte) in selection.pcr_select.iter().enumerate() {
             if byte == 0 {
                 continue;
             }
             for bit_idx in 0..8 {
-                if (byte & (1 << bit_idx)) != 0 {
-                    let pcr_index = byte_idx * 8 + bit_idx;
-                    let digest = digest_iter.next().ok_or_else(|| {
-                        TpmError::Parse(
-                            "TPM response had fewer digests than selected PCRs".to_string(),
-                        )
+                if (byte >> bit_idx) & 1 == 1 {
+                    let pcr_index = u32::try_from(byte_idx * 8 + bit_idx)
+                        .map_err(|_| PcrError::InvalidPcrSelection("PCR index overflow".into()))?;
+                    let value = digest_iter.next().ok_or_else(|| {
+                        PcrError::InvalidPcrSelection("PCR selection mismatch".to_string())
                     })?;
-                    bank_map.insert(pcr_index.to_string(), hex::encode(digest));
+                    pcrs.push(Pcr {
+                        bank: selection.hash,
+                        index: pcr_index,
+                        value: value.to_vec(),
+                    });
                 }
             }
         }
     }
-    Ok(pcr_output)
+    Ok((pcrs, pcr_read_resp.pcr_update_counter))
 }
 
-/// Parses a PCR selection string (e.g., "sha256:0,7+sha1:1") into a TPM list.
-pub(crate) fn parse_pcr_selection(
-    selection_str: &str,
-    pcr_count: usize,
-) -> Result<data::TpmlPcrSelection, TpmError> {
-    let mut list = data::TpmlPcrSelection::new();
-    let pcr_select_size = pcr_count.div_ceil(8);
-    if pcr_select_size > data::TPM_PCR_SELECT_MAX {
-        return Err(TpmError::PcrSelection(format!(
-            "required pcr select size {pcr_select_size} exceeds maximum {}",
-            data::TPM_PCR_SELECT_MAX
-        )));
-    }
-
-    let pairs = PcrSelectionParser::parse(Rule::selection, selection_str)
-        .map_err(|e| TpmError::PcrSelection(e.to_string()))?;
-
-    for pair in pairs.flatten().filter(|p| p.as_rule() == Rule::bank) {
-        let mut inner_pairs = pair.into_inner();
-
-        let alg_str = inner_pairs.next().unwrap().as_str();
-        let alg = PcrAlgId::from_str(alg_str)
-            .map_err(|()| TpmError::PcrSelection(format!("invalid algorithm: {alg_str}")))?
-            .0;
-
-        let colon_and_list_pair = inner_pairs.next().unwrap();
-        let pcr_list_pair = colon_and_list_pair.into_inner().next().unwrap();
-        let mut pcr_select_bytes = vec![0u8; pcr_select_size];
-
-        for pcr_index_pair in pcr_list_pair.into_inner() {
-            let pcr_index: usize = pcr_index_pair.as_str().parse()?;
-
-            if pcr_index >= pcr_count {
-                return Err(TpmError::PcrSelection(format!(
-                    "pcr index {pcr_index} is out of range for a TPM with {pcr_count} PCRs"
-                )));
-            }
-
-            pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
-        }
-
-        list.try_push(data::TpmsPcrSelection {
-            hash: alg,
-            pcr_select: tpm2_protocol::TpmBuffer::try_from(pcr_select_bytes.as_slice())?,
-        })?;
-    }
-
-    Ok(list)
-}
-
-struct PcrAlgId(data::TpmAlgId);
-
-impl FromStr for PcrAlgId {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "sha1" => Ok(Self(data::TpmAlgId::Sha1)),
-            "sha256" => Ok(Self(data::TpmAlgId::Sha256)),
-            "sha384" => Ok(Self(data::TpmAlgId::Sha384)),
-            "sha512" => Ok(Self(data::TpmAlgId::Sha512)),
-            _ => Err(()),
-        }
-    }
+/// Computes a composite digest from a set of PCRs using a specified algorithm.
+///
+/// # Errors
+///
+/// Returns a `PcrError` if the provided hash algorithm is not supported for
+/// creating a composite digest.
+pub fn pcr_composite_digest(pcrs: &[Pcr], alg: TpmAlgId) -> Result<Vec<u8>, PcrError> {
+    let digests: Vec<&[u8]> = pcrs.iter().map(|p| p.value.as_slice()).collect();
+    Ok(crypto_digest(alg, &digests)?)
 }

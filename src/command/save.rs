@@ -1,110 +1,86 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
+use super::CommandError;
 use crate::{
-    arg_parser::{format_subcommand_help, CommandLineArgument, CommandLineOption},
-    cli::{self, Commands, Object, Save},
-    get_auth_sessions, parse_args, parse_hex_u32, parse_persistent_handle, Command, CommandIo,
-    TpmDevice, TpmError,
+    cli::{get_auth, SubCommand},
+    context::ContextCache,
+    convert::from_str_to_handle,
+    device::{self, Device},
+    uri::Uri,
 };
-use lexopt::prelude::*;
-use std::io::IsTerminal;
-use tpm2_protocol::{data::TpmRh, message::TpmEvictControlCommand};
+use argh::FromArgs;
+use std::{cell::RefCell, rc::Rc, str::FromStr};
+use tpm2_protocol::{data::TpmHt, data::TpmSe, TpmHandle};
 
-const ABOUT: &str = "Saves to non-volatile memory";
-const USAGE: &str = "tpm2sh save [OPTIONS] <FROM> <TO>";
-const ARGS: &[CommandLineArgument] = &[
-    ("FROM", "Handle of the transient object ('-' for stdin)"),
-    ("TO", "Handle for the persistent object to be created"),
-];
-const OPTIONS: &[CommandLineOption] = &[
-    (None, "--password", "<PASSWORD>", "Authorization value"),
-    (Some("-h"), "--help", "", "Print help information"),
-];
+/// Stores a cached key to non-volatile memory.
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "save")]
+pub struct Save {
+    /// input: [<parent>] <name grip> <persistent-handle>
+    #[argh(positional)]
+    pub input: Vec<String>,
 
-impl Command for Save {
-    fn help() {
-        println!(
-            "{}",
-            format_subcommand_help("save", ABOUT, USAGE, ARGS, OPTIONS)
-        );
-    }
+    /// auth for the hierarchy: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'a')]
+    pub auth: Option<String>,
 
-    fn parse(parser: &mut lexopt::Parser) -> Result<Commands, TpmError> {
-        let mut args = Save::default();
-        let mut from_arg = None;
-        let mut to_arg = None;
+    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
+    pub hmac_auth: Option<String>,
+}
 
-        parse_args!(parser, arg, Self::help, {
-            Long("password") => {
-                args.password.password = Some(parser.value()?.string()?);
-            }
-            Value(val) if from_arg.is_none() => {
-                from_arg = Some(val.string()?);
-            }
-            Value(val) if to_arg.is_none() => {
-                to_arg = Some(val.string()?);
-            }
-            _ => {
-                return Err(TpmError::from(arg.unexpected()));
-            }
-        });
-
-        if let (Some(from), Some(to)) = (from_arg, to_arg) {
-            args.from = from;
-            args.to = to;
-            Ok(Commands::Save(args))
-        } else {
-            Self::help();
-            Err(TpmError::HelpDisplayed)
-        }
-    }
-    /// Runs `save`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `TpmError` if the execution fails
+impl SubCommand for Save {
     fn run(
         &self,
-        device: &mut Option<TpmDevice>,
-        log_format: cli::LogFormat,
-    ) -> Result<(), TpmError> {
-        let chip = device.as_mut().unwrap();
-        if self.from.is_empty() && std::io::stdin().is_terminal() {
-            Self::help();
-            return Err(TpmError::HelpDisplayed);
-        }
-
-        let mut io = CommandIo::new(std::io::stdout(), log_format)?;
-        let session = io.take_session()?;
-        let object_handle = if self.from == "-" {
-            let obj = io.consume_object(|_| true)?;
-            let Object::TpmObject(hex_string) = obj;
-            parse_hex_u32(&hex_string)?
-        } else {
-            parse_hex_u32(&self.from)?
-        };
-
-        let persistent_handle = parse_persistent_handle(&self.to)?;
-        let auth_handle = TpmRh::Owner;
-        let handles = [auth_handle as u32, object_handle];
-        let evict_cmd = TpmEvictControlCommand {
-            auth: (auth_handle as u32).into(),
-            object_handle: object_handle.into(),
-            persistent_handle,
-        };
-        let sessions = get_auth_sessions(
-            &evict_cmd,
-            &handles,
-            session.as_ref(),
-            self.password.password.as_deref(),
+        device: Option<Rc<RefCell<Device>>>,
+        context: &mut ContextCache,
+        _plain: bool,
+    ) -> Result<(), CommandError> {
+        let auth = get_auth(
+            self.auth.as_ref(),
+            "TPM2SH_AUTH",
+            &context.session_map,
+            &[TpmSe::Policy],
         )?;
-        let (resp, _) = chip.execute(&evict_cmd, &sessions, log_format)?;
-        resp.EvictControl()
-            .map_err(|e| TpmError::UnexpectedResponse(format!("{e:?}")))?;
-        let obj = Object::TpmObject(format!("{persistent_handle:#010x}"));
-        io.push_object(obj);
-        io.finalize()
+        device::with_device(device, |dev| -> Result<(), CommandError> {
+            let (parent_uri_opt, grip_str, handle_str) = match self.input.len() {
+                2 => (None, &self.input[0], &self.input[1]),
+                3 => (Some(&self.input[0]), &self.input[1], &self.input[2]),
+                _ => {
+                    return Err(CommandError::InvalidInput(
+                        "invalid number of arguments for save command".to_string(),
+                    ));
+                }
+            };
+
+            let handle = from_str_to_handle(handle_str)
+                .map_err(|e| CommandError::InvalidInput(e.to_string()))?;
+            if (handle.0 >> 24) as u8 != TpmHt::Persistent as u8 {
+                return Err(CommandError::InvalidInput(
+                    "output handle must be a persistent handle".to_string(),
+                ));
+            }
+            let persistent_handle = TpmHandle(handle.0);
+
+            if let Some(parent_uri_str) = parent_uri_opt {
+                let parent_uri = Uri::from_str(parent_uri_str)?;
+                let _parent_handle = context.load_parent(dev, &parent_uri)?;
+            }
+
+            let grip_uri = Uri::from_str(&format!("key://{grip_str}"))?;
+            let transient_handle = context.load_context(dev, &grip_uri)?;
+
+            context.evict_key(dev, transient_handle, persistent_handle, &[auth])?;
+
+            if let Uri::Context(grip) = grip_uri {
+                context.remove_context(&grip)?;
+            }
+
+            writeln!(context.writer, "tpm://{handle:08x}")?;
+            Ok(())
+        })
     }
 }

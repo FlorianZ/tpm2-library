@@ -1,0 +1,170 @@
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2025 Opinsys Oy
+
+#![allow(clippy::no_effect_underscore_binding)]
+
+use crate::key::{external_key::ExternalKey, KeyError};
+use num_bigint::{BigUint, ToBigInt};
+use num_traits::ToPrimitive;
+use rasn::{
+    types::{Integer, SequenceOf},
+    AsnType, Decode, Decoder, Encode,
+};
+use rsa::{traits::PublicKeyParts, RsaPrivateKey};
+use tpm2_protocol::data::{
+    Tpm2bDigest, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsRsaParms, TpmsSchemeHash,
+    TpmtRsaScheme, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+};
+
+#[derive(AsnType, Decode, Encode, Debug)]
+pub struct OtherPrimeInfo {
+    pub prime: Integer,
+    pub exponent: Integer,
+    pub coefficient: Integer,
+}
+
+/// A struct representing the full 9-field PKCS#1 `RSAPrivateKey` structure.
+#[allow(clippy::no_effect_underscore_binding)]
+#[derive(AsnType, Decode, Encode, Debug)]
+pub struct RsaPrivateKeyAsn1 {
+    pub version: Integer,
+    pub modulus: Integer,
+    pub public_exponent: Integer,
+    pub private_exponent: Integer,
+    pub prime1: Integer,
+    pub prime2: Integer,
+    pub exponent1: Integer,
+    pub exponent2: Integer,
+    pub coefficient: Integer,
+    pub other_prime_infos: Option<SequenceOf<OtherPrimeInfo>>,
+}
+
+/// A struct representing an 8-field PKCS#1 `RSAPrivateKey` structure,
+/// for compatibility with encoders that omit the `version` field when it is 0.
+#[allow(clippy::no_effect_underscore_binding)]
+#[derive(AsnType, Decode, Encode, Debug)]
+pub struct RsaPrivateKeyPkcs1V0 {
+    pub modulus: Integer,
+    pub public_exponent: Integer,
+    pub private_exponent: Integer,
+    pub prime1: Integer,
+    pub prime2: Integer,
+    pub exponent1: Integer,
+    pub exponent2: Integer,
+    pub coefficient: Integer,
+    pub other_prime_infos: Option<SequenceOf<OtherPrimeInfo>>,
+}
+
+/// Builds an `ExternalKey` by deriving it from the public exponent and prime factors.
+fn build_external_key_from_primes(
+    public_exponent: &Integer,
+    prime1: &Integer,
+    prime2: &Integer,
+) -> Result<ExternalKey, KeyError> {
+    let e_num = public_exponent
+        .to_bigint()
+        .ok_or(KeyError::InvalidFormat)?
+        .to_biguint()
+        .ok_or(KeyError::InvalidFormat)?;
+    let p_num = prime1
+        .to_bigint()
+        .ok_or(KeyError::InvalidFormat)?
+        .to_biguint()
+        .ok_or(KeyError::InvalidFormat)?;
+    let q_num = prime2
+        .to_bigint()
+        .ok_or(KeyError::InvalidFormat)?
+        .to_biguint()
+        .ok_or(KeyError::InvalidFormat)?;
+
+    if e_num != BigUint::from(65537u32) {
+        return Err(KeyError::ValueConversionFailed(
+            "unsupported RSA exponent: must be 65537".to_string(),
+        ));
+    }
+
+    let e = rsa::BigUint::from_bytes_be(&e_num.to_bytes_be());
+    let p = rsa::BigUint::from_bytes_be(&p_num.to_bytes_be());
+    let q = rsa::BigUint::from_bytes_be(&q_num.to_bytes_be());
+
+    let key = RsaPrivateKey::from_p_q(p, q, e).map_err(|_| KeyError::InvalidFormat)?;
+
+    match key.size() * 8 {
+        2048 => Ok(ExternalKey::Rsa2048(Box::new(key))),
+        3072 => Ok(ExternalKey::Rsa3072(Box::new(key))),
+        4096 => Ok(ExternalKey::Rsa4096(Box::new(key))),
+        bits => Err(KeyError::ValueConversionFailed(format!(
+            "invalid RSA key size: {bits}"
+        ))),
+    }
+}
+
+/// Parses a PKCS#1 DER-encoded RSA private key with fallback logic.
+fn parse_pkcs1_rsa_from_der(der_bytes: &[u8]) -> Result<ExternalKey, KeyError> {
+    if let Ok(pkcs1_key) = rasn::der::decode::<RsaPrivateKeyAsn1>(der_bytes) {
+        let version = pkcs1_key.version.to_u8().ok_or(KeyError::InvalidFormat)?;
+        if version != 0 || pkcs1_key.other_prime_infos.is_some() {
+            return Err(KeyError::UnsupportedFileFormat);
+        }
+        return build_external_key_from_primes(
+            &pkcs1_key.public_exponent,
+            &pkcs1_key.prime1,
+            &pkcs1_key.prime2,
+        );
+    }
+
+    if let Ok(pkcs1_v0_key) = rasn::der::decode::<RsaPrivateKeyPkcs1V0>(der_bytes) {
+        if pkcs1_v0_key.other_prime_infos.is_some() {
+            return Err(KeyError::UnsupportedFileFormat);
+        }
+        return build_external_key_from_primes(
+            &pkcs1_v0_key.public_exponent,
+            &pkcs1_v0_key.prime1,
+            &pkcs1_v0_key.prime2,
+        );
+    }
+
+    Err(KeyError::InvalidFormat)
+}
+
+/// Parses a DER-encoded RSA private key, supporting only the PKCS#1 format.
+///
+/// # Errors
+///
+/// Returns a `KeyError` if the DER data is malformed or the key parameters are unsupported.
+pub fn parse_rsa_from_der(der_bytes: &[u8]) -> Result<ExternalKey, KeyError> {
+    parse_pkcs1_rsa_from_der(der_bytes)
+}
+
+/// Converts an `RsaPrivateKey` to a `TpmtPublic` structure.
+///
+/// # Errors
+///
+/// Returns a `KeyError` if the key's public modulus cannot be converted to the
+/// `Tpm2bPublicKeyRsa` type.
+pub fn rsa_to_public(
+    key: &RsaPrivateKey,
+    key_bits: u16,
+    hash_alg: TpmAlgId,
+    symmetric: TpmtSymDefObject,
+) -> Result<tpm2_protocol::data::TpmtPublic, KeyError> {
+    Ok(tpm2_protocol::data::TpmtPublic {
+        object_type: TpmAlgId::Rsa,
+        name_alg: hash_alg,
+        object_attributes: TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
+        auth_policy: Tpm2bDigest::default(),
+        parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
+            symmetric,
+            scheme: TpmtRsaScheme {
+                scheme: TpmAlgId::Oaep,
+                details: TpmuAsymScheme::Any(TpmsSchemeHash { hash_alg }),
+            },
+            key_bits,
+            exponent: 0,
+        }),
+        unique: TpmuPublicId::Rsa(
+            Tpm2bPublicKeyRsa::try_from(key.n().to_bytes_be().as_slice())
+                .map_err(|e| KeyError::ValueConversionFailed(e.to_string()))?,
+        ),
+    })
+}

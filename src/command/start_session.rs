@@ -1,113 +1,64 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    arg_parser::{format_subcommand_help, CommandLineOption},
-    cli::{self, Commands, Object, StartSession},
-    parse_args, Command, Envelope, SessionData, TpmDevice, TpmError,
+    cli::SubCommand,
+    command::{session::SessionType, CommandError},
+    context::ContextCache,
+    device::{with_device, Device},
+    key::from_str_to_alg_id,
+    session::Session as SessionData,
 };
-use base64::{engine::general_purpose::STANDARD as base64_engine, Engine};
-use lexopt::prelude::*;
-use rand::{thread_rng, RngCore};
-use tpm2_protocol::{
-    data::{Tpm2b, Tpm2bNonce, TpmAlgId, TpmRh, TpmaSession, TpmtSymDefObject},
-    message::TpmStartAuthSessionCommand,
-};
+use argh::FromArgs;
+use std::{cell::RefCell, rc::Rc, str::FromStr};
+use tpm2_protocol::data::TpmSe;
 
-const ABOUT: &str = "Starts an authorization session";
-const USAGE: &str = "tpm2sh start-session [OPTIONS]";
-const OPTIONS: &[CommandLineOption] = &[
-    (
-        None,
-        "--session-type",
-        "<TYPE>",
-        "[default: hmac, possible: hmac, policy, trial]",
-    ),
-    (
-        None,
-        "--hash-alg",
-        "<ALG>",
-        "[default: sha256, possible: sha256, sha384, sha512]",
-    ),
-    (Some("-h"), "--help", "", "Print help information"),
-];
+/// Starts a new authorization session.
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "start-session")]
+pub struct StartSession {
+    /// session specifier, e.g., 'hmac:sha256'
+    #[argh(positional)]
+    pub session_spec: String,
+}
 
-impl Command for StartSession {
-    fn help() {
-        println!(
-            "{}",
-            format_subcommand_help("start-session", ABOUT, USAGE, &[], OPTIONS)
-        );
-    }
-
-    fn parse(parser: &mut lexopt::Parser) -> Result<Commands, TpmError> {
-        let mut args = StartSession::default();
-        parse_args!(parser, arg, Self::help, {
-            Long("session-type") => {
-                args.session_type = parser.value()?.string()?.parse()?;
-            }
-            Long("hash-alg") => {
-                args.hash_alg = parser.value()?.string()?.parse()?;
-            }
-            _ => {
-                return Err(TpmError::from(arg.unexpected()));
-            }
-        });
-        Ok(Commands::StartSession(args))
-    }
-
-    /// Runs `start-session`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `TpmError` if the execution fails
+impl SubCommand for StartSession {
     fn run(
         &self,
-        device: &mut Option<TpmDevice>,
-        log_format: cli::LogFormat,
-    ) -> Result<(), TpmError> {
-        let chip = device.as_mut().unwrap();
-        let mut nonce_bytes = vec![0; 16];
-        thread_rng().fill_bytes(&mut nonce_bytes);
+        device: Option<Rc<RefCell<Device>>>,
+        context: &mut ContextCache,
+        _plain: bool,
+    ) -> Result<(), CommandError> {
+        with_device(device, |device| {
+            let (type_str, alg_str) = self.session_spec.split_once(':').ok_or_else(|| {
+                CommandError::InvalidInput(
+                    "session specifier must be in the format 'type:algorithm'".to_string(),
+                )
+            })?;
 
-        let auth_hash = TpmAlgId::from(self.hash_alg);
-        let session_type = self.session_type;
-        let cmd = TpmStartAuthSessionCommand {
-            tpm_key: (TpmRh::Null as u32).into(),
-            bind: (TpmRh::Null as u32).into(),
-            nonce_caller: Tpm2bNonce::try_from(nonce_bytes.as_slice())?,
-            encrypted_salt: Tpm2b::default(),
-            session_type: session_type.into(),
-            symmetric: TpmtSymDefObject::default(),
-            auth_hash,
-        };
-        let (response, _) = chip.execute(&cmd, &[], log_format)?;
-        let start_auth_session_resp = response
-            .StartAuthSession()
-            .map_err(|e| TpmError::UnexpectedResponse(format!("{e:?}")))?;
-        let digest_len = tpm2_protocol::tpm_hash_size(&auth_hash)
-            .ok_or_else(|| TpmError::Execution("Unsupported hash algorithm".to_string()))?;
-        let data = SessionData {
-            handle: start_auth_session_resp.session_handle.into(),
-            nonce_tpm: base64_engine.encode(&*start_auth_session_resp.nonce_tpm),
-            attributes: TpmaSession::CONTINUE_SESSION.bits(),
-            hmac_key: base64_engine.encode(Vec::<u8>::new()),
-            auth_hash: cmd.auth_hash as u16,
-            policy_digest: hex::encode(vec![0; digest_len]),
-        };
-        let envelope = Envelope {
-            object_type: "session".to_string(),
-            data: data.to_json(),
-        };
-        let pipe_obj = Object::TpmObject(envelope.to_json().dump());
+            let session_type_enum = SessionType::from_str(type_str)
+                .map_err(|e| CommandError::InvalidInput(e.to_string()))?;
 
-        let output_doc = json::object! {
-            version: 1,
-            objects: [pipe_obj.to_json()]
-        };
-        println!("{}", output_doc.dump());
+            let auth_hash = from_str_to_alg_id(alg_str)?;
 
-        Ok(())
+            let session_type = match session_type_enum {
+                SessionType::Hmac => TpmSe::Hmac,
+                SessionType::Policy => TpmSe::Policy,
+                SessionType::Trial => TpmSe::Trial,
+            };
+
+            let (resp, nonce_caller) = device.start_session(session_type, auth_hash)?;
+            let live_handle = resp.session_handle;
+            let mut session = SessionData::new(session_type, auth_hash, nonce_caller, &resp)?;
+
+            session.context = device.save_context(live_handle.0)?;
+            session.handle = tpm2_protocol::TpmHandle(0);
+
+            let saved_uri = context.session_map.add(session);
+            context.session_map.save()?;
+
+            writeln!(context.writer, "{saved_uri}")?;
+            Ok(())
+        })
     }
 }

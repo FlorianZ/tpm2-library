@@ -1,129 +1,112 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
+use super::CommandError;
 use crate::{
-    arg_parser::{format_subcommand_help, CommandLineOption},
-    cli::{self, Commands, Load},
-    get_auth_sessions, parse_args,
-    util::{consume_and_get_parent_handle, pop_object_data},
-    Command, CommandIo, TpmDevice, TpmError,
+    cli::{get_auth, SubCommand},
+    context::ContextCache,
+    convert::from_input_to_bytes,
+    device::{self, Auth, Device, DeviceError},
+    key::AnyKey,
+    uri::Uri,
 };
-use base64::{engine::general_purpose::STANDARD as base64_engine, Engine};
-use lexopt::prelude::*;
-use log::warn;
-use std::io::{self, IsTerminal};
+use argh::FromArgs;
+use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::{
-    data::{Tpm2bPrivate, Tpm2bPublic},
-    message::{TpmFlushContextCommand, TpmLoadCommand},
-    TpmParse,
+    data::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmCc, TpmSe},
+    message::TpmLoadCommand,
+    TpmHandle, TpmParse,
 };
 
-const ABOUT: &str = "Loads a TPM key";
-const USAGE: &str = "tpm2sh load [OPTIONS]";
-const OPTIONS: &[CommandLineOption] = &[
-    (
-        None,
-        "--parent-password",
-        "<PASSWORD>",
-        "Authorization for the parent object",
-    ),
-    (Some("-h"), "--help", "", "Print help information"),
-];
+/// Loads a key under a parent and caches its context.
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "load")]
+pub struct Load {
+    /// parent: 'tpm://<handle>', or 'key://<name grip>'
+    #[argh(positional)]
+    pub parent: Uri,
 
-impl Command for Load {
-    fn help() {
-        println!(
-            "{}",
-            format_subcommand_help("load", ABOUT, USAGE, &[], OPTIONS)
-        );
-    }
+    /// input: PKCS#1, PKCS#8, SEC1 or TPMKey file
+    #[argh(positional)]
+    pub input: Option<Uri>,
 
-    fn parse(parser: &mut lexopt::Parser) -> Result<Commands, TpmError> {
-        let mut args = Load::default();
-        parse_args!(parser, arg, Self::help, {
-            Long("parent-password") => {
-                args.parent_password.password = Some(parser.value()?.string()?);
-            }
-            _ => {
-                return Err(TpmError::from(arg.unexpected()));
-            }
-        });
-        Ok(Commands::Load(args))
-    }
+    /// parent auth: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_PARENT_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'p')]
+    pub parent_auth: Option<String>,
 
-    /// Runs `load`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `TpmError` if the execution fails
+    /// auth: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'a')]
+    pub auth: Option<String>,
+
+    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
+    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
+    pub hmac_auth: Option<String>,
+}
+
+impl SubCommand for Load {
     fn run(
         &self,
-        device: &mut Option<TpmDevice>,
-        log_format: cli::LogFormat,
-    ) -> Result<(), TpmError> {
-        let chip = device.as_mut().unwrap();
-        if std::io::stdin().is_terminal() {
-            Self::help();
-            return Err(TpmError::HelpDisplayed);
-        }
+        device: Option<Rc<RefCell<Device>>>,
+        context: &mut ContextCache,
+        _plain: bool,
+    ) -> Result<(), CommandError> {
+        let parent_auth = get_auth(
+            self.parent_auth.as_ref(),
+            "TPM2SH_PARENT_AUTH",
+            &context.session_map,
+            &[TpmSe::Policy],
+        )?;
+        device::with_device(device, |device| -> Result<(), CommandError> {
+            let parent_handle = context.load_parent(device, &self.parent)?;
+            let input_bytes = from_input_to_bytes(self.input.as_ref())?;
 
-        let mut io = CommandIo::new(io::stdout(), log_format)?;
-        let session = io.take_session()?;
-        let (parent_handle, needs_flush) =
-            consume_and_get_parent_handle(&mut io, chip, log_format)?;
-        let result = (|| {
-            let object_data = pop_object_data(&mut io)?;
+            let (object_handle, name) =
+                Self::run_input(context, device, parent_handle, &input_bytes, &[parent_auth])?;
 
-            let pub_bytes = base64_engine
-                .decode(object_data.public)
-                .map_err(|e| TpmError::Parse(e.to_string()))?;
-            let priv_bytes = base64_engine
-                .decode(object_data.private)
-                .map_err(|e| TpmError::Parse(e.to_string()))?;
+            context.new_context(device, object_handle, &name)?;
+            Ok(())
+        })
+    }
+}
 
-            let (in_public, _) = Tpm2bPublic::parse(&pub_bytes)?;
-            let (in_private, _) = Tpm2bPrivate::parse(&priv_bytes)?;
-
-            let load_cmd = TpmLoadCommand {
-                parent_handle: parent_handle.0.into(),
-                in_private,
-                in_public,
-            };
-
-            let handles = [parent_handle.into()];
-            let sessions = get_auth_sessions(
-                &load_cmd,
-                &handles,
-                session.as_ref(),
-                self.parent_password.password.as_deref(),
-            )?;
-
-            let (resp, _) = chip.execute(&load_cmd, &sessions, log_format)?;
-            let load_resp = resp
-                .Load()
-                .map_err(|e| TpmError::UnexpectedResponse(format!("{e:?}")))?;
-
-            let new_object = cli::Object::TpmObject(format!("{:#010x}", load_resp.object_handle));
-            io.push_object(new_object);
-
-            io.finalize()
-        })();
-
-        if needs_flush {
-            let flush_cmd = TpmFlushContextCommand {
-                flush_handle: parent_handle.into(),
-            };
-            if let Err(flush_err) = chip.execute(&flush_cmd, &[], log_format) {
-                warn!(
-					"Operation succeeded, but failed to flush transient parent handle {parent_handle:#010x}: {flush_err}"
-				);
-                if result.is_ok() {
-                    return Err(flush_err);
-                }
+impl Load {
+    fn run_input(
+        context: &mut ContextCache,
+        device: &mut Device,
+        parent_handle: TpmHandle,
+        input_bytes: &[u8],
+        auths: &[Auth],
+    ) -> Result<(TpmHandle, Tpm2bName), CommandError> {
+        let tpm_key = match AnyKey::try_from(input_bytes)? {
+            AnyKey::Tpm(key) => key,
+            AnyKey::External(_) => {
+                let imported_key = context.import_key(device, parent_handle, input_bytes, auths)?;
+                Box::new(imported_key)
             }
-        }
+        };
 
-        result
+        let (in_public, _) = Tpm2bPublic::parse(&tpm_key.pub_key)?;
+        let (in_private, _) = Tpm2bPrivate::parse(&tpm_key.priv_key)?;
+
+        let load_cmd = TpmLoadCommand {
+            parent_handle: parent_handle.0.into(),
+            in_private,
+            in_public,
+        };
+        let handles = [parent_handle.0];
+
+        let (resp, _) = context.execute(device, &load_cmd, &handles, auths)?;
+
+        let resp = resp
+            .Load()
+            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Load))?;
+
+        device.add_name_to_cache(resp.object_handle.0, resp.name);
+        context.track(resp.object_handle)?;
+        Ok((resp.object_handle, resp.name))
     }
 }

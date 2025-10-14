@@ -1,29 +1,32 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use super::CommandError;
+//! Handles the `create` command, which creates secondary keys.
+
+use super::{deny_keyedhash, CommandError};
 use crate::{
     cli::{get_auth, SubCommand},
     context::ContextCache,
-    convert::{from_input_to_bytes, from_str_to_alg, from_tpm_key_to_output},
-    device::{with_device, Device},
-    key::{Alg, TpmKey, TpmKeyTemplate, OID_SEALED_DATA},
+    convert::from_tpm_key_to_output,
+    device::{with_device, Auth, Device},
+    key::{Alg, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY},
     uri::Uri,
 };
 use argh::FromArgs;
 use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::data::{Tpm2bSensitiveData, TpmSe};
 
-/// Creates a sealed data object.
-#[derive(FromArgs, Debug, Clone)]
-#[argh(subcommand, name = "seal", note = "Creates a sealed data object.")]
-pub struct Seal {
+/// Creates secondary keys.
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "create", note = "Creates a secondary key.")]
+pub struct Create {
     /// parent: 'tpm://<handle>', or 'key://<name grip>'
     #[argh(positional)]
     pub parent: Uri,
 
-    /// name algorithm
-    #[argh(positional, from_str_fn(from_str_to_alg))]
+    /// key algorithm
+    #[argh(positional)]
     pub algorithm: Alg,
 
     /// policy digest
@@ -34,16 +37,12 @@ pub struct Seal {
     #[argh(option, short = 'o')]
     pub output: Option<Uri>,
 
-    /// input: data file
-    #[argh(option, short = 'i')]
-    pub input: Option<Uri>,
-
     /// parent auth: 'password://<hex>' or 'session://<handle>'
     /// Uses TPM2SH_PARENT_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'p')]
     pub parent_auth: Option<String>,
 
-    /// auth for the sealed object: 'password://<hex>' or 'session://<handle>'
+    /// auth for the new key: 'password://<hex>' or 'session://<handle>'
     /// Uses TPM2SH_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'a')]
     pub auth: Option<String>,
@@ -54,7 +53,7 @@ pub struct Seal {
     pub hmac_auth: Option<String>,
 }
 
-impl SubCommand for Seal {
+impl SubCommand for Create {
     fn run(
         &self,
         device: Option<Rc<RefCell<Device>>>,
@@ -69,36 +68,31 @@ impl SubCommand for Seal {
         )?;
         let auth = get_auth(self.auth.as_ref(), "TPM2SH_AUTH", &context.session_map, &[])?;
         with_device(device, |device| {
-            let parent_handle = context.load_parent(device, &self.parent)?;
-
-            let input_bytes = from_input_to_bytes(self.input.as_ref())?;
-
-            if input_bytes.is_empty() {
-                return Err(CommandError::InvalidInput(
-                    "Cannot seal empty data; please provide data via stdin or an input file."
-                        .to_string(),
-                ));
-            }
-
-            let data_to_seal = Tpm2bSensitiveData::try_from(input_bytes.as_slice())?;
-
-            let template = TpmKeyTemplate {
-                alg_desc: &self.algorithm,
-                policy: self.policy.as_ref(),
-                sensitive_data: data_to_seal,
-                key_type_oid: OID_SEALED_DATA,
-            };
-
-            let tpm_key = TpmKey::new(
-                device,
-                context,
-                &[parent_auth],
-                &auth,
-                parent_handle,
-                &template,
-            )?;
-
-            from_tpm_key_to_output(context, &tpm_key, self.output.as_ref())
+            deny_keyedhash(&self.algorithm)?;
+            self.create_secondary_key(device, context, &[parent_auth], &auth)
         })
+    }
+}
+
+impl Create {
+    fn create_secondary_key(
+        &self,
+        device: &mut Device,
+        context: &mut ContextCache,
+        auth_list: &[Auth],
+        auth: &Auth,
+    ) -> Result<(), CommandError> {
+        let parent_handle = context.load_parent(device, &self.parent)?;
+
+        let template = TpmKeyTemplate {
+            alg_desc: &self.algorithm,
+            policy: self.policy.as_ref(),
+            sensitive_data: Tpm2bSensitiveData::default(),
+            key_type_oid: OID_LOADABLE_KEY,
+        };
+
+        let tpm_key = TpmKey::new(device, context, auth_list, auth, parent_handle, &template)?;
+
+        from_tpm_key_to_output(context, &tpm_key, self.output.as_ref())
     }
 }
