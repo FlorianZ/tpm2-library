@@ -1,0 +1,172 @@
+.\" SPDX-License-Identifier: GPL-3.0-or-later
+.\" Copyright (c) 2025 Opinsys Oy
+.\" Copyright (c) 2024-2025 Jarkko Sakkinen
+.\"
+.TH TPM2SH 1 "2025-10-15" "tpm2sh 0.11.4" "User Commands"
+.SH NAME
+tpm2sh \- a command-line interface for accessing TPM 2.0 devices
+.SH SYNOPSIS
+.B tpm2sh
+[\fIOPTIONS\fR] \fICOMMAND\fR [\fICOMMAND-OPTIONS\fR] [\fIARGUMENTS\fR]...
+.SH DESCRIPTION
+.B tpm2sh
+is a command-line tool used for interacting directly with a TPM 2.0 chip. It
+provides a compact set of commands for key management and other cryptographic
+operations.
+.P
+.B tpm2sh
+provides a context cache for transient TPM objects, to which commands can be
+targeted. For each command invocation, it loads necessary contexts into TPM from
+the cache. Upon completing the operation, tpm2sh saves the contexts and clears
+out TPM memory.
+.SH OPTIONS
+These options must precede the main command.
+.TP
+.BI \-d ", --device" " path"
+Specify the path to the TPM device. The default value is
+.I /dev/tpmrm0 .
+.TP
+.BI \-P ", --plain"
+Make tabular output to be more machine-readable i.e., without headers and
+alignment, making it easier to post-process data with tools such as
+.BR awk (1).
+.TP
+.B \-\-log-format \fIformat\fR
+Set the logging format to either \fBplain\fR or \fBpretty\fR (default).
+.SH COMMANDS
+For detailed options for a specific command, run
+.BI tpm2sh " command " --help .
+.TP
+.B algorithm
+List cryptographic algorithms supported by the TPM, including key and hash
+algorithms.
+.TP
+.B certificate
+Read and export an endorsement certificate as X.509 PEM-encoded certificate.
+.TP
+.B convert
+Import an external key in PKCS#1, PKCS#8, SEC1 format, and turn it as a TPMKey
+file. Supports PEM and DER encodings. Outputs a PEM-encoded TPMKey file.
+.TP
+.B create-primary
+Create a new primary key in a owner, platform, or endorsement hierarchy.  Saves
+the key to the context cache.
+.TP
+.B create
+Create a new secondary key to the parent's hierarchy. Outputs PEM-encoded TPMKey
+file.
+.TP
+.B delete
+Delete a key or a session. Cleans up resources used such as data stored in the
+cache directory, or the resources consumed from the chip.
+.TP
+.B key
+List cached keys.
+.TP
+.B load
+Load a key in PKCS#1, PKCS#8, SEC1 or TPMKey format. Supports PEM and DER
+encodings. Saves the key to the context cache.
+.TP
+.B memory
+Discover and list objects resident inside the chip, including transient objects,
+persistent objects, endorsement certificates and sessions. Identifies objects by
+their handle number. TPM objects can be referred in other subcommands with the
+"tpm:<handle>" syntax.
+.TP
+.B pcr-event
+Extend a Platform Configuration Register (PCR) with data, simulating a platform
+state change. This is a one-way operation.
+.TP
+.B policy
+Build and evaluate an authorization policy. This can be used to generate a
+policy digest, or to provide a policy associated with an active session.
+.TP
+.B reset-lock
+Reset the dictionary attack lockout counter.
+.TP
+.B return-code
+Translate a hexadecimal TPM return code into a human-readable description.
+.TP
+.B save
+Save the key to the TPM chip's non-volatile memory. The storage location is
+provided with the "tpm:<handle>" syntax.
+.TP
+.B seal
+Create a sealed data object that binds data to an authorization policy. The data
+can only be revealed if the policy is satisfied.
+.TP
+.B start-session
+Create a new authorization session (HMAC, policy, or trial) and cache it
+locally. Outputs a session identifier, i.e. "session:<handle>"  for the cached
+session.
+.TP
+.B session
+List all locally cached authorization sessions.
+.TP
+.B unseal
+Reveal the data from a sealed object, provided that the authorization policy
+has been satisfied.
+.SH AUTHORIZATION
+Authorization for commands and objects is provided via resource identifiers,
+either on the command line or through environment variables.
+.TP
+.BI "password:" hex-string
+Authorization password represented as a hex string.
+.TP
+.BI "session:" handle
+Authorization session handle, which is also name of the session, as cached
+sessions retain their handle's in the chip, up until they are deleted, or the
+computer is reset.
+.SS Authorization Options
+.TP
+.B \-\-auth
+Authorization for an object. The default value is empty password.
+.TP
+.B \-\-parent-auth
+Authorization for parent. The default value is empty password.
+.TP
+.B \-\-hmac-auth
+Authorization for paremeter encryption. The default value is empty password.
+.SH ENVIRONMENT
+.TP
+.B TPM2SH_AUTH
+The default authorization for an object if \fB\-\-auth\fR is not specified.
+.TP
+.B TPM2SH_PARENT_AUTH
+The default authorization for a parent object if \fB\-\-parent-auth\fR is not
+specified.
+.TP
+.B TPM2SH_HMAC_AUTH
+The default authorization for parameter encryption if \fB\-\-hmac-auth\fR
+is not specified.
+.SH FILES
+.TP
+.I ~/.cache/tpm2sh/contexts/
+The default directory for cached keys.
+.TP
+.I ~/.cache/tpm2sh/sessions/
+The default directory for cached sessions.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Execution failure.
+.TP
+.B 2
+Command-line parsing errror.
+
+.SH BUGS
+Please report bugs to the project's mailing list at tpm-protocol@lists.linux.dev.
+
+.SH LICENSE
+tpm2sh is licensed under the GPL-3.0-or-later.
+
+.SH AUTHOR
+Jarkko Sakkinen <jarkko@kernel.org>
+
+.SH SEE ALSO
+.BR openssl (1),
+.BR credentials (7),
+.BR keyrings (7)
