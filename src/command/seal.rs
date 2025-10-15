@@ -5,7 +5,7 @@ use super::CommandError;
 use crate::{
     cli::{get_auth, SubCommand},
     context::ContextCache,
-    convert::{from_input_to_bytes, from_str_to_alg, from_tpm_key_to_output},
+    convert::{from_input_to_bytes, from_str_to_keyedhash_alg, from_tpm_key_to_output},
     device::{with_device, Device},
     key::{Alg, TpmKey, TpmKeyTemplate, OID_SEALED_DATA},
     uri::Uri,
@@ -23,7 +23,7 @@ pub struct Seal {
     pub parent: Uri,
 
     /// name algorithm
-    #[argh(positional, from_str_fn(from_str_to_alg))]
+    #[argh(positional, from_str_fn(from_str_to_keyedhash_alg))]
     pub algorithm: Alg,
 
     /// policy digest

@@ -112,6 +112,6 @@ pub fn from_str_to_tpm_rc(s: &str) -> Result<TpmRc, String> {
 /// # Errors
 ///
 /// Returns a `String` error if parsing fails.
-pub fn from_str_to_alg(s: &str) -> Result<Alg, String> {
+pub fn from_str_to_keyedhash_alg(s: &str) -> Result<Alg, String> {
     Alg::new_keyedhash(s).map_err(|e: KeyError| e.to_string())
 }
