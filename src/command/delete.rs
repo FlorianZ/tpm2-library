@@ -98,6 +98,6 @@ impl SubCommand for Delete {
         !self
             .inputs
             .iter()
-            .any(|s| s.starts_with("tpm:") || s.starts_with("session:"))
+            .any(|s| Uri::from_str(s).is_ok_and(|uri| matches!(uri, Uri::Tpm(_) | Uri::Session(_))))
     }
 }
