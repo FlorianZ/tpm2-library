@@ -46,12 +46,12 @@ pub enum SessionError {
     Device(#[from] DeviceError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[error("session '{0}' not found")]
+    #[error("{0} not found")]
     NotFound(String),
-    #[error("session file has trailing data")]
+    #[error("trailing data")]
     TrailingData,
-    #[error("authorization requires both a session and a password")]
-    AuthPairingError,
+    #[error("trailing passwords or sessions")]
+    TrailingAuthValues,
 }
 
 impl From<TryFromIntError> for SessionError {
@@ -445,7 +445,46 @@ impl SessionCache {
         handles: &[u32],
         auth_list: &[Auth],
     ) -> Result<(Vec<TpmsAuthCommand>, Vec<u32>), SessionError> {
-        build_auth_area(self, device, command, handles, auth_list)
+        if auth_list.len() > handles.len() {
+            return Err(SessionError::TrailingAuthValues);
+        }
+
+        let mut built_auths = Vec::new();
+        let mut tracked_session_handles = Vec::new();
+
+        let params = from_tpm_object_to_vec(command).map_err(DeviceError::Tpm)?;
+
+        for (i, handle) in handles.iter().enumerate() {
+            let auth = auth_list
+                .get(i)
+                .cloned()
+                .unwrap_or(Auth::Password(Vec::new()));
+
+            match auth {
+                Auth::Password(password) => {
+                    built_auths.push(build_password_session(&password)?);
+                }
+                Auth::Tracked(session_handle) => {
+                    tracked_session_handles.push(session_handle);
+                    let uri = Uri::Session(session_handle).to_string();
+                    let session = self.get(&uri)?;
+
+                    let nonce_caller = new_nonce(session.auth_hash)?;
+
+                    let result = create_auth(
+                        device,
+                        session,
+                        &nonce_caller,
+                        &[],
+                        C::CC,
+                        &[*handle],
+                        &params,
+                    )?;
+                    built_auths.push(result);
+                }
+            }
+        }
+        Ok((built_auths, tracked_session_handles))
     }
 
     /// Finalizes sessions after a command executes.
@@ -503,49 +542,6 @@ pub(crate) fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand,
         session_attributes: TpmaSession::empty(),
         hmac: Tpm2bAuth::try_from(password).map_err(DeviceError::Tpm)?,
     })
-}
-
-fn build_auth_area<C: TpmCommandObject>(
-    session_map: &SessionCache,
-    device: &mut Device,
-    command: &C,
-    handles: &[u32],
-    auth_list: &[Auth],
-) -> Result<(Vec<TpmsAuthCommand>, Vec<u32>), SessionError> {
-    let mut built_auths = Vec::new();
-    let mut tracked_session_handles = Vec::new();
-
-    let mut auth_iter = auth_list.iter();
-    let params = from_tpm_object_to_vec(command).map_err(DeviceError::Tpm)?;
-
-    for handle in handles {
-        let auth = auth_iter.next().ok_or(SessionError::AuthPairingError)?;
-
-        match auth {
-            Auth::Password(password) => {
-                built_auths.push(build_password_session(password)?);
-            }
-            Auth::Tracked(session_handle) => {
-                tracked_session_handles.push(*session_handle);
-                let uri = Uri::Session(*session_handle).to_string();
-                let session = session_map.get(&uri)?;
-
-                let nonce_caller = new_nonce(session.auth_hash)?;
-
-                let result = create_auth(
-                    device,
-                    session,
-                    &nonce_caller,
-                    &[],
-                    C::CC,
-                    &[*handle],
-                    &params,
-                )?;
-                built_auths.push(result);
-            }
-        }
-    }
-    Ok((built_auths, tracked_session_handles))
 }
 
 fn new_nonce(hash_alg: TpmAlgId) -> Result<Tpm2bNonce, DeviceError> {
