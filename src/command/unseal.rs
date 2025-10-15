@@ -20,16 +20,16 @@ use tpm2_protocol::{data::TpmCc, message::TpmUnsealCommand};
     note = "Retrieves data from a sealed data object."
 )]
 pub struct Unseal {
-    /// input: 'tpm://<handle>' or 'key://<grip>'
+    /// input: 'tpm:<handle>' or 'key:<grip>'
     #[argh(positional)]
     pub input: String,
 
-    /// auth for the sealed object: 'password://<hex>' or 'session://<handle>'
+    /// auth for the sealed object: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'a')]
     pub auth: Option<String>,
 
-    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// hmac auth: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
     pub hmac_auth: Option<String>,

@@ -44,7 +44,7 @@ pub(crate) fn get_auth(
             }
         }
         _ => Err(CommandError::InvalidInput(
-            "auth must be a session:// or password:// URI".to_string(),
+            "auth must be a session: or password: URI".to_string(),
         )),
     }
 }

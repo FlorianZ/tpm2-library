@@ -16,16 +16,16 @@ use std::{cell::RefCell, rc::Rc, str::FromStr};
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "delete")]
 pub struct Delete {
-    /// inputs: 'tpm://<handle>', 'key://<name grip>', or 'session://<handle>'
+    /// inputs: 'tpm:<handle>', 'key:<name grip>', or 'session:<handle>'
     #[argh(positional)]
     pub inputs: Vec<String>,
 
-    /// auth for the object: 'password://<hex>' or 'session://<handle>'
+    /// auth for the object: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'a')]
     pub auth: Option<String>,
 
-    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// hmac auth: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
     pub hmac_auth: Option<String>,
@@ -82,7 +82,7 @@ impl SubCommand for Delete {
                         }
                         Uri::Tpm(_) => {
                             let handle = context.delete(dev, &uri, &auth_list)?;
-                            writeln!(context.writer, "tpm://{handle:08x}")?;
+                            writeln!(context.writer, "tpm:{handle:08x}")?;
                         }
                         Uri::Context(_) | Uri::Path(_) | Uri::Password(_) => unreachable!(),
                     }
@@ -98,6 +98,6 @@ impl SubCommand for Delete {
         !self
             .inputs
             .iter()
-            .any(|s| s.starts_with("tpm://") || s.starts_with("session://"))
+            .any(|s| s.starts_with("tpm:") || s.starts_with("session:"))
     }
 }

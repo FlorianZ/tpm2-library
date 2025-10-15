@@ -55,7 +55,7 @@ pub enum ContextError {
     Device(#[from] DeviceError),
     #[error("invalid handle: {0:08x}")]
     InvalidHandle(u32),
-    #[error("invalid parent URI: must be a tpm:// or key:// URI")]
+    #[error("invalid parent URI: must be a tpm: or key: URI")]
     InvalidParentUri,
     #[error("invalid URI: {0}")]
     InvalidUri(UriError),
@@ -415,7 +415,7 @@ impl<'a> ContextCache<'a> {
                     self.remove_context(&grip)?;
                 }
                 Err(e) => {
-                    log::warn!("key://{grip}: {e}");
+                    log::warn!("key:{grip}: {e}");
                     self.remove_context(&grip)?;
                 }
             }
@@ -443,7 +443,7 @@ impl<'a> ContextCache<'a> {
         self.contexts.insert(grip.clone(), context_bytes);
         self.dirty_contexts.insert(grip.clone());
 
-        writeln!(self.writer, "key://{grip}")?;
+        writeln!(self.writer, "key:{grip}")?;
         Ok(())
     }
 
@@ -519,7 +519,7 @@ impl<'a> ContextCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the URI is not a valid parent type (`tpm://` or `key://`)
+    /// Returns an error if the URI is not a valid parent type (`tpm:` or `key:`)
     /// or if context loading fails.
     pub fn load_parent(
         &mut self,
@@ -536,7 +536,7 @@ impl<'a> ContextCache<'a> {
     ///
     /// If the URI points to a transient context, the context is loaded into the
     /// TPM and its handle is tracked for automatic cleanup. Persistent handles
-    /// from `tpm://` URIs are returned directly and are not tracked.
+    /// from `tpm:` URIs are returned directly and are not tracked.
     ///
     /// # Errors
     ///

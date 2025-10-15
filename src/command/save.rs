@@ -21,12 +21,12 @@ pub struct Save {
     #[argh(positional)]
     pub input: Vec<String>,
 
-    /// auth for the hierarchy: 'password://<hex>' or 'session://<handle>'
+    /// auth for the hierarchy: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'a')]
     pub auth: Option<String>,
 
-    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// hmac auth: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
     pub hmac_auth: Option<String>,
@@ -70,7 +70,7 @@ impl SubCommand for Save {
                 let _parent_handle = context.load_parent(dev, &parent_uri)?;
             }
 
-            let grip_uri = Uri::from_str(&format!("key://{grip_str}"))?;
+            let grip_uri = Uri::from_str(&format!("key:{grip_str}"))?;
             let transient_handle = context.load_context(dev, &grip_uri)?;
 
             context.evict_key(dev, transient_handle, persistent_handle, &[auth])?;
@@ -79,7 +79,7 @@ impl SubCommand for Save {
                 context.remove_context(&grip)?;
             }
 
-            writeln!(context.writer, "tpm://{handle:08x}")?;
+            writeln!(context.writer, "tpm:{handle:08x}")?;
             Ok(())
         })
     }

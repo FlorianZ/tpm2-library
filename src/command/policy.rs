@@ -37,7 +37,7 @@ pub enum PolicyMode {
     subcommand,
     name = "policy",
     note = "A policy expression for the digest is defined with an expression language
-e.g, 'sha256:0,...' or 'secret(\"tpm://...\")'."
+e.g, 'sha256:0,...' or 'secret(\"tpm:...\")'."
 )]
 pub struct Policy {
     /// execution mode: 'resolve' (default), 'software', or 'tpm'.
@@ -148,7 +148,7 @@ impl SubCommand for Policy {
 
                 let Uri::Session(session_handle) = session_uri else {
                     return Err(CommandError::InvalidInput(
-                        "Session must be a session:// URI".to_string(),
+                        "Session must be a session: URI".to_string(),
                     ));
                 };
 

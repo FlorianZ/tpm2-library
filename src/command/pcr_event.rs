@@ -45,12 +45,12 @@ pub struct PcrEvent {
     #[argh(positional)]
     pub input: Option<Uri>,
 
-    /// auth for the PCR: 'password://<hex>' or 'session://<handle>'
+    /// auth for the PCR: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'a')]
     pub auth: Option<String>,
 
-    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// hmac auth: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
     pub hmac_auth: Option<String>,

@@ -212,7 +212,7 @@ impl Expression {
         }
     }
 
-    /// Parses a TPM handle from a `tpm://` expression.
+    /// Parses a TPM handle from a `tpm:` expression.
     ///
     /// # Errors
     ///
@@ -294,7 +294,7 @@ fn pcr_policy_expression(input: &str) -> IResult<&str, Expression> {
             Ok((remainder, expr))
         }
         Err(_) => {
-            if pcr_substring.contains(':') && !pcr_substring.contains("://") {
+            if pcr_substring.contains(':') {
                 Err(NomErr::Failure(nom::error::Error::new(
                     input,
                     ErrorKind::Verify,
@@ -381,7 +381,7 @@ pub fn execute_policy(
                 }
                 _ => {
                     return Err(PolicyError::InvalidExpression(
-                        "secret() auth handle must be tpm:// or <path>".to_string(),
+                        "secret() auth handle must be tpm: or <path>".to_string(),
                     ))
                 }
             };

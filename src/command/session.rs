@@ -70,7 +70,7 @@ impl SubCommand for Session {
         let rows: Vec<SessionRow> = results
             .into_iter()
             .map(|(handle, session_type)| SessionRow {
-                handle: format!("session://{handle:08x}"),
+                handle: format!("session:{handle:08x}"),
                 details: session_type.to_string(),
             })
             .collect();

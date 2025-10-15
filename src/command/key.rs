@@ -46,7 +46,7 @@ impl SubCommand for Key {
                     });
                 }
                 ContextItem::Stale(grip) => {
-                    log::warn!("key://{grip} stale");
+                    log::warn!("key:{grip} stale");
                 }
             }
         }

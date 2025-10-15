@@ -23,7 +23,7 @@ use tpm2_protocol::{
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "load")]
 pub struct Load {
-    /// parent: 'tpm://<handle>', or 'key://<name grip>'
+    /// parent: 'tpm:<handle>', or 'key:<name grip>'
     #[argh(positional)]
     pub parent: Uri,
 
@@ -31,17 +31,17 @@ pub struct Load {
     #[argh(positional)]
     pub input: Option<Uri>,
 
-    /// parent auth: 'password://<hex>' or 'session://<handle>'
+    /// parent auth: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_PARENT_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'p')]
     pub parent_auth: Option<String>,
 
-    /// auth: 'password://<hex>' or 'session://<handle>'
+    /// auth: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'a')]
     pub auth: Option<String>,
 
-    /// hmac auth: 'password://<hex>' or 'session://<handle>'
+    /// hmac auth: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
     pub hmac_auth: Option<String>,

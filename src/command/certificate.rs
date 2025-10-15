@@ -21,7 +21,7 @@ pub struct Certificate {
     #[argh(positional, arg_name = "nv-index", from_str_fn(from_str_to_handle))]
     pub nv_index: TpmHandle,
 
-    /// auth for the NV index: 'password://<hex>' or 'session://<handle>'
+    /// auth for the NV index: 'password:<hex>' or 'session:<handle>'
     /// Uses TPM2SH_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'a')]
     pub auth: Option<String>,

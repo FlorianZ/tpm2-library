@@ -67,25 +67,25 @@ impl FromStr for Uri {
     type Err = UriError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(handle_str) = s.strip_prefix("tpm://") {
+        if let Some(handle_str) = s.strip_prefix("tpm:") {
             let handle = u32::from_str_radix(handle_str.trim_start_matches("0x"), 16)?;
             Ok(Self::Tpm(handle))
-        } else if let Some(handle_str) = s.strip_prefix("session://") {
+        } else if let Some(handle_str) = s.strip_prefix("session:") {
             let handle = u32::from_str_radix(handle_str.trim_start_matches("0x"), 16)?;
             Ok(Self::Session(handle))
-        } else if let Some(grip) = s.strip_prefix("key://") {
+        } else if let Some(grip) = s.strip_prefix("key:") {
             if grip.len() == 16 && grip.chars().all(|c| c.is_ascii_hexdigit()) {
                 Ok(Self::Context(grip.to_string()))
             } else {
                 Err(UriError::InvalidGripFormat(grip.to_string()))
             }
-        } else if let Some(hex_pass) = s.strip_prefix("password://") {
+        } else if let Some(hex_pass) = s.strip_prefix("password:") {
             let bytes = hex::decode(hex_pass)
                 .map_err(|e| UriError::InvalidPasswordFormat(e.to_string()))?;
             Ok(Self::Password(bytes))
-        } else if s.contains("://") {
+        } else if s.contains(':') && !s.starts_with('/') && s.chars().nth(1) != Some(':') {
             Err(UriError::UnsupportedScheme(
-                s.split_once("://").unwrap_or(("", "")).0.to_string(),
+                s.split_once(':').unwrap_or(("", "")).0.to_string(),
             ))
         } else {
             Ok(Self::Path(s.to_string().into()))
@@ -96,11 +96,11 @@ impl FromStr for Uri {
 impl fmt::Display for Uri {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Tpm(handle) => write!(f, "tpm://{handle:08x}"),
-            Self::Context(grip) => write!(f, "key://{grip}"),
+            Self::Tpm(handle) => write!(f, "tpm:{handle:08x}"),
+            Self::Context(grip) => write!(f, "key:{grip}"),
             Self::Path(path) => write!(f, "{}", path.to_string_lossy()),
-            Self::Password(bytes) => write!(f, "password://{}", hex::encode(bytes)),
-            Self::Session(handle) => write!(f, "session://{handle:08x}"),
+            Self::Password(bytes) => write!(f, "password:{}", hex::encode(bytes)),
+            Self::Session(handle) => write!(f, "session:{handle:08x}"),
         }
     }
 }
