@@ -34,6 +34,7 @@ impl SubCommand for Key {
     ) -> Result<(), CommandError> {
         let device_rc = device.ok_or(DeviceError::NotAvailable)?;
         let mut rows: Vec<KeyRow> = Vec::new();
+        let mut stale_grips: Vec<String> = Vec::new();
 
         for item_result in context.loaded_contexts(device_rc) {
             match item_result? {
@@ -46,9 +47,14 @@ impl SubCommand for Key {
                     });
                 }
                 ContextItem::Stale(grip) => {
-                    log::warn!("key:{grip} stale");
+                    log::debug!("key:{grip} stale");
+                    stale_grips.push(grip);
                 }
             }
+        }
+
+        for grip in stale_grips {
+            context.remove_context(&grip)?;
         }
 
         rows.sort_unstable_by(|a, b| a.grip.cmp(&b.grip));
