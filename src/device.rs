@@ -11,6 +11,11 @@ use crate::{
     TEARDOWN,
 };
 
+use indicatif::{ProgressBar, ProgressStyle};
+use log::trace;
+use polling::{Event, Events, Poller};
+use rand::{thread_rng, RngCore};
+use std::str::FromStr;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -20,11 +25,6 @@ use std::{
     sync::atomic::Ordering,
     time::{Duration, Instant},
 };
-
-use indicatif::{ProgressBar, ProgressStyle};
-use log::trace;
-use polling::{Event, Events, Poller};
-use rand::{thread_rng, RngCore};
 use thiserror::Error;
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
@@ -50,20 +50,10 @@ pub const TPM_CAP_PROPERTY_MAX: u32 = 128;
 pub trait TpmCommandObject: TpmPrint + TpmHeader + TpmBodyBuild {}
 impl<T> TpmCommandObject for T where T: TpmHeader + TpmBodyBuild + TpmPrint {}
 
-/// Represents an authorization method for a command.
-#[derive(Debug, Clone)]
-pub enum Auth {
-    /// A stateful, tracked session identified by its handle.
-    Tracked(u32),
-    /// A stateless password session.
-    Password(Vec<u8>),
-}
-
-/// A type alias for a list of authentications, to attach methods.
-pub type AuthList = Vec<Auth>;
-
 #[derive(Debug, Error)]
 pub enum DeviceError {
+    #[error("invalid auth: {0}")]
+    InvalidAuth(String),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("syscall: {0}")]
@@ -107,6 +97,48 @@ impl From<TpmRc> for DeviceError {
 impl From<TryFromIntError> for DeviceError {
     fn from(_err: TryFromIntError) -> Self {
         Self::Tpm(TpmErrorKind::InvalidValue)
+    }
+}
+
+/// Represents an authorization method for a command.
+#[derive(Debug, Clone)]
+pub enum Auth {
+    /// A stateful, tracked session identified by its handle.
+    Session(u32),
+    /// A password
+    Password(Vec<u8>),
+    /// A policy digest
+    Policy(Vec<u8>),
+}
+
+/// A type alias for a list of authentications, to attach methods.
+pub type AuthList = Vec<Auth>;
+
+impl FromStr for Auth {
+    type Err = DeviceError;
+
+    fn from_str(uri: &str) -> Result<Self, Self::Err> {
+        if let Some(val) = uri.strip_prefix("session:") {
+            if let Ok(handle) = u32::from_str_radix(val.trim_start_matches("0x"), 16) {
+                Ok(Self::Session(handle))
+            } else {
+                Err(DeviceError::InvalidAuth(uri.to_string()))
+            }
+        } else if let Some(val) = uri.strip_prefix("password:") {
+            if let Ok(bytes) = hex::decode(val) {
+                Ok(Self::Password(bytes))
+            } else {
+                Err(DeviceError::InvalidAuth(uri.to_string()))
+            }
+        } else if let Some(val) = uri.strip_prefix("policy:") {
+            if let Ok(bytes) = hex::decode(val) {
+                Ok(Self::Policy(bytes))
+            } else {
+                Err(DeviceError::InvalidAuth(uri.to_string()))
+            }
+        } else {
+            Err(DeviceError::InvalidAuth(uri.to_string()))
+        }
     }
 }
 

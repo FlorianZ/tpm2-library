@@ -18,7 +18,7 @@ use rasn::{
 use strum::{Display, EnumString};
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms},
+    data::{TpmAlgId, TpmEccCurve, TpmaObject, TpmtPublic, TpmuPublicParms},
     TpmErrorKind,
 };
 
@@ -160,6 +160,20 @@ pub fn from_str_to_alg_id(s: &str) -> Result<TpmAlgId, KeyError> {
         "sm4" => Ok(TpmAlgId::Sm4),
         "ecc" => Ok(TpmAlgId::Ecc),
         _ => Err(KeyError::InvalidAlgorithm(s.to_string())),
+    }
+}
+
+impl From<Alg> for TpmaObject {
+    fn from(alg: Alg) -> TpmaObject {
+        let mut attributes =
+            TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT | TpmaObject::USER_WITH_AUTH;
+
+        if alg.object_type != TpmAlgId::KeyedHash {
+            attributes |=
+                TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
+        }
+
+        attributes
     }
 }
 

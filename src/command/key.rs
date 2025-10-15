@@ -3,13 +3,11 @@
 
 use crate::{
     cli::SubCommand,
-    command::CommandError,
-    context::ContextCache,
-    device::Device,
+    command::{print_table, CommandError},
     key::{self, KeyError},
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
 use tabled::Tabled;
 use tpm2_protocol::{data::Tpm2bPublic, TpmParse};
 
@@ -27,28 +25,18 @@ struct KeyRow {
 pub struct Key {}
 
 impl SubCommand for Key {
-    fn run(
-        &self,
-        _device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        plain: bool,
-    ) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
         let mut rows: Vec<KeyRow> = Vec::new();
-
-        for (grip, key) in &context.contexts {
+        for (grip, key) in &job.context_cache.contexts {
             let (public_blob, _) =
                 Tpm2bPublic::parse(&key.public).map_err(|e| KeyError::Device(e.into()))?;
-
             rows.push(KeyRow {
                 grip: grip.clone(),
                 details: key::format_alg_from_public(&public_blob.inner),
             });
         }
-
         rows.sort_unstable_by(|a, b| a.grip.cmp(&b.grip));
-
-        super::print_table(&mut context.writer, rows, plain)?;
-
+        print_table(&mut job.context_cache.writer, rows, plain)?;
         Ok(())
     }
 

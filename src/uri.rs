@@ -18,15 +18,18 @@ pub enum UriError {
     InvalidUriType,
     #[error("invalid password format: {0}")]
     InvalidPasswordFormat(String),
+    #[error("invalid policy format: {0}")]
+    InvalidPolicyFormat(String),
 }
 
 /// A type-safe representation of a resource identifier.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Uri {
     Tpm(u32),
-    Context(String),
+    Key(String),
     Path(std::path::PathBuf),
     Password(Vec<u8>),
+    Policy(Vec<u8>),
     Session(u32),
 }
 
@@ -34,7 +37,7 @@ impl Uri {
     /// Checks if the URI variant can be used as a parent object.
     #[must_use]
     pub fn is_parent(&self) -> bool {
-        matches!(self, Self::Tpm(_) | Self::Context(_) | Self::Path(_))
+        matches!(self, Self::Tpm(_) | Self::Key(_) | Self::Path(_))
     }
 
     /// Reads the contents of a file path URI.
@@ -75,7 +78,7 @@ impl FromStr for Uri {
             Ok(Self::Session(handle))
         } else if let Some(grip) = s.strip_prefix("key:") {
             if grip.len() == 16 && grip.chars().all(|c| c.is_ascii_hexdigit()) {
-                Ok(Self::Context(grip.to_string()))
+                Ok(Self::Key(grip.to_string()))
             } else {
                 Err(UriError::InvalidGripFormat(grip.to_string()))
             }
@@ -83,6 +86,10 @@ impl FromStr for Uri {
             let bytes = hex::decode(hex_pass)
                 .map_err(|e| UriError::InvalidPasswordFormat(e.to_string()))?;
             Ok(Self::Password(bytes))
+        } else if let Some(hex_policy) = s.strip_prefix("policy:") {
+            let bytes = hex::decode(hex_policy)
+                .map_err(|e| UriError::InvalidPolicyFormat(e.to_string()))?;
+            Ok(Self::Policy(bytes))
         } else if s.contains(':') && !s.starts_with('/') && s.chars().nth(1) != Some(':') {
             Err(UriError::UnsupportedScheme(
                 s.split_once(':').unwrap_or(("", "")).0.to_string(),
@@ -97,9 +104,10 @@ impl fmt::Display for Uri {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Tpm(handle) => write!(f, "tpm:{handle:08x}"),
-            Self::Context(grip) => write!(f, "key:{grip}"),
+            Self::Key(grip) => write!(f, "key:{grip}"),
             Self::Path(path) => write!(f, "{}", path.to_string_lossy()),
             Self::Password(bytes) => write!(f, "password:{}", hex::encode(bytes)),
+            Self::Policy(bytes) => write!(f, "policy:{}", hex::encode(bytes)),
             Self::Session(handle) => write!(f, "session:{handle:08x}"),
         }
     }

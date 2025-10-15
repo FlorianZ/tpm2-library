@@ -1,20 +1,17 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use super::CommandError;
 use crate::{
     cli::SubCommand,
-    context::ContextCache,
-    convert::{
-        from_env_to_auth, from_input_to_bytes, from_str_to_keyedhash_alg, from_tpm_key_to_output,
-    },
-    device::{with_device, Device},
+    command::{CommandError, OutputEncoding},
+    convert::{from_input_to_bytes, from_str_to_keyedhash_alg, from_tpm_key_to_output},
+    device::{with_device, Auth},
     key::{Alg, TpmKey, TpmKeyTemplate, OID_SEALED_DATA},
     uri::Uri,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
-use tpm2_protocol::data::{Tpm2bSensitiveData, TpmSe};
+use tpm2_protocol::data::Tpm2bSensitiveData;
 
 /// Creates a sealed data object.
 #[derive(FromArgs, Debug, Clone)]
@@ -28,10 +25,6 @@ pub struct Seal {
     #[argh(positional, from_str_fn(from_str_to_keyedhash_alg))]
     pub algorithm: Alg,
 
-    /// policy digest
-    #[argh(option)]
-    pub policy: Option<String>,
-
     /// output: TPMKey file
     #[argh(option, short = 'o')]
     pub output: Option<Uri>,
@@ -41,43 +34,21 @@ pub struct Seal {
     pub input: Option<Uri>,
 
     /// parent auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_PARENT_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'p')]
-    pub parent_auth: Option<String>,
+    #[argh(option, arg_name = "parent-auth", short = 'p')]
+    pub parent_auth: Option<Auth>,
 
-    /// auth for the sealed object: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
+    /// key auth: 'password:<hex>' or 'policy:<hex>'
     #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
-
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
+    pub auth: Option<Auth>,
 }
 
 impl SubCommand for Seal {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let parent_auth = from_env_to_auth(
-            self.parent_auth.as_ref(),
-            "TPM2SH_PARENT_AUTH",
-            &context.session_map,
-            Some(TpmSe::Policy),
-        )?;
-        let auth = from_env_to_auth(
-            self.auth.as_ref(),
-            "TPM2SH_AUTH",
-            &context.session_map,
-            None,
-        )?;
-        with_device(device, |device| {
-            let parent_handle = context.load_parent(device, &self.parent)?;
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
+        let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
 
+        with_device(job.device.clone(), |device| {
+            let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
             let input_bytes = from_input_to_bytes(self.input.as_ref())?;
 
             if input_bytes.is_empty() {
@@ -91,21 +62,19 @@ impl SubCommand for Seal {
 
             let template = TpmKeyTemplate {
                 alg_desc: &self.algorithm,
-                policy: self.policy.as_ref(),
                 sensitive_data: data_to_seal,
                 key_type_oid: OID_SEALED_DATA,
             };
 
-            let tpm_key = TpmKey::new(
-                device,
-                context,
-                &[parent_auth],
-                &auth,
-                parent_handle,
-                &template,
-            )?;
+            let tpm_key =
+                TpmKey::new(job, device, &[parent_auth], &auth, parent_handle, &template)?;
 
-            from_tpm_key_to_output(context, &tpm_key, self.output.as_ref())
+            from_tpm_key_to_output(
+                &mut job.context_cache,
+                &tpm_key,
+                self.output.as_ref(),
+                OutputEncoding::Pem,
+            )
         })
     }
 }

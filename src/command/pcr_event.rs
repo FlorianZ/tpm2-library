@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use super::CommandError;
 use crate::{
-    cli::{build_auth_list, SubCommand},
-    context::ContextCache,
+    cli::SubCommand,
+    command::CommandError,
     convert::{from_input_to_bytes, from_str_to_handle},
-    device::{self, Device, DeviceError},
+    device::{with_device, Auth, DeviceError},
     key::Tpm2shAlgId,
     pcr::pcr_get_bank_list,
     uri::Uri,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::{
     data::{Tpm2bEvent, TpmCc, TpmuHa},
     message::TpmPcrEventCommand,
@@ -46,29 +45,16 @@ pub struct PcrEvent {
     pub input: Option<Uri>,
 
     /// auth for the PCR: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
-
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
+    pub auth: Option<Auth>,
 }
 
 impl SubCommand for PcrEvent {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let auth_list = build_auth_list(
-            self.auth.as_ref(),
-            self.hmac_auth.as_ref(),
-            &context.session_map,
-        )?;
-        device::with_device(device, |device| {
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let object_auth = job.resolve_auth_session(self.auth.clone())?;
+        let auth_list = vec![object_auth];
+
+        with_device(job.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
 
@@ -80,7 +66,7 @@ impl SubCommand for PcrEvent {
                 event_data,
             };
 
-            let (resp, _) = context.execute(device, &command, &handles, &auth_list)?;
+            let (resp, _) = job.execute(device, &command, &handles, &auth_list)?;
 
             let pcr_resp = resp
                 .PcrEvent()
@@ -103,7 +89,7 @@ impl SubCommand for PcrEvent {
                 })
                 .collect();
 
-            writeln!(context.writer, "{}", clauses.join("+"))?;
+            writeln!(job.context_cache.writer, "{}", clauses.join("+"))?;
 
             Ok(())
         })

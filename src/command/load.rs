@@ -2,19 +2,18 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use super::CommandError;
 use crate::{
     cli::SubCommand,
-    context::ContextCache,
-    convert::{from_env_to_auth, from_input_to_bytes},
+    command::CommandError,
+    convert::from_input_to_bytes,
     device::{self, Auth, Device, DeviceError},
     key::AnyKey,
     uri::Uri,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::{
-    data::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmCc, TpmSe},
+    data::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmCc},
     message::TpmLoadCommand,
     TpmHandle, TpmParse,
 };
@@ -32,42 +31,24 @@ pub struct Load {
     pub input: Option<Uri>,
 
     /// parent auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_PARENT_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'p')]
-    pub parent_auth: Option<String>,
-
-    /// auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
-
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
+    pub parent_auth: Option<Auth>,
 }
 
 impl SubCommand for Load {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let parent_auth = from_env_to_auth(
-            self.parent_auth.as_ref(),
-            "TPM2SH_PARENT_AUTH",
-            &context.session_map,
-            Some(TpmSe::Policy),
-        )?;
-        device::with_device(device, |device| -> Result<(), CommandError> {
-            let parent_handle = context.load_parent(device, &self.parent)?;
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
+        let auth_list = vec![parent_auth];
+
+        device::with_device(job.device.clone(), |device| -> Result<(), CommandError> {
+            let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
             let input_bytes = from_input_to_bytes(self.input.as_ref())?;
 
             let (object_handle, name, public) =
-                Self::run_input(context, device, parent_handle, &input_bytes, &[parent_auth])?;
+                Self::run_input(job, device, parent_handle, &input_bytes, &auth_list)?;
 
-            context.save_context(device, object_handle, &public, &name)?;
+            job.context_cache
+                .save_context(device, object_handle, &public, &name)?;
             Ok(())
         })
     }
@@ -75,7 +56,7 @@ impl SubCommand for Load {
 
 impl Load {
     fn run_input(
-        context: &mut ContextCache,
+        job: &mut Job,
         device: &mut Device,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
@@ -84,7 +65,7 @@ impl Load {
         let tpm_key = match AnyKey::try_from(input_bytes)? {
             AnyKey::Tpm(key) => key,
             AnyKey::External(_) => {
-                let imported_key = context.import_key(device, parent_handle, input_bytes, auths)?;
+                let imported_key = job.import_key(device, parent_handle, input_bytes, auths)?;
                 Box::new(imported_key)
             }
         };
@@ -99,14 +80,14 @@ impl Load {
         };
         let handles = [parent_handle.0];
 
-        let (resp, _) = context.execute(device, &load_cmd, &handles, auths)?;
+        let (resp, _) = job.execute(device, &load_cmd, &handles, auths)?;
 
         let resp = resp
             .Load()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Load))?;
 
         device.add_name_to_cache(resp.object_handle.0, resp.name);
-        context.track(resp.object_handle)?;
+        job.context_cache.track(resp.object_handle)?;
         Ok((resp.object_handle, resp.name, load_cmd.in_public))
     }
 }

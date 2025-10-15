@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use super::CommandError;
 use crate::{
     cli::SubCommand,
-    context::ContextCache,
-    convert::{from_env_to_auth, from_str_to_handle},
-    device::{self, Auth, Device, DeviceError},
+    command::CommandError,
+    device::{with_device, Auth, Device, DeviceError},
     uri::Uri,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc, str::FromStr};
+use std::str::FromStr;
 use tpm2_protocol::{
-    data::{TpmCc, TpmHt, TpmRh, TpmSe},
+    data::{TpmCc, TpmHt, TpmRh},
     message::TpmEvictControlCommand,
     TpmHandle,
 };
@@ -25,27 +24,21 @@ pub struct Save {
     #[argh(positional)]
     pub input: Vec<String>,
 
-    /// auth for the hierarchy: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
+    /// key auth: 'password:<hex>' or 'session:<handle>'
     #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
-
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
+    pub auth: Option<Auth>,
 }
 
 impl Save {
     /// Makes a transient key persistent.
     fn save_persistent(
-        context: &mut ContextCache,
+        job: &mut Job,
         device: &mut Device,
         transient_handle: TpmHandle,
         persistent_handle: TpmHandle,
         auths: &[Auth],
     ) -> Result<(), CommandError> {
-        if !context.handles.contains_key(&transient_handle.0) {
+        if !job.context_cache.handles.contains_key(&transient_handle.0) {
             return Err(CommandError::InvalidInput(format!(
                 "transient handle {transient_handle} not tracked"
             )));
@@ -57,31 +50,23 @@ impl Save {
             object_handle: transient_handle.0.into(),
             persistent_handle,
         };
-        let handles = [auth_handle as u32, transient_handle.0];
+        let handles = [auth_handle as u32];
 
-        let (resp, _) = context.execute(device, &cmd, &handles, auths)?;
+        let (resp, _) = job.execute(device, &cmd, &handles, auths)?;
 
         resp.EvictControl()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
-        context.handles.remove(&transient_handle.0);
+        job.context_cache.handles.remove(&transient_handle.0);
         Ok(())
     }
 }
 
 impl SubCommand for Save {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let auth = from_env_to_auth(
-            self.auth.as_ref(),
-            "TPM2SH_AUTH",
-            &context.session_map,
-            Some(TpmSe::Policy),
-        )?;
-        device::with_device(device, |dev| -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let auth = job.resolve_auth_session(self.auth.clone())?;
+        let auth_list = vec![auth];
+
+        with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
             let (parent_uri_opt, grip_str, handle_str) = match self.input.len() {
                 2 => (None, &self.input[0], &self.input[1]),
                 3 => (Some(&self.input[0]), &self.input[1], &self.input[2]),
@@ -92,30 +77,41 @@ impl SubCommand for Save {
                 }
             };
 
-            let handle = from_str_to_handle(handle_str)
-                .map_err(|e| CommandError::InvalidInput(e.to_string()))?;
-            if (handle.0 >> 24) as u8 != TpmHt::Persistent as u8 {
+            let handle_uri = Uri::from_str(handle_str)?;
+            let handle = match handle_uri {
+                Uri::Tpm(h) => Ok(h),
+                _ => Err(CommandError::InvalidInput(
+                    "output must be a 'tpm:'".to_string(),
+                )),
+            }?;
+
+            if (handle >> 24) as u8 != TpmHt::Persistent as u8 {
                 return Err(CommandError::InvalidInput(
-                    "output handle must be a persistent handle".to_string(),
+                    "output must be a persistent handle".to_string(),
                 ));
             }
-            let persistent_handle = TpmHandle(handle.0);
+            let persistent_handle = TpmHandle(handle);
 
             if let Some(parent_uri_str) = parent_uri_opt {
                 let parent_uri = Uri::from_str(parent_uri_str)?;
-                let _parent_handle = context.load_parent(dev, &parent_uri)?;
+                let _parent_handle = job.context_cache.load_parent(dev, &parent_uri)?;
             }
 
-            let grip_uri = Uri::from_str(&format!("key:{grip_str}"))?;
-            let transient_handle = context.load_context(dev, &grip_uri)?;
+            let grip_uri = Uri::from_str(grip_str)?;
+            if !matches!(grip_uri, Uri::Key(_)) {
+                return Err(CommandError::InvalidInput(
+                    "input must be a 'key'".to_string(),
+                ));
+            }
+            let transient_handle = job.context_cache.load_context(dev, &grip_uri)?;
 
-            Self::save_persistent(context, dev, transient_handle, persistent_handle, &[auth])?;
+            Self::save_persistent(job, dev, transient_handle, persistent_handle, &auth_list)?;
 
-            if let Uri::Context(grip) = grip_uri {
-                context.remove_context(&grip)?;
+            if let Uri::Key(grip) = grip_uri {
+                job.context_cache.remove_context(&grip)?;
             }
 
-            writeln!(context.writer, "tpm:{handle:08x}")?;
+            writeln!(job.context_cache.writer, "tpm:{handle:08x}")?;
             Ok(())
         })
     }

@@ -14,10 +14,10 @@ use tpm2_protocol::{
 
 /// Builds a `TpmtPublic` template for creating new objects.
 ///
-/// This function centralizes the logic for constructing the public area of a TPM
-/// object, handling RSA, ECC, and `KeyedHash` types based on the provided `Alg`.
+/// Centralizes the logic for constructing the public area of a TPM object,
+/// handling RSA, ECC, and `KeyedHash` types based on the provided `Alg`.
 #[must_use]
-pub fn build_public_template(
+pub fn build_public(
     alg_desc: &Alg,
     auth_policy: Tpm2bDigest,
     object_attributes: TpmaObject,
@@ -66,21 +66,4 @@ pub fn build_public_template(
         parameters,
         unique,
     }
-}
-
-/// Builds the default attributes for a new TPM object.
-#[must_use]
-pub fn default_attributes(alg: &Alg, user_with_auth: bool) -> TpmaObject {
-    let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
-
-    if alg.object_type != TpmAlgId::KeyedHash {
-        attributes |=
-            TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
-    }
-
-    if user_with_auth {
-        attributes |= TpmaObject::USER_WITH_AUTH;
-    }
-
-    attributes
 }

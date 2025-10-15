@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::SubCommand, command::CommandError, context::ContextCache, device::Device};
+use crate::{
+    cli::SubCommand,
+    command::{print_table, CommandError},
+    Job,
+};
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
 use strum::{Display, EnumString};
 use tabled::Tabled;
 use tpm2_protocol::data::TpmSe;
@@ -48,15 +51,10 @@ pub struct Session {
 }
 
 impl SubCommand for Session {
-    fn run(
-        &self,
-        _device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        plain: bool,
-    ) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
         let mut results: Vec<(u32, SessionType)> = Vec::new();
 
-        for (_, session) in &context.session_map {
+        for (_, session) in &job.session_cache {
             let handle = session.context.saved_handle.0;
             results.push((handle, session.session_type.into()));
         }
@@ -75,7 +73,7 @@ impl SubCommand for Session {
             })
             .collect();
 
-        super::print_table(&mut context.writer, rows, plain)?;
+        print_table(&mut job.context_cache.writer, rows, plain)?;
 
         Ok(())
     }

@@ -4,18 +4,17 @@
 
 //! Handles the `create` command, which creates secondary keys.
 
-use super::{deny_keyedhash, CommandError};
 use crate::{
     cli::SubCommand,
-    context::ContextCache,
-    convert::{from_env_to_auth, from_tpm_key_to_output},
+    command::{deny_keyedhash, CommandError, OutputEncoding},
+    convert::from_tpm_key_to_output,
     device::{with_device, Auth, Device},
     key::{Alg, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY},
     uri::Uri,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
-use tpm2_protocol::data::{Tpm2bSensitiveData, TpmSe};
+use tpm2_protocol::data::Tpm2bSensitiveData;
 
 /// Creates secondary keys.
 #[derive(FromArgs, Debug)]
@@ -29,52 +28,26 @@ pub struct Create {
     #[argh(positional)]
     pub algorithm: Alg,
 
-    /// policy digest
-    #[argh(option)]
-    pub policy: Option<String>,
-
     /// output: TPMKey file
     #[argh(option, short = 'o')]
     pub output: Option<Uri>,
 
     /// parent auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_PARENT_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'p')]
-    pub parent_auth: Option<String>,
+    #[argh(option, arg_name = "parent-auth", short = 'p')]
+    pub parent_auth: Option<Auth>,
 
-    /// auth for the new key: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
+    /// key auth: 'password:<hex>' or 'policy:<hex>'
     #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
-
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
+    pub auth: Option<Auth>,
 }
 
 impl SubCommand for Create {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let parent_auth = from_env_to_auth(
-            self.parent_auth.as_ref(),
-            "TPM2SH_PARENT_AUTH",
-            &context.session_map,
-            Some(TpmSe::Policy),
-        )?;
-        let auth = from_env_to_auth(
-            self.auth.as_ref(),
-            "TPM2SH_AUTH",
-            &context.session_map,
-            None,
-        )?;
-        with_device(device, |device| {
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
+        let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
+        with_device(job.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
-            self.create_secondary_key(device, context, &[parent_auth], &auth)
+            self.create_secondary_key(job, device, &[parent_auth], &auth)
         })
     }
 }
@@ -82,22 +55,23 @@ impl SubCommand for Create {
 impl Create {
     fn create_secondary_key(
         &self,
+        job: &mut Job,
         device: &mut Device,
-        context: &mut ContextCache,
         auth_list: &[Auth],
         auth: &Auth,
     ) -> Result<(), CommandError> {
-        let parent_handle = context.load_parent(device, &self.parent)?;
-
+        let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
         let template = TpmKeyTemplate {
             alg_desc: &self.algorithm,
-            policy: self.policy.as_ref(),
             sensitive_data: Tpm2bSensitiveData::default(),
             key_type_oid: OID_LOADABLE_KEY,
         };
-
-        let tpm_key = TpmKey::new(device, context, auth_list, auth, parent_handle, &template)?;
-
-        from_tpm_key_to_output(context, &tpm_key, self.output.as_ref())
+        let tpm_key = TpmKey::new(job, device, auth_list, auth, parent_handle, &template)?;
+        from_tpm_key_to_output(
+            &mut job.context_cache,
+            &tpm_key,
+            self.output.as_ref(),
+            OutputEncoding::Pem,
+        )
     }
 }

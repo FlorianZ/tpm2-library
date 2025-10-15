@@ -28,12 +28,12 @@ use nom::{
     sequence::{delimited, preceded, terminated, tuple},
     Err as NomErr, IResult,
 };
-use std::{collections::HashMap, fmt, path::Path, str::FromStr};
+use std::{collections::HashMap, fmt, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bDigest, TpmAlgId, TpmlDigest, TpmlPcrSelection, TpmsContext},
+    data::{Tpm2bDigest, TpmAlgId, TpmlDigest, TpmlPcrSelection},
     message::TpmFlushContextCommand,
-    TpmErrorKind, TpmParse,
+    TpmErrorKind,
 };
 
 /// An abstract interface for a session that can have a policy applied to it.
@@ -93,6 +93,8 @@ pub enum PolicyError {
     InvalidAlgorithm(TpmAlgId),
     #[error("invalid expression: {0}")]
     InvalidExpression(String),
+    #[error("invalid secret: {0}")]
+    InvalidSecret(String),
     #[error("invalid value: {0}")]
     InvalidValue(String),
     #[error("I/O: {0}")]
@@ -148,7 +150,7 @@ pub enum Expression {
         count: Option<u32>,
     },
     Secret {
-        auth_handle_uri: Box<Expression>,
+        auth_handle: Box<Expression>,
         password: Option<Box<Expression>>,
         cp_hash: Option<String>,
     },
@@ -174,11 +176,11 @@ impl fmt::Display for Expression {
                 Ok(())
             }
             Expression::Secret {
-                auth_handle_uri,
+                auth_handle,
                 password,
                 cp_hash,
             } => {
-                write!(f, "secret({auth_handle_uri}")?;
+                write!(f, "secret({auth_handle}")?;
                 if let Some(p) = password {
                     write!(f, ", {p}")?;
                 }
@@ -204,11 +206,19 @@ impl Expression {
     /// Returns a `PolicyError` if the expression is not a file path or the file
     /// cannot be read.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
+        use std::io::Read;
         match self {
-            Self::Uri(Uri::Path(path)) => Ok(std::fs::read(Path::new(path))?),
-            _ => Err(PolicyError::InvalidExpression(format!(
-                "invalid expression: {self:?}"
-            ))),
+            Self::Uri(Uri::Path(path)) => {
+                if path.to_str() == Some("-") {
+                    let mut buf = Vec::new();
+                    std::io::stdin().read_to_end(&mut buf)?;
+                    Ok(buf)
+                } else {
+                    Ok(std::fs::read(path)?)
+                }
+            }
+            Self::Uri(Uri::Password(bytes)) => Ok(bytes.clone()),
+            _ => Err(PolicyError::InvalidSecret(format!("{self:?}"))),
         }
     }
 
@@ -242,7 +252,7 @@ fn secret_expression(input: &str) -> IResult<&str, Expression> {
             opt(comma_sep(map(hex_digit1, |s: &str| s.to_string()))),
         )),
         |(uri_expr, password_expr, cp_hash_str)| Expression::Secret {
-            auth_handle_uri: Box::new(uri_expr),
+            auth_handle: Box::new(uri_expr),
             password: password_expr.map(Box::new),
             cp_hash: cp_hash_str,
         },
@@ -293,19 +303,10 @@ fn pcr_policy_expression(input: &str) -> IResult<&str, Expression> {
             };
             Ok((remainder, expr))
         }
-        Err(_) => {
-            if pcr_substring.contains(':') {
-                Err(NomErr::Failure(nom::error::Error::new(
-                    input,
-                    ErrorKind::Verify,
-                )))
-            } else {
-                Err(NomErr::Error(nom::error::Error::new(
-                    input,
-                    ErrorKind::Verify,
-                )))
-            }
-        }
+        Err(_) => Err(NomErr::Error(nom::error::Error::new(
+            input,
+            ErrorKind::Verify,
+        ))),
     }
 }
 
@@ -364,24 +365,17 @@ pub fn execute_policy(
             session.get_digest()
         }
         Expression::Secret {
-            auth_handle_uri,
+            auth_handle,
             password,
             cp_hash,
         } => {
-            let mut flush_handle: Option<u32> = None;
+            let flush_handle: Option<u32> = None;
 
-            let handle = match &**auth_handle_uri {
+            let handle = match &**auth_handle {
                 Expression::Uri(Uri::Tpm(h)) => *h,
-                Expression::Uri(Uri::Path(_)) => {
-                    let context_bytes = auth_handle_uri.to_bytes()?;
-                    let (context, _) = TpmsContext::parse(&context_bytes)?;
-                    let new_handle = session.device().load_context(context)?;
-                    flush_handle = Some(new_handle);
-                    new_handle
-                }
                 _ => {
                     return Err(PolicyError::InvalidExpression(
-                        "secret() auth handle must be tpm: or <path>".to_string(),
+                        "secret() auth handle must be a 'tpm:'".to_string(),
                     ))
                 }
             };
@@ -456,10 +450,8 @@ pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
                 populate_pcr_digests(branch, pcr_map)?;
             }
         }
-        Expression::Secret {
-            auth_handle_uri, ..
-        } => {
-            populate_pcr_digests(auth_handle_uri, pcr_map)?;
+        Expression::Secret { auth_handle, .. } => {
+            populate_pcr_digests(auth_handle, pcr_map)?;
         }
         Expression::Uri(_) => {}
     }

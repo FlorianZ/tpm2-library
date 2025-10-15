@@ -4,12 +4,10 @@
 
 use crate::{
     cli::SubCommand,
-    command::CommandError,
-    context::ContextCache,
-    device::{self, Device},
+    command::{print_table, CommandError},
+    device, Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
 use strum::{Display, EnumString};
 use tabled::Tabled;
 
@@ -38,13 +36,8 @@ pub struct Algorithm {
 }
 
 impl SubCommand for Algorithm {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        plain: bool,
-    ) -> Result<(), CommandError> {
-        device::with_device::<_, _, CommandError>(device, |device| {
+    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
+        device::with_device(job.device.clone(), |device| {
             let mut results: Vec<(String, AlgorithmType)> = Vec::new();
 
             let fetch_keys =
@@ -79,7 +72,7 @@ impl SubCommand for Algorithm {
                     algorithm_type: algorithm_type.to_string(),
                 })
                 .collect();
-            super::print_table(&mut context.writer, rows, plain)?;
+            print_table(&mut job.context_cache.writer, rows, plain)?;
             Ok(())
         })
     }

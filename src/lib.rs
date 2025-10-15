@@ -11,6 +11,7 @@ pub mod context;
 pub mod convert;
 pub mod crypto;
 pub mod device;
+pub mod job;
 pub mod key;
 pub mod pcr;
 pub mod policy;
@@ -20,6 +21,8 @@ pub mod template;
 pub mod transport;
 pub mod uri;
 pub mod x509;
+
+pub use job::Job;
 
 /// A global flag to signal graceful teardown of the application.
 ///

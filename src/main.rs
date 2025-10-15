@@ -8,21 +8,14 @@ use cli::{
     command::CommandError,
     context::ContextCache,
     device::{Device, DeviceError},
+    job::Job,
     session::SessionCache,
     transport::FileTransport,
 };
-use std::{env, fs, io::Write, os::unix::io::AsRawFd, process, sync::atomic::Ordering};
-
-struct ContextGuard<'a> {
-    context: ContextCache<'a>,
-    device: Option<std::rc::Rc<std::cell::RefCell<Device>>>,
-}
-
-impl Drop for ContextGuard<'_> {
-    fn drop(&mut self) {
-        self.context.teardown(self.device.clone());
-    }
-}
+use std::{
+    cell::RefCell, env, fs, io::Write, os::unix::io::AsRawFd, process, rc::Rc,
+    sync::atomic::Ordering,
+};
 
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
 /// external signal indexed by the signal number.
@@ -78,38 +71,39 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
     let shared_device = init_device(cli)?;
     let mut stdout = std::io::stdout();
 
-    let mut session_map = SessionCache::new(cache_dir);
-    session_map.load_sessions()?;
+    let mut session_cache = SessionCache::new(cache_dir);
+    session_cache.load_sessions()?;
 
-    let mut guard = if let Some(dev_rc) = &shared_device {
+    let mut job = if let Some(dev_rc) = &shared_device {
         let mut dev_guard = dev_rc
             .try_borrow_mut()
             .map_err(|_| DeviceError::AlreadyBorrowed)?;
 
-        if let Err(e) = session_map.refresh_sessions(&mut dev_guard) {
+        if let Err(e) = session_cache.refresh_sessions(&mut dev_guard) {
             log::warn!("One or more sessions failed to refresh: {e}");
         }
 
-        let context = ContextCache::new(Some(&mut dev_guard), cache_dir, &mut stdout, session_map)?;
-        ContextGuard {
-            context,
+        let context_cache = ContextCache::new(Some(&mut dev_guard), cache_dir, &mut stdout)?;
+        Job {
             device: shared_device.clone(),
+            context_cache,
+            session_cache,
+            temp_session_uris: Vec::new(),
         }
     } else {
-        let context = ContextCache::new(None, cache_dir, &mut stdout, session_map)?;
-        ContextGuard {
-            context,
+        let context_cache = ContextCache::new(None, cache_dir, &mut stdout)?;
+        Job {
             device: None,
+            context_cache,
+            session_cache,
+            temp_session_uris: Vec::new(),
         }
     };
 
-    cli.command
-        .run(guard.device.clone(), &mut guard.context, cli.plain)
+    cli.command.run(&mut job, cli.plain)
 }
 
-fn init_device(
-    cli: &TopLevel,
-) -> Result<Option<std::rc::Rc<std::cell::RefCell<Device>>>, CommandError> {
+fn init_device(cli: &TopLevel) -> Result<Option<Rc<RefCell<Device>>>, CommandError> {
     if cli.command.is_local() {
         return Ok(None);
     }
@@ -131,5 +125,5 @@ fn init_device(
     let transport = FileTransport(file);
     let device = Device::new(transport, cli.log_format)?;
 
-    Ok(Some(std::rc::Rc::new(std::cell::RefCell::new(device))))
+    Ok(Some(Rc::new(RefCell::new(device))))
 }

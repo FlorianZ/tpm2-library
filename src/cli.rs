@@ -7,43 +7,14 @@
 use crate::{
     command::{
         Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Key, Load,
-        Memory, PcrEvent, Policy, ResetLock, ReturnCode, Save, Seal, Session, StartSession, Unseal,
+        Memory, PcrEvent, Policy, ResetLock, ReturnCode, Save, Seal, Session, Unseal,
     },
-    convert,
-    device::Auth,
-    device::Device,
-    session::SessionCache,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::path::PathBuf;
 use strum::{Display, EnumString};
-use tpm2_protocol::data::{TpmRh, TpmSe};
-
-pub(crate) fn build_auth_list(
-    auth_str: Option<&String>,
-    hmac_auth_str: Option<&String>,
-    session_map: &SessionCache,
-) -> Result<Vec<Auth>, CommandError> {
-    let mut auths = Vec::new();
-
-    let object_auth =
-        convert::from_env_to_auth(auth_str, "TPM2SH_AUTH", session_map, Some(TpmSe::Policy))?;
-    if !matches!(&object_auth, Auth::Password(p) if p.is_empty()) {
-        auths.push(object_auth);
-    }
-
-    let hmac_auth = convert::from_env_to_auth(
-        hmac_auth_str,
-        "TPM2SH_HMAC_AUTH",
-        session_map,
-        Some(TpmSe::Hmac),
-    )?;
-    if !matches!(&hmac_auth, Auth::Password(p) if p.is_empty()) {
-        auths.push(hmac_auth);
-    }
-
-    Ok(auths)
-}
+use tpm2_protocol::data::TpmRh;
 
 /// A subcommand of the main CLI application.
 pub trait SubCommand {
@@ -52,12 +23,7 @@ pub trait SubCommand {
     /// # Errors
     ///
     /// Returns an error if the execution fails.
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut crate::context::ContextCache,
-        plain: bool,
-    ) -> Result<(), CommandError>;
+    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError>;
 
     /// Returns `true` if the command can be run without a TPM device.
     #[must_use]
@@ -112,7 +78,6 @@ pub enum Command {
     Save(Save),
     Seal(Seal),
     Session(Session),
-    StartSession(StartSession),
     Unseal(Unseal),
 }
 
@@ -135,20 +100,14 @@ impl Command {
             Self::Save(cmd) => cmd,
             Self::Seal(cmd) => cmd,
             Self::Session(cmd) => cmd,
-            Self::StartSession(cmd) => cmd,
             Self::Unseal(cmd) => cmd,
         }
     }
 }
 
 impl SubCommand for Command {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut crate::context::ContextCache,
-        plain: bool,
-    ) -> Result<(), CommandError> {
-        self.as_subcommand().run(device, context, plain)
+    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
+        self.as_subcommand().run(job, plain)
     }
 
     fn is_local(&self) -> bool {

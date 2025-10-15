@@ -14,31 +14,25 @@
 //! guaranteed to be flushed at the end of the context's lifecycle.
 
 use crate::{
+    command::OutputEncoding,
     convert::from_tpm_object_to_vec,
     crypto::crypto_digest,
-    device::{Auth, Device, DeviceError, TpmCommandObject},
-    key::{AnyKey, KeyError, TpmKey},
-    session::SessionCache,
+    device::{Device, DeviceError},
+    key::{KeyError, TpmKey},
     uri::{Uri, UriError},
 };
-
 use std::{
-    cmp,
     collections::{HashMap, HashSet},
     fmt, fs,
     io::Write,
     num::TryFromIntError,
     path::{Path, PathBuf},
 };
-
 use thiserror::Error;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
-    message::{
-        TpmAuthResponses, TpmFlushContextCommand, TpmNvReadCommand, TpmNvReadPublicCommand,
-        TpmResponseBody,
-    },
+    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRcBase, TpmsContext},
+    message::TpmFlushContextCommand,
     TpmBuffer, TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
 
@@ -87,8 +81,8 @@ pub enum ContextError {
     Device(#[from] DeviceError),
     #[error("invalid handle: {0:08x}")]
     InvalidHandle(u32),
-    #[error("invalid parent URI: must be a tpm: or key: URI")]
-    InvalidParentUri,
+    #[error("invalid parent: must be a tpm: or key: reference")]
+    InvalidParent,
     #[error("invalid URI: {0}")]
     InvalidUri(UriError),
     #[error("I/O: {0}")]
@@ -125,7 +119,6 @@ pub struct ContextCache<'a> {
     pub contexts: HashMap<String, ContextKey>,
     dirty_contexts: HashSet<String>,
     contexts_dir: PathBuf,
-    pub session_map: SessionCache,
 }
 
 impl std::fmt::Debug for ContextCache<'_> {
@@ -144,77 +137,41 @@ impl std::fmt::Debug for ContextCache<'_> {
 }
 
 impl<'a> ContextCache<'a> {
-    /// Flushes transient handles and saves dirty contexts, printing errors to stderr.
+    /// Flushes transient handles and saves dirty contexts, logging errors.
     pub fn teardown(&mut self, device: Option<std::rc::Rc<std::cell::RefCell<Device>>>) {
         if !self.dirty_contexts.is_empty() {
             if let Err(e) = fs::create_dir_all(&self.contexts_dir) {
-                eprintln!("teardown: {e:#}");
+                log::error!("teardown: {e:#}");
             }
             for grip in self.dirty_contexts.drain() {
                 if let Some(data) = self.contexts.get(&grip) {
                     let path = self.contexts_dir.join(&grip);
-                    if let Ok(bytes) = from_tpm_object_to_vec(data) {
-                        if let Err(e) = fs::write(path, bytes) {
-                            eprintln!("teardown: {e:#}");
+                    match from_tpm_object_to_vec(data) {
+                        Ok(bytes) => {
+                            if let Err(e) = fs::write(path, bytes) {
+                                log::error!("teardown: {grip}: {e:#}");
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("teardown: {grip}: {e:#}");
                         }
                     }
                 }
             }
         }
 
-        if let Err(e) = self.session_map.save() {
-            eprintln!("teardown: {e:#}");
-        }
         if let Some(device_rc) = device {
             match device_rc.try_borrow_mut() {
                 Ok(mut device_guard) => {
                     if let Err(e) = self.flush(&mut device_guard) {
-                        eprintln!("teardown: {e:#}");
+                        log::error!("teardown: {e:#}");
                     }
                 }
                 Err(e) => {
-                    eprintln!("teardown: {e:#}");
+                    log::error!("teardown: {e:#}");
                 }
             }
         }
-    }
-
-    /// Executes a TPM command with full authorization session handling.
-    ///
-    /// This function encapsulates the prepare, build, execute, and teardown
-    /// sequence for authorized commands.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `ContextError` if any stage of the session management or
-    /// command execution fails.
-    pub fn execute<C: TpmCommandObject>(
-        &mut self,
-        device: &mut Device,
-        command: &C,
-        handles: &[u32],
-        auths: &[Auth],
-    ) -> Result<(TpmResponseBody, TpmAuthResponses), ContextError> {
-        let activated_handles = self.session_map.prepare_sessions(device, auths)?;
-
-        for &handle in &activated_handles {
-            self.track(TpmHandle(handle))?;
-        }
-
-        let (sessions, session_handles) = self
-            .session_map
-            .build_auth_area(device, command, handles, auths)?;
-
-        let (resp, auth_responses) = device.execute(command, &sessions)?;
-
-        self.session_map
-            .teardown_sessions(device, &session_handles, &auth_responses)?;
-
-        for handle in activated_handles {
-            self.untrack(handle);
-        }
-
-        Ok((resp, auth_responses))
     }
 
     /// Creates a new `Context`, loads and refreshes saved contexts from disk.
@@ -226,7 +183,6 @@ impl<'a> ContextCache<'a> {
         device: Option<&mut Device>,
         cache_dir: &Path,
         writer: &'a mut dyn Write,
-        session_map: SessionCache,
     ) -> Result<ContextCache<'a>, ContextError> {
         let contexts_dir = cache_dir.join("contexts");
         let mut new_context = Self {
@@ -235,7 +191,6 @@ impl<'a> ContextCache<'a> {
             contexts: HashMap::new(),
             dirty_contexts: HashSet::new(),
             contexts_dir,
-            session_map,
         };
 
         new_context.load_contexts()?;
@@ -396,38 +351,6 @@ impl<'a> ContextCache<'a> {
         &self.contexts_dir
     }
 
-    /// Imports an external key under a TPM parent, creating a new `TpmKey`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the TPM import operation fails.
-    pub fn import_key(
-        &mut self,
-        device: &mut Device,
-        parent_handle: TpmHandle,
-        input_bytes: &[u8],
-        auths: &[Auth],
-    ) -> Result<TpmKey, ContextError> {
-        let external_key = match AnyKey::try_from(input_bytes)? {
-            AnyKey::Tpm(_) => return Err(ContextError::Key(KeyError::InvalidFormat)),
-            AnyKey::External(key) => key,
-        };
-
-        let mut rng = rand::thread_rng();
-        let handles = [parent_handle.0];
-
-        self.session_map.prepare_sessions(device, auths)?;
-        Ok(TpmKey::from_external_key(
-            device,
-            parent_handle,
-            &external_key,
-            &mut rng,
-            &handles,
-            auths,
-            self,
-        )?)
-    }
-
     /// Loads a TPM context from a byte slice.
     ///
     /// # Errors
@@ -465,8 +388,8 @@ impl<'a> ContextCache<'a> {
         device: &mut Device,
         uri: &Uri,
     ) -> Result<TpmHandle, ContextError> {
-        if matches!(uri, Uri::Path(_) | Uri::Password(_)) {
-            return Err(ContextError::InvalidParentUri);
+        if matches!(uri, Uri::Path(_) | Uri::Password(_) | Uri::Session(_)) {
+            return Err(ContextError::InvalidParent);
         }
         self.load_context(device, uri)
     }
@@ -487,7 +410,7 @@ impl<'a> ContextCache<'a> {
     ) -> Result<TpmHandle, ContextError> {
         match uri {
             Uri::Tpm(handle) => Ok(TpmHandle(*handle)),
-            Uri::Context(grip) => {
+            Uri::Key(grip) => {
                 let key = self
                     .contexts
                     .get(grip)
@@ -512,7 +435,7 @@ impl<'a> ContextCache<'a> {
                 self.load_context_from_bytes(device, &context_blob)
                     .map(|(handle, _)| handle)
             }
-            Uri::Password(_) | Uri::Session(_) => {
+            Uri::Password(_) | Uri::Policy(_) | Uri::Session(_) => {
                 Err(ContextError::InvalidUri(UriError::InvalidUriType))
             }
         }
@@ -557,7 +480,7 @@ impl<'a> ContextCache<'a> {
             let sessions = vec![];
             if let Err(err) = device.execute(&cmd, &sessions) {
                 let uri = Uri::Tpm(handle.0);
-                log::error!("{uri}: {err}");
+                log::error!("Failed to flush handle {uri}: {err}");
             }
         }
 
@@ -573,20 +496,11 @@ impl<'a> ContextCache<'a> {
         &mut self,
         output_uri: Option<&Uri>,
         key: &TpmKey,
+        encoding: OutputEncoding,
     ) -> Result<(), ContextError> {
-        let output_is_der = if let Some(Uri::Path(path_str)) = output_uri {
-            Path::new(path_str)
-                .extension()
-                .and_then(std::ffi::OsStr::to_str)
-                == Some("der")
-        } else {
-            false
-        };
-
-        let output_bytes = if output_is_der {
-            key.to_der()?
-        } else {
-            key.to_pem()?.into_bytes()
+        let output_bytes = match encoding {
+            OutputEncoding::Der => key.to_der()?,
+            OutputEncoding::Pem => key.to_pem()?.into_bytes(),
         };
 
         self.write_data(output_uri, &output_bytes)
@@ -605,8 +519,12 @@ impl<'a> ContextCache<'a> {
         if let Some(uri) = output_uri {
             match uri {
                 Uri::Path(path) => {
-                    std::fs::write(path, data)?;
-                    writeln!(self.writer, "{uri}")?;
+                    if path.to_str() == Some("-") {
+                        self.writer.write_all(data)?;
+                    } else {
+                        std::fs::write(path, data)?;
+                        writeln!(self.writer, "{uri}")?;
+                    }
                 }
                 _ => return Err(ContextError::InvalidUri(UriError::InvalidUriType)),
             }
@@ -614,66 +532,6 @@ impl<'a> ContextCache<'a> {
             self.writer.write_all(data)?;
         }
         Ok(())
-    }
-
-    /// Reads a certificate from a given NV index.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `ContextError` if the TPM commands fail or if the response is invalid.
-    pub fn read_certificate(
-        &mut self,
-        device: &mut Device,
-        auths: &[Auth],
-        handle: u32,
-        max_read_size: usize,
-    ) -> Result<Option<Vec<u8>>, ContextError> {
-        let nv_read_public_cmd = TpmNvReadPublicCommand {
-            nv_index: handle.into(),
-        };
-        let (resp, _) = device.execute(&nv_read_public_cmd, &[])?;
-        let read_public_resp = resp
-            .NvReadPublic()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::NvReadPublic))?;
-        let nv_public = read_public_resp.nv_public;
-        let data_size = nv_public.data_size as usize;
-
-        if data_size == 0 {
-            return Ok(None);
-        }
-
-        let auth_handle = if nv_public.attributes.contains(TpmaNv::AUTHREAD) {
-            handle
-        } else if nv_public.attributes.contains(TpmaNv::PPREAD) {
-            TpmRh::Platform as u32
-        } else if nv_public.attributes.contains(TpmaNv::OWNERREAD) {
-            TpmRh::Owner as u32
-        } else {
-            handle
-        };
-
-        let mut cert_bytes = Vec::with_capacity(data_size);
-        let mut offset = 0;
-        while offset < data_size {
-            let chunk_size = cmp::min(max_read_size, data_size - offset);
-
-            let nv_read_cmd = TpmNvReadCommand {
-                auth_handle: auth_handle.into(),
-                nv_index: handle.into(),
-                size: u16::try_from(chunk_size)?,
-                offset: u16::try_from(offset)?,
-            };
-
-            let (resp, _) = self.execute(device, &nv_read_cmd, &[auth_handle], auths)?;
-
-            let read_resp = resp
-                .NvRead()
-                .map_err(|_| DeviceError::ResponseMismatch(TpmCc::NvRead))?;
-            cert_bytes.extend_from_slice(read_resp.data.as_ref());
-            offset += chunk_size;
-        }
-
-        Ok(Some(cert_bytes))
     }
 
     fn non_existence_invariant(&self, handle: TpmHandle) -> Result<(), ContextError> {

@@ -2,15 +2,15 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use super::CommandError;
 use crate::{
-    cli::{build_auth_list, SubCommand},
-    context::ContextCache,
+    cli::SubCommand,
+    command::CommandError,
     device::{self, Auth, Device, DeviceError},
     uri::Uri,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc, str::FromStr};
+use std::str::FromStr;
 use tpm2_protocol::{
     data::{TpmCc, TpmHt, TpmRcBase, TpmRh},
     message::{TpmEvictControlCommand, TpmFlushContextCommand},
@@ -25,39 +25,31 @@ pub struct Delete {
     #[argh(positional)]
     pub inputs: Vec<String>,
 
-    /// auth for the object: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
+    /// persistent auth: 'password:<hex>' or 'session:<handle>'
     #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
-
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
+    pub auth: Option<Auth>,
 }
 
 impl Delete {
     fn delete(
-        context: &mut ContextCache,
+        job: &mut Job,
         device: &mut Device,
         uri: &Uri,
         auths: &[Auth],
     ) -> Result<u32, CommandError> {
-        let handle = context.load_context(device, uri)?.0;
+        let handle = job.context_cache.load_context(device, uri)?.0;
 
         let mso = (handle >> 24) as u8;
         let result = match TpmHt::try_from(mso) {
-            Ok(TpmHt::Persistent) => {
-                Self::delete_persistent(context, device, TpmHandle(handle), auths)
-            }
-            Ok(TpmHt::Transient) => Self::delete_transient(context, device, TpmHandle(handle)),
+            Ok(TpmHt::Persistent) => Self::delete_persistent(job, device, TpmHandle(handle), auths),
+            Ok(TpmHt::Transient) => Self::delete_transient(job, device, TpmHandle(handle)),
             Ok(TpmHt::HmacSession | TpmHt::PolicySession) => {
                 let cmd = TpmFlushContextCommand {
                     flush_handle: handle.into(),
                 };
                 let sessions = vec![];
                 device.execute(&cmd, &sessions)?;
-                context.handles.remove(&handle);
+                job.context_cache.handles.remove(&handle);
                 Ok(())
             }
             _ => {
@@ -79,7 +71,7 @@ impl Delete {
     }
 
     fn delete_persistent(
-        context: &mut ContextCache,
+        job: &mut Job,
         device: &mut Device,
         handle: TpmHandle,
         auths: &[Auth],
@@ -90,9 +82,9 @@ impl Delete {
             object_handle: handle.0.into(),
             persistent_handle: handle,
         };
-        let handles = [auth_handle as u32, handle.0];
+        let handles = [auth_handle as u32];
 
-        let (resp, _) = context.execute(device, &cmd, &handles, auths)?;
+        let (resp, _) = job.execute(device, &cmd, &handles, auths)?;
 
         resp.EvictControl()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
@@ -100,7 +92,7 @@ impl Delete {
     }
 
     fn delete_transient(
-        context: &mut ContextCache,
+        job: &mut Job,
         device: &mut Device,
         handle: TpmHandle,
     ) -> Result<(), CommandError> {
@@ -109,23 +101,15 @@ impl Delete {
         };
         let sessions = vec![];
         device.execute(&cmd, &sessions)?;
-        context.handles.remove(&handle.0);
+        job.context_cache.handles.remove(&handle.0);
         Ok(())
     }
 }
 
 impl SubCommand for Delete {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let auth_list = build_auth_list(
-            self.auth.as_ref(),
-            self.hmac_auth.as_ref(),
-            &context.session_map,
-        )?;
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let object_auth = job.resolve_auth_session(self.auth.clone())?;
+        let auth_list = vec![object_auth];
 
         let uris: Vec<Uri> = self
             .inputs
@@ -139,11 +123,11 @@ impl SubCommand for Delete {
 
         for uri in local_ops {
             match uri {
-                Uri::Context(ref grip) => {
-                    context.remove_context(grip)?;
-                    writeln!(context.writer, "{uri}")?;
+                Uri::Key(ref grip) => {
+                    job.context_cache.remove_context(grip)?;
+                    writeln!(job.context_cache.writer, "{uri}")?;
                 }
-                Uri::Path(_) | Uri::Password(_) => {
+                Uri::Path(_) | Uri::Password(_) | Uri::Policy(_) => {
                     return Err(CommandError::InvalidInput(uri.to_string()));
                 }
                 Uri::Tpm(_) | Uri::Session(_) => unreachable!(),
@@ -151,23 +135,33 @@ impl SubCommand for Delete {
         }
 
         if !device_ops.is_empty() {
-            device::with_device(device, |dev| -> Result<(), CommandError> {
+            device::with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
                 for uri in device_ops {
                     match uri {
                         Uri::Session(_) => {
                             let uri_str = uri.to_string();
-                            if let Some(session) = context.session_map.remove(&uri_str)? {
-                                if let Err(err) = dev.flush_session(session.context) {
-                                    log::warn!("{uri}: {err}");
+                            if let Ok(session) = job.session_cache.get(&uri_str) {
+                                if let Err(err) = dev.flush_session(session.context.clone()) {
+                                    match err {
+                                        DeviceError::TpmRc(rc)
+                                            if rc.base() == TpmRcBase::Handle =>
+                                        {
+                                            log::debug!("{uri}: already flushed");
+                                        }
+                                        _ => log::warn!("{uri}: {err}"),
+                                    }
                                 }
                             }
-                            writeln!(context.writer, "{uri}")?;
+                            job.session_cache.remove(&uri_str)?;
+                            writeln!(job.context_cache.writer, "{uri}")?;
                         }
                         Uri::Tpm(_) => {
-                            let handle = Self::delete(context, dev, &uri, &auth_list)?;
-                            writeln!(context.writer, "tpm:{handle:08x}")?;
+                            let handle = Self::delete(job, dev, &uri, &auth_list)?;
+                            writeln!(job.context_cache.writer, "tpm:{handle:08x}")?;
                         }
-                        Uri::Context(_) | Uri::Path(_) | Uri::Password(_) => unreachable!(),
+                        Uri::Key(_) | Uri::Path(_) | Uri::Policy(_) | Uri::Password(_) => {
+                            unreachable!()
+                        }
                     }
                 }
                 Ok(())

@@ -6,13 +6,14 @@
 
 use super::{Alg, ExternalKey, KeyError, Tpm2shAlgId};
 use crate::{
-    context::{ContextCache, ContextError},
+    context::ContextError,
     convert::from_tpm_object_to_vec,
     crypto::{
         crypto_hmac, crypto_kdfa, crypto_make_name, derive_seed_with_ecc, protect_seed_with_rsa,
         KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
     },
     device::{Auth, Device, DeviceError},
+    job::Job,
     template,
 };
 
@@ -52,7 +53,6 @@ pub const OID_SEALED_DATA: ObjectIdentifier =
 /// A template for creating a new TPM key object.
 pub struct TpmKeyTemplate<'a> {
     pub alg_desc: &'a Alg,
-    pub policy: Option<&'a String>,
     pub sensitive_data: Tpm2bSensitiveData,
     pub key_type_oid: ObjectIdentifier,
 }
@@ -104,34 +104,23 @@ impl TpmKey {
     /// Returns a `KeyError` if any of the TPM structures cannot be serialized or the command fails.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        job: &mut Job,
         device: &mut Device,
-        context: &mut ContextCache,
         auth_list: &[Auth],
         auth: &Auth,
         parent_handle: TpmHandle,
         template: &TpmKeyTemplate,
     ) -> Result<Self, KeyError> {
-        let user_auth_bytes = match auth {
-            Auth::Password(p) => p.as_slice(),
-            Auth::Tracked(_) => {
-                return Err(KeyError::InvalidFormat);
-            }
+        let user_auth = match &auth {
+            Auth::Password(p) => Tpm2bAuth::try_from(p.as_slice())?,
+            Auth::Session(_) | Auth::Policy(_) => Tpm2bAuth::default(),
         };
-        let user_auth = Tpm2bAuth::try_from(user_auth_bytes).map_err(DeviceError::Tpm)?;
-
-        let user_with_auth = !user_auth_bytes.is_empty() || template.policy.is_some();
-        let object_attributes = template::default_attributes(template.alg_desc, user_with_auth);
-
-        let auth_policy = if let Some(policy_hex) = template.policy {
-            let digest_bytes = hex::decode(policy_hex)
-                .map_err(|e| KeyError::ValueConversionFailed(e.to_string()))?;
-            Tpm2bDigest::try_from(digest_bytes.as_slice())?
-        } else {
-            Tpm2bDigest::default()
+        let auth_policy = match &auth {
+            Auth::Policy(p) => Tpm2bAuth::try_from(p.as_slice())?,
+            Auth::Session(_) | Auth::Password(_) => Tpm2bAuth::default(),
         };
-
-        let public_template =
-            template::build_public_template(template.alg_desc, auth_policy, object_attributes);
+        let alg = template.alg_desc.clone();
+        let public_template = template::build_public(template.alg_desc, auth_policy, alg.into());
 
         let create_cmd = TpmCreateCommand {
             parent_handle: parent_handle.0.into(),
@@ -149,7 +138,7 @@ impl TpmKey {
         };
 
         let handles = [parent_handle.0];
-        let (resp, _) = context
+        let (resp, _) = job
             .execute(device, &create_cmd, &handles, auth_list)
             .map_err(|e| match e {
                 ContextError::Device(d) => KeyError::Device(d),
@@ -161,13 +150,12 @@ impl TpmKey {
             .Create()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Create))?;
 
-        let policy_arg = template.policy.as_ref().map(|_| &auth_policy);
         Self::from_creation_data(
-            user_auth_bytes.is_empty(),
+            user_auth.is_empty(),
             parent_handle,
             &create_resp.out_public,
             &create_resp.out_private,
-            policy_arg,
+            &auth_policy,
             template.key_type_oid.clone(),
         )
     }
@@ -178,15 +166,17 @@ impl TpmKey {
         parent_handle: TpmHandle,
         out_public: &Tpm2bPublic,
         out_private: &Tpm2bPrivate,
-        policy_digest: Option<&Tpm2bDigest>,
+        policy_digest: &Tpm2bDigest,
         key_type: ObjectIdentifier,
     ) -> Result<Self, KeyError> {
-        let policy = policy_digest.map(|digest| {
-            vec![TpmPolicy {
+        let policy = if policy_digest.is_empty() {
+            None
+        } else {
+            Some(vec![TpmPolicy {
                 command_code: 0,
-                command_policy: OctetString::copy_from_slice(digest.as_ref()),
-            }]
-        });
+                command_policy: OctetString::copy_from_slice(policy_digest.as_ref()),
+            }])
+        };
         Ok(Self {
             key_type,
             empty_auth: empty_auth.then_some(true),
@@ -225,12 +215,12 @@ impl TpmKey {
     #[allow(clippy::too_many_arguments)]
     pub fn from_external_key(
         device: &mut Device,
+        job: &mut Job,
         parent_handle: TpmHandle,
         external_key: &ExternalKey,
-        rng: &mut (impl rand::RngCore + rand::CryptoRng),
+        rng: &mut (impl RngCore + CryptoRng),
         handles: &[u32],
         auth_list: &[Auth],
-        context: &mut ContextCache,
     ) -> Result<Self, KeyError> {
         let (parent_public, parent_name) = match device.read_public(parent_handle) {
             Ok(result) => result,
@@ -267,7 +257,7 @@ impl TpmKey {
             symmetric_alg: TpmtSymDefObject::default(),
         };
 
-        let (resp, _) = context
+        let (resp, _) = job
             .execute(device, &import_cmd, handles, auth_list)
             .map_err(|e| match e {
                 ContextError::Device(d) => KeyError::Device(d),
@@ -285,7 +275,7 @@ impl TpmKey {
             parent_handle,
             &Tpm2bPublic { inner: public },
             &out_private,
-            None,
+            &Tpm2bDigest::default(),
             OID_IMPORTABLE_KEY,
         )?;
 

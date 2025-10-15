@@ -48,13 +48,13 @@ Read and export an endorsement certificate as X.509 PEM-encoded certificate.
 Import an external key in PKCS#1, PKCS#8, SEC1 format, and turn it as a TPMKey
 file. Supports PEM and DER encodings. Outputs a PEM-encoded TPMKey file.
 .TP
-.B create-primary
-Create a new primary key in a owner, platform, or endorsement hierarchy.  Saves
-the key to the context cache.
-.TP
 .B create
 Create a new secondary key to the parent's hierarchy. Outputs PEM-encoded TPMKey
 file.
+.TP
+.B create-primary
+Create a new primary key in a owner, platform, or endorsement hierarchy.  Saves
+the key to the context cache.
 .TP
 .B delete
 Delete a key or a session. Cleans up resources used such as data stored in the
@@ -95,11 +95,6 @@ provided with the "tpm:<handle>" syntax.
 Create a sealed data object that binds data to an authorization policy. The data
 can only be revealed if the policy is satisfied.
 .TP
-.B start-session
-Create a new authorization session (HMAC, policy, or trial) and cache it
-locally. Outputs a session identifier, i.e. "session:<handle>"  for the cached
-session.
-.TP
 .B session
 List all locally cached authorization sessions.
 .TP
@@ -117,28 +112,6 @@ Authorization password represented as a hex string.
 Authorization session handle, which is also name of the session, as cached
 sessions retain their handle's in the chip, up until they are deleted, or the
 computer is reset.
-.SS Authorization Options
-.TP
-.B \-\-auth
-Authorization for an object. The default value is empty password.
-.TP
-.B \-\-parent-auth
-Authorization for parent. The default value is empty password.
-.TP
-.B \-\-hmac-auth
-Authorization for paremeter encryption. The default value is empty password.
-.SH ENVIRONMENT
-.TP
-.B TPM2SH_AUTH
-The default authorization for an object if \fB\-\-auth\fR is not specified.
-.TP
-.B TPM2SH_PARENT_AUTH
-The default authorization for a parent object if \fB\-\-parent-auth\fR is not
-specified.
-.TP
-.B TPM2SH_HMAC_AUTH
-The default authorization for parameter encryption if \fB\-\-hmac-auth\fR
-is not specified.
 .SH FILES
 .TP
 .I ~/.cache/tpm2sh/contexts/

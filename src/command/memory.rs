@@ -4,18 +4,14 @@
 
 use crate::{
     cli::SubCommand,
-    command::CommandError,
-    context::ContextCache,
-    convert::from_env_to_auth,
-    device::{self, Device},
-    key, x509,
+    command::{print_table, CommandError},
+    device::{self, Auth, Device},
+    key, x509, Job,
 };
 use argh::FromArgs;
-use rasn::types::Tag;
-use std::{cell::RefCell, rc::Rc};
 use strum::Display;
 use tabled::Tabled;
-use tpm2_protocol::data::{TpmHt, TpmPt, TpmSe};
+use tpm2_protocol::data::{TpmHt, TpmPt};
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[strum(serialize_all = "kebab-case")]
@@ -39,22 +35,7 @@ struct MemoryRow {
 /// Lists objects inside TPM memory.
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "memory", note = "Lists objects inside TPM memory")]
-pub struct Memory {
-    /// parent auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_PARENT_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'p')]
-    pub parent_auth: Option<String>,
-
-    /// auth for the object: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
-
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
-}
+pub struct Memory {}
 
 impl Memory {
     /// Fetches handles of a specific type and adds them as rows to the table.
@@ -96,21 +77,9 @@ impl Memory {
 }
 
 impl SubCommand for Memory {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        plain: bool,
-    ) -> Result<(), CommandError> {
-        let nv_auth = from_env_to_auth(
-            self.parent_auth.as_ref(),
-            "TPM2SH_PARENT_AUTH",
-            &context.session_map,
-            Some(TpmSe::Policy),
-        )?;
-        device::with_device(device, |device| {
+    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
+        device::with_device(job.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
-
             Self::fetch_rows(
                 device,
                 &mut rows,
@@ -118,7 +87,6 @@ impl SubCommand for Memory {
                 MemoryHandleType::Persistent,
                 Self::fetch_details,
             )?;
-
             Self::fetch_rows(
                 device,
                 &mut rows,
@@ -126,7 +94,6 @@ impl SubCommand for Memory {
                 MemoryHandleType::Transient,
                 Self::fetch_details,
             )?;
-
             Self::fetch_rows(
                 device,
                 &mut rows,
@@ -163,7 +130,8 @@ impl SubCommand for Memory {
                         if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle) {
                             return Err(CommandError::InvalidInput("Not a certificate".into()));
                         }
-                        let cert_bytes = context
+                        let nv_auth = Auth::Password(Vec::new());
+                        let cert_bytes = job
                             .read_certificate(
                                 device,
                                 std::slice::from_ref(&nv_auth),
@@ -171,21 +139,15 @@ impl SubCommand for Memory {
                                 max_read_size,
                             )?
                             .ok_or(CommandError::InvalidInput("No certificate data".into()))?;
-
-                        if cert_bytes.is_empty()
-                            || u32::from(cert_bytes[0]) != (0x20 | Tag::SEQUENCE.value)
-                        {
+                        if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != (0x30) {
                             return Err(CommandError::InvalidInput("Not a DER certificate".into()));
                         }
                         Ok(x509::get_algorithm(&cert_bytes)?)
                     },
                 )?;
             }
-
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
-
-            super::print_table(&mut context.writer, rows, plain)?;
-
+            print_table(&mut job.context_cache.writer, rows, plain)?;
             Ok(())
         })
     }

@@ -20,12 +20,11 @@ pub mod return_code;
 pub mod save;
 pub mod seal;
 pub mod session;
-pub mod start_session;
 pub mod unseal;
 
 pub use algorithm::*;
 pub use certificate::*;
-pub use convert::*;
+pub use convert::Convert;
 pub use create::*;
 pub use create_primary::*;
 pub use delete::*;
@@ -39,7 +38,6 @@ pub use return_code::*;
 pub use save::*;
 pub use seal::*;
 pub use session::*;
-pub use start_session::*;
 pub use unseal::*;
 
 use crate::{
@@ -57,12 +55,21 @@ use std::{
     io::{IsTerminal, Write},
     num::TryFromIntError,
 };
+use strum::{Display, EnumString};
 use tabled::{
     settings::{object::Rows, Disable, Format, Modify, Style},
     Table, Tabled,
 };
 use thiserror::Error;
 use tpm2_protocol::{data::TpmCc, TpmErrorKind};
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[strum(serialize_all = "kebab-case")]
+pub enum OutputEncoding {
+    #[default]
+    Pem,
+    Der,
+}
 
 /// Creates, styles, and prints a table from a vector of `Tabled` items.
 ///

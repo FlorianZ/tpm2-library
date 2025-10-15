@@ -2,21 +2,19 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use super::{deny_keyedhash, CommandError};
 use crate::{
     cli::{Hierarchy, SubCommand},
-    context::ContextCache,
-    convert::from_env_to_auth,
-    device::{with_device, Auth, Device, DeviceError},
+    command::{deny_keyedhash, CommandError},
+    device::{with_device, Auth, DeviceError},
     key::Alg,
-    template::{build_public_template, default_attributes},
+    template::build_public,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::{
     data::{
-        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData,
-        TpmCc, TpmRh, TpmSe, TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bAuth, Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
+        TpmlPcrSelection, TpmsSensitiveCreate,
     },
     message::TpmCreatePrimaryCommand,
 };
@@ -33,52 +31,44 @@ pub struct CreatePrimary {
     #[argh(positional)]
     pub algorithm: Alg,
 
-    /// auth for the hierarchy: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
+    /// hierachy auth: 'password:<hex>' or 'session:<handle>'
+    #[argh(option, arg_name = "parent-auth", short = 'p')]
+    pub parent_auth: Option<Auth>,
 
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
+    /// key auth: 'password:<hex>' or 'policy:<hex>'
+    #[argh(option, arg_name = "auth", short = 'a')]
+    pub auth: Option<Auth>,
 }
 
 impl SubCommand for CreatePrimary {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let auth = from_env_to_auth(
-            self.auth.as_ref(),
-            "TPM2SH_AUTH",
-            &context.session_map,
-            Some(TpmSe::Policy),
-        )?;
-        with_device(device, |device| {
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
+        let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
+        with_device(job.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
 
             let primary_handle: TpmRh = self.hierarchy.unwrap_or_default().into();
             let handles = [primary_handle as u32];
-            let auths = std::slice::from_ref(&auth);
+            let auths = std::slice::from_ref(&parent_auth);
 
-            let new_obj_user_auth = match &auth {
+            let user_auth = match &auth {
                 Auth::Password(p) => Tpm2bAuth::try_from(p.as_slice())?,
-                Auth::Tracked(_) => Tpm2bAuth::default(),
+                Auth::Session(_) | Auth::Policy(_) => Tpm2bAuth::default(),
             };
 
-            let user_with_auth = !new_obj_user_auth.is_empty();
-            let object_attributes = default_attributes(&self.algorithm, user_with_auth);
-            let public_template =
-                build_public_template(&self.algorithm, Tpm2bDigest::default(), object_attributes);
+            let auth_policy = match &auth {
+                Auth::Policy(p) => Tpm2bAuth::try_from(p.as_slice())?,
+                Auth::Session(_) | Auth::Password(_) => Tpm2bAuth::default(),
+            };
+
+            let object_attributes = self.algorithm.clone().into();
+            let public_template = build_public(&self.algorithm, auth_policy, object_attributes);
 
             let cmd = TpmCreatePrimaryCommand {
                 primary_handle: (primary_handle as u32).into(),
                 in_sensitive: Tpm2bSensitiveCreate {
                     inner: TpmsSensitiveCreate {
-                        user_auth: new_obj_user_auth,
+                        user_auth,
                         data: Tpm2bSensitiveData::default(),
                     },
                 },
@@ -89,7 +79,7 @@ impl SubCommand for CreatePrimary {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let (resp, _) = context.execute(device, &cmd, &handles, auths)?;
+            let (resp, _) = job.execute(device, &cmd, &handles, auths)?;
 
             let resp = resp
                 .CreatePrimary()
@@ -97,9 +87,10 @@ impl SubCommand for CreatePrimary {
 
             let object_handle = resp.object_handle;
             device.add_name_to_cache(object_handle.0, resp.name);
-            context.track(object_handle)?;
+            job.context_cache.track(object_handle)?;
 
-            context.save_context(device, object_handle, &resp.out_public, &resp.name)?;
+            job.context_cache
+                .save_context(device, object_handle, &resp.out_public, &resp.name)?;
             Ok(())
         })
     }

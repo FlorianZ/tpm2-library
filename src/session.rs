@@ -46,6 +46,8 @@ pub enum SessionError {
     Device(#[from] DeviceError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
+    #[error("invalid auth")]
+    InvalidAuth,
     #[error("{0} not found")]
     NotFound(String),
     #[error("trailing data")]
@@ -74,11 +76,17 @@ pub struct Session {
 
 impl Session {
     /// Creates a new session from a `StartAuthSession` response.
-    pub(crate) fn new(
+    ///
+    /// # Errors
+    ///
+    /// Returns a `SessionError` if key derivation for the HMAC key fails or if
+    /// other value conversions are not possible.
+    pub fn new(
         session_type: TpmSe,
         auth_hash: TpmAlgId,
         nonce_caller: Tpm2bNonce,
         resp: &TpmStartAuthSessionResponse,
+        auth_value: &[u8],
     ) -> Result<Self, SessionError> {
         let digest_len =
             tpm_hash_size(&auth_hash).ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
@@ -87,7 +95,7 @@ impl Session {
             let key_bits = u16::try_from(digest_len * 8)?;
             crypto_kdfa(
                 auth_hash,
-                &[],
+                auth_value,
                 "ATH",
                 &resp.nonce_tpm,
                 &nonce_caller,
@@ -113,6 +121,7 @@ impl Session {
             session_type,
         })
     }
+
     /// Saves a session's state to a binary file.
     ///
     /// # Errors
@@ -192,7 +201,7 @@ impl<'a> IntoIterator for &'a SessionCache {
 }
 
 impl SessionCache {
-    /// Creates a new, empty `SessionMap`.
+    /// Creates a new, empty `SessionCache`.
     #[must_use]
     pub fn new(cache_dir: &Path) -> Self {
         Self {
@@ -412,7 +421,7 @@ impl SessionCache {
     ) -> Result<Vec<u32>, SessionError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if let Auth::Tracked(handle) = auth {
+            if let Auth::Session(handle) = auth {
                 let uri = Uri::Session(*handle).to_string();
                 let session_is_loaded = {
                     let session = self.get(&uri)?;
@@ -445,28 +454,21 @@ impl SessionCache {
         handles: &[u32],
         auth_list: &[Auth],
     ) -> Result<(Vec<TpmsAuthCommand>, Vec<u32>), SessionError> {
-        if auth_list.len() > handles.len() {
-            return Err(SessionError::TrailingAuthValues);
-        }
-
         let mut built_auths = Vec::new();
         let mut tracked_session_handles = Vec::new();
 
         let params = from_tpm_object_to_vec(command).map_err(DeviceError::Tpm)?;
 
-        for (i, handle) in handles.iter().enumerate() {
-            let auth = auth_list
-                .get(i)
-                .cloned()
-                .unwrap_or(Auth::Password(Vec::new()));
+        for (i, auth) in auth_list.iter().enumerate() {
+            let handle = handles.get(i).ok_or(SessionError::TrailingAuthValues)?;
 
             match auth {
                 Auth::Password(password) => {
-                    built_auths.push(build_password_session(&password)?);
+                    built_auths.push(build_password_session(password)?);
                 }
-                Auth::Tracked(session_handle) => {
-                    tracked_session_handles.push(session_handle);
-                    let uri = Uri::Session(session_handle).to_string();
+                Auth::Session(session_handle) => {
+                    tracked_session_handles.push(*session_handle);
+                    let uri = Uri::Session(*session_handle).to_string();
                     let session = self.get(&uri)?;
 
                     let nonce_caller = new_nonce(session.auth_hash)?;
@@ -482,6 +484,7 @@ impl SessionCache {
                     )?;
                     built_auths.push(result);
                 }
+                Auth::Policy(_) => return Err(SessionError::InvalidAuth),
             }
         }
         Ok((built_auths, tracked_session_handles))

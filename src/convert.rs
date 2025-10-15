@@ -3,65 +3,15 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    command::{session::SessionType, CommandError},
+    command::{CommandError, OutputEncoding},
     context::ContextCache,
-    device::Auth,
     key::{Alg, KeyError, TpmKey},
-    session::SessionCache,
     uri::Uri,
 };
-use std::{
-    env,
-    io::{self, Read},
-    str::FromStr,
-};
+use std::io::{self, Read};
 use tpm2_protocol::{
-    constant::TPM_MAX_COMMAND_SIZE,
-    data::{TpmRc, TpmSe},
-    TpmBuild, TpmErrorKind, TpmHandle, TpmWriter,
+    constant::TPM_MAX_COMMAND_SIZE, data::TpmRc, TpmBuild, TpmErrorKind, TpmHandle, TpmWriter,
 };
-
-/// Retrieves and validates an authentication method from arguments or environment.
-///
-/// This function handles retrieving an authentication string, parsing it, and
-/// validating that if it specifies a session, the session is of the `allowed_type`.
-///
-/// # Errors
-///
-/// Returns `CommandError` if the URI is invalid, the session does not exist,
-/// or the session has a type that is not permitted.
-pub fn from_env_to_auth(
-    arg: Option<&String>,
-    env_var: &str,
-    session_map: &SessionCache,
-    allowed_type: Option<TpmSe>,
-) -> Result<Auth, CommandError> {
-    let Some(auth_str) = arg.cloned().or_else(|| env::var(env_var).ok()) else {
-        return Ok(Auth::Password(Vec::new()));
-    };
-
-    let uri = Uri::from_str(&auth_str)?;
-    match uri {
-        Uri::Password(p) => Ok(Auth::Password(p)),
-        Uri::Session(h) => {
-            let Some(expected_type) = allowed_type else {
-                return Err(CommandError::InvalidInput(
-                    "a session URI is not permitted for this authorization".to_string(),
-                ));
-            };
-            let session = session_map.get(&uri.to_string())?;
-            if session.session_type == expected_type {
-                Ok(Auth::Tracked(h))
-            } else {
-                let session_type_str = SessionType::from(session.session_type).to_string();
-                Err(CommandError::UnsupportedSession(session_type_str))
-            }
-        }
-        _ => Err(CommandError::InvalidInput(
-            "auth must be a session: or password: URI".to_string(),
-        )),
-    }
-}
 
 /// Parses a 16 character hex string with an optional `0x` prefix into
 /// `TpmHandle`.
@@ -104,7 +54,11 @@ pub fn from_input_to_bytes(input: Option<&Uri>) -> io::Result<Vec<u8>> {
     let mut input_bytes = Vec::new();
     match input {
         Some(Uri::Path(path)) => {
-            input_bytes = std::fs::read(path)?;
+            if path.to_str() == Some("-") {
+                io::stdin().read_to_end(&mut input_bytes)?;
+            } else {
+                input_bytes = std::fs::read(path)?;
+            }
         }
         None => {
             io::stdin().read_to_end(&mut input_bytes)?;
@@ -131,6 +85,7 @@ pub fn from_tpm_key_to_output(
     context: &mut ContextCache,
     tpm_key: &TpmKey,
     output: Option<&Uri>,
+    encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
     if let Some(output_uri) = output {
         if !matches!(output_uri, Uri::Path(_)) {
@@ -138,9 +93,9 @@ pub fn from_tpm_key_to_output(
                 "output must be a file path, but got '{output_uri}'"
             )));
         }
-        context.write_key_data(Some(output_uri), tpm_key)?;
+        context.write_key_data(Some(output_uri), tpm_key, encoding)?;
     } else {
-        context.write_key_data(None, tpm_key)?;
+        context.write_key_data(None, tpm_key, encoding)?;
     }
     Ok(())
 }

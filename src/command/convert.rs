@@ -2,69 +2,70 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use super::CommandError;
 use crate::{
     cli::SubCommand,
-    context::ContextCache,
-    convert::{from_env_to_auth, from_input_to_bytes, from_tpm_key_to_output},
-    device::{self, Device},
+    command::{CommandError, OutputEncoding},
+    convert::{from_input_to_bytes, from_tpm_key_to_output},
+    device::{with_device, Auth},
     uri::Uri,
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
-use tpm2_protocol::data::TpmSe;
+use std::str::FromStr;
 
-/// Converts external key files to TPMKey files.
+/// Convert external keys to TPM keys.
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "convert")]
 pub struct Convert {
-    /// parent: 'tpm:<handle>', or 'key:<name grip>'
+    /// parent key under which to import
     #[argh(positional)]
-    pub parent: Uri,
+    pub parent: String,
 
-    /// input: PKCS#1, PKCS#8 or SEC1 key file
-    #[argh(positional)]
-    pub input: Option<Uri>,
-
-    /// output: TPMKey file
-    #[argh(option, short = 'o')]
-    pub output: Option<Uri>,
+    /// optional: <input file> [<output file>]
+    #[argh(positional, greedy)]
+    pub files: Vec<String>,
 
     /// parent auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_PARENT_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'p')]
-    pub parent_auth: Option<String>,
+    pub parent_auth: Option<Auth>,
 
-    /// auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
-
-    /// hmac auth: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
-    pub hmac_auth: Option<String>,
+    /// output encoding: pem or der
+    #[argh(option, default = "Default::default()")]
+    pub encoding: OutputEncoding,
 }
 
 impl SubCommand for Convert {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let parent_auth = from_env_to_auth(
-            self.parent_auth.as_ref(),
-            "TPM2SH_PARENT_AUTH",
-            &context.session_map,
-            Some(TpmSe::Policy),
-        )?;
-        device::with_device(device, |device| {
-            let input_bytes = from_input_to_bytes(self.input.as_ref())?;
-            let parent_handle = context.load_parent(device, &self.parent)?;
-            let tpm_key =
-                context.import_key(device, parent_handle, &input_bytes, &[parent_auth])?;
-            from_tpm_key_to_output(context, &tpm_key, self.output.as_ref())
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
+
+        let (input_str, output_str) = match self.files.len() {
+            0 => (None, None),
+            1 => (Some(&self.files[0]), None),
+            2 => (Some(&self.files[0]), Some(&self.files[1])),
+            _ => {
+                return Err(CommandError::InvalidInput(
+                    "too many arguments for convert command".to_string(),
+                ))
+            }
+        };
+
+        let parent_uri = Uri::from_str(&self.parent)?;
+        let input_uri = input_str
+            .map(|s| Uri::from_str(s))
+            .transpose()?
+            .unwrap_or(Uri::Path("-".into()));
+        let output_uri = output_str.map(|s| Uri::from_str(s)).transpose()?;
+
+        with_device(job.device.clone(), |device| {
+            let parent_handle = job.context_cache.load_parent(device, &parent_uri)?;
+            let input_bytes = from_input_to_bytes(Some(&input_uri))?;
+            let tpm_key = job.import_key(device, parent_handle, &input_bytes, &[parent_auth])?;
+            from_tpm_key_to_output(
+                &mut job.context_cache,
+                &tpm_key,
+                output_uri.as_ref(),
+                self.encoding,
+            )
         })
     }
 }

@@ -2,10 +2,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use super::CommandError;
-use crate::{cli::SubCommand, context::ContextCache, convert::from_str_to_tpm_rc, device::Device};
+use crate::{cli::SubCommand, command::CommandError, convert::from_str_to_tpm_rc, Job};
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::data::TpmRc;
 
 /// Prints a TPM return code in human-readable format.
@@ -18,13 +16,8 @@ pub struct ReturnCode {
 }
 
 impl SubCommand for ReturnCode {
-    fn run(
-        &self,
-        _device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        writeln!(context.writer, "{}", self.rc)?;
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        writeln!(job.context_cache.writer, "{}", self.rc)?;
         Ok(())
     }
 

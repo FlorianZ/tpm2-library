@@ -5,54 +5,39 @@
 use crate::{
     cli::SubCommand,
     command::CommandError,
-    context::ContextCache,
-    convert::{from_env_to_auth, from_str_to_handle},
-    device::{self, Device},
+    convert::from_str_to_handle,
+    device::{with_device, Auth},
+    Job,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, rc::Rc};
-use tpm2_protocol::{
-    data::{TpmPt, TpmSe},
-    TpmHandle,
-};
+use tpm2_protocol::{data::TpmPt, TpmHandle};
 
 /// Exports an endorsement key certificate.
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "certificate")]
 pub struct Certificate {
-    /// non-volatile (NV) index
+    /// nv-index
     #[argh(positional, arg_name = "nv-index", from_str_fn(from_str_to_handle))]
     pub nv_index: TpmHandle,
 
-    /// auth for the NV index: 'password:<hex>' or 'session:<handle>'
-    /// Uses TPM2SH_AUTH environment variable if not set.
-    #[argh(option, arg_name = "auth", short = 'a')]
-    pub auth: Option<String>,
+    /// nv-index auth: 'password:<hex>' or 'session:<handle>'
+    #[argh(option, arg_name = "auth", short = 'p')]
+    pub auth: Option<Auth>,
 }
 
 impl SubCommand for Certificate {
-    fn run(
-        &self,
-        device: Option<Rc<RefCell<Device>>>,
-        context: &mut ContextCache,
-        _plain: bool,
-    ) -> Result<(), CommandError> {
-        let auth = from_env_to_auth(
-            self.auth.as_ref(),
-            "TPM2SH_AUTH",
-            &context.session_map,
-            Some(TpmSe::Policy),
-        )?;
-        device::with_device(device, |device| {
+    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+        let auth = job.resolve_auth_session(self.auth.clone())?;
+        with_device(job.device.clone(), |device| {
             let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)? as usize;
 
             let handle = self.nv_index.0;
 
             if let Some(cert_bytes) =
-                context.read_certificate(device, &[auth], handle, max_read_size)?
+                job.read_certificate(device, &[auth], handle, max_read_size)?
             {
                 let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
-                writeln!(context.writer, "{pem_cert}")?;
+                writeln!(job.context_cache.writer, "{pem_cert}")?;
             } else {
                 log::warn!("{handle:08x}: no certificate");
             }
