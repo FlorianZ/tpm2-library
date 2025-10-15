@@ -35,8 +35,8 @@ use thiserror::Error;
 use tpm2_protocol::{
     data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
     message::{
-        TpmAuthResponses, TpmEvictControlCommand, TpmFlushContextCommand, TpmNvReadCommand,
-        TpmNvReadPublicCommand, TpmResponseBody,
+        TpmAuthResponses, TpmFlushContextCommand, TpmNvReadCommand, TpmNvReadPublicCommand,
+        TpmResponseBody,
     },
     TpmErrorKind, TpmHandle, TpmParse,
 };
@@ -618,44 +618,6 @@ impl<'a> ContextCache<'a> {
         }
 
         Ok(Some(cert_bytes))
-    }
-
-    /// Makes a transient key persistent.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `ContextError` if the transient handle is not being tracked by
-    /// the context, or if the underlying `TPM2_EvictControl` command fails.
-    pub fn evict_key(
-        &mut self,
-        device: &mut Device,
-        transient_handle: TpmHandle,
-        persistent_handle: TpmHandle,
-        auths: &[Auth],
-    ) -> Result<(), ContextError> {
-        self.existence_invariant(transient_handle)?;
-        let auth_handle = TpmRh::Owner;
-        let cmd = TpmEvictControlCommand {
-            auth: (auth_handle as u32).into(),
-            object_handle: transient_handle.0.into(),
-            persistent_handle,
-        };
-        let handles = [auth_handle as u32, transient_handle.0];
-
-        let (resp, _) = self.execute(device, &cmd, &handles, auths)?;
-
-        resp.EvictControl()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
-        self.handles.remove(&transient_handle.0);
-        Ok(())
-    }
-
-    fn existence_invariant(&self, handle: TpmHandle) -> Result<(), ContextError> {
-        if self.handles.contains_key(&handle.0) {
-            Ok(())
-        } else {
-            Err(ContextError::NotTracked(handle))
-        }
     }
 
     fn non_existence_invariant(&self, handle: TpmHandle) -> Result<(), ContextError> {

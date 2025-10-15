@@ -6,12 +6,16 @@ use crate::{
     cli::SubCommand,
     context::ContextCache,
     convert::{from_env_to_auth, from_str_to_handle},
-    device::{self, Device},
+    device::{self, Auth, Device, DeviceError},
     uri::Uri,
 };
 use argh::FromArgs;
 use std::{cell::RefCell, rc::Rc, str::FromStr};
-use tpm2_protocol::{data::TpmHt, data::TpmSe, TpmHandle};
+use tpm2_protocol::{
+    data::{TpmCc, TpmHt, TpmRh, TpmSe},
+    message::TpmEvictControlCommand,
+    TpmHandle,
+};
 
 /// Stores a cached key to non-volatile memory.
 #[derive(FromArgs, Debug)]
@@ -30,6 +34,38 @@ pub struct Save {
     /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
     pub hmac_auth: Option<String>,
+}
+
+impl Save {
+    /// Makes a transient key persistent.
+    fn save_persistent(
+        context: &mut ContextCache,
+        device: &mut Device,
+        transient_handle: TpmHandle,
+        persistent_handle: TpmHandle,
+        auths: &[Auth],
+    ) -> Result<(), CommandError> {
+        if !context.handles.contains_key(&transient_handle.0) {
+            return Err(CommandError::InvalidInput(format!(
+                "transient handle {transient_handle} not tracked"
+            )));
+        }
+
+        let auth_handle = TpmRh::Owner;
+        let cmd = TpmEvictControlCommand {
+            auth: (auth_handle as u32).into(),
+            object_handle: transient_handle.0.into(),
+            persistent_handle,
+        };
+        let handles = [auth_handle as u32, transient_handle.0];
+
+        let (resp, _) = context.execute(device, &cmd, &handles, auths)?;
+
+        resp.EvictControl()
+            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
+        context.handles.remove(&transient_handle.0);
+        Ok(())
+    }
 }
 
 impl SubCommand for Save {
@@ -73,7 +109,7 @@ impl SubCommand for Save {
             let grip_uri = Uri::from_str(&format!("key:{grip_str}"))?;
             let transient_handle = context.load_context(dev, &grip_uri)?;
 
-            context.evict_key(dev, transient_handle, persistent_handle, &[auth])?;
+            Self::save_persistent(context, dev, transient_handle, persistent_handle, &[auth])?;
 
             if let Uri::Context(grip) = grip_uri {
                 context.remove_context(&grip)?;
