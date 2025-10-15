@@ -47,7 +47,12 @@ impl SubCommand for Algorithm {
         device::with_device::<_, _, CommandError>(device, |device| {
             let mut results: Vec<(String, AlgorithmType)> = Vec::new();
 
-            if self.algorithm_type.is_none() || self.algorithm_type == Some(AlgorithmType::Key) {
+            let fetch_keys =
+                self.algorithm_type.is_none() || self.algorithm_type == Some(AlgorithmType::Key);
+            let fetch_names =
+                self.algorithm_type.is_none() || self.algorithm_type == Some(AlgorithmType::Name);
+
+            if fetch_keys {
                 results.extend(
                     device
                         .get_all_algorithms()?
@@ -56,7 +61,7 @@ impl SubCommand for Algorithm {
                 );
             }
 
-            if self.algorithm_type.is_none() || self.algorithm_type == Some(AlgorithmType::Name) {
+            if fetch_names {
                 results.extend(
                     device
                         .get_all_hashes()?

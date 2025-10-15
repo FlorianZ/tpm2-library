@@ -6,9 +6,8 @@
 
 use crate::{
     command::{
-        Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary,
-        Delete, Key, Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Save, Seal, Session,
-        StartSession, Unseal,
+        Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Key, Load,
+        Memory, PcrEvent, Policy, ResetLock, ReturnCode, Save, Seal, Session, StartSession, Unseal,
     },
     convert,
     device::Auth,
