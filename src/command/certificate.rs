@@ -3,15 +3,18 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::SubCommand,
     command::CommandError,
     context::ContextCache,
-    convert::from_str_to_handle,
+    convert::{from_env_to_auth, from_str_to_handle},
     device::{self, Device},
 };
 use argh::FromArgs;
 use std::{cell::RefCell, rc::Rc};
-use tpm2_protocol::{data::TpmPt, TpmHandle};
+use tpm2_protocol::{
+    data::{TpmPt, TpmSe},
+    TpmHandle,
+};
 
 /// Exports an endorsement key certificate.
 #[derive(FromArgs, Debug)]
@@ -34,11 +37,11 @@ impl SubCommand for Certificate {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth = get_auth(
+        let auth = from_env_to_auth(
             self.auth.as_ref(),
             "TPM2SH_AUTH",
             &context.session_map,
-            &[tpm2_protocol::data::TpmSe::Policy],
+            Some(TpmSe::Policy),
         )?;
         device::with_device(device, |device| {
             let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)? as usize;

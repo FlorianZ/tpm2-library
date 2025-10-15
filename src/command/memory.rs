@@ -3,9 +3,10 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::SubCommand,
     command::CommandError,
     context::ContextCache,
+    convert::from_env_to_auth,
     device::{self, Device},
     key, x509,
 };
@@ -101,11 +102,11 @@ impl SubCommand for Memory {
         context: &mut ContextCache,
         plain: bool,
     ) -> Result<(), CommandError> {
-        let nv_auth = get_auth(
+        let nv_auth = from_env_to_auth(
             self.parent_auth.as_ref(),
             "TPM2SH_PARENT_AUTH",
             &context.session_map,
-            &[TpmSe::Policy],
+            Some(TpmSe::Policy),
         )?;
         device::with_device(device, |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();

@@ -6,66 +6,38 @@
 
 use crate::{
     command::{
-        session::SessionType, Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary,
+        Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary,
         Delete, Key, Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Save, Seal, Session,
         StartSession, Unseal,
     },
-    device::{Auth, Device},
+    convert,
+    device::Auth,
+    device::Device,
     session::SessionCache,
-    uri::Uri,
 };
 use argh::FromArgs;
-use std::{cell::RefCell, env, path::PathBuf, rc::Rc, str::FromStr};
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 use strum::{Display, EnumString};
 use tpm2_protocol::data::{TpmRh, TpmSe};
 
-pub(crate) fn get_auth(
-    arg: Option<&String>,
-    env_var: &str,
-    session_map: &SessionCache,
-    allowed_types: &[TpmSe],
-) -> Result<Auth, CommandError> {
-    let auth_str = arg.cloned().or_else(|| env::var(env_var).ok());
-
-    let Some(s) = auth_str else {
-        return Ok(Auth::Password(Vec::new()));
-    };
-
-    let uri = Uri::from_str(&s)?;
-    match uri {
-        Uri::Password(p) => Ok(Auth::Password(p)),
-        Uri::Session(h) => {
-            let session = session_map.get(&uri.to_string())?;
-            if allowed_types.contains(&session.session_type) {
-                Ok(Auth::Tracked(h))
-            } else {
-                let session_type_str = SessionType::from(session.session_type).to_string();
-                Err(CommandError::UnsupportedSession(session_type_str))
-            }
-        }
-        _ => Err(CommandError::InvalidInput(
-            "auth must be a session: or password: URI".to_string(),
-        )),
-    }
-}
-
-pub(crate) fn get_command_auth_list(
+pub(crate) fn build_auth_list(
     auth_str: Option<&String>,
     hmac_auth_str: Option<&String>,
     session_map: &SessionCache,
 ) -> Result<Vec<Auth>, CommandError> {
     let mut auths = Vec::new();
 
-    let object_auth = get_auth(auth_str, "TPM2SH_AUTH", session_map, &[TpmSe::Policy])?;
+    let object_auth =
+        convert::from_env_to_auth(auth_str, "TPM2SH_AUTH", session_map, Some(TpmSe::Policy))?;
     if !matches!(&object_auth, Auth::Password(p) if p.is_empty()) {
         auths.push(object_auth);
     }
 
-    let hmac_auth = get_auth(
+    let hmac_auth = convert::from_env_to_auth(
         hmac_auth_str,
         "TPM2SH_HMAC_AUTH",
         session_map,
-        &[TpmSe::Hmac],
+        Some(TpmSe::Hmac),
     )?;
     if !matches!(&hmac_auth, Auth::Password(p) if p.is_empty()) {
         auths.push(hmac_auth);

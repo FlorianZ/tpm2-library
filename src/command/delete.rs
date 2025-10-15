@@ -4,7 +4,7 @@
 
 use super::CommandError;
 use crate::{
-    cli::{get_command_auth_list, SubCommand},
+    cli::{build_auth_list, SubCommand},
     context::ContextCache,
     device::{self, Device},
     uri::Uri,
@@ -38,7 +38,7 @@ impl SubCommand for Delete {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth_list = get_command_auth_list(
+        let auth_list = build_auth_list(
             self.auth.as_ref(),
             self.hmac_auth.as_ref(),
             &context.session_map,

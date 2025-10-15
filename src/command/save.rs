@@ -3,9 +3,9 @@
 
 use super::CommandError;
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::SubCommand,
     context::ContextCache,
-    convert::from_str_to_handle,
+    convert::{from_env_to_auth, from_str_to_handle},
     device::{self, Device},
     uri::Uri,
 };
@@ -39,11 +39,11 @@ impl SubCommand for Save {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth = get_auth(
+        let auth = from_env_to_auth(
             self.auth.as_ref(),
             "TPM2SH_AUTH",
             &context.session_map,
-            &[TpmSe::Policy],
+            Some(TpmSe::Policy),
         )?;
         device::with_device(device, |dev| -> Result<(), CommandError> {
             let (parent_uri_opt, grip_str, handle_str) = match self.input.len() {

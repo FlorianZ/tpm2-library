@@ -4,8 +4,9 @@
 
 use super::{deny_keyedhash, CommandError};
 use crate::{
-    cli::{get_auth, Hierarchy, SubCommand},
+    cli::{Hierarchy, SubCommand},
     context::ContextCache,
+    convert::from_env_to_auth,
     device::{with_device, Auth, Device, DeviceError},
     key::Alg,
     template::{build_public_template, default_attributes},
@@ -50,11 +51,11 @@ impl SubCommand for CreatePrimary {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth = get_auth(
+        let auth = from_env_to_auth(
             self.auth.as_ref(),
             "TPM2SH_AUTH",
             &context.session_map,
-            &[TpmSe::Policy],
+            Some(TpmSe::Policy),
         )?;
         with_device(device, |device| {
             deny_keyedhash(&self.algorithm)?;

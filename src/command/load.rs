@@ -4,9 +4,9 @@
 
 use super::CommandError;
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::SubCommand,
     context::ContextCache,
-    convert::from_input_to_bytes,
+    convert::{from_env_to_auth, from_input_to_bytes},
     device::{self, Auth, Device, DeviceError},
     key::AnyKey,
     uri::Uri,
@@ -54,11 +54,11 @@ impl SubCommand for Load {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let parent_auth = get_auth(
+        let parent_auth = from_env_to_auth(
             self.parent_auth.as_ref(),
             "TPM2SH_PARENT_AUTH",
             &context.session_map,
-            &[TpmSe::Policy],
+            Some(TpmSe::Policy),
         )?;
         device::with_device(device, |device| -> Result<(), CommandError> {
             let parent_handle = context.load_parent(device, &self.parent)?;

@@ -3,7 +3,7 @@
 
 use super::CommandError;
 use crate::{
-    cli::{get_command_auth_list, SubCommand},
+    cli::{build_auth_list, SubCommand},
     context::ContextCache,
     convert::{from_input_to_bytes, from_str_to_handle},
     device::{self, Device, DeviceError},
@@ -63,7 +63,7 @@ impl SubCommand for PcrEvent {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let auth_list = get_command_auth_list(
+        let auth_list = build_auth_list(
             self.auth.as_ref(),
             self.hmac_auth.as_ref(),
             &context.session_map,

@@ -6,9 +6,9 @@
 
 use super::{deny_keyedhash, CommandError};
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::SubCommand,
     context::ContextCache,
-    convert::from_tpm_key_to_output,
+    convert::{from_env_to_auth, from_tpm_key_to_output},
     device::{with_device, Auth, Device},
     key::{Alg, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY},
     uri::Uri,
@@ -60,13 +60,18 @@ impl SubCommand for Create {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let parent_auth = get_auth(
+        let parent_auth = from_env_to_auth(
             self.parent_auth.as_ref(),
             "TPM2SH_PARENT_AUTH",
             &context.session_map,
-            &[TpmSe::Policy],
+            Some(TpmSe::Policy),
         )?;
-        let auth = get_auth(self.auth.as_ref(), "TPM2SH_AUTH", &context.session_map, &[])?;
+        let auth = from_env_to_auth(
+            self.auth.as_ref(),
+            "TPM2SH_AUTH",
+            &context.session_map,
+            None,
+        )?;
         with_device(device, |device| {
             deny_keyedhash(&self.algorithm)?;
             self.create_secondary_key(device, context, &[parent_auth], &auth)

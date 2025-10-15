@@ -4,9 +4,9 @@
 
 use super::CommandError;
 use crate::{
-    cli::{get_auth, SubCommand},
+    cli::SubCommand,
     context::ContextCache,
-    convert::{from_input_to_bytes, from_tpm_key_to_output},
+    convert::{from_env_to_auth, from_input_to_bytes, from_tpm_key_to_output},
     device::{self, Device},
     uri::Uri,
 };
@@ -53,11 +53,11 @@ impl SubCommand for Convert {
         context: &mut ContextCache,
         _plain: bool,
     ) -> Result<(), CommandError> {
-        let parent_auth = get_auth(
+        let parent_auth = from_env_to_auth(
             self.parent_auth.as_ref(),
             "TPM2SH_PARENT_AUTH",
             &context.session_map,
-            &[TpmSe::Policy],
+            Some(TpmSe::Policy),
         )?;
         device::with_device(device, |device| {
             let input_bytes = from_input_to_bytes(self.input.as_ref())?;
