@@ -23,19 +23,17 @@ use crate::{
 };
 
 use std::{
-    cell::RefCell,
     cmp,
     collections::{HashMap, HashSet},
     fmt, fs,
     io::Write,
     num::TryFromIntError,
     path::{Path, PathBuf},
-    rc::Rc,
 };
 
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaNv, TpmsContext, TpmtPublic},
+    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
     message::{
         TpmAuthResponses, TpmEvictControlCommand, TpmFlushContextCommand, TpmNvReadCommand,
         TpmNvReadPublicCommand, TpmResponseBody,
@@ -111,103 +109,9 @@ impl std::fmt::Debug for ContextCache<'_> {
     }
 }
 
-/// A RAII guard for a loaded TPM context handle, ensuring it's flushed on drop.
-pub struct Context {
-    pub device: Rc<RefCell<Device>>,
-    pub handle: TpmHandle,
-    pub grip: String,
-    pub public: TpmtPublic,
-}
-
-impl Drop for Context {
-    fn drop(&mut self) {
-        if let Ok(mut device) = self.device.try_borrow_mut() {
-            if let Err(e) = device.flush_context(self.handle.0) {
-                log::warn!(
-                    "Failed to flush context for handle {:08x}: {e}",
-                    self.handle
-                );
-            }
-        } else {
-            log::error!(
-                "Could not borrow device to flush context handle {}",
-                self.handle
-            );
-        }
-    }
-}
-
-/// An iterator over the live, loaded contexts from the context store.
-pub struct ContextIterator<'a> {
-    device: Rc<RefCell<Device>>,
-    context_keys: Vec<String>,
-    contexts_map: &'a HashMap<String, Vec<u8>>,
-}
-
-/// The item yielded by the `ContextIterator`.
-pub enum ContextItem {
-    /// A successfully loaded context, guarded by a RAII struct.
-    Loaded(Box<Context>),
-    /// The grip of a context that was found to be stale and should be removed.
-    Stale(String),
-}
-
-impl Iterator for ContextIterator<'_> {
-    type Item = Result<ContextItem, DeviceError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(grip) = self.context_keys.pop() {
-            let Some(context_blob) = self.contexts_map.get(&grip) else {
-                continue;
-            };
-
-            let context_struct = match TpmsContext::parse(context_blob) {
-                Ok((cs, _)) => cs,
-                Err(e) => {
-                    log::warn!("Failed to parse context for grip {grip}: {e}");
-                    continue;
-                }
-            };
-
-            let mut device = self.device.borrow_mut();
-            let live_handle = match device.load_context(context_struct) {
-                Ok(h) => h,
-                Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                    return Some(Ok(ContextItem::Stale(grip)));
-                }
-                Err(e) => {
-                    log::warn!("Skipping unloadable context {grip}: {e}");
-                    continue;
-                }
-            };
-
-            let public = match device.read_public(live_handle.into()) {
-                Ok((p, _)) => p,
-                Err(e) => {
-                    log::warn!("Failed to read public area for context {grip}: {e}");
-                    if let Err(flush_err) = device.flush_context(live_handle) {
-                        log::error!(
-                            "Failed to flush context after read_public failed: {flush_err}"
-                        );
-                    }
-                    continue;
-                }
-            };
-
-            return Some(Ok(ContextItem::Loaded(Box::new(Context {
-                device: self.device.clone(),
-                handle: live_handle.into(),
-                grip,
-                public,
-            }))));
-        }
-        None
-    }
-}
-
 impl<'a> ContextCache<'a> {
     /// Flushes transient handles and saves dirty contexts, printing errors to stderr.
-    pub fn teardown(&mut self, device: Option<Rc<RefCell<Device>>>) {
+    pub fn teardown(&mut self, device: Option<std::rc::Rc<std::cell::RefCell<Device>>>) {
         if let Err(e) = self.save_contexts() {
             eprintln!("teardown: {e:#}");
         }
@@ -294,16 +198,6 @@ impl<'a> ContextCache<'a> {
         }
 
         Ok(new_context)
-    }
-
-    /// Creates an iterator that loads each saved context and yields a `Context` guard.
-    pub fn loaded_contexts(&self, device: Rc<RefCell<Device>>) -> ContextIterator<'_> {
-        let keys = self.contexts.keys().cloned().collect();
-        ContextIterator {
-            device,
-            context_keys: keys,
-            contexts_map: &self.contexts,
-        }
     }
 
     /// Loads all saved contexts from the cache directory, pruning invalid ones.
