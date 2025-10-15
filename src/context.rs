@@ -462,44 +462,6 @@ impl<'a> ContextCache<'a> {
         }
     }
 
-    /// Deletes a persistent or transient object by URI.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `ContextError` if the handle is invalid or the delete operation fails.
-    pub fn delete(
-        &mut self,
-        device: &mut Device,
-        uri: &Uri,
-        auths: &[Auth],
-    ) -> Result<u32, ContextError> {
-        let handle = self.load_context(device, uri)?.0;
-
-        let mso = (handle >> 24) as u8;
-        let result = match TpmHt::try_from(mso) {
-            Ok(TpmHt::Persistent) => self.delete_persistent(device, TpmHandle(handle), auths),
-            Ok(TpmHt::Transient) => self.delete_transient(device, TpmHandle(handle)),
-            Ok(TpmHt::HmacSession | TpmHt::PolicySession) => {
-                let cmd = TpmFlushContextCommand {
-                    flush_handle: handle.into(),
-                };
-                let sessions = vec![];
-                device.execute(&cmd, &sessions)?;
-                self.handles.remove(&handle);
-                Ok(())
-            }
-            _ => return Err(ContextError::InvalidHandle(handle)),
-        };
-
-        match result {
-            Ok(()) => Ok(handle),
-            Err(ContextError::Device(DeviceError::TpmRc(rc))) if rc.base() == TpmRcBase::Handle => {
-                Err(ContextError::UnknownHandle(handle))
-            }
-            Err(e) => Err(e),
-        }
-    }
-
     /// Tracks a transient handle for automatic cleanup at the end of execution.
     ///
     /// # Errors
@@ -656,41 +618,6 @@ impl<'a> ContextCache<'a> {
         }
 
         Ok(Some(cert_bytes))
-    }
-
-    fn delete_persistent(
-        &mut self,
-        device: &mut Device,
-        handle: TpmHandle,
-        auths: &[Auth],
-    ) -> Result<(), ContextError> {
-        let auth_handle = TpmRh::Owner;
-        let cmd = TpmEvictControlCommand {
-            auth: (auth_handle as u32).into(),
-            object_handle: handle.0.into(),
-            persistent_handle: handle,
-        };
-        let handles = [auth_handle as u32, handle.0];
-
-        let (resp, _) = self.execute(device, &cmd, &handles, auths)?;
-
-        resp.EvictControl()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
-        Ok(())
-    }
-
-    fn delete_transient(
-        &mut self,
-        device: &mut Device,
-        handle: TpmHandle,
-    ) -> Result<(), ContextError> {
-        let cmd = TpmFlushContextCommand {
-            flush_handle: handle,
-        };
-        let sessions = vec![];
-        let (_, _) = device.execute(&cmd, &sessions)?;
-        self.handles.remove(&handle.0);
-        Ok(())
     }
 
     /// Makes a transient key persistent.

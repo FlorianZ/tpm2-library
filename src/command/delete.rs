@@ -6,11 +6,16 @@ use super::CommandError;
 use crate::{
     cli::{build_auth_list, SubCommand},
     context::ContextCache,
-    device::{self, Device},
+    device::{self, Auth, Device, DeviceError},
     uri::Uri,
 };
 use argh::FromArgs;
 use std::{cell::RefCell, rc::Rc, str::FromStr};
+use tpm2_protocol::{
+    data::{TpmCc, TpmHt, TpmRcBase, TpmRh},
+    message::{TpmEvictControlCommand, TpmFlushContextCommand},
+    TpmHandle,
+};
 
 /// Deletes TPM objects, and cached keys and sessions.
 #[derive(FromArgs, Debug)]
@@ -29,6 +34,84 @@ pub struct Delete {
     /// Uses TPM2SH_HMAC_AUTH environment variable if not set.
     #[argh(option, arg_name = "auth", short = 'm', long = "hmac-auth")]
     pub hmac_auth: Option<String>,
+}
+
+impl Delete {
+    fn delete(
+        context: &mut ContextCache,
+        device: &mut Device,
+        uri: &Uri,
+        auths: &[Auth],
+    ) -> Result<u32, CommandError> {
+        let handle = context.load_context(device, uri)?.0;
+
+        let mso = (handle >> 24) as u8;
+        let result = match TpmHt::try_from(mso) {
+            Ok(TpmHt::Persistent) => {
+                Self::delete_persistent(context, device, TpmHandle(handle), auths)
+            }
+            Ok(TpmHt::Transient) => Self::delete_transient(context, device, TpmHandle(handle)),
+            Ok(TpmHt::HmacSession | TpmHt::PolicySession) => {
+                let cmd = TpmFlushContextCommand {
+                    flush_handle: handle.into(),
+                };
+                let sessions = vec![];
+                device.execute(&cmd, &sessions)?;
+                context.handles.remove(&handle);
+                Ok(())
+            }
+            _ => {
+                return Err(CommandError::InvalidInput(format!(
+                    "invalid handle: {handle:08x}"
+                )))
+            }
+        };
+
+        match result {
+            Ok(()) => Ok(handle),
+            Err(CommandError::Device(DeviceError::TpmRc(rc))) if rc.base() == TpmRcBase::Handle => {
+                Err(CommandError::InvalidInput(format!(
+                    "unknown handle: {handle:08x}"
+                )))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn delete_persistent(
+        context: &mut ContextCache,
+        device: &mut Device,
+        handle: TpmHandle,
+        auths: &[Auth],
+    ) -> Result<(), CommandError> {
+        let auth_handle = TpmRh::Owner;
+        let cmd = TpmEvictControlCommand {
+            auth: (auth_handle as u32).into(),
+            object_handle: handle.0.into(),
+            persistent_handle: handle,
+        };
+        let handles = [auth_handle as u32, handle.0];
+
+        let (resp, _) = context.execute(device, &cmd, &handles, auths)?;
+
+        resp.EvictControl()
+            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
+        Ok(())
+    }
+
+    fn delete_transient(
+        context: &mut ContextCache,
+        device: &mut Device,
+        handle: TpmHandle,
+    ) -> Result<(), CommandError> {
+        let cmd = TpmFlushContextCommand {
+            flush_handle: handle,
+        };
+        let sessions = vec![];
+        device.execute(&cmd, &sessions)?;
+        context.handles.remove(&handle.0);
+        Ok(())
+    }
 }
 
 impl SubCommand for Delete {
@@ -81,7 +164,7 @@ impl SubCommand for Delete {
                             writeln!(context.writer, "{uri}")?;
                         }
                         Uri::Tpm(_) => {
-                            let handle = context.delete(dev, &uri, &auth_list)?;
+                            let handle = Self::delete(context, dev, &uri, &auth_list)?;
                             writeln!(context.writer, "tpm:{handle:08x}")?;
                         }
                         Uri::Context(_) | Uri::Path(_) | Uri::Password(_) => unreachable!(),
