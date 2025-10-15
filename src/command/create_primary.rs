@@ -99,7 +99,7 @@ impl SubCommand for CreatePrimary {
             device.add_name_to_cache(object_handle.0, resp.name);
             context.track(object_handle)?;
 
-            context.new_context(device, object_handle, &resp.name)?;
+            context.save_context(device, object_handle, &resp.out_public, &resp.name)?;
             Ok(())
         })
     }

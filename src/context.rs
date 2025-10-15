@@ -33,13 +33,47 @@ use std::{
 
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
+    constant::TPM_MAX_COMMAND_SIZE,
+    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
     message::{
         TpmAuthResponses, TpmFlushContextCommand, TpmNvReadCommand, TpmNvReadPublicCommand,
         TpmResponseBody,
     },
-    TpmErrorKind, TpmHandle, TpmParse,
+    TpmBuffer, TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
+
+#[derive(Debug, Clone)]
+pub struct ContextKey {
+    pub public: Vec<u8>,
+    pub context: TpmsContext,
+}
+
+impl TpmSized for ContextKey {
+    const SIZE: usize = 0;
+    fn len(&self) -> usize {
+        2 + self.public.len() + self.context.len()
+    }
+}
+
+impl TpmBuild for ContextKey {
+    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmErrorKind> {
+        let public_buf = TpmBuffer::<TPM_MAX_COMMAND_SIZE>::try_from(self.public.as_slice())?;
+        public_buf.build(writer)?;
+        self.context.build(writer)
+    }
+}
+
+impl TpmParse for ContextKey {
+    fn parse(buffer: &[u8]) -> Result<(Self, &[u8]), TpmErrorKind> {
+        let (public_buf, remainder) = TpmBuffer::<TPM_MAX_COMMAND_SIZE>::parse(buffer)?;
+        let (context, remainder) = TpmsContext::parse(remainder)?;
+        let new_self = Self {
+            public: public_buf.to_vec(),
+            context,
+        };
+        Ok((new_self, remainder))
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ContextError {
@@ -88,7 +122,7 @@ impl From<TryFromIntError> for ContextError {
 pub struct ContextCache<'a> {
     pub handles: HashMap<u32, TpmHandle>,
     pub writer: &'a mut dyn Write,
-    pub contexts: HashMap<String, Vec<u8>>,
+    pub contexts: HashMap<String, ContextKey>,
     dirty_contexts: HashSet<String>,
     contexts_dir: PathBuf,
     pub session_map: SessionCache,
@@ -112,9 +146,22 @@ impl std::fmt::Debug for ContextCache<'_> {
 impl<'a> ContextCache<'a> {
     /// Flushes transient handles and saves dirty contexts, printing errors to stderr.
     pub fn teardown(&mut self, device: Option<std::rc::Rc<std::cell::RefCell<Device>>>) {
-        if let Err(e) = self.save_contexts() {
-            eprintln!("teardown: {e:#}");
+        if !self.dirty_contexts.is_empty() {
+            if let Err(e) = fs::create_dir_all(&self.contexts_dir) {
+                eprintln!("teardown: {e:#}");
+            }
+            for grip in self.dirty_contexts.drain() {
+                if let Some(data) = self.contexts.get(&grip) {
+                    let path = self.contexts_dir.join(&grip);
+                    if let Ok(bytes) = from_tpm_object_to_vec(data) {
+                        if let Err(e) = fs::write(path, bytes) {
+                            eprintln!("teardown: {e:#}");
+                        }
+                    }
+                }
+            }
         }
+
         if let Err(e) = self.session_map.save() {
             eprintln!("teardown: {e:#}");
         }
@@ -215,7 +262,17 @@ impl<'a> ContextCache<'a> {
                 if let Some(grip) = path.file_stem().and_then(|s| s.to_str()) {
                     if grip.len() == 16 && grip.chars().all(|c| c.is_ascii_hexdigit()) {
                         let content = fs::read(&path)?;
-                        self.contexts.insert(grip.to_string(), content);
+                        let (key, remainder) = ContextKey::parse(&content)?;
+                        if !remainder.is_empty() {
+                            log::trace!(
+                                "Pruning invalid or outdated context file: {}",
+                                path.display()
+                            );
+                            fs::remove_file(path)?;
+                            continue;
+                        }
+
+                        self.contexts.insert(grip.to_string(), key);
                     } else {
                         log::trace!(
                             "Pruning invalid or outdated context file: {}",
@@ -224,21 +281,6 @@ impl<'a> ContextCache<'a> {
                         fs::remove_file(path)?;
                     }
                 }
-            }
-        }
-        Ok(())
-    }
-
-    /// Saves all dirty contexts back to the cache directory.
-    fn save_contexts(&mut self) -> Result<(), ContextError> {
-        if self.dirty_contexts.is_empty() {
-            return Ok(());
-        }
-        fs::create_dir_all(&self.contexts_dir)?;
-        for grip in self.dirty_contexts.drain() {
-            if let Some(data) = self.contexts.get(&grip) {
-                let path = self.contexts_dir.join(&grip);
-                fs::write(path, data)?;
             }
         }
         Ok(())
@@ -288,24 +330,22 @@ impl<'a> ContextCache<'a> {
     fn refresh_contexts(&mut self, device: &mut Device) -> Result<(), ContextError> {
         let grips_to_refresh: Vec<String> = self.contexts.keys().cloned().collect();
         for grip in grips_to_refresh {
-            let context_blob = match self.contexts.get(&grip) {
-                Some(blob) => blob.clone(),
+            let key = match self.contexts.get(&grip) {
+                Some(cc) => cc.clone(),
                 None => continue,
             };
 
-            let (context_struct, _) = TpmsContext::parse(&context_blob)?;
-
-            match device.load_context(context_struct) {
+            match device.load_context(key.context) {
                 Ok(live_handle) => {
                     let new_context_struct = device.save_context(live_handle)?;
                     device.flush_context(live_handle)?;
-
-                    let new_context_blob = from_tpm_object_to_vec(&new_context_struct)?;
-
-                    self.contexts.insert(grip.clone(), new_context_blob);
-                    self.dirty_contexts.insert(grip);
+                    if let Some(entry) = self.contexts.get_mut(&grip) {
+                        entry.context = new_context_struct;
+                        self.dirty_contexts.insert(grip);
+                    }
                 }
                 Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
+                    log::debug!("key:{grip}: is stale");
                     self.remove_context(&grip)?;
                 }
                 Err(e) => {
@@ -323,18 +363,23 @@ impl<'a> ContextCache<'a> {
     ///
     /// Returns an error if the TPM context cannot be saved or if the new context
     /// cannot be written to the writer.
-    pub fn new_context(
+    pub fn save_context(
         &mut self,
         device: &mut Device,
         handle: TpmHandle,
+        public: &Tpm2bPublic,
         name: &Tpm2bName,
     ) -> Result<(), ContextError> {
         let context_struct = device.save_context(handle.0)?;
-        let context_bytes = from_tpm_object_to_vec(&context_struct)?;
+        let public_bytes = from_tpm_object_to_vec(public)?;
+        let key = ContextKey {
+            public: public_bytes,
+            context: context_struct,
+        };
         let digest = crypto_digest(TpmAlgId::Sha256, &[name.as_ref()])?;
         let grip = hex::encode(&digest[..8]);
 
-        self.contexts.insert(grip.clone(), context_bytes);
+        self.contexts.insert(grip.clone(), key);
         self.dirty_contexts.insert(grip.clone());
 
         writeln!(self.writer, "key:{grip}")?;
@@ -393,8 +438,8 @@ impl<'a> ContextCache<'a> {
         device: &mut Device,
         blob: &[u8],
     ) -> Result<(TpmHandle, Tpm2bName), ContextError> {
-        let (context, _) = TpmsContext::parse(blob)?;
-        match device.load_context(context) {
+        let (key, _) = ContextKey::parse(blob)?;
+        match device.load_context(key.context) {
             Ok(handle) => {
                 let handle = TpmHandle(handle);
                 let (_, name) = device.read_public(handle)?;
@@ -443,13 +488,24 @@ impl<'a> ContextCache<'a> {
         match uri {
             Uri::Tpm(handle) => Ok(TpmHandle(*handle)),
             Uri::Context(grip) => {
-                let context_blob = self
+                let key = self
                     .contexts
                     .get(grip)
                     .ok_or_else(|| ContextError::ContextNotFound(grip.clone()))?
                     .clone();
-                self.load_context_from_bytes(device, &context_blob)
-                    .map(|(handle, _)| handle)
+                match device.load_context(key.context) {
+                    Ok(handle) => {
+                        let handle = TpmHandle(handle);
+                        let (_, name) = device.read_public(handle)?;
+                        device.add_name_to_cache(handle.0, name);
+                        self.track(handle)?;
+                        Ok(handle)
+                    }
+                    Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Handle => {
+                        Err(ContextError::ParentNotLoaded)
+                    }
+                    Err(e) => Err(e.into()),
+                }
             }
             Uri::Path(_) => {
                 let context_blob = uri.to_bytes()?;

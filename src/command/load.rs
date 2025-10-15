@@ -64,10 +64,10 @@ impl SubCommand for Load {
             let parent_handle = context.load_parent(device, &self.parent)?;
             let input_bytes = from_input_to_bytes(self.input.as_ref())?;
 
-            let (object_handle, name) =
+            let (object_handle, name, public) =
                 Self::run_input(context, device, parent_handle, &input_bytes, &[parent_auth])?;
 
-            context.new_context(device, object_handle, &name)?;
+            context.save_context(device, object_handle, &public, &name)?;
             Ok(())
         })
     }
@@ -80,7 +80,7 @@ impl Load {
         parent_handle: TpmHandle,
         input_bytes: &[u8],
         auths: &[Auth],
-    ) -> Result<(TpmHandle, Tpm2bName), CommandError> {
+    ) -> Result<(TpmHandle, Tpm2bName, Tpm2bPublic), CommandError> {
         let tpm_key = match AnyKey::try_from(input_bytes)? {
             AnyKey::Tpm(key) => key,
             AnyKey::External(_) => {
@@ -107,6 +107,6 @@ impl Load {
 
         device.add_name_to_cache(resp.object_handle.0, resp.name);
         context.track(resp.object_handle)?;
-        Ok((resp.object_handle, resp.name))
+        Ok((resp.object_handle, resp.name, load_cmd.in_public))
     }
 }
