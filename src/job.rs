@@ -21,7 +21,6 @@ pub struct Job<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
     pub context_cache: ContextCache<'a>,
     pub session_cache: SessionCache,
-    pub temp_session_uris: Vec<String>,
 }
 
 impl Job<'_> {
@@ -166,8 +165,7 @@ impl Job<'_> {
                 let (resp, nonce_caller) = device.start_session(TpmSe::Hmac, auth_hash, bind)?;
                 let temp_session = Session::new(TpmSe::Hmac, auth_hash, nonce_caller, &resp, &p)?;
                 let handle = temp_session.context.saved_handle.0;
-                let uri_str = self.session_cache.add(temp_session);
-                self.temp_session_uris.push(uri_str);
+                let _ = self.session_cache.add(temp_session);
                 Ok(Auth::Session(handle))
             }
             Auth::Password(p) => Ok(Auth::Password(p)),
@@ -179,24 +177,6 @@ impl Job<'_> {
 
 impl Drop for Job<'_> {
     fn drop(&mut self) {
-        if !self.temp_session_uris.is_empty() {
-            if let Some(dev_rc) = self.device.clone() {
-                if let Ok(mut dev) = dev_rc.try_borrow_mut() {
-                    for uri in &self.temp_session_uris {
-                        if let Ok(session) = self.session_cache.get(uri) {
-                            if let Err(e) = dev.flush_session(session.context.clone()) {
-                                log::warn!("Failed to flush temporary HMAC session {uri}: {e}");
-                            }
-                        }
-                    }
-                }
-            }
-            for uri in self.temp_session_uris.drain(..) {
-                if self.session_cache.remove(&uri).is_err() {
-                    log::warn!("Failed to remove temporary HMAC session {uri} from cache.");
-                }
-            }
-        }
         self.context_cache.teardown(self.device.clone());
         if let Err(e) = self.session_cache.save() {
             log::error!("teardown: {e:#}");

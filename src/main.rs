@@ -88,7 +88,6 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
             device: shared_device.clone(),
             context_cache,
             session_cache,
-            temp_session_uris: Vec::new(),
         }
     } else {
         let context_cache = ContextCache::new(None, cache_dir, &mut stdout)?;
@@ -96,7 +95,6 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
             device: None,
             context_cache,
             session_cache,
-            temp_session_uris: Vec::new(),
         }
     };
 
