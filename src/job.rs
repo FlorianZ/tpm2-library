@@ -8,7 +8,7 @@ use crate::{
     context::{ContextCache, ContextError},
     device::{with_device, Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
-    session::{Session as SessionData, SessionCache},
+    session::{Session, SessionCache},
 };
 use std::{cell::RefCell, rc::Rc};
 use tpm2_protocol::{
@@ -160,7 +160,7 @@ impl Job<'_> {
                 let temp_session = with_device(self.device.clone(), |device| {
                     let auth_hash = TpmAlgId::Sha256;
                     let (resp, nonce_caller) = device.start_session(TpmSe::Hmac, auth_hash)?;
-                    SessionData::new(TpmSe::Hmac, auth_hash, nonce_caller, &resp, &p)
+                    Session::new(TpmSe::Hmac, auth_hash, nonce_caller, &resp, &p)
                 })?;
 
                 let handle = temp_session.context.saved_handle.0;
