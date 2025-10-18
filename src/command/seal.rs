@@ -45,11 +45,13 @@ pub struct Seal {
 
 impl SubCommand for Seal {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
-        let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
-
         with_device(job.device.clone(), |device| {
             let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
+
+            let parent_auth =
+                job.resolve_auth_session(device, self.parent_auth.clone(), parent_handle)?;
+            let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
+
             let input_bytes = from_input_to_bytes(self.input.as_ref())?;
 
             if input_bytes.is_empty() {

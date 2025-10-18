@@ -24,12 +24,10 @@ pub struct Certificate {
 
 impl SubCommand for Certificate {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let auth = job.resolve_auth_session(self.auth.clone())?;
         with_device(job.device.clone(), |device| {
             let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)? as usize;
-
             let handle = self.nv_index.0;
-
+            let auth = job.resolve_auth_session(device, self.auth.clone(), self.nv_index)?;
             if let Some(cert_bytes) =
                 job.read_certificate(device, &[auth], handle, max_read_size)?
             {

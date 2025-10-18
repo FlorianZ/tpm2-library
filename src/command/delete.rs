@@ -32,17 +32,12 @@ pub struct Delete {
 }
 
 impl Delete {
-    fn delete(
-        job: &mut Job,
-        device: &mut Device,
-        uri: &Uri,
-        auths: &[Auth],
-    ) -> Result<u32, CommandError> {
+    fn delete(&self, job: &mut Job, device: &mut Device, uri: &Uri) -> Result<u32, CommandError> {
         let handle = job.context_cache.load_context(device, uri)?.0;
 
         let mso = (handle >> 24) as u8;
         let result = match TpmHt::try_from(mso) {
-            Ok(TpmHt::Persistent) => Self::delete_persistent(job, device, TpmHandle(handle), auths),
+            Ok(TpmHt::Persistent) => self.delete_persistent(job, device, TpmHandle(handle)),
             Ok(TpmHt::Transient) => Self::delete_transient(job, device, TpmHandle(handle)),
             Ok(TpmHt::HmacSession | TpmHt::PolicySession) => {
                 let cmd = TpmFlushContextCommand {
@@ -72,20 +67,24 @@ impl Delete {
     }
 
     fn delete_persistent(
+        &self,
         job: &mut Job,
         device: &mut Device,
         handle: TpmHandle,
-        auths: &[Auth],
     ) -> Result<(), CommandError> {
-        let auth_handle = TpmRh::Owner;
+        let auth_handle = (TpmRh::Owner as u32).into();
+
+        let object_auth = job.resolve_auth_session(device, self.auth.clone(), auth_handle)?;
+        let auth_list = vec![object_auth];
+
         let cmd = TpmEvictControlCommand {
-            auth: (auth_handle as u32).into(),
+            auth: auth_handle,
             object_handle: handle.0.into(),
             persistent_handle: handle,
         };
-        let handles = [auth_handle as u32];
+        let handles = [u32::from(auth_handle)];
 
-        let (resp, _) = job.execute(device, &cmd, &handles, auths)?;
+        let (resp, _) = job.execute(device, &cmd, &handles, &auth_list)?;
 
         resp.EvictControl()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
@@ -109,9 +108,6 @@ impl Delete {
 
 impl SubCommand for Delete {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let object_auth = job.resolve_auth_session(self.auth.clone())?;
-        let auth_list = vec![object_auth];
-
         let uris: Vec<Uri> = self
             .inputs
             .iter()
@@ -157,7 +153,7 @@ impl SubCommand for Delete {
                             writeln!(job.context_cache.writer, "{uri}")?;
                         }
                         Uri::Tpm(_) => {
-                            let handle = Self::delete(job, dev, &uri, &auth_list)?;
+                            let handle = self.delete(job, dev, &uri)?;
                             writeln!(job.context_cache.writer, "tpm:{handle:08x}")?;
                         }
                         Uri::Key(_) | Uri::Path(_) => {

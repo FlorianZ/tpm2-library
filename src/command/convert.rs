@@ -37,8 +37,6 @@ pub struct Convert {
 
 impl SubCommand for Convert {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
-
         let (input_str, output_str) = match self.files.len() {
             0 => (None, None),
             1 => (Some(&self.files[0]), None),
@@ -59,6 +57,8 @@ impl SubCommand for Convert {
 
         with_device(job.device.clone(), |device| {
             let parent_handle = job.context_cache.load_parent(device, &parent_uri)?;
+            let parent_auth =
+                job.resolve_auth_session(device, self.parent_auth.clone(), parent_handle)?;
             let input_bytes = from_input_to_bytes(Some(&input_uri))?;
             let tpm_key = job.import_key(device, parent_handle, &input_bytes, &[parent_auth])?;
             from_tpm_key_to_output(

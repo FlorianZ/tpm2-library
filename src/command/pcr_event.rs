@@ -52,12 +52,13 @@ pub struct PcrEvent {
 
 impl SubCommand for PcrEvent {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let object_auth = job.resolve_auth_session(self.auth.clone())?;
-        let auth_list = vec![object_auth];
-
         with_device(job.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
+
+            let object_auth =
+                job.resolve_auth_session(device, self.auth.clone(), TpmHandle(self.pcr_index.0))?;
+            let auth_list = vec![object_auth];
 
             let data_bytes = from_input_to_bytes(self.input.as_ref())?;
 

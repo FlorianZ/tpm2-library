@@ -64,9 +64,6 @@ impl Save {
 
 impl SubCommand for Save {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let auth = job.resolve_auth_session(self.auth.clone())?;
-        let auth_list = vec![auth];
-
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
             let (parent_uri_opt, grip_str, handle_str) = match self.input.len() {
                 2 => (None, &self.input[0], &self.input[1]),
@@ -85,6 +82,9 @@ impl SubCommand for Save {
                     "output must be a 'tpm:'".to_string(),
                 )),
             }?;
+
+            let auth = job.resolve_auth_session(dev, self.auth.clone(), TpmHandle(handle))?;
+            let auth_list = vec![auth];
 
             if (handle >> 24) as u8 != TpmHt::Persistent as u8 {
                 return Err(CommandError::InvalidInput(

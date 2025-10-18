@@ -38,11 +38,13 @@ pub struct Load {
 
 impl SubCommand for Load {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
-        let auth_list = vec![parent_auth];
-
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
+
+            let parent_auth =
+                job.resolve_auth_session(device, self.parent_auth.clone(), parent_handle)?;
+            let auth_list = vec![parent_auth];
+
             let input_bytes = from_input_to_bytes(self.input.as_ref())?;
 
             let (object_handle, name, public) =

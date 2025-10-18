@@ -27,14 +27,13 @@ pub struct ResetLock {
 
 impl SubCommand for ResetLock {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let object_auth = job.resolve_auth_session(self.auth.clone())?;
-        let auth_list = vec![object_auth];
-
         with_device(job.device.clone(), |device| {
-            let command = TpmDictionaryAttackLockResetCommand {
-                lock_handle: (TpmRh::Lockout as u32).into(),
-            };
+            let lock_handle = (TpmRh::Lockout as u32).into();
+            let command = TpmDictionaryAttackLockResetCommand { lock_handle };
             let handles = [TpmRh::Lockout as u32];
+
+            let object_auth = job.resolve_auth_session(device, self.auth.clone(), lock_handle)?;
+            let auth_list = vec![object_auth];
 
             let (resp, _) = match job.execute(device, &command, &handles, &auth_list) {
                 Ok(result) => result,

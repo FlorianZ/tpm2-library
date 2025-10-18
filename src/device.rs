@@ -619,6 +619,7 @@ impl Device {
         &mut self,
         session_type: TpmSe,
         auth_hash: TpmAlgId,
+        bind: TpmHandle,
     ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), DeviceError> {
         let digest_len =
             tpm_hash_size(&auth_hash).ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
@@ -628,7 +629,7 @@ impl Device {
 
         let cmd = TpmStartAuthSessionCommand {
             tpm_key: (TpmRh::Null as u32).into(),
-            bind: (TpmRh::Null as u32).into(),
+            bind,
             nonce_caller,
             encrypted_salt: Tpm2bEncryptedSecret::default(),
             session_type,

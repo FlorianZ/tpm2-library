@@ -22,7 +22,7 @@ use argh::FromArgs;
 use std::{collections::HashSet, str::FromStr};
 use strum::{Display, EnumString};
 use tpm2_protocol::{
-    data::{TpmAlgId, TpmSe},
+    data::{TpmAlgId, TpmRh, TpmSe},
     TpmHandle,
 };
 
@@ -197,8 +197,11 @@ impl SubCommand for Policy {
                         writeln!(job.context_cache.writer, "{}", hex::encode(&*final_digest))?;
                     }
                     PolicyMode::Session => {
-                        let (resp, nonce_caller) =
-                            device.start_session(TpmSe::Policy, session_hash_alg)?;
+                        let (resp, nonce_caller) = device.start_session(
+                            TpmSe::Policy,
+                            session_hash_alg,
+                            (TpmRh::Null as u32).into(),
+                        )?;
                         let live_handle = resp.session_handle;
 
                         let mut tpm_policy_session =
@@ -237,6 +240,6 @@ pub fn start_trial_session(
     session_type: tpm2_protocol::data::TpmSe,
     hash_alg: TpmAlgId,
 ) -> Result<TpmHandle, PolicyError> {
-    let (resp, _) = device.start_session(session_type, hash_alg)?;
+    let (resp, _) = device.start_session(session_type, hash_alg, (TpmRh::Null as u32).into())?;
     Ok(resp.session_handle)
 }

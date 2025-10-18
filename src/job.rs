@@ -6,7 +6,7 @@ use crate::{
     auth::Auth,
     command::CommandError,
     context::{ContextCache, ContextError},
-    device::{with_device, Device, DeviceError, TpmCommandObject},
+    device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
     session::{Session, SessionCache},
 };
@@ -151,18 +151,20 @@ impl Job<'_> {
     /// # Errors
     ///
     /// Returns a `CommandError` on parsing or session creation failures.
-    pub fn resolve_auth_session(&mut self, auth_opt: Option<Auth>) -> Result<Auth, CommandError> {
+    pub fn resolve_auth_session(
+        &mut self,
+        device: &mut Device,
+        auth_opt: Option<Auth>,
+        bind: TpmHandle,
+    ) -> Result<Auth, CommandError> {
         let Some(auth) = auth_opt else {
             return Ok(Auth::Password(Vec::new()));
         };
         match auth {
             Auth::Password(p) if !p.is_empty() => {
-                let temp_session = with_device(self.device.clone(), |device| {
-                    let auth_hash = TpmAlgId::Sha256;
-                    let (resp, nonce_caller) = device.start_session(TpmSe::Hmac, auth_hash)?;
-                    Session::new(TpmSe::Hmac, auth_hash, nonce_caller, &resp, &p)
-                })?;
-
+                let auth_hash = TpmAlgId::Sha256;
+                let (resp, nonce_caller) = device.start_session(TpmSe::Hmac, auth_hash, bind)?;
+                let temp_session = Session::new(TpmSe::Hmac, auth_hash, nonce_caller, &resp, &p)?;
                 let handle = temp_session.context.saved_handle.0;
                 let uri_str = self.session_cache.add(temp_session);
                 self.temp_session_uris.push(uri_str);

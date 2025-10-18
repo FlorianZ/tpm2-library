@@ -43,12 +43,17 @@ pub struct CreatePrimary {
 
 impl SubCommand for CreatePrimary {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
-        let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
-        let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
         with_device(job.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
 
             let primary_handle: TpmRh = self.hierarchy.unwrap_or_default().into();
+
+            let parent_auth = job.resolve_auth_session(
+                device,
+                self.parent_auth.clone(),
+                (primary_handle as u32).into(),
+            )?;
+            let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
             let handles = [primary_handle as u32];
             let auths = std::slice::from_ref(&parent_auth);
 
