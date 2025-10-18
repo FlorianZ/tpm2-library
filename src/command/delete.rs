@@ -10,7 +10,7 @@ use crate::{
     job::Job,
     uri::Uri,
 };
-use argh::FromArgs;
+use clap::Args;
 use std::str::FromStr;
 use tpm2_protocol::{
     data::{TpmCc, TpmHt, TpmRcBase, TpmRh},
@@ -19,15 +19,13 @@ use tpm2_protocol::{
 };
 
 /// Deletes TPM objects, and cached keys and sessions.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "delete")]
+#[derive(Args, Debug)]
 pub struct Delete {
-    /// inputs: 'tpm:<handle>', 'key:<name grip>', or 'session:<handle>'
-    #[argh(positional)]
+    /// Inputs: 'tpm:<handle>', 'key:<name grip>', or 'session:<handle>'
     pub inputs: Vec<String>,
 
-    /// persistent auth: 'password:<hex>' or 'session:<handle>'
-    #[argh(option, arg_name = "auth", short = 'a')]
+    /// Persistent auth: 'password:<hex>' or 'session:<handle>'
+    #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
 }
 
@@ -73,18 +71,16 @@ impl Delete {
         handle: TpmHandle,
     ) -> Result<(), CommandError> {
         let auth_handle = (TpmRh::Owner as u32).into();
-
-        let object_auth = job.resolve_auth_session(device, self.auth.clone(), auth_handle)?;
-        let auth_list = vec![object_auth];
+        let mut auths = vec![self.auth.clone().unwrap_or_default()];
+        let handles = [u32::from(auth_handle)];
 
         let cmd = TpmEvictControlCommand {
             auth: auth_handle,
             object_handle: handle.0.into(),
             persistent_handle: handle,
         };
-        let handles = [u32::from(auth_handle)];
 
-        let (resp, _) = job.execute(device, &cmd, &handles, &auth_list)?;
+        let (resp, _) = job.execute(device, &cmd, &handles, &mut auths)?;
 
         resp.EvictControl()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
@@ -116,42 +112,35 @@ impl SubCommand for Delete {
 
         let (device_ops, local_ops): (Vec<_>, Vec<_>) = uris
             .into_iter()
-            .partition(|uri| matches!(uri, Uri::Tpm(_) | Uri::Session(_)));
+            .partition(|uri| !matches!(uri, Uri::Path(_)));
 
-        for uri in local_ops {
-            match uri {
-                Uri::Key(ref grip) => {
-                    job.key_cache.remove_context(grip)?;
-                    writeln!(job.key_cache.writer, "{uri}")?;
-                }
-                Uri::Path(_) => {
-                    return Err(CommandError::InvalidInput(uri.to_string()));
-                }
-                Uri::Tpm(_) | Uri::Session(_) => unreachable!(),
-            }
+        if let Some(uri) = local_ops.into_iter().next() {
+            return Err(CommandError::InvalidInput(uri.to_string()));
         }
 
         if !device_ops.is_empty() {
             with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
                 for uri in device_ops {
+                    let uri_str = uri.to_string();
                     match uri {
                         Uri::Session(_) => {
-                            let uri_str = uri.to_string();
-                            if let Ok(session) = job.session_cache.get(&uri_str) {
-                                if let Err(err) = dev.flush_session(session.context.clone()) {
+                            if let Some(session) = job.session_cache.remove(&uri_str)? {
+                                if let Err(err) = dev.flush_session(session.context) {
                                     log::warn!("{uri}: {err}");
                                 }
                             }
-                            job.session_cache.remove(&uri_str)?;
-                            writeln!(job.key_cache.writer, "{uri}")?;
+                            writeln!(job.key_cache.writer, "{uri_str}")?;
+                        }
+                        Uri::Key(ref grip) => {
+                            let handle = self.delete(job, dev, &uri)?;
+                            job.key_cache.remove_context(grip)?;
+                            writeln!(job.key_cache.writer, "tpm:{handle:08x} ({uri})")?;
                         }
                         Uri::Tpm(_) => {
                             let handle = self.delete(job, dev, &uri)?;
                             writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
                         }
-                        Uri::Key(_) | Uri::Path(_) => {
-                            unreachable!()
-                        }
+                        Uri::Path(_) => unreachable!(),
                     }
                 }
                 Ok(())
@@ -165,6 +154,6 @@ impl SubCommand for Delete {
         !self
             .inputs
             .iter()
-            .any(|s| Uri::from_str(s).is_ok_and(|uri| matches!(uri, Uri::Tpm(_) | Uri::Session(_))))
+            .any(|s| s.starts_with("tpm:") || s.starts_with("session:") || s.starts_with("key:"))
     }
 }

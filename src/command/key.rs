@@ -7,7 +7,7 @@ use crate::{
     job::Job,
     key::{self, KeyError},
 };
-use argh::FromArgs;
+use clap::Args;
 use tabled::Tabled;
 use tpm2_protocol::{data::Tpm2bPublic, TpmParse};
 
@@ -20,8 +20,8 @@ struct KeyRow {
 }
 
 /// Lists cached keys.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "key", note = "Lists keys from local cache.")]
+#[derive(Args, Debug)]
+#[command(about = "Lists keys from local cache.")]
 pub struct Key {}
 
 impl SubCommand for Key {

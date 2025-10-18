@@ -16,9 +16,8 @@
 
 use crate::{
     auth::Auth,
-    convert::from_tpm_object_to_vec,
     crypto::{crypto_digest, crypto_hmac, crypto_kdfa, CryptoError},
-    device::{Device, DeviceError, TpmCommandObject},
+    device::{Device, DeviceError},
     uri::Uri,
 };
 use rand::{thread_rng, RngCore};
@@ -442,55 +441,6 @@ impl SessionCache {
         Ok(activated_handles)
     }
 
-    /// Builds the authorization area for a command.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `SessionError` if a session URI is not found, or if building
-    /// any part of the authorization command fails.
-    pub fn build_auth_area<C: TpmCommandObject>(
-        &self,
-        device: &mut Device,
-        command: &C,
-        handles: &[u32],
-        auth_list: &[Auth],
-    ) -> Result<(Vec<TpmsAuthCommand>, Vec<u32>), SessionError> {
-        let mut built_auths = Vec::new();
-        let mut tracked_session_handles = Vec::new();
-
-        let params = from_tpm_object_to_vec(command).map_err(DeviceError::Tpm)?;
-
-        for (i, auth) in auth_list.iter().enumerate() {
-            let handle = handles.get(i).ok_or(SessionError::TrailingAuthValues)?;
-
-            match auth {
-                Auth::Password(password) => {
-                    built_auths.push(build_password_session(password)?);
-                }
-                Auth::Session(session_handle) => {
-                    tracked_session_handles.push(*session_handle);
-                    let uri = Auth::Session(*session_handle).to_string();
-                    let session = self.get(&uri)?;
-
-                    let nonce_caller = new_nonce(session.auth_hash)?;
-
-                    let result = create_auth(
-                        device,
-                        session,
-                        &nonce_caller,
-                        &[],
-                        C::CC,
-                        &[*handle],
-                        &params,
-                    )?;
-                    built_auths.push(result);
-                }
-                Auth::Policy(_) => return Err(SessionError::InvalidAuth),
-            }
-        }
-        Ok((built_auths, tracked_session_handles))
-    }
-
     /// Finalizes sessions after a command executes.
     ///
     /// # Errors
@@ -500,7 +450,7 @@ impl SessionCache {
     pub fn teardown_sessions(
         &mut self,
         device: &mut Device,
-        session_handles: &[u32],
+        session_handles: &HashSet<u32>,
         auth_responses: &TpmAuthResponses,
     ) -> Result<(), SessionError> {
         for (i, handle) in session_handles.iter().enumerate() {
@@ -548,7 +498,7 @@ pub(crate) fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand,
     })
 }
 
-fn new_nonce(hash_alg: TpmAlgId) -> Result<Tpm2bNonce, DeviceError> {
+pub(crate) fn new_nonce(hash_alg: TpmAlgId) -> Result<Tpm2bNonce, DeviceError> {
     let nonce_size =
         tpm_hash_size(&hash_alg).ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
     let mut nonce_bytes = vec![0; nonce_size];
@@ -557,7 +507,7 @@ fn new_nonce(hash_alg: TpmAlgId) -> Result<Tpm2bNonce, DeviceError> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_auth(
+pub(crate) fn create_auth(
     device: &mut Device,
     session: &Session,
     nonce_caller: &Tpm2bNonce,

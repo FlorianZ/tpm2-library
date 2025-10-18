@@ -8,7 +8,7 @@ use crate::{
     device::with_device,
     job::Job,
 };
-use argh::FromArgs;
+use clap::Args;
 use strum::{Display, EnumString};
 use tabled::Tabled;
 
@@ -28,11 +28,10 @@ struct AlgorithmRow {
 }
 
 /// Lists available algorithms supported by the chip.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "algorithm")]
+#[derive(Args, Debug)]
 pub struct Algorithm {
-    /// algorithm type: 'key' or 'name'
-    #[argh(option, long = "type")]
+    /// Algorithm type: 'key' or 'name'
+    #[arg(long = "type")]
     pub algorithm_type: Option<AlgorithmType>,
 }
 

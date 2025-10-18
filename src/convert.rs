@@ -54,11 +54,7 @@ pub fn from_input_to_bytes(input: Option<&Uri>) -> io::Result<Vec<u8>> {
     let mut input_bytes = Vec::new();
     match input {
         Some(Uri::Path(path)) => {
-            if path.to_str() == Some("-") {
-                io::stdin().read_to_end(&mut input_bytes)?;
-            } else {
-                input_bytes = std::fs::read(path)?;
-            }
+            input_bytes = std::fs::read(path)?;
         }
         None => {
             io::stdin().read_to_end(&mut input_bytes)?;

@@ -11,7 +11,7 @@ use crate::{
     },
     job::Job,
 };
-use argh::FromArgs;
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use strum::{Display, EnumString};
 use tpm2_protocol::data::TpmRh;
@@ -41,26 +41,26 @@ pub enum LogFormat {
 }
 
 /// TPM 2.0 shell
-#[derive(FromArgs, Debug)]
+#[derive(Parser, Debug)]
+#[command(version, about)]
 pub struct TopLevel {
-    /// device path
-    #[argh(option, short = 'd', default = "PathBuf::from(\"/dev/tpmrm0\")")]
+    /// Device path
+    #[arg(short = 'd', long, default_value = "/dev/tpmrm0")]
     pub device: PathBuf,
 
-    /// log format: 'plain' or 'pretty'
-    #[argh(option, default = "Default::default()")]
+    /// Log format: 'plain' or 'pretty'
+    #[arg(long, default_value_t = LogFormat::default(), value_parser = clap::value_parser!(LogFormat))]
     pub log_format: LogFormat,
 
-    /// print tables without headers and with space-separated columns
-    #[argh(switch, short = 'P')]
+    /// Print tables without headers and with space-separated columns
+    #[arg(short = 'P', long)]
     pub plain: bool,
 
-    #[argh(subcommand)]
+    #[command(subcommand)]
     pub command: Command,
 }
 
-#[derive(FromArgs, Debug)]
-#[argh(subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum Command {
     Algorithm(Algorithm),
     Certificate(Certificate),

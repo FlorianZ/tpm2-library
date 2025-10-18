@@ -11,7 +11,7 @@ use crate::{
     key::format_alg_from_public,
     x509::get_algorithm,
 };
-use argh::FromArgs;
+use clap::Args;
 use strum::Display;
 use tabled::Tabled;
 use tpm2_protocol::data::{TpmHt, TpmPt};
@@ -36,8 +36,8 @@ struct MemoryRow {
 }
 
 /// Lists objects inside TPM memory.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "memory", note = "Lists objects inside TPM memory")]
+#[derive(Args, Debug)]
+#[command(about = "Lists objects inside TPM memory")]
 pub struct Memory {}
 
 impl Memory {
@@ -133,14 +133,9 @@ impl SubCommand for Memory {
                         if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle) {
                             return Err(CommandError::InvalidInput("Not a certificate".into()));
                         }
-                        let nv_auth = Auth::Password(Vec::new());
+                        let mut auths = vec![Auth::Password(Vec::new())];
                         let cert_bytes = job
-                            .read_certificate(
-                                device,
-                                std::slice::from_ref(&nv_auth),
-                                handle,
-                                max_read_size,
-                            )?
+                            .read_certificate(device, &mut auths, handle, max_read_size)?
                             .ok_or(CommandError::InvalidInput("No certificate data".into()))?;
                         if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != (0x30) {
                             return Err(CommandError::InvalidInput("Not a DER certificate".into()));

@@ -18,7 +18,7 @@ use crate::{
     session::Session,
     uri::Uri,
 };
-use argh::FromArgs;
+use clap::Args;
 use std::{collections::HashSet, str::FromStr};
 use strum::{Display, EnumString};
 use tpm2_protocol::{
@@ -38,24 +38,20 @@ pub enum PolicyMode {
 }
 
 /// Builds an authorization policy.
-#[derive(FromArgs, Debug, Default)]
-#[argh(
-    subcommand,
-    name = "policy",
-    note = "A policy expression for the digest is defined with an expression language
-e.g, 'sha256:0,...' or 'secret(\"tpm:...\")'."
+#[derive(Args, Debug, Default)]
+#[command(
+    long_about = "A policy expression for the digest is defined with an expression language\ne.g, 'sha256:0,...' or 'secret(\"tpm:...\")'."
 )]
 pub struct Policy {
-    /// execution mode: 'resolve' (default), 'software', 'trial', or 'session'.
-    #[argh(option, long = "mode", default = "Default::default()")]
+    /// Execution mode: 'resolve' (default), 'software', 'trial', or 'session'.
+    #[arg(long = "mode", default_value_t = Default::default(), value_parser = clap::value_parser!(PolicyMode))]
     pub mode: PolicyMode,
 
-    /// session to be updated with policy commands
-    #[argh(option)]
+    /// Session to be updated with policy commands
+    #[arg(long)]
     pub auth: Option<String>,
 
-    /// policy expression
-    #[argh(positional)]
+    /// Policy expression
     pub expression: String,
 }
 

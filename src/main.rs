@@ -2,7 +2,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use argh::FromArgs;
+use clap::Parser;
 use cli::{
     cli::{SubCommand, TopLevel},
     command::CommandError,
@@ -13,8 +13,7 @@ use cli::{
     transport::FileTransport,
 };
 use std::{
-    cell::RefCell, env, fs, io::Write, os::unix::io::AsRawFd, process, rc::Rc,
-    sync::atomic::Ordering,
+    cell::RefCell, fs, io::Write, os::unix::io::AsRawFd, process, rc::Rc, sync::atomic::Ordering,
 };
 
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
@@ -36,16 +35,7 @@ fn main() {
         process::exit(1);
     }
 
-    let args: Vec<String> = env::args().collect();
-    let arg_strs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-
-    let cli: TopLevel = match TopLevel::from_args(&[arg_strs[0]], &arg_strs[1..]) {
-        Ok(cli) => cli,
-        Err(e) => {
-            eprintln!("{}", e.output);
-            process::exit(if e.status.is_ok() { 0 } else { 2 });
-        }
-    };
+    let cli: TopLevel = TopLevel::parse();
 
     let Some(project) = directories::ProjectDirs::from("", "", "tpm2sh") else {
         eprintln!("Could not determine directory.");
@@ -84,18 +74,10 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
         }
 
         let key_cache = KeyCache::new(Some(&mut dev_guard), cache_dir, &mut stdout)?;
-        Job {
-            device: shared_device.clone(),
-            key_cache,
-            session_cache,
-        }
+        Job::new(shared_device.clone(), key_cache, session_cache)
     } else {
         let key_cache = KeyCache::new(None, cache_dir, &mut stdout)?;
-        Job {
-            device: None,
-            key_cache,
-            session_cache,
-        }
+        Job::new(None, key_cache, session_cache)
     };
 
     cli.command.run(&mut job, cli.plain)

@@ -10,18 +10,17 @@ use crate::{
     job::Job,
     key::KeyCacheError,
 };
-use argh::FromArgs;
+use clap::Args;
 use tpm2_protocol::{
     data::{TpmCc, TpmRcBase, TpmRh},
     message::TpmDictionaryAttackLockResetCommand,
 };
 
 /// Resets the dictionary attack lockout counter.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "reset-lock")]
+#[derive(Args, Debug)]
 pub struct ResetLock {
-    /// hierarchy auth: 'password:<hex>' or 'session:<handle>'
-    #[argh(option, arg_name = "auth", short = 'a')]
+    /// Hierarchy auth: 'password:<hex>' or 'session:<handle>'
+    #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
 }
 
@@ -31,11 +30,9 @@ impl SubCommand for ResetLock {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand { lock_handle };
             let handles = [TpmRh::Lockout as u32];
+            let mut auths = vec![self.auth.clone().unwrap_or_default()];
 
-            let object_auth = job.resolve_auth_session(device, self.auth.clone(), lock_handle)?;
-            let auth_list = vec![object_auth];
-
-            let (resp, _) = match job.execute(device, &command, &handles, &auth_list) {
+            let (resp, _) = match job.execute(device, &command, &handles, &mut auths) {
                 Ok(result) => result,
                 Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
                     if rc.base() == TpmRcBase::Lockout =>

@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    command::OutputEncoding,
+    command::{CommandError, OutputEncoding},
     convert::from_tpm_object_to_vec,
     crypto::crypto_digest,
     device::{Device, DeviceError},
@@ -99,6 +99,21 @@ impl From<TpmErrorKind> for KeyCacheError {
 impl From<TryFromIntError> for KeyCacheError {
     fn from(err: TryFromIntError) -> Self {
         Self::Device(err.into())
+    }
+}
+
+impl From<CommandError> for KeyCacheError {
+    fn from(err: CommandError) -> Self {
+        match err {
+            CommandError::KeyCacheError(e) => e,
+            CommandError::Crypto(e) => Self::Crypto(e),
+            CommandError::Device(e) => Self::Device(e),
+            CommandError::Io(e) => Self::Io(e),
+            CommandError::Key(e) => Self::Key(e),
+            CommandError::Session(e) => Self::Session(e),
+            CommandError::Uri(e) => Self::Uri(e),
+            _ => Self::Key(KeyError::ValueConversionFailed(err.to_string())),
+        }
     }
 }
 

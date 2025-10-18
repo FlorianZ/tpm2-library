@@ -1,13 +1,13 @@
 [package]
 name = "tpm2sh"
 description = "TPM 2.0 shell"
-version = "0.11.9"
+version = "0.11.10"
 license = "GPL-3.0-or-later"
 homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2sh.git/about/?h=main"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2sh.git"
 authors = ["Jarkko Sakkinen <jarkko.sakkinen@opinsys.com>"]
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.79"
 readme = "README.md"
 
 [lib]
@@ -20,10 +20,10 @@ path = "src/main.rs"
 
 [dependencies]
 aes = "0.8"
-argh = "0.1"
 base64 = "0.22"
 cfb-mode = "0.8"
 cipher = "0.4"
+clap = { version = "4.5", features = ["derive"] }
 ctrlc = "3.4"
 directories = "5.0"
 env_logger = "0.11"

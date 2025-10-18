@@ -6,7 +6,7 @@ use crate::{
     command::{print_table, CommandError},
     job::Job,
 };
-use argh::FromArgs;
+use clap::Args;
 use strum::{Display, EnumString};
 use tabled::Tabled;
 use tpm2_protocol::data::TpmSe;
@@ -38,15 +38,11 @@ struct SessionRow {
 }
 
 /// Lists cached authorization sessions.
-#[derive(FromArgs, Debug)]
-#[argh(
-    subcommand,
-    name = "session",
-    note = "Lists cached authorization sessions."
-)]
+#[derive(Args, Debug)]
+#[command(about = "Lists cached authorization sessions.")]
 pub struct Session {
-    /// filter by session type
-    #[argh(option, long = "type")]
+    /// Filter by session type
+    #[arg(long = "type")]
     pub type_filter: Option<SessionType>,
 }
 

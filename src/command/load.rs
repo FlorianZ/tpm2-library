@@ -5,14 +5,13 @@
 use crate::{
     auth::Auth,
     cli::SubCommand,
-    command::CommandError,
+    command::{CommandError, InputArgs, ParentArgs},
     convert::from_input_to_bytes,
     device::{with_device, Device, DeviceError},
     job::Job,
     key::AnyKey,
-    uri::Uri,
 };
-use argh::FromArgs;
+use clap::Args;
 use tpm2_protocol::{
     data::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmCc},
     message::TpmLoadCommand,
@@ -20,35 +19,26 @@ use tpm2_protocol::{
 };
 
 /// Loads a key under a parent and caches its context.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "load")]
+#[derive(Args, Debug)]
 pub struct Load {
-    /// parent: 'tpm:<handle>', or 'key:<name grip>'
-    #[argh(positional)]
-    pub parent: Uri,
+    #[clap(flatten)]
+    pub parent_args: ParentArgs,
 
-    /// input: PKCS#1, PKCS#8, SEC1 or TPMKey file
-    #[argh(positional)]
-    pub input: Option<Uri>,
-
-    /// parent auth: 'password:<hex>' or 'session:<handle>'
-    #[argh(option, arg_name = "auth", short = 'p')]
-    pub parent_auth: Option<Auth>,
+    #[clap(flatten)]
+    pub input_args: InputArgs,
 }
 
 impl SubCommand for Load {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
-            let parent_handle = job.key_cache.load_parent(device, &self.parent)?;
-
-            let parent_auth =
-                job.resolve_auth_session(device, self.parent_auth.clone(), parent_handle)?;
-            let auth_list = vec![parent_auth];
-
-            let input_bytes = from_input_to_bytes(self.input.as_ref())?;
+            let parent_handle = job
+                .key_cache
+                .load_parent(device, &self.parent_args.parent)?;
+            let mut auths: Vec<Auth> = self.parent_args.parent_auth.clone().into_iter().collect();
+            let input_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
 
             let (object_handle, name, public) =
-                Self::run_input(job, device, parent_handle, &input_bytes, &auth_list)?;
+                Self::run_input(job, device, parent_handle, &input_bytes, &mut auths)?;
 
             job.key_cache
                 .save_context(device, object_handle, &public, &name)?;
@@ -63,7 +53,7 @@ impl Load {
         device: &mut Device,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
-        auths: &[Auth],
+        auths: &mut [Auth],
     ) -> Result<(TpmHandle, Tpm2bName, Tpm2bPublic), CommandError> {
         let tpm_key = match AnyKey::try_from(input_bytes)? {
             AnyKey::Tpm(key) => key,

@@ -9,43 +9,36 @@ use crate::{
     job::Job,
     uri::Uri,
 };
-use argh::FromArgs;
-use std::str::FromStr;
+use clap::Args;
 use tpm2_protocol::{data::TpmCc, message::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
-#[derive(FromArgs, Debug)]
-#[argh(
-    subcommand,
-    name = "unseal",
-    note = "Retrieves data from a sealed data object."
-)]
+#[derive(Args, Debug)]
+#[command(about = "Retrieves data from a sealed data object.")]
 pub struct Unseal {
-    /// input: 'tpm:<handle>' or 'key:<grip>'
-    #[argh(positional)]
-    pub input: String,
+    /// Input: 'tpm:<handle>' or 'key:<grip>'
+    #[arg(short = 'i', long)]
+    pub input: Uri,
 
-    /// key auth: 'password:<hex>' or 'session:<handle>'
-    #[argh(option, arg_name = "auth", short = 'a')]
+    /// Key auth: 'password:<hex>' or 'session:<handle>'
+    #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
 }
 
 impl SubCommand for Unseal {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
-            let input = Uri::from_str(&self.input)?;
-            if matches!(input, Uri::Path(_)) {
-                return Err(CommandError::InvalidInput(format!("{input}")));
+            if matches!(self.input, Uri::Path(_)) {
+                return Err(CommandError::InvalidInput(format!("{}", self.input)));
             }
-            let item_handle = job.key_cache.load_context(device, &input)?;
+            let item_handle = job.key_cache.load_context(device, &self.input)?;
+            let mut auths = vec![self.auth.clone().unwrap_or_default()];
 
-            let auth = job.resolve_auth_session(device, self.auth.clone(), item_handle)?;
-            let auth_list = vec![auth];
             let unseal_cmd = TpmUnsealCommand {
                 item_handle: item_handle.0.into(),
             };
             let unseal_handles = [item_handle.0];
-            let (unseal_resp, _) = job.execute(device, &unseal_cmd, &unseal_handles, &auth_list)?;
+            let (unseal_resp, _) = job.execute(device, &unseal_cmd, &unseal_handles, &mut auths)?;
             let out_data = unseal_resp
                 .Unseal()
                 .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Unseal))?

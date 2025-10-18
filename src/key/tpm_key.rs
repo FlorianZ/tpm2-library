@@ -107,7 +107,7 @@ impl TpmKey {
     pub fn new(
         job: &mut Job,
         device: &mut Device,
-        auth_list: &[Auth],
+        auth_list: &mut [Auth],
         auth: &Auth,
         parent_handle: TpmHandle,
         template: &TpmKeyTemplate,
@@ -221,7 +221,7 @@ impl TpmKey {
         external_key: &ExternalKey,
         rng: &mut (impl RngCore + CryptoRng),
         handles: &[u32],
-        auth_list: &[Auth],
+        auth_list: &mut [Auth],
     ) -> Result<Self, KeyError> {
         let (parent_public, parent_name) = match device.read_public(parent_handle) {
             Ok(result) => result,

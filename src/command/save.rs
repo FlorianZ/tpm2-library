@@ -9,7 +9,7 @@ use crate::{
     job::Job,
     uri::Uri,
 };
-use argh::FromArgs;
+use clap::Args;
 use std::str::FromStr;
 use tpm2_protocol::{
     data::{TpmCc, TpmHt, TpmRh},
@@ -18,15 +18,13 @@ use tpm2_protocol::{
 };
 
 /// Stores a cached key to non-volatile memory.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "save")]
+#[derive(Args, Debug)]
 pub struct Save {
-    /// input: [<parent>] <name grip> <persistent-handle>
-    #[argh(positional)]
+    /// Input: [<parent>] <name grip> <persistent-handle>
     pub input: Vec<String>,
 
-    /// key auth: 'password:<hex>' or 'session:<handle>'
-    #[argh(option, arg_name = "auth", short = 'a')]
+    /// Key auth: 'password:<hex>' or 'session:<handle>'
+    #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
 }
 
@@ -37,7 +35,7 @@ impl Save {
         device: &mut Device,
         transient_handle: TpmHandle,
         persistent_handle: TpmHandle,
-        auths: &[Auth],
+        auths: &mut [Auth],
     ) -> Result<(), CommandError> {
         if !job.key_cache.handles.contains_key(&transient_handle.0) {
             return Err(CommandError::InvalidInput(format!(
@@ -65,7 +63,7 @@ impl Save {
 impl SubCommand for Save {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-            let (parent_uri_opt, grip_str, handle_str) = match self.input.len() {
+            let (_parent_uri_opt, grip_str, handle_str) = match self.input.len() {
                 2 => (None, &self.input[0], &self.input[1]),
                 3 => (Some(&self.input[0]), &self.input[1], &self.input[2]),
                 _ => {
@@ -83,8 +81,7 @@ impl SubCommand for Save {
                 )),
             }?;
 
-            let auth = job.resolve_auth_session(dev, self.auth.clone(), TpmHandle(handle))?;
-            let auth_list = vec![auth];
+            let mut auths = vec![self.auth.clone().unwrap_or_default()];
 
             if (handle >> 24) as u8 != TpmHt::Persistent as u8 {
                 return Err(CommandError::InvalidInput(
@@ -92,11 +89,6 @@ impl SubCommand for Save {
                 ));
             }
             let persistent_handle = TpmHandle(handle);
-
-            if let Some(parent_uri_str) = parent_uri_opt {
-                let parent_uri = Uri::from_str(parent_uri_str)?;
-                let _parent_handle = job.key_cache.load_parent(dev, &parent_uri)?;
-            }
 
             let grip_uri = Uri::from_str(grip_str)?;
             if !matches!(grip_uri, Uri::Key(_)) {
@@ -106,7 +98,7 @@ impl SubCommand for Save {
             }
             let transient_handle = job.key_cache.load_context(dev, &grip_uri)?;
 
-            Self::save_persistent(job, dev, transient_handle, persistent_handle, &auth_list)?;
+            Self::save_persistent(job, dev, transient_handle, persistent_handle, &mut auths)?;
 
             if let Uri::Key(grip) = grip_uri {
                 job.key_cache.remove_context(&grip)?;

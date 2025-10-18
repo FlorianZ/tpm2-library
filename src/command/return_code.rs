@@ -3,15 +3,14 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{cli::SubCommand, command::CommandError, convert::from_str_to_tpm_rc, job::Job};
-use argh::FromArgs;
+use clap::Args;
 use tpm2_protocol::data::TpmRc;
 
 /// Prints a TPM return code in human-readable format.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "return-code")]
+#[derive(Args, Debug)]
 pub struct ReturnCode {
-    /// return code in hex or decimal
-    #[argh(positional, from_str_fn(from_str_to_tpm_rc))]
+    /// Return code in hex or decimal
+    #[arg(value_parser = from_str_to_tpm_rc)]
     pub rc: TpmRc,
 }
 

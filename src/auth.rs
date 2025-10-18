@@ -15,6 +15,12 @@ pub enum Auth {
     Policy(Vec<u8>),
 }
 
+impl Default for Auth {
+    fn default() -> Self {
+        Self::Password(Vec::new())
+    }
+}
+
 /// A type alias for a list of authentications, to attach methods.
 pub type AuthList = Vec<Auth>;
 

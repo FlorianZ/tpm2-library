@@ -6,6 +6,7 @@
 
 pub mod algorithm;
 pub mod certificate;
+pub mod common;
 pub mod convert;
 pub mod create;
 pub mod create_primary;
@@ -24,6 +25,7 @@ pub mod unseal;
 
 pub use algorithm::*;
 pub use certificate::*;
+pub use common::{InputArgs, OutputArgs, ParentArgs};
 pub use convert::Convert;
 pub use create::*;
 pub use create_primary::*;

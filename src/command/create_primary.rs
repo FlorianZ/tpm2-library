@@ -11,7 +11,7 @@ use crate::{
     key::Alg,
     template::build_public,
 };
-use argh::FromArgs;
+use clap::Args;
 use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
@@ -21,23 +21,22 @@ use tpm2_protocol::{
 };
 
 /// Creates a new primary key in a specified hierarchy.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "create-primary")]
+#[derive(Args, Debug)]
 pub struct CreatePrimary {
-    /// hierarchy: owner, platform, or endorsement
-    #[argh(option, short = 'H')]
+    /// Hierarchy: owner, platform, or endorsement
+    #[arg(short = 'H', long)]
     pub hierarchy: Option<Hierarchy>,
 
-    /// key algorithm
-    #[argh(positional)]
+    /// Key algorithm
+    #[arg(value_parser = clap::value_parser!(Alg))]
     pub algorithm: Alg,
 
-    /// hierachy auth: 'password:<hex>' or 'session:<handle>'
-    #[argh(option, arg_name = "parent-auth", short = 'p')]
+    /// Hierarchy auth: 'password:<hex>' or 'session:<handle>'
+    #[arg(short = 'p', long = "parent-auth")]
     pub parent_auth: Option<Auth>,
 
-    /// key auth: 'password:<hex>' or 'policy:<hex>'
-    #[argh(option, arg_name = "auth", short = 'a')]
+    /// Key auth: 'password:<hex>' or 'policy:<hex>'
+    #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
 }
 
@@ -47,15 +46,9 @@ impl SubCommand for CreatePrimary {
             deny_keyedhash(&self.algorithm)?;
 
             let primary_handle: TpmRh = self.hierarchy.unwrap_or_default().into();
-
-            let parent_auth = job.resolve_auth_session(
-                device,
-                self.parent_auth.clone(),
-                (primary_handle as u32).into(),
-            )?;
-            let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
+            let mut auths = vec![self.parent_auth.clone().unwrap_or_default()];
+            let auth = self.auth.clone().unwrap_or_default();
             let handles = [primary_handle as u32];
-            let auths = std::slice::from_ref(&parent_auth);
 
             let user_auth = match &auth {
                 Auth::Password(p) => Tpm2bAuth::try_from(p.as_slice())?,
@@ -85,7 +78,7 @@ impl SubCommand for CreatePrimary {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let (resp, _) = job.execute(device, &cmd, &handles, auths)?;
+            let (resp, _) = job.execute(device, &cmd, &handles, &mut auths)?;
 
             let resp = resp
                 .CreatePrimary()
