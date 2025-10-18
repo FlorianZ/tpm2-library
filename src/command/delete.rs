@@ -139,14 +139,7 @@ impl SubCommand for Delete {
                             let uri_str = uri.to_string();
                             if let Ok(session) = job.session_cache.get(&uri_str) {
                                 if let Err(err) = dev.flush_session(session.context.clone()) {
-                                    match err {
-                                        DeviceError::TpmRc(rc)
-                                            if rc.base() == TpmRcBase::Handle =>
-                                        {
-                                            log::debug!("{uri}: already flushed");
-                                        }
-                                        _ => log::warn!("{uri}: {err}"),
-                                    }
+                                    log::warn!("{uri}: {err}");
                                 }
                             }
                             job.session_cache.remove(&uri_str)?;

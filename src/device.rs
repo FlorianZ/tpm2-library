@@ -601,7 +601,11 @@ impl Device {
     pub fn flush_session(&mut self, context: TpmsContext) -> Result<(), DeviceError> {
         match self.load_context(context) {
             Ok(live_handle) => self.flush_context(live_handle),
-            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => Ok(()),
+            Err(DeviceError::TpmRc(rc))
+                if rc.base() == TpmRcBase::ReferenceH0 || rc.base() == TpmRcBase::Handle =>
+            {
+                Ok(())
+            }
             Err(e) => Err(e),
         }
     }
