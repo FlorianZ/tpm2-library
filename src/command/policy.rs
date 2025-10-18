@@ -3,9 +3,10 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::CommandError,
-    device::{with_device, Auth, Device},
+    device::{with_device, Device},
     job::Job,
     pcr::{
         pcr_composite_digest, pcr_get_bank_list, pcr_read, pcr_selection_vec_from_str,
@@ -14,7 +15,7 @@ use crate::{
     policy::{
         execute_policy, parse, Expression, PolicyError, SoftwarePolicySession, TpmPolicySession,
     },
-    session,
+    session::Session,
     uri::Uri,
 };
 use argh::FromArgs;
@@ -137,7 +138,7 @@ where
         Expression::Secret { auth_handle, .. } => {
             try_visit_pcr_expressions_mut(auth_handle, visitor)?;
         }
-        Expression::Uri(_) => {}
+        Expression::Auth(_) | Expression::Uri(_) => {}
     }
     Ok(())
 }
@@ -204,7 +205,7 @@ impl SubCommand for Policy {
                             TpmPolicySession::new(device, live_handle, session_hash_alg);
                         execute_policy(&ast, &mut tpm_policy_session)?;
 
-                        let mut session_data = session::Session::new(
+                        let mut session_data = Session::new(
                             TpmSe::Policy,
                             session_hash_alg,
                             nonce_caller,

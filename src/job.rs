@@ -3,9 +3,10 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    auth::Auth,
     command::CommandError,
     context::{ContextCache, ContextError},
-    device::{with_device, Auth, Device, DeviceError, TpmCommandObject},
+    device::{with_device, Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
     session::{Session as SessionData, SessionCache},
 };

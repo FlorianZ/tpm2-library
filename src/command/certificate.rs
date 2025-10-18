@@ -3,11 +3,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::SubCommand,
-    command::CommandError,
-    convert::from_str_to_handle,
-    device::{with_device, Auth},
-    Job,
+    auth::Auth, cli::SubCommand, command::CommandError, convert::from_str_to_handle,
+    device::with_device, job::Job,
 };
 use argh::FromArgs;
 use tpm2_protocol::{data::TpmPt, TpmHandle};

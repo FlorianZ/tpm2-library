@@ -9,7 +9,7 @@ use crate::{
         Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Key, Load,
         Memory, PcrEvent, Policy, ResetLock, ReturnCode, Save, Seal, Session, Unseal,
     },
-    Job,
+    job::Job,
 };
 use argh::FromArgs;
 use std::path::PathBuf;

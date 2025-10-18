@@ -3,13 +3,14 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::CommandError,
     convert::from_input_to_bytes,
-    device::{self, Auth, Device, DeviceError},
+    device::{with_device, Device, DeviceError},
+    job::Job,
     key::AnyKey,
     uri::Uri,
-    Job,
 };
 use argh::FromArgs;
 use tpm2_protocol::{
@@ -40,7 +41,7 @@ impl SubCommand for Load {
         let parent_auth = job.resolve_auth_session(self.parent_auth.clone())?;
         let auth_list = vec![parent_auth];
 
-        device::with_device(job.device.clone(), |device| -> Result<(), CommandError> {
+        with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
             let input_bytes = from_input_to_bytes(self.input.as_ref())?;
 

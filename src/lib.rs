@@ -5,6 +5,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
+pub mod auth;
 pub mod cli;
 pub mod command;
 pub mod context;
@@ -21,8 +22,6 @@ pub mod template;
 pub mod transport;
 pub mod uri;
 pub mod x509;
-
-pub use job::Job;
 
 /// A global flag to signal graceful teardown of the application.
 ///

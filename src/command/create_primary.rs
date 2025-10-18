@@ -3,12 +3,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    auth::Auth,
     cli::{Hierarchy, SubCommand},
     command::{deny_keyedhash, CommandError},
-    device::{with_device, Auth, DeviceError},
+    device::{with_device, DeviceError},
+    job::Job,
     key::Alg,
     template::build_public,
-    Job,
 };
 use argh::FromArgs;
 use tpm2_protocol::{

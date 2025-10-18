@@ -3,10 +3,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::{print_table, CommandError},
-    device::{self, Auth, Device},
-    key, x509, Job,
+    device::{self, Device},
+    job::Job,
+    key::format_alg_from_public,
+    x509::get_algorithm,
 };
 use argh::FromArgs;
 use strum::Display;
@@ -72,7 +75,7 @@ impl Memory {
     /// Fetches the public part of a key and formats its algorithm details.
     fn fetch_details(device: &mut Device, handle: u32) -> Result<String, CommandError> {
         let (public, _) = device.read_public(handle.into())?;
-        Ok(key::format_alg_from_public(&public))
+        Ok(format_alg_from_public(&public))
     }
 }
 
@@ -142,7 +145,7 @@ impl SubCommand for Memory {
                         if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != (0x30) {
                             return Err(CommandError::InvalidInput("Not a DER certificate".into()));
                         }
-                        Ok(x509::get_algorithm(&cert_bytes)?)
+                        Ok(get_algorithm(&cert_bytes)?)
                     },
                 )?;
             }

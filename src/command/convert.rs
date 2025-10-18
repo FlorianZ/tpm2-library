@@ -3,12 +3,13 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::{CommandError, OutputEncoding},
     convert::{from_input_to_bytes, from_tpm_key_to_output},
-    device::{with_device, Auth},
+    device::with_device,
+    job::Job,
     uri::Uri,
-    Job,
 };
 use argh::FromArgs;
 use std::str::FromStr;

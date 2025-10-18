@@ -4,8 +4,8 @@
 use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
+    job::Job,
     key::{self, KeyError},
-    Job,
 };
 use argh::FromArgs;
 use tabled::Tabled;

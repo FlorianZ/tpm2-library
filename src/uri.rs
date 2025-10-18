@@ -16,10 +16,6 @@ pub enum UriError {
     Io(#[from] std::io::Error),
     #[error("operation not valid for this URI type")]
     InvalidUriType,
-    #[error("invalid password format: {0}")]
-    InvalidPasswordFormat(String),
-    #[error("invalid policy format: {0}")]
-    InvalidPolicyFormat(String),
 }
 
 /// A type-safe representation of a resource identifier.
@@ -28,8 +24,6 @@ pub enum Uri {
     Tpm(u32),
     Key(String),
     Path(std::path::PathBuf),
-    Password(Vec<u8>),
-    Policy(Vec<u8>),
     Session(u32),
 }
 
@@ -82,14 +76,6 @@ impl FromStr for Uri {
             } else {
                 Err(UriError::InvalidGripFormat(grip.to_string()))
             }
-        } else if let Some(hex_pass) = s.strip_prefix("password:") {
-            let bytes = hex::decode(hex_pass)
-                .map_err(|e| UriError::InvalidPasswordFormat(e.to_string()))?;
-            Ok(Self::Password(bytes))
-        } else if let Some(hex_policy) = s.strip_prefix("policy:") {
-            let bytes = hex::decode(hex_policy)
-                .map_err(|e| UriError::InvalidPolicyFormat(e.to_string()))?;
-            Ok(Self::Policy(bytes))
         } else if s.contains(':') && !s.starts_with('/') && s.chars().nth(1) != Some(':') {
             Err(UriError::UnsupportedScheme(
                 s.split_once(':').unwrap_or(("", "")).0.to_string(),
@@ -106,8 +92,6 @@ impl fmt::Display for Uri {
             Self::Tpm(handle) => write!(f, "tpm:{handle:08x}"),
             Self::Key(grip) => write!(f, "key:{grip}"),
             Self::Path(path) => write!(f, "{}", path.to_string_lossy()),
-            Self::Password(bytes) => write!(f, "password:{}", hex::encode(bytes)),
-            Self::Policy(bytes) => write!(f, "policy:{}", hex::encode(bytes)),
             Self::Session(handle) => write!(f, "session:{handle:08x}"),
         }
     }

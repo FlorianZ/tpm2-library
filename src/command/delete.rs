@@ -3,11 +3,12 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::CommandError,
-    device::{self, Auth, Device, DeviceError},
+    device::{with_device, Device, DeviceError},
+    job::Job,
     uri::Uri,
-    Job,
 };
 use argh::FromArgs;
 use std::str::FromStr;
@@ -127,7 +128,7 @@ impl SubCommand for Delete {
                     job.context_cache.remove_context(grip)?;
                     writeln!(job.context_cache.writer, "{uri}")?;
                 }
-                Uri::Path(_) | Uri::Password(_) | Uri::Policy(_) => {
+                Uri::Path(_) => {
                     return Err(CommandError::InvalidInput(uri.to_string()));
                 }
                 Uri::Tpm(_) | Uri::Session(_) => unreachable!(),
@@ -135,7 +136,7 @@ impl SubCommand for Delete {
         }
 
         if !device_ops.is_empty() {
-            device::with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
+            with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
                 for uri in device_ops {
                     match uri {
                         Uri::Session(_) => {
@@ -159,7 +160,7 @@ impl SubCommand for Delete {
                             let handle = Self::delete(job, dev, &uri, &auth_list)?;
                             writeln!(job.context_cache.writer, "tpm:{handle:08x}")?;
                         }
-                        Uri::Key(_) | Uri::Path(_) | Uri::Policy(_) | Uri::Password(_) => {
+                        Uri::Key(_) | Uri::Path(_) => {
                             unreachable!()
                         }
                     }

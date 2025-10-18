@@ -2,7 +2,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::SubCommand, command::CommandError, convert::from_str_to_tpm_rc, Job};
+use crate::{cli::SubCommand, command::CommandError, convert::from_str_to_tpm_rc, job::Job};
 use argh::FromArgs;
 use tpm2_protocol::data::TpmRc;
 

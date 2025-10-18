@@ -2,14 +2,15 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::CommandError,
     convert::{from_input_to_bytes, from_str_to_handle},
-    device::{with_device, Auth, DeviceError},
+    device::{with_device, DeviceError},
+    job::Job,
     key::Tpm2shAlgId,
     pcr::pcr_get_bank_list,
     uri::Uri,
-    Job,
 };
 use argh::FromArgs;
 use tpm2_protocol::{

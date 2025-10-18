@@ -5,13 +5,14 @@
 //! Handles the `create` command, which creates secondary keys.
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::{deny_keyedhash, CommandError, OutputEncoding},
     convert::from_tpm_key_to_output,
-    device::{with_device, Auth, Device},
+    device::{with_device, Device},
+    job::Job,
     key::{Alg, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY},
     uri::Uri,
-    Job,
 };
 use argh::FromArgs;
 use tpm2_protocol::data::Tpm2bSensitiveData;

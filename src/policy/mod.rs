@@ -11,6 +11,7 @@ pub use software::*;
 pub use tpm::*;
 
 use crate::{
+    auth::Auth,
     context::ContextError,
     crypto::CryptoError,
     device::{Device, DeviceError},
@@ -144,6 +145,7 @@ impl From<TpmErrorKind> for PolicyError {
 /// The Abstract Syntax Tree (AST) for the unified policy language.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
+    Auth(Auth),
     Pcr {
         selection: String,
         digest: Option<String>,
@@ -161,6 +163,7 @@ pub enum Expression {
 impl fmt::Display for Expression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Expression::Auth(auth) => write!(f, "{auth}"),
             Expression::Pcr {
                 selection,
                 digest,
@@ -206,18 +209,8 @@ impl Expression {
     /// Returns a `PolicyError` if the expression is not a file path or the file
     /// cannot be read.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
-        use std::io::Read;
         match self {
-            Self::Uri(Uri::Path(path)) => {
-                if path.to_str() == Some("-") {
-                    let mut buf = Vec::new();
-                    std::io::stdin().read_to_end(&mut buf)?;
-                    Ok(buf)
-                } else {
-                    Ok(std::fs::read(path)?)
-                }
-            }
-            Self::Uri(Uri::Password(bytes)) => Ok(bytes.clone()),
+            Self::Auth(Auth::Password(bytes)) => Ok(bytes.clone()),
             _ => Err(PolicyError::InvalidSecret(format!("{self:?}"))),
         }
     }
@@ -280,6 +273,12 @@ where
     )
 }
 
+fn auth_expression(input: &str) -> IResult<&str, Expression> {
+    map_res(take_while1(|c: char| c != ',' && c != ')'), |s: &str| {
+        Auth::from_str(s).map(Expression::Auth)
+    })(input)
+}
+
 fn uri_expression(input: &str) -> IResult<&str, Expression> {
     map_res(take_while1(|c: char| c != ',' && c != ')'), |s: &str| {
         Uri::from_str(s).map(Expression::Uri)
@@ -316,6 +315,7 @@ fn parse_expression(input: &str) -> IResult<&str, Expression> {
         call("secret", secret_expression),
         call("or", or_expression),
         pcr_policy_expression,
+        auth_expression,
         uri_expression,
     ))(input)
 }
@@ -348,6 +348,7 @@ pub fn execute_policy(
     session: &mut impl PolicySession,
 ) -> Result<Tpm2bDigest, PolicyError> {
     match ast {
+        Expression::Auth(auth) => Err(PolicyError::InvalidExpression(auth.to_string())),
         Expression::Pcr {
             selection,
             digest,
@@ -453,7 +454,7 @@ pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
         Expression::Secret { auth_handle, .. } => {
             populate_pcr_digests(auth_handle, pcr_map)?;
         }
-        Expression::Uri(_) => {}
+        Expression::Auth(_) | Expression::Uri(_) => {}
     }
     Ok(())
 }

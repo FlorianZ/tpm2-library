@@ -3,11 +3,12 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::CommandError,
     context::ContextError,
-    device::{with_device, Auth, DeviceError},
-    Job,
+    device::{with_device, DeviceError},
+    job::Job,
 };
 use argh::FromArgs;
 use tpm2_protocol::{

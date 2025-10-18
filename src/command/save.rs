@@ -2,11 +2,12 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::CommandError,
-    device::{with_device, Auth, Device, DeviceError},
+    device::{with_device, Device, DeviceError},
+    job::Job,
     uri::Uri,
-    Job,
 };
 use argh::FromArgs;
 use std::str::FromStr;

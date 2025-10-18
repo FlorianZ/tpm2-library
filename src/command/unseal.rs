@@ -2,11 +2,12 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::CommandError,
-    device::{with_device, Auth, DeviceError},
+    device::{with_device, DeviceError},
+    job::Job,
     uri::Uri,
-    Job,
 };
 use argh::FromArgs;
 use std::str::FromStr;
@@ -36,7 +37,7 @@ impl SubCommand for Unseal {
 
         with_device(job.device.clone(), |device| {
             let input = Uri::from_str(&self.input)?;
-            if matches!(input, Uri::Path(_) | Uri::Password(_)) {
+            if matches!(input, Uri::Path(_)) {
                 return Err(CommandError::InvalidInput(format!("{input}")));
             }
             let item_handle = job.context_cache.load_context(device, &input)?;

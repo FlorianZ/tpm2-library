@@ -2,13 +2,14 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
+    auth::Auth,
     cli::SubCommand,
     command::{CommandError, OutputEncoding},
     convert::{from_input_to_bytes, from_str_to_keyedhash_alg, from_tpm_key_to_output},
-    device::{with_device, Auth},
+    device::with_device,
+    job::Job,
     key::{Alg, TpmKey, TpmKeyTemplate, OID_SEALED_DATA},
     uri::Uri,
-    Job,
 };
 use argh::FromArgs;
 use tpm2_protocol::data::Tpm2bSensitiveData;

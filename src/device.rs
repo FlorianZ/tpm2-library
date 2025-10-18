@@ -15,7 +15,6 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::trace;
 use polling::{Event, Events, Poller};
 use rand::{thread_rng, RngCore};
-use std::str::FromStr;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -97,48 +96,6 @@ impl From<TpmRc> for DeviceError {
 impl From<TryFromIntError> for DeviceError {
     fn from(_err: TryFromIntError) -> Self {
         Self::Tpm(TpmErrorKind::InvalidValue)
-    }
-}
-
-/// Represents an authorization method for a command.
-#[derive(Debug, Clone)]
-pub enum Auth {
-    /// A stateful, tracked session identified by its handle.
-    Session(u32),
-    /// A password
-    Password(Vec<u8>),
-    /// A policy digest
-    Policy(Vec<u8>),
-}
-
-/// A type alias for a list of authentications, to attach methods.
-pub type AuthList = Vec<Auth>;
-
-impl FromStr for Auth {
-    type Err = DeviceError;
-
-    fn from_str(uri: &str) -> Result<Self, Self::Err> {
-        if let Some(val) = uri.strip_prefix("session:") {
-            if let Ok(handle) = u32::from_str_radix(val.trim_start_matches("0x"), 16) {
-                Ok(Self::Session(handle))
-            } else {
-                Err(DeviceError::InvalidAuth(uri.to_string()))
-            }
-        } else if let Some(val) = uri.strip_prefix("password:") {
-            if let Ok(bytes) = hex::decode(val) {
-                Ok(Self::Password(bytes))
-            } else {
-                Err(DeviceError::InvalidAuth(uri.to_string()))
-            }
-        } else if let Some(val) = uri.strip_prefix("policy:") {
-            if let Ok(bytes) = hex::decode(val) {
-                Ok(Self::Policy(bytes))
-            } else {
-                Err(DeviceError::InvalidAuth(uri.to_string()))
-            }
-        } else {
-            Err(DeviceError::InvalidAuth(uri.to_string()))
-        }
     }
 }
 

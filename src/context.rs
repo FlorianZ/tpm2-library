@@ -388,7 +388,7 @@ impl<'a> ContextCache<'a> {
         device: &mut Device,
         uri: &Uri,
     ) -> Result<TpmHandle, ContextError> {
-        if matches!(uri, Uri::Path(_) | Uri::Password(_) | Uri::Session(_)) {
+        if matches!(uri, Uri::Path(_) | Uri::Session(_)) {
             return Err(ContextError::InvalidParent);
         }
         self.load_context(device, uri)
@@ -435,9 +435,7 @@ impl<'a> ContextCache<'a> {
                 self.load_context_from_bytes(device, &context_blob)
                     .map(|(handle, _)| handle)
             }
-            Uri::Password(_) | Uri::Policy(_) | Uri::Session(_) => {
-                Err(ContextError::InvalidUri(UriError::InvalidUriType))
-            }
+            Uri::Session(_) => Err(ContextError::InvalidUri(UriError::InvalidUriType)),
         }
     }
 

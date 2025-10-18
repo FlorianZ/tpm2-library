@@ -4,7 +4,7 @@
 use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
-    Job,
+    job::Job,
 };
 use argh::FromArgs;
 use strum::{Display, EnumString};

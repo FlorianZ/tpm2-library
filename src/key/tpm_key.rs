@@ -6,13 +6,14 @@
 
 use super::{Alg, ExternalKey, KeyError, Tpm2shAlgId};
 use crate::{
+    auth::Auth,
     context::ContextError,
     convert::from_tpm_object_to_vec,
     crypto::{
         crypto_hmac, crypto_kdfa, crypto_make_name, derive_seed_with_ecc, protect_seed_with_rsa,
         KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
     },
-    device::{Auth, Device, DeviceError},
+    device::{Device, DeviceError},
     job::Job,
     template,
 };

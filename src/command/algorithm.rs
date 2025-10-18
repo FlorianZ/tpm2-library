@@ -5,7 +5,8 @@
 use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
-    device, Job,
+    device::with_device,
+    job::Job,
 };
 use argh::FromArgs;
 use strum::{Display, EnumString};
@@ -37,7 +38,7 @@ pub struct Algorithm {
 
 impl SubCommand for Algorithm {
     fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
-        device::with_device(job.device.clone(), |device| {
+        with_device(job.device.clone(), |device| {
             let mut results: Vec<(String, AlgorithmType)> = Vec::new();
 
             let fetch_keys =

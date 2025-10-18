@@ -15,9 +15,10 @@
 //! 2. `TPM2_FlushContext` can be only applied to a loaded session.
 
 use crate::{
+    auth::Auth,
     convert::from_tpm_object_to_vec,
     crypto::{crypto_digest, crypto_hmac, crypto_kdfa, CryptoError},
-    device::{Auth, Device, DeviceError, TpmCommandObject},
+    device::{Device, DeviceError, TpmCommandObject},
     uri::Uri,
 };
 use rand::{thread_rng, RngCore};
@@ -262,7 +263,7 @@ impl SessionCache {
                 continue;
             }
 
-            let uri = Uri::Session(handle).to_string();
+            let uri = Auth::Session(handle).to_string();
             self.sessions.insert(uri, session);
         }
         Ok(())
@@ -332,7 +333,7 @@ impl SessionCache {
     /// Adds a new session and returns its URI.
     pub fn add(&mut self, session: Session) -> String {
         let handle = session.context.saved_handle.0;
-        let uri = Uri::Session(handle).to_string();
+        let uri = Auth::Session(handle).to_string();
         self.sessions.insert(uri.clone(), session);
         self.dirty.insert(uri.clone());
         uri
@@ -422,7 +423,7 @@ impl SessionCache {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
             if let Auth::Session(handle) = auth {
-                let uri = Uri::Session(*handle).to_string();
+                let uri = Auth::Session(*handle).to_string();
                 let session_is_loaded = {
                     let session = self.get(&uri)?;
                     session.handle.0 != 0
@@ -468,7 +469,7 @@ impl SessionCache {
                 }
                 Auth::Session(session_handle) => {
                     tracked_session_handles.push(*session_handle);
-                    let uri = Uri::Session(*session_handle).to_string();
+                    let uri = Auth::Session(*session_handle).to_string();
                     let session = self.get(&uri)?;
 
                     let nonce_caller = new_nonce(session.auth_hash)?;
@@ -503,7 +504,7 @@ impl SessionCache {
         auth_responses: &TpmAuthResponses,
     ) -> Result<(), SessionError> {
         for (i, handle) in session_handles.iter().enumerate() {
-            let uri = Uri::Session(*handle).to_string();
+            let uri = Auth::Session(*handle).to_string();
             let session_handle = self.get(&uri)?.handle;
             if session_handle.0 == 0 {
                 continue;
