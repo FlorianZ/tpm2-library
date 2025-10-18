@@ -64,24 +64,31 @@ impl FromStr for Uri {
     type Err = UriError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(handle_str) = s.strip_prefix("tpm:") {
-            let handle = u32::from_str_radix(handle_str.trim_start_matches("0x"), 16)?;
-            Ok(Self::Tpm(handle))
-        } else if let Some(handle_str) = s.strip_prefix("session:") {
-            let handle = u32::from_str_radix(handle_str.trim_start_matches("0x"), 16)?;
-            Ok(Self::Session(handle))
-        } else if let Some(grip) = s.strip_prefix("key:") {
-            if grip.len() == 16 && grip.chars().all(|c| c.is_ascii_hexdigit()) {
-                Ok(Self::Key(grip.to_string()))
-            } else {
-                Err(UriError::InvalidGripFormat(grip.to_string()))
+        if let Some((scheme, value)) = s.split_once(':') {
+            if s.starts_with('/') || scheme.len() == 1 {
+                return Ok(Self::Path(s.into()));
             }
-        } else if s.contains(':') && !s.starts_with('/') && s.chars().nth(1) != Some(':') {
-            Err(UriError::UnsupportedScheme(
-                s.split_once(':').unwrap_or(("", "")).0.to_string(),
-            ))
+
+            match scheme {
+                "tpm" => {
+                    let handle = u32::from_str_radix(value.trim_start_matches("0x"), 16)?;
+                    Ok(Self::Tpm(handle))
+                }
+                "session" => {
+                    let handle = u32::from_str_radix(value.trim_start_matches("0x"), 16)?;
+                    Ok(Self::Session(handle))
+                }
+                "key" => {
+                    if value.len() == 16 && value.chars().all(|c| c.is_ascii_hexdigit()) {
+                        Ok(Self::Key(value.to_string()))
+                    } else {
+                        Err(UriError::InvalidGripFormat(value.to_string()))
+                    }
+                }
+                _ => Err(UriError::UnsupportedScheme(scheme.to_string())),
+            }
         } else {
-            Ok(Self::Path(s.to_string().into()))
+            Ok(Self::Path(s.into()))
         }
     }
 }

@@ -38,26 +38,25 @@ impl FromStr for Auth {
     type Err = String;
 
     fn from_str(uri: &str) -> Result<Self, Self::Err> {
-        if let Some(val) = uri.strip_prefix("session:") {
-            if let Ok(handle) = u32::from_str_radix(val.trim_start_matches("0x"), 16) {
+        let Some((scheme, value)) = uri.split_once(':') else {
+            return Err(format!("invalid auth: {uri}"));
+        };
+
+        match scheme {
+            "session" => {
+                let handle = u32::from_str_radix(value.trim_start_matches("0x"), 16)
+                    .map_err(|_| format!("invalid session: {uri}"))?;
                 Ok(Self::Session(handle))
-            } else {
-                Err(format!("invalid session: {uri}"))
             }
-        } else if let Some(val) = uri.strip_prefix("password:") {
-            if let Ok(bytes) = hex::decode(val) {
+            "password" => {
+                let bytes = hex::decode(value).map_err(|_| format!("invalid password: {uri}"))?;
                 Ok(Self::Password(bytes))
-            } else {
-                Err(format!("invalid password: {uri}"))
             }
-        } else if let Some(val) = uri.strip_prefix("policy:") {
-            if let Ok(bytes) = hex::decode(val) {
+            "policy" => {
+                let bytes = hex::decode(value).map_err(|_| format!("invalid policy: {uri}"))?;
                 Ok(Self::Policy(bytes))
-            } else {
-                Err(format!("invalid policy: {uri}"))
             }
-        } else {
-            Err(format!("invalid auth: {uri}"))
+            _ => Err(format!("unsupported auth scheme: {scheme}")),
         }
     }
 }
