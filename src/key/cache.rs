@@ -355,7 +355,6 @@ impl<'a> KeyCache<'a> {
             Ok(handle) => {
                 let handle = TpmHandle(handle);
                 let (_, name) = device.read_public(handle)?;
-                device.add_name_to_cache(handle.0, name);
                 self.track(handle)?;
                 Ok((handle, name))
             }
@@ -408,8 +407,7 @@ impl<'a> KeyCache<'a> {
                 match device.load_context(key.context) {
                     Ok(handle) => {
                         let handle = TpmHandle(handle);
-                        let (_, name) = device.read_public(handle)?;
-                        device.add_name_to_cache(handle.0, name);
+                        let (_, _) = device.read_public(handle)?;
                         self.track(handle)?;
                         Ok(handle)
                     }

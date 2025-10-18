@@ -89,7 +89,7 @@ impl Load {
             .Load()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Load))?;
 
-        device.add_name_to_cache(resp.object_handle.0, resp.name);
+        device.name_cache_add(resp.object_handle.0, resp.name);
         job.key_cache.track(resp.object_handle)?;
         Ok((resp.object_handle, resp.name, load_cmd.in_public))
     }

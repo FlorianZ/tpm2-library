@@ -163,12 +163,12 @@ impl Device {
     }
 
     /// Adds a transient handle's name to the internal cache.
-    pub fn add_name_to_cache(&mut self, handle: u32, name: Tpm2bName) {
+    pub fn name_cache_add(&mut self, handle: u32, name: Tpm2bName) {
         self.name_cache.insert(handle, name);
     }
 
     /// Retrieves the TPM Name for a handle, required for authorization computations.
-    pub(crate) fn get_handle_name(&mut self, handle: u32) -> Result<Tpm2bName, DeviceError> {
+    pub(crate) fn name_cache_get(&mut self, handle: u32) -> Result<Tpm2bName, DeviceError> {
         if let Some(name) = self.name_cache.get(&handle) {
             return Ok(*name);
         }
@@ -541,7 +541,7 @@ impl Device {
             .ReadPublic()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::ReadPublic))?;
         let name = read_public_resp.name;
-        self.add_name_to_cache(handle.0, name);
+        self.name_cache_add(handle.0, name);
         Ok((read_public_resp.out_public.inner, name))
     }
 

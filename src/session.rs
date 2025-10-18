@@ -568,7 +568,7 @@ fn create_auth(
 ) -> Result<TpmsAuthCommand, SessionError> {
     let handle_names: Vec<Tpm2bName> = handles
         .iter()
-        .map(|&handle| device.get_handle_name(handle))
+        .map(|&handle| device.name_cache_get(handle))
         .collect::<Result<_, _>>()?;
 
     let command_code_bytes = (command_code as u32).to_be_bytes();
