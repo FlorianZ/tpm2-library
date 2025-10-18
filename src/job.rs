@@ -5,9 +5,9 @@
 use crate::{
     auth::Auth,
     command::CommandError,
-    context::{ContextCache, ContextError},
     device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
+    key::{KeyCache, KeyCacheError},
     session::{Session, SessionCache},
 };
 use std::{cell::RefCell, rc::Rc};
@@ -19,7 +19,7 @@ use tpm2_protocol::{
 
 pub struct Job<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
-    pub context_cache: ContextCache<'a>,
+    pub key_cache: KeyCache<'a>,
     pub session_cache: SessionCache,
 }
 
@@ -31,7 +31,7 @@ impl Job<'_> {
     ///
     /// # Errors
     ///
-    /// Returns a `ContextError` if any stage of the session management or
+    /// Returns a `KeyCacheError` if any stage of the session management or
     /// command execution fails.
     pub fn execute<C: TpmCommandObject>(
         &mut self,
@@ -39,10 +39,10 @@ impl Job<'_> {
         command: &C,
         handles: &[u32],
         auths: &[Auth],
-    ) -> Result<(TpmResponseBody, TpmAuthResponses), ContextError> {
+    ) -> Result<(TpmResponseBody, TpmAuthResponses), KeyCacheError> {
         let session_handles = self.session_cache.prepare_sessions(device, auths)?;
         for &handle in &session_handles {
-            self.context_cache.track(tpm2_protocol::TpmHandle(handle))?;
+            self.key_cache.track(tpm2_protocol::TpmHandle(handle))?;
         }
         let (sessions, session_handles_used) = self
             .session_cache
@@ -51,7 +51,7 @@ impl Job<'_> {
         self.session_cache
             .teardown_sessions(device, &session_handles_used, &auth_responses)?;
         for handle in session_handles {
-            self.context_cache.untrack(handle);
+            self.key_cache.untrack(handle);
         }
         Ok((resp, auth_responses))
     }
@@ -67,9 +67,9 @@ impl Job<'_> {
         parent_handle: TpmHandle,
         input_bytes: &[u8],
         auths: &[Auth],
-    ) -> Result<TpmKey, ContextError> {
+    ) -> Result<TpmKey, KeyCacheError> {
         let external_key = match AnyKey::try_from(input_bytes)? {
-            AnyKey::Tpm(_) => return Err(ContextError::Key(KeyError::InvalidFormat)),
+            AnyKey::Tpm(_) => return Err(KeyCacheError::Key(KeyError::InvalidFormat)),
             AnyKey::External(key) => key,
         };
         let mut rng = rand::thread_rng();
@@ -88,14 +88,14 @@ impl Job<'_> {
     ///
     /// # Errors
     ///
-    /// Returns a `ContextError` if the TPM commands fail or if the response is invalid.
+    /// Returns a `KeyCacheError` if the TPM commands fail or if the response is invalid.
     pub fn read_certificate(
         &mut self,
         device: &mut Device,
         auths: &[Auth],
         handle: u32,
         max_read_size: usize,
-    ) -> Result<Option<Vec<u8>>, ContextError> {
+    ) -> Result<Option<Vec<u8>>, KeyCacheError> {
         let nv_read_public_cmd = TpmNvReadPublicCommand {
             nv_index: handle.into(),
         };
@@ -177,7 +177,7 @@ impl Job<'_> {
 
 impl Drop for Job<'_> {
     fn drop(&mut self) {
-        self.context_cache.teardown(self.device.clone());
+        self.key_cache.teardown(self.device.clone());
         if let Err(e) = self.session_cache.save() {
             log::error!("teardown: {e:#}");
         }

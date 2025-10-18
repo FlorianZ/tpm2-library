@@ -39,7 +39,7 @@ pub struct Load {
 impl SubCommand for Load {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
-            let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
+            let parent_handle = job.key_cache.load_parent(device, &self.parent)?;
 
             let parent_auth =
                 job.resolve_auth_session(device, self.parent_auth.clone(), parent_handle)?;
@@ -50,7 +50,7 @@ impl SubCommand for Load {
             let (object_handle, name, public) =
                 Self::run_input(job, device, parent_handle, &input_bytes, &auth_list)?;
 
-            job.context_cache
+            job.key_cache
                 .save_context(device, object_handle, &public, &name)?;
             Ok(())
         })
@@ -90,7 +90,7 @@ impl Load {
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Load))?;
 
         device.add_name_to_cache(resp.object_handle.0, resp.name);
-        job.context_cache.track(resp.object_handle)?;
+        job.key_cache.track(resp.object_handle)?;
         Ok((resp.object_handle, resp.name, load_cmd.in_public))
     }
 }

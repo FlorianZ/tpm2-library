@@ -32,7 +32,7 @@ impl SubCommand for Certificate {
                 job.read_certificate(device, &[auth], handle, max_read_size)?
             {
                 let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
-                writeln!(job.context_cache.writer, "{pem_cert}")?;
+                writeln!(job.key_cache.writer, "{pem_cert}")?;
             } else {
                 log::warn!("{handle:08x}: no certificate");
             }

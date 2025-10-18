@@ -6,9 +6,9 @@ use argh::FromArgs;
 use cli::{
     cli::{SubCommand, TopLevel},
     command::CommandError,
-    context::ContextCache,
     device::{Device, DeviceError},
     job::Job,
+    key::KeyCache,
     session::SessionCache,
     transport::FileTransport,
 };
@@ -83,17 +83,17 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
             log::warn!("One or more sessions failed to refresh: {e}");
         }
 
-        let context_cache = ContextCache::new(Some(&mut dev_guard), cache_dir, &mut stdout)?;
+        let key_cache = KeyCache::new(Some(&mut dev_guard), cache_dir, &mut stdout)?;
         Job {
             device: shared_device.clone(),
-            context_cache,
+            key_cache,
             session_cache,
         }
     } else {
-        let context_cache = ContextCache::new(None, cache_dir, &mut stdout)?;
+        let key_cache = KeyCache::new(None, cache_dir, &mut stdout)?;
         Job {
             device: None,
-            context_cache,
+            key_cache,
             session_cache,
         }
     };

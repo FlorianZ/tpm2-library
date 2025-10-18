@@ -39,7 +39,7 @@ impl Save {
         persistent_handle: TpmHandle,
         auths: &[Auth],
     ) -> Result<(), CommandError> {
-        if !job.context_cache.handles.contains_key(&transient_handle.0) {
+        if !job.key_cache.handles.contains_key(&transient_handle.0) {
             return Err(CommandError::InvalidInput(format!(
                 "transient handle {transient_handle} not tracked"
             )));
@@ -57,7 +57,7 @@ impl Save {
 
         resp.EvictControl()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
-        job.context_cache.handles.remove(&transient_handle.0);
+        job.key_cache.handles.remove(&transient_handle.0);
         Ok(())
     }
 }
@@ -95,7 +95,7 @@ impl SubCommand for Save {
 
             if let Some(parent_uri_str) = parent_uri_opt {
                 let parent_uri = Uri::from_str(parent_uri_str)?;
-                let _parent_handle = job.context_cache.load_parent(dev, &parent_uri)?;
+                let _parent_handle = job.key_cache.load_parent(dev, &parent_uri)?;
             }
 
             let grip_uri = Uri::from_str(grip_str)?;
@@ -104,15 +104,15 @@ impl SubCommand for Save {
                     "input must be a 'key'".to_string(),
                 ));
             }
-            let transient_handle = job.context_cache.load_context(dev, &grip_uri)?;
+            let transient_handle = job.key_cache.load_context(dev, &grip_uri)?;
 
             Self::save_persistent(job, dev, transient_handle, persistent_handle, &auth_list)?;
 
             if let Uri::Key(grip) = grip_uri {
-                job.context_cache.remove_context(&grip)?;
+                job.key_cache.remove_context(&grip)?;
             }
 
-            writeln!(job.context_cache.writer, "tpm:{handle:08x}")?;
+            writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
             Ok(())
         })
     }

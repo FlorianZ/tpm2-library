@@ -6,9 +6,9 @@ use crate::{
     auth::Auth,
     cli::SubCommand,
     command::CommandError,
-    context::ContextError,
     device::{with_device, DeviceError},
     job::Job,
+    key::KeyCacheError,
 };
 use argh::FromArgs;
 use tpm2_protocol::{
@@ -37,7 +37,7 @@ impl SubCommand for ResetLock {
 
             let (resp, _) = match job.execute(device, &command, &handles, &auth_list) {
                 Ok(result) => result,
-                Err(ContextError::Device(DeviceError::TpmRc(rc)))
+                Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
                     if rc.base() == TpmRcBase::Lockout =>
                 {
                     return Err(CommandError::DictionaryAttackLocked);
@@ -48,7 +48,7 @@ impl SubCommand for ResetLock {
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;
 
-            writeln!(job.context_cache.writer, "done")?;
+            writeln!(job.key_cache.writer, "done")?;
 
             Ok(())
         })

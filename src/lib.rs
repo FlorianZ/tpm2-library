@@ -8,7 +8,6 @@
 pub mod auth;
 pub mod cli;
 pub mod command;
-pub mod context;
 pub mod convert;
 pub mod crypto;
 pub mod device;

@@ -46,7 +46,7 @@ pub struct Seal {
 impl SubCommand for Seal {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
-            let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
+            let parent_handle = job.key_cache.load_parent(device, &self.parent)?;
 
             let parent_auth =
                 job.resolve_auth_session(device, self.parent_auth.clone(), parent_handle)?;
@@ -73,7 +73,7 @@ impl SubCommand for Seal {
                 TpmKey::new(job, device, &[parent_auth], &auth, parent_handle, &template)?;
 
             from_tpm_key_to_output(
-                &mut job.context_cache,
+                &mut job.key_cache,
                 &tpm_key,
                 self.output.as_ref(),
                 OutputEncoding::Pem,

@@ -7,7 +7,6 @@
 use super::{Alg, ExternalKey, KeyError, Tpm2shAlgId};
 use crate::{
     auth::Auth,
-    context::ContextError,
     convert::from_tpm_object_to_vec,
     crypto::{
         crypto_hmac, crypto_kdfa, crypto_make_name, derive_seed_with_ecc, protect_seed_with_rsa,
@@ -15,6 +14,7 @@ use crate::{
     },
     device::{Device, DeviceError},
     job::Job,
+    key::KeyCacheError,
     template,
 };
 
@@ -142,8 +142,8 @@ impl TpmKey {
         let (resp, _) = job
             .execute(device, &create_cmd, &handles, auth_list)
             .map_err(|e| match e {
-                ContextError::Device(d) => KeyError::Device(d),
-                ContextError::Session(s) => KeyError::Session(s),
+                KeyCacheError::Device(d) => KeyError::Device(d),
+                KeyCacheError::Session(s) => KeyError::Session(s),
                 other => KeyError::ValueConversionFailed(other.to_string()),
             })?;
 
@@ -261,8 +261,8 @@ impl TpmKey {
         let (resp, _) = job
             .execute(device, &import_cmd, handles, auth_list)
             .map_err(|e| match e {
-                ContextError::Device(d) => KeyError::Device(d),
-                ContextError::Session(s) => KeyError::Session(s),
+                KeyCacheError::Device(d) => KeyError::Device(d),
+                KeyCacheError::Session(s) => KeyError::Session(s),
                 other => KeyError::ValueConversionFailed(other.to_string()),
             })?;
 

@@ -178,12 +178,12 @@ impl SubCommand for Policy {
             } else {
                 match self.mode {
                     PolicyMode::Resolve => {
-                        writeln!(job.context_cache.writer, "{ast}")?;
+                        writeln!(job.key_cache.writer, "{ast}")?;
                     }
                     PolicyMode::Software => {
                         let mut session = SoftwarePolicySession::new(session_hash_alg, device)?;
                         let final_digest = execute_policy(&ast, &mut session)?;
-                        writeln!(job.context_cache.writer, "{}", hex::encode(&*final_digest))?;
+                        writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
                     }
                     PolicyMode::Trial => {
                         let session_handle =
@@ -194,7 +194,7 @@ impl SubCommand for Policy {
                             execute_policy(&ast, &mut session)?
                         };
                         device.flush_context(session_handle.0)?;
-                        writeln!(job.context_cache.writer, "{}", hex::encode(&*final_digest))?;
+                        writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
                     }
                     PolicyMode::Session => {
                         let (resp, nonce_caller) = device.start_session(
@@ -221,7 +221,7 @@ impl SubCommand for Policy {
                         let saved_uri = job.session_cache.add(session_data);
                         job.session_cache.save()?;
 
-                        writeln!(job.context_cache.writer, "{saved_uri}")?;
+                        writeln!(job.key_cache.writer, "{saved_uri}")?;
                     }
                 }
             }

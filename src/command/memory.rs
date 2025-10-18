@@ -150,7 +150,7 @@ impl SubCommand for Memory {
                 )?;
             }
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
-            print_table(&mut job.context_cache.writer, rows, plain)?;
+            print_table(&mut job.key_cache.writer, rows, plain)?;
             Ok(())
         })
     }

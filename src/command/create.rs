@@ -53,7 +53,7 @@ impl SubCommand for Create {
 
 impl Create {
     fn create_secondary_key(&self, job: &mut Job, device: &mut Device) -> Result<(), CommandError> {
-        let parent_handle = job.context_cache.load_parent(device, &self.parent)?;
+        let parent_handle = job.key_cache.load_parent(device, &self.parent)?;
         let parent_auth =
             job.resolve_auth_session(device, self.parent_auth.clone(), parent_handle)?;
         let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
@@ -64,7 +64,7 @@ impl Create {
         };
         let tpm_key = TpmKey::new(job, device, &[parent_auth], &auth, parent_handle, &template)?;
         from_tpm_key_to_output(
-            &mut job.context_cache,
+            &mut job.key_cache,
             &tpm_key,
             self.output.as_ref(),
             OutputEncoding::Pem,

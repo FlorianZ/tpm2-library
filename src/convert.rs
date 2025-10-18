@@ -4,7 +4,7 @@
 
 use crate::{
     command::{CommandError, OutputEncoding},
-    context::ContextCache,
+    key::KeyCache,
     key::{Alg, KeyError, TpmKey},
     uri::Uri,
 };
@@ -82,7 +82,7 @@ pub fn from_input_to_bytes(input: Option<&Uri>) -> io::Result<Vec<u8>> {
 ///
 /// Returns `CommandError` on failure.
 pub fn from_tpm_key_to_output(
-    context: &mut ContextCache,
+    key_cache: &mut KeyCache,
     tpm_key: &TpmKey,
     output: Option<&Uri>,
     encoding: OutputEncoding,
@@ -93,9 +93,9 @@ pub fn from_tpm_key_to_output(
                 "output must be a file path, but got '{output_uri}'"
             )));
         }
-        context.write_key_data(Some(output_uri), tpm_key, encoding)?;
+        key_cache.write_key_data(Some(output_uri), tpm_key, encoding)?;
     } else {
-        context.write_key_data(None, tpm_key, encoding)?;
+        key_cache.write_key_data(None, tpm_key, encoding)?;
     }
     Ok(())
 }

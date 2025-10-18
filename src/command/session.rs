@@ -73,7 +73,7 @@ impl SubCommand for Session {
             })
             .collect();
 
-        print_table(&mut job.context_cache.writer, rows, plain)?;
+        print_table(&mut job.key_cache.writer, rows, plain)?;
 
         Ok(())
     }

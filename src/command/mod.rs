@@ -41,9 +41,9 @@ pub use session::*;
 pub use unseal::*;
 
 use crate::{
-    context::ContextError,
     crypto::CryptoError,
     device::DeviceError,
+    key::KeyCacheError,
     key::{AlgInfo, KeyError},
     pcr::PcrError,
     policy::PolicyError,
@@ -121,7 +121,7 @@ pub enum CommandError {
     #[error("capability not found: {0}")]
     CapabilityMissing(tpm2_protocol::data::TpmCap),
     #[error("context: {0}")]
-    Context(#[from] ContextError),
+    KeyCacheError(#[from] KeyCacheError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]

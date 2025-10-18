@@ -56,13 +56,13 @@ impl SubCommand for Convert {
         let output_uri = output_str.map(|s| Uri::from_str(s)).transpose()?;
 
         with_device(job.device.clone(), |device| {
-            let parent_handle = job.context_cache.load_parent(device, &parent_uri)?;
+            let parent_handle = job.key_cache.load_parent(device, &parent_uri)?;
             let parent_auth =
                 job.resolve_auth_session(device, self.parent_auth.clone(), parent_handle)?;
             let input_bytes = from_input_to_bytes(Some(&input_uri))?;
             let tpm_key = job.import_key(device, parent_handle, &input_bytes, &[parent_auth])?;
             from_tpm_key_to_output(
-                &mut job.context_cache,
+                &mut job.key_cache,
                 &tpm_key,
                 output_uri.as_ref(),
                 self.encoding,

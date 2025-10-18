@@ -2,17 +2,6 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-//! Manages the execution context, including sessions and transient object handles.
-//!
-//! ## Design Invariants
-//!
-//! To ensure predictable failure modes (i.e., failing on capacity limits rather
-//! than opaque I/O errors from the TPM), this module upholds the invariant that
-//! all created transient object handles must be tracked by a `Context` object.
-//!
-//! This makes the `Context` the sole owner of all temporary resources, which are
-//! guaranteed to be flushed at the end of the context's lifecycle.
-
 use crate::{
     command::OutputEncoding,
     convert::from_tpm_object_to_vec,
@@ -37,19 +26,19 @@ use tpm2_protocol::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ContextKey {
+pub struct CacheKey {
     pub public: Vec<u8>,
     pub context: TpmsContext,
 }
 
-impl TpmSized for ContextKey {
+impl TpmSized for CacheKey {
     const SIZE: usize = 0;
     fn len(&self) -> usize {
         2 + self.public.len() + self.context.len()
     }
 }
 
-impl TpmBuild for ContextKey {
+impl TpmBuild for CacheKey {
     fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmErrorKind> {
         let public_buf = TpmBuffer::<TPM_MAX_COMMAND_SIZE>::try_from(self.public.as_slice())?;
         public_buf.build(writer)?;
@@ -57,7 +46,7 @@ impl TpmBuild for ContextKey {
     }
 }
 
-impl TpmParse for ContextKey {
+impl TpmParse for CacheKey {
     fn parse(buffer: &[u8]) -> Result<(Self, &[u8]), TpmErrorKind> {
         let (public_buf, remainder) = TpmBuffer::<TPM_MAX_COMMAND_SIZE>::parse(buffer)?;
         let (context, remainder) = TpmsContext::parse(remainder)?;
@@ -70,7 +59,7 @@ impl TpmParse for ContextKey {
 }
 
 #[derive(Debug, Error)]
-pub enum ContextError {
+pub enum KeyCacheError {
     #[error("already tracked: {0}")]
     AlreadyTracked(TpmHandle),
     #[error("context not found: {0}")]
@@ -101,27 +90,27 @@ pub enum ContextError {
     Uri(#[from] UriError),
 }
 
-impl From<TpmErrorKind> for ContextError {
+impl From<TpmErrorKind> for KeyCacheError {
     fn from(err: TpmErrorKind) -> Self {
         Self::Device(DeviceError::from(err))
     }
 }
 
-impl From<TryFromIntError> for ContextError {
+impl From<TryFromIntError> for KeyCacheError {
     fn from(err: TryFromIntError) -> Self {
         Self::Device(err.into())
     }
 }
 
-pub struct ContextCache<'a> {
+pub struct KeyCache<'a> {
     pub handles: HashMap<u32, TpmHandle>,
     pub writer: &'a mut dyn Write,
-    pub contexts: HashMap<String, ContextKey>,
+    pub contexts: HashMap<String, CacheKey>,
     dirty_contexts: HashSet<String>,
     contexts_dir: PathBuf,
 }
 
-impl std::fmt::Debug for ContextCache<'_> {
+impl std::fmt::Debug for KeyCache<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         let handles: Vec<String> = self
             .handles
@@ -136,7 +125,7 @@ impl std::fmt::Debug for ContextCache<'_> {
     }
 }
 
-impl<'a> ContextCache<'a> {
+impl<'a> KeyCache<'a> {
     /// Flushes transient handles and saves dirty contexts, logging errors.
     pub fn teardown(&mut self, device: Option<std::rc::Rc<std::cell::RefCell<Device>>>) {
         if !self.dirty_contexts.is_empty() {
@@ -178,12 +167,12 @@ impl<'a> ContextCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a `ContextError` if loading or refreshing contexts fails.
+    /// Returns a `KeyCacheError` if loading or refreshing contexts fails.
     pub fn new(
         device: Option<&mut Device>,
         cache_dir: &Path,
         writer: &'a mut dyn Write,
-    ) -> Result<ContextCache<'a>, ContextError> {
+    ) -> Result<KeyCache<'a>, KeyCacheError> {
         let contexts_dir = cache_dir.join("contexts");
         let mut new_context = Self {
             handles: HashMap::new(),
@@ -203,7 +192,7 @@ impl<'a> ContextCache<'a> {
     }
 
     /// Loads all saved contexts from the cache directory, pruning invalid ones.
-    fn load_contexts(&mut self) -> Result<(), ContextError> {
+    fn load_contexts(&mut self) -> Result<(), KeyCacheError> {
         fs::create_dir_all(&self.contexts_dir)?;
         let entries = match fs::read_dir(&self.contexts_dir) {
             Ok(entries) => entries.filter_map(Result::ok),
@@ -217,7 +206,7 @@ impl<'a> ContextCache<'a> {
                 if let Some(grip) = path.file_stem().and_then(|s| s.to_str()) {
                     if grip.len() == 16 && grip.chars().all(|c| c.is_ascii_hexdigit()) {
                         let content = fs::read(&path)?;
-                        let (key, remainder) = ContextKey::parse(&content)?;
+                        let (key, remainder) = CacheKey::parse(&content)?;
                         if !remainder.is_empty() {
                             log::trace!(
                                 "Pruning invalid or outdated context file: {}",
@@ -246,7 +235,7 @@ impl<'a> ContextCache<'a> {
     /// # Errors
     ///
     /// Returns an I/O error if the context file cannot be removed from disk.
-    pub fn remove_context(&mut self, grip: &str) -> Result<(), ContextError> {
+    pub fn remove_context(&mut self, grip: &str) -> Result<(), KeyCacheError> {
         if self.contexts.remove(grip).is_some() {
             let path = self.contexts_dir.join(grip);
             if let Err(e) = fs::remove_file(path) {
@@ -263,7 +252,7 @@ impl<'a> ContextCache<'a> {
     /// # Errors
     ///
     /// Returns an I/O error if any context file cannot be removed.
-    pub fn reset(&mut self) -> Result<(), ContextError> {
+    pub fn reset(&mut self) -> Result<(), KeyCacheError> {
         let paths_to_delete: Vec<_> = self
             .contexts
             .keys()
@@ -282,7 +271,7 @@ impl<'a> ContextCache<'a> {
     }
 
     /// Refreshes all contexts, pruning stale ones.
-    fn refresh_contexts(&mut self, device: &mut Device) -> Result<(), ContextError> {
+    fn refresh_contexts(&mut self, device: &mut Device) -> Result<(), KeyCacheError> {
         let grips_to_refresh: Vec<String> = self.contexts.keys().cloned().collect();
         for grip in grips_to_refresh {
             let key = match self.contexts.get(&grip) {
@@ -324,10 +313,10 @@ impl<'a> ContextCache<'a> {
         handle: TpmHandle,
         public: &Tpm2bPublic,
         name: &Tpm2bName,
-    ) -> Result<(), ContextError> {
+    ) -> Result<(), KeyCacheError> {
         let context_struct = device.save_context(handle.0)?;
         let public_bytes = from_tpm_object_to_vec(public)?;
-        let key = ContextKey {
+        let key = CacheKey {
             public: public_bytes,
             context: context_struct,
         };
@@ -355,13 +344,13 @@ impl<'a> ContextCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a `ContextError` on parsing or TPM command failure.
+    /// Returns a `KeyCacheError` on parsing or TPM command failure.
     pub fn load_context_from_bytes(
         &mut self,
         device: &mut Device,
         blob: &[u8],
-    ) -> Result<(TpmHandle, Tpm2bName), ContextError> {
-        let (key, _) = ContextKey::parse(blob)?;
+    ) -> Result<(TpmHandle, Tpm2bName), KeyCacheError> {
+        let (key, _) = CacheKey::parse(blob)?;
         match device.load_context(key.context) {
             Ok(handle) => {
                 let handle = TpmHandle(handle);
@@ -371,7 +360,7 @@ impl<'a> ContextCache<'a> {
                 Ok((handle, name))
             }
             Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Handle => {
-                Err(ContextError::ParentNotLoaded)
+                Err(KeyCacheError::ParentNotLoaded)
             }
             Err(e) => Err(e.into()),
         }
@@ -387,9 +376,9 @@ impl<'a> ContextCache<'a> {
         &mut self,
         device: &mut Device,
         uri: &Uri,
-    ) -> Result<TpmHandle, ContextError> {
+    ) -> Result<TpmHandle, KeyCacheError> {
         if matches!(uri, Uri::Path(_) | Uri::Session(_)) {
-            return Err(ContextError::InvalidParent);
+            return Err(KeyCacheError::InvalidParent);
         }
         self.load_context(device, uri)
     }
@@ -402,19 +391,19 @@ impl<'a> ContextCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a `ContextError` on parsing or TPM command failure.
+    /// Returns a `KeyCacheError` on parsing or TPM command failure.
     pub fn load_context(
         &mut self,
         device: &mut Device,
         uri: &Uri,
-    ) -> Result<TpmHandle, ContextError> {
+    ) -> Result<TpmHandle, KeyCacheError> {
         match uri {
             Uri::Tpm(handle) => Ok(TpmHandle(*handle)),
             Uri::Key(grip) => {
                 let key = self
                     .contexts
                     .get(grip)
-                    .ok_or_else(|| ContextError::ContextNotFound(grip.clone()))?
+                    .ok_or_else(|| KeyCacheError::ContextNotFound(grip.clone()))?
                     .clone();
                 match device.load_context(key.context) {
                     Ok(handle) => {
@@ -425,7 +414,7 @@ impl<'a> ContextCache<'a> {
                         Ok(handle)
                     }
                     Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Handle => {
-                        Err(ContextError::ParentNotLoaded)
+                        Err(KeyCacheError::ParentNotLoaded)
                     }
                     Err(e) => Err(e.into()),
                 }
@@ -435,7 +424,7 @@ impl<'a> ContextCache<'a> {
                 self.load_context_from_bytes(device, &context_blob)
                     .map(|(handle, _)| handle)
             }
-            Uri::Session(_) => Err(ContextError::InvalidUri(UriError::InvalidUriType)),
+            Uri::Session(_) => Err(KeyCacheError::InvalidUri(UriError::InvalidUriType)),
         }
     }
 
@@ -443,8 +432,8 @@ impl<'a> ContextCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a `ContextError` if the handle is invalid or does not exist.
-    pub fn track(&mut self, handle: TpmHandle) -> Result<(), ContextError> {
+    /// Returns a `KeyCacheError` if the handle is invalid or does not exist.
+    pub fn track(&mut self, handle: TpmHandle) -> Result<(), KeyCacheError> {
         self.non_existence_invariant(handle)?;
 
         let mso = (handle.0 >> 24) as u8;
@@ -453,7 +442,7 @@ impl<'a> ContextCache<'a> {
                 self.handles.insert(handle.0, handle);
                 Ok(())
             }
-            _ => Err(ContextError::InvalidHandle(handle.0)),
+            _ => Err(KeyCacheError::InvalidHandle(handle.0)),
         }
     }
 
@@ -466,9 +455,9 @@ impl<'a> ContextCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `ContextError` if the device mutex is poisoned or if flushing a
+    /// Returns `KeyCacheError` if the device mutex is poisoned or if flushing a
     /// handle fails. It returns the first error encountered.
-    pub fn flush(&mut self, device: &mut Device) -> Result<(), ContextError> {
+    pub fn flush(&mut self, device: &mut Device) -> Result<(), KeyCacheError> {
         let handles_to_flush: Vec<TpmHandle> = self.handles.drain().map(|(_, v)| v).collect();
 
         for handle in handles_to_flush {
@@ -489,13 +478,13 @@ impl<'a> ContextCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a `ContextError` on failure.
+    /// Returns a `KeyCacheError` on failure.
     pub fn write_key_data(
         &mut self,
         output_uri: Option<&Uri>,
         key: &TpmKey,
         encoding: OutputEncoding,
-    ) -> Result<(), ContextError> {
+    ) -> Result<(), KeyCacheError> {
         let output_bytes = match encoding {
             OutputEncoding::Der => key.to_der()?,
             OutputEncoding::Pem => key.to_pem()?.into_bytes(),
@@ -513,7 +502,7 @@ impl<'a> ContextCache<'a> {
         &mut self,
         output_uri: Option<&Uri>,
         data: &[u8],
-    ) -> Result<(), ContextError> {
+    ) -> Result<(), KeyCacheError> {
         if let Some(uri) = output_uri {
             match uri {
                 Uri::Path(path) => {
@@ -524,7 +513,7 @@ impl<'a> ContextCache<'a> {
                         writeln!(self.writer, "{uri}")?;
                     }
                 }
-                _ => return Err(ContextError::InvalidUri(UriError::InvalidUriType)),
+                _ => return Err(KeyCacheError::InvalidUri(UriError::InvalidUriType)),
             }
         } else {
             self.writer.write_all(data)?;
@@ -532,9 +521,9 @@ impl<'a> ContextCache<'a> {
         Ok(())
     }
 
-    fn non_existence_invariant(&self, handle: TpmHandle) -> Result<(), ContextError> {
+    fn non_existence_invariant(&self, handle: TpmHandle) -> Result<(), KeyCacheError> {
         if self.handles.contains_key(&handle.0) {
-            Err(ContextError::AlreadyTracked(handle))
+            Err(KeyCacheError::AlreadyTracked(handle))
         } else {
             Ok(())
         }

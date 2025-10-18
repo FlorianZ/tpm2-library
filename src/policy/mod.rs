@@ -12,9 +12,9 @@ pub use tpm::*;
 
 use crate::{
     auth::Auth,
-    context::ContextError,
     crypto::CryptoError,
     device::{Device, DeviceError},
+    key::KeyCacheError,
     pcr::{self, PcrError},
     session::SessionError,
     uri::{Uri, UriError},
@@ -87,7 +87,7 @@ pub trait PolicySession {
 #[derive(Debug, Error)]
 pub enum PolicyError {
     #[error("context: {0}")]
-    Context(#[from] ContextError),
+    KeyCacheError(#[from] KeyCacheError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
     #[error("invalid algorithm: {0:?}")]

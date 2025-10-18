@@ -37,7 +37,7 @@ impl SubCommand for Unseal {
             if matches!(input, Uri::Path(_)) {
                 return Err(CommandError::InvalidInput(format!("{input}")));
             }
-            let item_handle = job.context_cache.load_context(device, &input)?;
+            let item_handle = job.key_cache.load_context(device, &input)?;
 
             let auth = job.resolve_auth_session(device, self.auth.clone(), item_handle)?;
             let auth_list = vec![auth];
@@ -50,7 +50,7 @@ impl SubCommand for Unseal {
                 .Unseal()
                 .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Unseal))?
                 .out_data;
-            job.context_cache.write_data(None, &out_data)?;
+            job.key_cache.write_data(None, &out_data)?;
             Ok(())
         })
     }

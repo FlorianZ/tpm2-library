@@ -33,7 +33,7 @@ pub struct Delete {
 
 impl Delete {
     fn delete(&self, job: &mut Job, device: &mut Device, uri: &Uri) -> Result<u32, CommandError> {
-        let handle = job.context_cache.load_context(device, uri)?.0;
+        let handle = job.key_cache.load_context(device, uri)?.0;
 
         let mso = (handle >> 24) as u8;
         let result = match TpmHt::try_from(mso) {
@@ -45,7 +45,7 @@ impl Delete {
                 };
                 let sessions = vec![];
                 device.execute(&cmd, &sessions)?;
-                job.context_cache.handles.remove(&handle);
+                job.key_cache.handles.remove(&handle);
                 Ok(())
             }
             _ => {
@@ -101,7 +101,7 @@ impl Delete {
         };
         let sessions = vec![];
         device.execute(&cmd, &sessions)?;
-        job.context_cache.handles.remove(&handle.0);
+        job.key_cache.handles.remove(&handle.0);
         Ok(())
     }
 }
@@ -121,8 +121,8 @@ impl SubCommand for Delete {
         for uri in local_ops {
             match uri {
                 Uri::Key(ref grip) => {
-                    job.context_cache.remove_context(grip)?;
-                    writeln!(job.context_cache.writer, "{uri}")?;
+                    job.key_cache.remove_context(grip)?;
+                    writeln!(job.key_cache.writer, "{uri}")?;
                 }
                 Uri::Path(_) => {
                     return Err(CommandError::InvalidInput(uri.to_string()));
@@ -150,11 +150,11 @@ impl SubCommand for Delete {
                                 }
                             }
                             job.session_cache.remove(&uri_str)?;
-                            writeln!(job.context_cache.writer, "{uri}")?;
+                            writeln!(job.key_cache.writer, "{uri}")?;
                         }
                         Uri::Tpm(_) => {
                             let handle = self.delete(job, dev, &uri)?;
-                            writeln!(job.context_cache.writer, "tpm:{handle:08x}")?;
+                            writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
                         }
                         Uri::Key(_) | Uri::Path(_) => {
                             unreachable!()

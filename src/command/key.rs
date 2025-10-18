@@ -27,7 +27,7 @@ pub struct Key {}
 impl SubCommand for Key {
     fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
         let mut rows: Vec<KeyRow> = Vec::new();
-        for (grip, key) in &job.context_cache.contexts {
+        for (grip, key) in &job.key_cache.contexts {
             let (public_blob, _) =
                 Tpm2bPublic::parse(&key.public).map_err(|e| KeyError::Device(e.into()))?;
             rows.push(KeyRow {
@@ -36,7 +36,7 @@ impl SubCommand for Key {
             });
         }
         rows.sort_unstable_by(|a, b| a.grip.cmp(&b.grip));
-        print_table(&mut job.context_cache.writer, rows, plain)?;
+        print_table(&mut job.key_cache.writer, rows, plain)?;
         Ok(())
     }
 

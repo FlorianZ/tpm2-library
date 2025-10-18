@@ -93,9 +93,9 @@ impl SubCommand for CreatePrimary {
 
             let object_handle = resp.object_handle;
             device.add_name_to_cache(object_handle.0, resp.name);
-            job.context_cache.track(object_handle)?;
+            job.key_cache.track(object_handle)?;
 
-            job.context_cache
+            job.key_cache
                 .save_context(device, object_handle, &resp.out_public, &resp.name)?;
             Ok(())
         })
