@@ -97,7 +97,7 @@ impl FromStr for PcrSelection {
 /// Returns a `PcrError` if the TPM capability query fails or if the TPM reports
 /// no active PCR banks.
 pub fn pcr_get_bank_list(device: &mut Device) -> Result<Vec<PcrBank>, PcrError> {
-    let (_, cap_data) = device.get_capability(TpmCap::Pcrs, 0, 1)?;
+    let (_, cap_data) = device.get_capability_page(TpmCap::Pcrs, 0, 1)?;
     let mut banks = Vec::new();
     if let TpmuCapabilities::Pcrs(pcrs) = cap_data.data {
         for bank in pcrs.iter() {

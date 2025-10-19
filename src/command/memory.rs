@@ -55,7 +55,7 @@ impl Memory {
     where
         F: FnMut(&mut Device, u32) -> Result<String, CommandError>,
     {
-        for handle in device.get_all_handles(handle_type_to_query << 24)? {
+        for handle in device.fetch_handles(handle_type_to_query << 24)? {
             match get_details(device, handle) {
                 Ok(details) => {
                     rows.push(MemoryRow {

@@ -5,7 +5,6 @@
 use crate::{
     cli::LogFormat,
     crypto::CryptoError,
-    key::{Tpm2shAlgId, Tpm2shEccCurve},
     print::TpmPrint,
     transport::{receive_from_stream, FileTransport, Transport},
     TEARDOWN,
@@ -29,8 +28,8 @@ use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCap, TpmCc, TpmHt, TpmPt, TpmRc,
-        TpmRcBase, TpmRh, TpmSe, TpmSt, TpmsAuthCommand, TpmsCapabilityData, TpmsContext,
-        TpmsRsaParms, TpmtPublic, TpmtPublicParms, TpmtSymDefObject, TpmuCapabilities,
+        TpmRcBase, TpmRh, TpmSe, TpmSt, TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData,
+        TpmsContext, TpmsRsaParms, TpmtPublic, TpmtPublicParms, TpmtSymDefObject, TpmuCapabilities,
         TpmuPublicParms,
     },
     message::{
@@ -42,8 +41,6 @@ use tpm2_protocol::{
     },
     tpm_hash_size, TpmErrorKind, TpmHandle, TpmWriter,
 };
-
-pub const TPM_CAP_PROPERTY_MAX: u32 = 128;
 
 /// A type-erased object safe TPM command object
 pub trait TpmCommandObject: TpmPrint + TpmHeader + TpmBodyBuild {}
@@ -129,7 +126,7 @@ pub struct Device {
 }
 
 /// Checks if the TPM supports a given set of RSA parameters.
-fn test_rsa_parms(device: &mut Device, key_bits: u16) -> Result<(), DeviceError> {
+pub(crate) fn test_rsa_parms(device: &mut Device, key_bits: u16) -> Result<(), DeviceError> {
     let cmd = TpmTestParmsCommand {
         parameters: TpmtPublicParms {
             object_type: TpmAlgId::Rsa,
@@ -304,172 +301,77 @@ impl Device {
         Ok(buf)
     }
 
-    /// Retrieves all supported algorithms from the TPM by probing its capabilities.
+    /// Fetches a complete list of capabilities from the TPM, handling pagination.
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if querying the TPM fails.
-    pub fn get_all_algorithms(&mut self) -> Result<Vec<(TpmAlgId, String)>, DeviceError> {
-        let mut supported_algs = Vec::new();
-        let mut all_algs = Vec::new();
-        let mut prop = 0;
+    /// This function will return an error if the underlying `execute` call fails
+    /// or if the TPM returns a response of an unexpected type.
+    pub fn get_capability<T, F, N>(
+        &mut self,
+        cap: TpmCap,
+        property_start: u32,
+        count: u32,
+        mut extract: F,
+        next_prop: N,
+    ) -> Result<Vec<T>, DeviceError>
+    where
+        T: Copy,
+        F: for<'a> FnMut(&'a TpmuCapabilities) -> Result<&'a [T], DeviceError>,
+        N: Fn(&T) -> u32,
+    {
+        let mut results = Vec::new();
+        let mut prop = property_start;
         loop {
-            let (more_data, cap_data) =
-                self.get_capability(TpmCap::Algs, prop, u32::try_from(MAX_HANDLES)?)?;
-
-            if let TpmuCapabilities::Algs(p) = cap_data.data {
-                all_algs.extend(p.iter().map(|prop| prop.alg));
-            } else {
-                return Err(DeviceError::CapabilityMissing(TpmCap::Algs));
-            }
+            let (more_data, cap_data) = self.get_capability_page(cap, prop, count)?;
+            let items: &[T] = extract(&cap_data.data)?;
+            results.extend_from_slice(items);
 
             if more_data {
-                if let TpmuCapabilities::Algs(algs) = cap_data.data {
-                    prop = algs.last().map_or(prop, |p| p.alg as u32 + 1);
-                }
-            } else {
-                break;
-            }
-        }
-        let all_algs: std::collections::HashSet<TpmAlgId> = all_algs.into_iter().collect();
-
-        let name_algs: Vec<TpmAlgId> = [TpmAlgId::Sha256, TpmAlgId::Sha384, TpmAlgId::Sha512]
-            .into_iter()
-            .filter(|alg| all_algs.contains(alg))
-            .collect();
-
-        if all_algs.contains(&TpmAlgId::Rsa) {
-            let rsa_key_sizes = [2048, 3072, 4096];
-            for key_bits in rsa_key_sizes {
-                match test_rsa_parms(self, key_bits) {
-                    Ok(()) => {
-                        for &name_alg in &name_algs {
-                            supported_algs.push((
-                                TpmAlgId::Rsa,
-                                format!("rsa-{}:{}", key_bits, Tpm2shAlgId(name_alg)),
-                            ));
-                        }
-                    }
-                    Err(DeviceError::TpmRc(rc)) => {
-                        if rc.base() != TpmRcBase::Value {
-                            return Err(DeviceError::TpmRc(rc));
-                        }
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-        }
-
-        if all_algs.contains(&TpmAlgId::Ecc) {
-            let mut supported_curves = Vec::new();
-            let mut prop = 0;
-            loop {
-                let (more_data, cap_data) =
-                    self.get_capability(TpmCap::EccCurves, prop, u32::try_from(MAX_HANDLES)?)?;
-                if let TpmuCapabilities::EccCurves(curves) = &cap_data.data {
-                    supported_curves.extend(curves.iter().copied());
-                } else {
-                    return Err(DeviceError::CapabilityMissing(TpmCap::EccCurves));
-                }
-                if more_data {
-                    if let TpmuCapabilities::EccCurves(curves) = cap_data.data {
-                        prop = curves.last().map_or(prop, |&c| c as u32 + 1);
-                    }
+                if let Some(last) = items.last() {
+                    prop = next_prop(last);
                 } else {
                     break;
                 }
-            }
-            for curve_id in supported_curves {
-                for &name_alg in &name_algs {
-                    supported_algs.push((
-                        TpmAlgId::Ecc,
-                        format!(
-                            "ecc-{}:{}",
-                            Tpm2shEccCurve::from(curve_id),
-                            Tpm2shAlgId(name_alg)
-                        ),
-                    ));
-                }
-            }
-        }
-
-        if all_algs.contains(&TpmAlgId::KeyedHash) {
-            for &name_alg in &name_algs {
-                supported_algs.push((
-                    TpmAlgId::KeyedHash,
-                    format!("keyedhash:{}", Tpm2shAlgId(name_alg)),
-                ));
-            }
-        }
-
-        Ok(supported_algs)
-    }
-
-    /// Retrieves all supported hash algorithms from the TPM.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `DeviceError` if querying the TPM fails.
-    pub fn get_all_hashes(&mut self) -> Result<Vec<String>, DeviceError> {
-        let mut all_algs = Vec::new();
-        let mut prop = 0;
-
-        loop {
-            let (more_data, cap_data) =
-                self.get_capability(TpmCap::Algs, prop, u32::try_from(MAX_HANDLES)?)?;
-
-            if let TpmuCapabilities::Algs(p) = &cap_data.data {
-                all_algs.extend(p.iter().map(|prop| prop.alg));
-            } else {
-                return Err(DeviceError::CapabilityMissing(TpmCap::Algs));
-            }
-
-            if more_data {
-                if let TpmuCapabilities::Algs(algs) = cap_data.data {
-                    prop = algs.last().map_or(prop, |p| p.alg as u32 + 1);
-                }
             } else {
                 break;
             }
         }
+        Ok(results)
+    }
 
-        let hashes: Vec<String> = all_algs
-            .iter()
-            .filter(|p| tpm_hash_size(p).is_some())
-            .map(|p| Tpm2shAlgId(*p).to_string())
-            .collect();
-        Ok(hashes)
+    /// Retrieves all algorithm properties supported by the TPM.
+    pub(crate) fn fetch_algorithm_properties(
+        &mut self,
+    ) -> Result<Vec<TpmsAlgProperty>, DeviceError> {
+        self.get_capability(
+            TpmCap::Algs,
+            0,
+            u32::try_from(MAX_HANDLES)?,
+            |caps| match caps {
+                TpmuCapabilities::Algs(algs) => Ok(algs),
+                _ => Err(DeviceError::CapabilityMissing(TpmCap::Algs)),
+            },
+            |last| last.alg as u32 + 1,
+        )
     }
 
     /// Retrieves all handles of a specific type from the TPM.
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if the `get_capability` call to the TPM device fails.
-    pub fn get_all_handles(&mut self, handle_type: u32) -> Result<Vec<u32>, DeviceError> {
-        let mut all_handles = Vec::new();
-        let mut prop = handle_type;
-
-        loop {
-            let (more_data, cap_data) =
-                self.get_capability(TpmCap::Handles, prop, TPM_CAP_PROPERTY_MAX)?;
-
-            if let TpmuCapabilities::Handles(handles) = cap_data.data {
-                all_handles.extend(handles.iter().copied());
-            } else {
-                return Err(DeviceError::CapabilityMissing(TpmCap::Handles));
-            }
-
-            if more_data {
-                if let TpmuCapabilities::Handles(handles) = cap_data.data {
-                    prop = handles.last().map_or(prop, |&h| h + 1);
-                }
-            } else {
-                break;
-            }
-        }
-
-        Ok(all_handles)
+    /// Returns a `DeviceError` if the `get_capability_page` call to the TPM device fails.
+    pub fn fetch_handles(&mut self, handle_type: u32) -> Result<Vec<u32>, DeviceError> {
+        self.get_capability(
+            TpmCap::Handles,
+            handle_type,
+            u32::try_from(MAX_HANDLES)?,
+            |caps| match caps {
+                TpmuCapabilities::Handles(handles) => Ok(handles),
+                _ => Err(DeviceError::CapabilityMissing(TpmCap::Handles)),
+            },
+            |last| *last + 1,
+        )
     }
 
     /// Fetches and returns one page of capabilities of a certain type from the TPM.
@@ -478,7 +380,7 @@ impl Device {
     ///
     /// This function will return an error if the underlying `execute` call fails
     /// or if the TPM returns a response of an unexpected type.
-    pub fn get_capability(
+    pub fn get_capability_page(
         &mut self,
         cap: TpmCap,
         property: u32,
@@ -509,7 +411,7 @@ impl Device {
     /// Returns a `DeviceError` if the capability or property is not found, or
     /// if the `get_capability` call fails.
     pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<u32, DeviceError> {
-        let (_, cap_data) = self.get_capability(TpmCap::TpmProperties, property as u32, 1)?;
+        let (_, cap_data) = self.get_capability_page(TpmCap::TpmProperties, property as u32, 1)?;
 
         let TpmuCapabilities::TpmProperties(props) = &cap_data.data else {
             return Err(DeviceError::CapabilityMissing(TpmCap::TpmProperties));
