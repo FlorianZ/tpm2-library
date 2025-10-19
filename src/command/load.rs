@@ -34,7 +34,7 @@ impl SubCommand for Load {
             let parent_handle = job
                 .key_cache
                 .load_parent(device, &self.parent_args.parent)?;
-            let mut auths: Vec<Auth> = self.parent_args.auth.clone().into_iter().collect();
+            let mut auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
             let input_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
 
             let (object_handle, name, public) =

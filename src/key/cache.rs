@@ -391,10 +391,18 @@ impl<'a> KeyCache<'a> {
         device: &mut Device,
         uri: &Uri,
     ) -> Result<TpmHandle, KeyCacheError> {
-        if matches!(uri, Uri::Key(_)) {
-            self.load_context(device, uri)
-        } else {
-            Err(KeyCacheError::InvalidParent(uri.to_string()))
+        match uri {
+            Uri::Key(_) => self.load_context(device, uri),
+            Uri::Tpm(handle) => {
+                if (*handle >> 24) as u8 == TpmHt::Persistent as u8 {
+                    Ok(TpmHandle(*handle))
+                } else {
+                    Err(KeyCacheError::InvalidParent(
+                        "Parent 'tpm:' handle must be persistent (0x81xxxxxx)".to_string(),
+                    ))
+                }
+            }
+            _ => Err(KeyCacheError::InvalidParent(uri.to_string())),
         }
     }
 

@@ -16,8 +16,7 @@ use tpm2_protocol::{data::TpmCc, message::TpmUnsealCommand};
 #[derive(Args, Debug)]
 #[command(about = "Retrieves data from a sealed data object.")]
 pub struct Unseal {
-    /// Input: 'tpm:<handle>' or 'key:<grip>'
-    #[arg(short = 'i', long)]
+    /// Input: 'tpm:<persistent handle>' or 'key:<grip>'
     pub input: Uri,
 
     /// Key auth: 'password:<hex>' or 'session:<handle>'
@@ -28,8 +27,16 @@ pub struct Unseal {
 impl SubCommand for Unseal {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
-            if matches!(self.input, Uri::Path(_)) {
-                return Err(CommandError::InvalidInput(format!("{}", self.input)));
+            match self.input {
+                Uri::Tpm(handle) => {
+                    if (handle >> 24) as u8 != tpm2_protocol::data::TpmHt::Persistent as u8 {
+                        return Err(CommandError::InvalidInput(self.input.to_string()));
+                    }
+                }
+                Uri::Key(_) => {}
+                Uri::Path(_) | Uri::Session(_) => {
+                    return Err(CommandError::InvalidInput(self.input.to_string()));
+                }
             }
             let item_handle = job.key_cache.load_context(device, &self.input)?;
             let mut auths = vec![self.auth.clone().unwrap_or_default()];

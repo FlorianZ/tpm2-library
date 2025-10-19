@@ -62,6 +62,10 @@ impl CreationArgs {
     pub fn parse(&self, alg: &Alg) -> Result<(TpmaObject, Tpm2bAuth, Tpm2bDigest), CommandError> {
         let mut attributes: TpmaObject = alg.clone().into();
 
+        if self.auth_value.is_none() && self.policy_digest.is_none() {
+            attributes |= TpmaObject::USER_WITH_AUTH;
+        }
+
         let user_auth = if let Some(hex_str) = &self.auth_value {
             attributes |= TpmaObject::USER_WITH_AUTH;
             Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())?
