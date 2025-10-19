@@ -5,7 +5,7 @@
 use crate::{
     command::{CommandError, OutputEncoding},
     convert::from_tpm_object_to_vec,
-    crypto::crypto_digest,
+    crypto::{crypto_digest, crypto_make_name},
     device::{Device, DeviceError},
     key::{KeyError, TpmKey},
     uri::{Uri, UriError},
@@ -183,11 +183,7 @@ impl<'a> KeyCache<'a> {
     /// # Errors
     ///
     /// Returns a `KeyCacheError` if loading or refreshing contexts fails.
-    pub fn new(
-        device: Option<&mut Device>,
-        cache_dir: &Path,
-        writer: &'a mut dyn Write,
-    ) -> Result<KeyCache<'a>, KeyCacheError> {
+    pub fn new(cache_dir: &Path, writer: &'a mut dyn Write) -> Result<KeyCache<'a>, KeyCacheError> {
         let contexts_dir = cache_dir.join("contexts");
         let mut new_context = Self {
             handles: HashMap::new(),
@@ -198,10 +194,6 @@ impl<'a> KeyCache<'a> {
         };
 
         new_context.load_contexts()?;
-
-        if let Some(dev) = device {
-            new_context.refresh_contexts(dev)?;
-        }
 
         Ok(new_context)
     }
@@ -285,37 +277,6 @@ impl<'a> KeyCache<'a> {
         Ok(())
     }
 
-    /// Refreshes all contexts, pruning stale ones.
-    fn refresh_contexts(&mut self, device: &mut Device) -> Result<(), KeyCacheError> {
-        let grips_to_refresh: Vec<String> = self.contexts.keys().cloned().collect();
-        for grip in grips_to_refresh {
-            let key = match self.contexts.get(&grip) {
-                Some(cc) => cc.clone(),
-                None => continue,
-            };
-
-            match device.load_context(key.context) {
-                Ok(live_handle) => {
-                    let new_context_struct = device.save_context(live_handle)?;
-                    device.flush_context(live_handle)?;
-                    if let Some(entry) = self.contexts.get_mut(&grip) {
-                        entry.context = new_context_struct;
-                        self.dirty_contexts.insert(grip);
-                    }
-                }
-                Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                    log::debug!("key:{grip}: is stale");
-                    self.remove_context(&grip)?;
-                }
-                Err(e) => {
-                    log::warn!("key:{grip}: {e}");
-                    self.remove_context(&grip)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Creates and saves a new managed transient context.
     ///
     /// # Errors
@@ -372,6 +333,14 @@ impl<'a> KeyCache<'a> {
                 let (_, name) = device.read_public(handle)?;
                 self.track(handle)?;
                 Ok((handle, name))
+            }
+            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
+                let (public, _) =
+                    Tpm2bPublic::parse(&key.public).map_err(|e| KeyCacheError::Device(e.into()))?;
+                let name = crypto_make_name(&public.inner)?;
+                let digest = crypto_digest(TpmAlgId::Sha256, &[name.as_ref()])?;
+                let grip = hex::encode(&digest[..8]);
+                Err(KeyCacheError::ContextNotFound(grip))
             }
             Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Handle => {
                 Err(KeyCacheError::ParentNotLoaded)
@@ -434,6 +403,11 @@ impl<'a> KeyCache<'a> {
                         let (_, _) = device.read_public(handle)?;
                         self.track(handle)?;
                         Ok(handle)
+                    }
+                    Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
+                        log::debug!("key:{grip}: is stale");
+                        self.remove_context(grip)?;
+                        Err(KeyCacheError::ContextNotFound(grip.clone()))
                     }
                     Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Handle => {
                         Err(KeyCacheError::ParentNotLoaded)

@@ -64,21 +64,8 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
     let mut session_cache = SessionCache::new(cache_dir);
     session_cache.load_sessions()?;
 
-    let mut job = if let Some(dev_rc) = &shared_device {
-        let mut dev_guard = dev_rc
-            .try_borrow_mut()
-            .map_err(|_| DeviceError::AlreadyBorrowed)?;
-
-        if let Err(e) = session_cache.refresh_sessions(&mut dev_guard) {
-            log::warn!("One or more sessions failed to refresh: {e}");
-        }
-
-        let key_cache = KeyCache::new(Some(&mut dev_guard), cache_dir, &mut stdout)?;
-        Job::new(shared_device.clone(), key_cache, session_cache)
-    } else {
-        let key_cache = KeyCache::new(None, cache_dir, &mut stdout)?;
-        Job::new(None, key_cache, session_cache)
-    };
+    let key_cache = KeyCache::new(cache_dir, &mut stdout)?;
+    let mut job = Job::new(shared_device, key_cache, session_cache);
 
     cli.command.run(&mut job, cli.plain)
 }

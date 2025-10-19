@@ -4,8 +4,9 @@
 use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
+    device::with_device,
     job::Job,
-    key::{self, KeyError},
+    key::{self, KeyCacheError, KeyError},
 };
 use clap::Args;
 use tabled::Tabled;
@@ -24,8 +25,33 @@ struct KeyRow {
 #[command(about = "Lists keys from local cache.")]
 pub struct Key {}
 
+impl Key {
+    fn refresh(job: &mut Job) -> Result<(), KeyCacheError> {
+        let grips: Vec<String> = job.key_cache.contexts.keys().cloned().collect();
+        if grips.is_empty() {
+            return Ok(());
+        }
+
+        with_device(job.device.clone(), |device| {
+            for grip in grips {
+                let uri = crate::uri::Uri::Key(grip);
+                match job.key_cache.load_context(device, &uri) {
+                    Ok(handle) => {
+                        device.flush_context(handle.0)?;
+                    }
+                    Err(KeyCacheError::ContextNotFound(_)) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
 impl SubCommand for Key {
     fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
+        Key::refresh(job)?;
+
         let mut rows: Vec<KeyRow> = Vec::new();
         for (grip, key) in &job.key_cache.contexts {
             let (public_blob, _) =
@@ -41,6 +67,6 @@ impl SubCommand for Key {
     }
 
     fn is_local(&self) -> bool {
-        true
+        false
     }
 }
