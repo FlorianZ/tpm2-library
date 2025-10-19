@@ -41,6 +41,7 @@ pub use session::*;
 pub use unseal::*;
 
 use crate::{
+    auth::AuthError,
     crypto::CryptoError,
     device::DeviceError,
     key::KeyCacheError,
@@ -128,6 +129,10 @@ pub enum CommandError {
     Device(#[from] DeviceError),
     #[error("dictionary attack lockout is active")]
     DictionaryAttackLocked,
+    #[error("empty authentication denied")]
+    EmptyAuthenticationDenied,
+    #[error("non-empty authentication denied")]
+    NonEmptyAuthenticationDenied,
     #[error("format: {0}")]
     Fmt(#[from] fmt::Error),
     #[error("invalid input: {0}")]
@@ -154,6 +159,8 @@ pub enum CommandError {
     UnsupportedSession(String),
     #[error("uri: {0}")]
     Uri(#[from] UriError),
+    #[error("auth: {0}")]
+    Auth(#[from] AuthError),
 }
 
 impl From<hex::FromHexError> for CommandError {
