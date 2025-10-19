@@ -143,6 +143,14 @@ impl SubCommand for Policy {
     fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let mut ast = parse(&self.expression)?;
+            match ast {
+                Expression::Auth(_) | Expression::Uri(_) => {
+                    return Err(CommandError::InvalidInput(
+                        "not a valid policy expression".to_string(),
+                    ));
+                }
+                _ => {}
+            }
             let session_hash_alg = TpmAlgId::Sha256;
 
             resolve_pcr_digests(device, &mut ast, session_hash_alg)?;
