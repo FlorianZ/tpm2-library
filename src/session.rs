@@ -20,7 +20,6 @@ use crate::{
     device::{Device, DeviceError},
     uri::Uri,
 };
-use rand::{thread_rng, RngCore};
 use std::{
     collections::{hash_map, HashMap, HashSet},
     num::TryFromIntError,
@@ -92,16 +91,20 @@ impl Session {
             tpm_hash_size(&auth_hash).ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
 
         let hmac_key_bytes = if session_type == TpmSe::Hmac {
-            let key_bits = u16::try_from(digest_len * 8)?;
-            crypto_kdfa(
-                auth_hash,
-                auth_value,
-                "ATH",
-                &resp.nonce_tpm,
-                &nonce_caller,
-                key_bits,
-            )
-            .map_err(SessionError::Crypto)?
+            if auth_value.is_empty() {
+                Vec::new()
+            } else {
+                let key_bits = u16::try_from(digest_len * 8)?;
+                crypto_kdfa(
+                    auth_hash,
+                    auth_value,
+                    "ATH",
+                    &resp.nonce_tpm,
+                    &nonce_caller,
+                    key_bits,
+                )
+                .map_err(SessionError::Crypto)?
+            }
         } else {
             Vec::new()
         };
@@ -498,14 +501,6 @@ pub(crate) fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand,
     })
 }
 
-pub(crate) fn new_nonce(hash_alg: TpmAlgId) -> Result<Tpm2bNonce, DeviceError> {
-    let nonce_size =
-        tpm_hash_size(&hash_alg).ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
-    let mut nonce_bytes = vec![0; nonce_size];
-    thread_rng().fill_bytes(&mut nonce_bytes);
-    Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(Into::into)
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_auth(
     device: &mut Device,
@@ -515,6 +510,8 @@ pub(crate) fn create_auth(
     command_code: TpmCc,
     handles: &[u32],
     parameters: &[u8],
+    nonce_decrypt: Option<&Tpm2bNonce>,
+    nonce_encrypt: Option<&Tpm2bNonce>,
 ) -> Result<TpmsAuthCommand, SessionError> {
     let handle_names: Vec<Tpm2bName> = handles
         .iter()
@@ -539,6 +536,15 @@ pub(crate) fn create_auth(
         hmac_payload.push(&cp_hash);
         hmac_payload.push(nonce_caller.as_ref());
         hmac_payload.push(session.nonce_tpm.as_ref());
+
+        if let Some(nonce) = nonce_decrypt {
+            hmac_payload.push(nonce.as_ref());
+        }
+        if let Some(nonce) = nonce_encrypt {
+            if nonce_decrypt.map_or(true, |d| d.as_ref() != nonce.as_ref()) {
+                hmac_payload.push(nonce.as_ref());
+            }
+        }
 
         let attribute_bits = [session.attributes.bits()];
         hmac_payload.push(&attribute_bits);

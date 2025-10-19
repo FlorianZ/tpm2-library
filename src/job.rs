@@ -8,26 +8,20 @@ use crate::{
     device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
     key::{KeyCache, KeyCacheError},
-    session::{
-        build_password_session, create_auth, new_nonce, Session, SessionCache, SessionError,
-    },
+    session::{build_password_session, create_auth, SessionCache, SessionError},
 };
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use rand::{thread_rng, RngCore};
+use std::{cell::RefCell, collections::HashSet, rc::Rc};
 use tpm2_protocol::{
-    data::{TpmAlgId, TpmCc, TpmRh, TpmSe, TpmaNv, TpmsAuthCommand},
+    data::{Tpm2bNonce, TpmCc, TpmRh, TpmaNv, TpmaSession, TpmsAuthCommand},
     message::{TpmAuthResponses, TpmNvReadCommand, TpmNvReadPublicCommand, TpmResponseBody},
-    TpmHandle,
+    tpm_hash_size, TpmErrorKind, TpmHandle,
 };
 
 pub struct Job<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
     pub key_cache: KeyCache<'a>,
     pub session_cache: SessionCache,
-    temp_sessions: HashMap<u32, Session>,
 }
 
 impl<'a> Job<'a> {
@@ -42,7 +36,6 @@ impl<'a> Job<'a> {
             device,
             key_cache,
             session_cache,
-            temp_sessions: HashMap::new(),
         }
     }
 
@@ -62,6 +55,26 @@ impl<'a> Job<'a> {
         let mut built_auths = Vec::new();
         let params = from_tpm_object_to_vec(command).map_err(DeviceError::Tpm)?;
 
+        let mut nonce_decrypt: Option<Tpm2bNonce> = None;
+        let mut nonce_encrypt: Option<Tpm2bNonce> = None;
+
+        for auth in auth_list {
+            if let Auth::Session(session_handle) = auth {
+                let uri = Auth::Session(*session_handle).to_string();
+                if let Ok(session) = self.session_cache.get(&uri) {
+                    if session.attributes.contains(TpmaSession::DECRYPT) {
+                        nonce_decrypt = Some(session.nonce_tpm);
+                    }
+                    if session.attributes.contains(TpmaSession::ENCRYPT) {
+                        nonce_encrypt = Some(session.nonce_tpm);
+                    }
+                }
+                if nonce_decrypt.is_some() && nonce_encrypt.is_some() {
+                    break;
+                }
+            }
+        }
+
         for (i, auth) in auth_list.iter().enumerate() {
             let handle = handles.get(i).ok_or(SessionError::TrailingAuthValues)?;
 
@@ -71,13 +84,19 @@ impl<'a> Job<'a> {
                 }
                 Auth::Session(session_handle) => {
                     let uri = Auth::Session(*session_handle).to_string();
-                    let session = self.session_cache.get(&uri).or_else(|_| {
-                        self.temp_sessions
-                            .get(session_handle)
-                            .ok_or(SessionError::NotFound(uri))
-                    })?;
+                    let session = self.session_cache.get(&uri)?;
 
-                    let nonce_caller = new_nonce(session.auth_hash)?;
+                    let nonce_size = tpm_hash_size(&session.auth_hash)
+                        .ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
+                    let mut nonce_bytes = vec![0; nonce_size];
+                    thread_rng().fill_bytes(&mut nonce_bytes);
+                    let nonce_caller =
+                        Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(DeviceError::Tpm)?;
+                    let (nonce_decrypt, nonce_encrypt) = if i == 0 {
+                        (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
+                    } else {
+                        (None, None)
+                    };
 
                     let result = create_auth(
                         device,
@@ -87,6 +106,8 @@ impl<'a> Job<'a> {
                         C::CC,
                         &[*handle],
                         &params,
+                        nonce_decrypt,
+                        nonce_encrypt,
                     )?;
                     built_auths.push(result);
                 }
@@ -112,39 +133,7 @@ impl<'a> Job<'a> {
         handles: &[u32],
         auths: &mut [Auth],
     ) -> Result<(TpmResponseBody, TpmAuthResponses), KeyCacheError> {
-        let mut temp_session_handle: Option<u32> = None;
-
-        if !auths.is_empty() {
-            if let Auth::Password(p) = &auths[0] {
-                if !p.is_empty() {
-                    let handle = handles.first().ok_or(SessionError::TrailingAuthValues)?;
-                    let bind_handle = (*handle).into();
-
-                    let auth_hash = TpmAlgId::Sha256;
-                    let (resp, nonce_caller) =
-                        device.start_session(TpmSe::Hmac, auth_hash, bind_handle)?;
-                    let session = Session::new(TpmSe::Hmac, auth_hash, nonce_caller, &resp, p)?;
-                    let new_handle = session.handle.0;
-
-                    self.temp_sessions.insert(new_handle, session);
-                    auths[0] = Auth::Session(new_handle);
-                    temp_session_handle = Some(new_handle);
-                }
-            }
-        }
-
-        let persistent_auths: Vec<Auth> = auths
-            .iter()
-            .filter(|auth| {
-                if let Some(temp_handle) = temp_session_handle {
-                    if let Auth::Session(handle) = auth {
-                        return *handle != temp_handle;
-                    }
-                }
-                true
-            })
-            .cloned()
-            .collect();
+        let persistent_auths: Vec<Auth> = auths.to_vec();
 
         let session_handles = self
             .session_cache
@@ -265,17 +254,6 @@ impl<'a> Job<'a> {
 
 impl Drop for Job<'_> {
     fn drop(&mut self) {
-        if let Some(device_rc) = self.device.clone() {
-            if let Ok(mut dev) = device_rc.try_borrow_mut() {
-                for handle in self.temp_sessions.keys() {
-                    if let Err(e) = dev.flush_context(*handle) {
-                        log::error!(
-                            "teardown: failed to flush temporary session {handle:08x}: {e}"
-                        );
-                    }
-                }
-            }
-        }
         self.key_cache.teardown(self.device.clone());
         if let Err(e) = self.session_cache.save() {
             log::error!("teardown: {e:#}");
