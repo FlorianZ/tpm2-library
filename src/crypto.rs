@@ -156,6 +156,10 @@ pub fn crypto_kdfa(
     context_b: &[u8],
     key_bits: u16,
 ) -> Result<Vec<u8>, CryptoError> {
+    if tpm_hash_size(&auth_hash).is_none() {
+        return Err(CryptoError::InvalidHashAlgorithm);
+    }
+
     let mut key_stream = Vec::new();
     let key_bytes = (key_bits as usize).div_ceil(8);
     let label_bytes = {
@@ -200,6 +204,10 @@ pub fn crypto_kdfe(
     context_v: &[u8],
     key_bits: u16,
 ) -> Result<Vec<u8>, CryptoError> {
+    if tpm_hash_size(&hash_alg).is_none() {
+        return Err(CryptoError::InvalidHashAlgorithm);
+    }
+
     let mut key_stream = Vec::new();
     let key_bytes = (key_bits as usize).div_ceil(8);
     let mut label_bytes = label.as_bytes().to_vec();
