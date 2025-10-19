@@ -24,7 +24,7 @@ pub struct Certificate {
 }
 
 impl SubCommand for Certificate {
-    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)? as usize;
             let handle = self.nv_index.0;

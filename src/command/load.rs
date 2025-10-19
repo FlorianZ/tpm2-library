@@ -29,7 +29,7 @@ pub struct Load {
 }
 
 impl SubCommand for Load {
-    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let parent_handle = job
                 .key_cache

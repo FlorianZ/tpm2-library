@@ -124,7 +124,7 @@ impl Algorithm {
 }
 
 impl SubCommand for Algorithm {
-    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let mut results: Vec<(String, AlgorithmType)> = Vec::new();
 
@@ -153,7 +153,7 @@ impl SubCommand for Algorithm {
                     algorithm_type: algorithm_type.to_string(),
                 })
                 .collect();
-            print_table(&mut job.key_cache.writer, rows, plain)?;
+            print_table(&mut job.key_cache.writer, rows)?;
             Ok(())
         })
     }

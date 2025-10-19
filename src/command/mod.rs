@@ -57,7 +57,7 @@ use std::{
     num::TryFromIntError,
 };
 use tabled::{
-    settings::{object::Rows, Disable, Format, Modify, Style},
+    settings::{object::Rows, Format, Modify, Padding, Style},
     Table, Tabled,
 };
 use thiserror::Error;
@@ -68,27 +68,19 @@ use tpm2_protocol::{data::TpmCc, TpmErrorKind};
 /// # Errors
 ///
 /// Returns an I/O error if writing to the writer fails.
-pub fn print_table<T>(
-    writer: &mut dyn Write,
-    items: Vec<T>,
-    plain: bool,
-) -> Result<(), std::io::Error>
+pub fn print_table<T>(writer: &mut dyn Write, items: Vec<T>) -> Result<(), std::io::Error>
 where
     T: Tabled,
 {
     if !items.is_empty() {
         let mut table = Table::new(items);
 
-        if plain {
-            table.with(Style::empty()).with(Disable::row(Rows::first()));
-        } else {
-            table.with(Style::blank());
-            if std::io::stdout().is_terminal() {
-                table.with(
-                    Modify::new(Rows::first())
-                        .with(Format::content(|s: &str| format!("\x1b[1m{s}\x1b[0m"))),
-                );
-            }
+        table.with(Style::blank()).with(Padding::new(0, 1, 0, 0));
+        if std::io::stdout().is_terminal() {
+            table.with(
+                Modify::new(Rows::first())
+                    .with(Format::content(|s: &str| format!("\x1b[1m{s}\x1b[0m"))),
+            );
         }
         writeln!(writer, "{table}")?;
     }

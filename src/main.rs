@@ -67,7 +67,7 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
     let key_cache = KeyCache::new(cache_dir, &mut stdout)?;
     let mut job = Job::new(shared_device, key_cache, session_cache);
 
-    cli.command.run(&mut job, cli.plain)
+    cli.command.run(&mut job)
 }
 
 fn init_device(cli: &TopLevel) -> Result<Option<Rc<RefCell<Device>>>, CommandError> {

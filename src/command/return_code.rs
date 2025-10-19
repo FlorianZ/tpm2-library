@@ -15,7 +15,7 @@ pub struct ReturnCode {
 }
 
 impl SubCommand for ReturnCode {
-    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         writeln!(job.key_cache.writer, "{}", self.rc)?;
         Ok(())
     }

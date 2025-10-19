@@ -48,7 +48,7 @@ pub struct PcrEvent {
 }
 
 impl SubCommand for PcrEvent {
-    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];

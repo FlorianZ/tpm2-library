@@ -24,7 +24,7 @@ pub struct Delete {
 }
 
 impl SubCommand for Delete {
-    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         if self.inputs.is_empty() {
             return Ok(());
         }

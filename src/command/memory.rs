@@ -81,7 +81,7 @@ impl Memory {
 }
 
 impl SubCommand for Memory {
-    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         device::with_device(job.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
             Self::fetch_rows(
@@ -146,7 +146,7 @@ impl SubCommand for Memory {
                 )?;
             }
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
-            print_table(&mut job.key_cache.writer, rows, plain)?;
+            print_table(&mut job.key_cache.writer, rows)?;
             Ok(())
         })
     }

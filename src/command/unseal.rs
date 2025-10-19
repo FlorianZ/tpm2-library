@@ -32,7 +32,7 @@ pub struct Unseal {
 }
 
 impl SubCommand for Unseal {
-    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             match self.input {
                 Uri::Tpm(handle) => {

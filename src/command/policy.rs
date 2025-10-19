@@ -134,7 +134,7 @@ where
 }
 
 impl SubCommand for Policy {
-    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let mut ast = parse(&self.expression)?;
             match ast {

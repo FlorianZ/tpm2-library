@@ -50,7 +50,7 @@ impl Key {
 }
 
 impl SubCommand for Key {
-    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         Key::refresh(job)?;
 
         let mut rows: Vec<KeyRow> = Vec::new();
@@ -63,7 +63,7 @@ impl SubCommand for Key {
             });
         }
         rows.sort_unstable_by(|a, b| a.grip.cmp(&b.grip));
-        print_table(&mut job.key_cache.writer, rows, plain)?;
+        print_table(&mut job.key_cache.writer, rows)?;
         Ok(())
     }
 

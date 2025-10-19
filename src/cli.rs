@@ -23,7 +23,7 @@ pub trait SubCommand {
     /// # Errors
     ///
     /// Returns an error if the execution fails.
-    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError>;
+    fn run(&self, job: &mut Job) -> Result<(), CommandError>;
 
     /// Returns `true` if the command can be run without a TPM device.
     #[must_use]
@@ -51,10 +51,6 @@ pub struct TopLevel {
     /// Log format: 'plain' or 'pretty'
     #[arg(long, default_value_t = LogFormat::default(), value_parser = clap::value_parser!(LogFormat))]
     pub log_format: LogFormat,
-
-    /// Print tables without headers and with space-separated columns
-    #[arg(short = 'P', long)]
-    pub plain: bool,
 
     #[command(subcommand)]
     pub command: Command,
@@ -104,8 +100,8 @@ impl Command {
 }
 
 impl SubCommand for Command {
-    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
-        self.as_subcommand().run(job, plain)
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        self.as_subcommand().run(job)
     }
 
     fn is_local(&self) -> bool {

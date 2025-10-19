@@ -57,7 +57,7 @@ impl Evict {
 }
 
 impl SubCommand for Evict {
-    fn run(&self, job: &mut Job, _plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
             let persistent_handle_uri = Uri::from_str(&self.output)?;
             let persistent_handle_val = match persistent_handle_uri {

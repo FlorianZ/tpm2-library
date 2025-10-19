@@ -47,7 +47,7 @@ pub struct Session {
 }
 
 impl SubCommand for Session {
-    fn run(&self, job: &mut Job, plain: bool) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         let mut results: Vec<(u32, SessionType)> = Vec::new();
 
         for (_, session) in &job.session_cache {
@@ -69,7 +69,7 @@ impl SubCommand for Session {
             })
             .collect();
 
-        print_table(&mut job.key_cache.writer, rows, plain)?;
+        print_table(&mut job.key_cache.writer, rows)?;
 
         Ok(())
     }
