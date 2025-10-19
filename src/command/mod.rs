@@ -19,7 +19,6 @@ pub mod pcr_event;
 pub mod policy;
 pub mod reset_lock;
 pub mod return_code;
-pub mod seal;
 pub mod session;
 pub mod unseal;
 
@@ -38,7 +37,6 @@ pub use pcr_event::*;
 pub use policy::*;
 pub use reset_lock::*;
 pub use return_code::*;
-pub use seal::*;
 pub use session::*;
 pub use unseal::*;
 

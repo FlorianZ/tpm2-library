@@ -5,7 +5,7 @@
 use crate::{
     command::{CommandError, OutputEncoding},
     key::KeyCache,
-    key::{Alg, KeyError, TpmKey},
+    key::TpmKey,
     uri::Uri,
 };
 use std::io::{self, Read};
@@ -106,13 +106,4 @@ pub fn from_str_to_tpm_rc(s: &str) -> Result<TpmRc, String> {
     let raw_rc = u32::from_str_radix(s_no_prefix, 16)
         .map_err(|e| format!("Failed to parse hex u32: {e}"))?;
     TpmRc::try_from(raw_rc).map_err(|e| format!("Invalid TPM RC value '{s}': {e}"))
-}
-
-/// Parses a string into an `Alg` for a sealed object.
-///
-/// # Errors
-///
-/// Returns a `String` error if parsing fails.
-pub fn from_str_to_keyedhash_alg(s: &str) -> Result<Alg, String> {
-    Alg::new_keyedhash(s).map_err(|e: KeyError| e.to_string())
 }
