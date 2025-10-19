@@ -41,12 +41,8 @@ impl SubCommand for ResetLock {
                 }
                 Err(e) => return Err(e.into()),
             };
-
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;
-
-            writeln!(job.key_cache.writer, "done")?;
-
             Ok(())
         })
     }
