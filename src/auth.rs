@@ -2,22 +2,36 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+use crate::uri::{Uri, UriError};
 use std::str::FromStr;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum AuthError {
+    #[error(transparent)]
+    Uri(#[from] UriError),
+    #[error("invalid authentication scheme: {0}")]
+    InvalidAuthenticationScheme(String),
+}
 
 /// Represents an authorization method for a command.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Auth {
-    /// A stateful, tracked session identified by its handle.
-    Session(u32),
-    /// A password
-    Password(Vec<u8>),
-    /// A policy digest
-    Policy(Vec<u8>),
+pub struct Auth(pub Uri);
+
+impl TryFrom<Uri> for Auth {
+    type Error = AuthError;
+
+    fn try_from(uri: Uri) -> Result<Self, Self::Error> {
+        match uri {
+            Uri::Session(_) | Uri::Password(_) | Uri::Policy(_) => Ok(Self(uri)),
+            _ => Err(AuthError::InvalidAuthenticationScheme(uri.to_string())),
+        }
+    }
 }
 
 impl Default for Auth {
     fn default() -> Self {
-        Self::Password(Vec::new())
+        Self(Uri::Password(Vec::new()))
     }
 }
 
@@ -26,37 +40,15 @@ pub type AuthList = Vec<Auth>;
 
 impl std::fmt::Display for Auth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Session(handle) => write!(f, "session:{handle:08x}"),
-            Self::Password(bytes) => write!(f, "password:{}", hex::encode(bytes)),
-            Self::Policy(bytes) => write!(f, "policy:{}", hex::encode(bytes)),
-        }
+        write!(f, "{}", self.0)
     }
 }
 
 impl FromStr for Auth {
-    type Err = String;
+    type Err = AuthError;
 
-    fn from_str(uri: &str) -> Result<Self, Self::Err> {
-        let Some((scheme, value)) = uri.split_once(':') else {
-            return Err(format!("invalid auth: {uri}"));
-        };
-
-        match scheme {
-            "session" => {
-                let handle = u32::from_str_radix(value.trim_start_matches("0x"), 16)
-                    .map_err(|_| format!("invalid session: {uri}"))?;
-                Ok(Self::Session(handle))
-            }
-            "password" => {
-                let bytes = hex::decode(value).map_err(|_| format!("invalid password: {uri}"))?;
-                Ok(Self::Password(bytes))
-            }
-            "policy" => {
-                let bytes = hex::decode(value).map_err(|_| format!("invalid policy: {uri}"))?;
-                Ok(Self::Policy(bytes))
-            }
-            _ => Err(format!("unsupported auth scheme: {scheme}")),
-        }
+    fn from_str(uri_str: &str) -> Result<Self, Self::Err> {
+        let uri = Uri::from_str(uri_str)?;
+        Self::try_from(uri)
     }
 }

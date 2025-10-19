@@ -265,7 +265,7 @@ impl SessionCache {
                 continue;
             }
 
-            let uri = Auth::Session(handle).to_string();
+            let uri = Auth(Uri::Session(handle)).to_string();
             self.sessions.insert(uri, session);
         }
         Ok(())
@@ -335,7 +335,7 @@ impl SessionCache {
     /// Adds a new session and returns its URI.
     pub fn add(&mut self, session: Session) -> String {
         let handle = session.context.saved_handle.0;
-        let uri = Auth::Session(handle).to_string();
+        let uri = Auth(Uri::Session(handle)).to_string();
         self.sessions.insert(uri.clone(), session);
         self.dirty.insert(uri.clone());
         uri
@@ -424,8 +424,8 @@ impl SessionCache {
     ) -> Result<Vec<u32>, SessionError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if let Auth::Session(handle) = auth {
-                let uri = Auth::Session(*handle).to_string();
+            if let Auth(Uri::Session(_)) = auth {
+                let uri = auth.to_string();
                 let session_is_loaded = {
                     let session = self.get(&uri)?;
                     session.handle.0 != 0
@@ -457,7 +457,7 @@ impl SessionCache {
         auth_responses: &TpmAuthResponses,
     ) -> Result<(), SessionError> {
         for (i, handle) in session_handles.iter().enumerate() {
-            let uri = Auth::Session(*handle).to_string();
+            let uri = Auth(Uri::Session(*handle)).to_string();
             let session_handle = self.get(&uri)?.handle;
             if session_handle.0 == 0 {
                 continue;

@@ -73,7 +73,7 @@ pub enum KeyCacheError {
     #[error("invalid parent: {0}")]
     InvalidParent(String),
     #[error("invalid URI: {0}")]
-    InvalidUri(UriError),
+    InvalidUri(#[from] UriError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("key: {0}")]
@@ -86,8 +86,6 @@ pub enum KeyCacheError {
     Session(#[from] crate::session::SessionError),
     #[error("unknown handle: {0:08x}")]
     UnknownHandle(u32),
-    #[error("uri: {0}")]
-    Uri(#[from] UriError),
 }
 
 impl From<TpmErrorKind> for KeyCacheError {
@@ -111,7 +109,7 @@ impl From<CommandError> for KeyCacheError {
             CommandError::Io(e) => Self::Io(e),
             CommandError::Key(e) => Self::Key(e),
             CommandError::Session(e) => Self::Session(e),
-            CommandError::Uri(e) => Self::Uri(e),
+            CommandError::Uri(e) => Self::InvalidUri(e),
             _ => Self::Key(KeyError::ValueConversionFailed(err.to_string())),
         }
     }
@@ -420,7 +418,9 @@ impl<'a> KeyCache<'a> {
                 self.load_context_from_bytes(device, &context_blob)
                     .map(|(handle, _)| handle)
             }
-            Uri::Session(_) => Err(KeyCacheError::InvalidUri(UriError::InvalidUriType)),
+            Uri::Session(_) | Uri::Password(_) | Uri::Policy(_) => Err(KeyCacheError::InvalidUri(
+                UriError::UnsupportedScheme(uri.to_string()),
+            )),
         }
     }
 
@@ -508,13 +508,16 @@ impl<'a> KeyCache<'a> {
                         std::fs::write(path, data)?;
                         writeln!(self.writer, "{uri}")?;
                     }
+                    Ok(())
                 }
-                _ => return Err(KeyCacheError::InvalidUri(UriError::InvalidUriType)),
+                _ => Err(KeyCacheError::InvalidUri(UriError::UnsupportedScheme(
+                    uri.to_string(),
+                ))),
             }
         } else {
             self.writer.write_all(data)?;
+            Ok(())
         }
-        Ok(())
     }
 
     fn non_existence_invariant(&self, handle: TpmHandle) -> Result<(), KeyCacheError> {

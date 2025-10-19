@@ -209,7 +209,7 @@ impl Expression {
     /// cannot be read.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
         match self {
-            Self::Auth(Auth::Password(bytes)) => Ok(bytes.clone()),
+            Self::Auth(Auth(Uri::Password(bytes))) => Ok(bytes.clone()),
             _ => Err(PolicyError::InvalidSecret(format!(
                 "{self:?}: expected 'password:<hex>'"
             ))),

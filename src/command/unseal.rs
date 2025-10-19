@@ -34,7 +34,7 @@ impl SubCommand for Unseal {
                     }
                 }
                 Uri::Key(_) => {}
-                Uri::Path(_) | Uri::Session(_) => {
+                Uri::Path(_) | Uri::Session(_) | Uri::Password(_) | Uri::Policy(_) => {
                     return Err(CommandError::InvalidInput(self.input.to_string()));
                 }
             }

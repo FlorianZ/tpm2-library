@@ -157,7 +157,7 @@ impl SubCommand for Policy {
                 };
 
                 job.session_cache
-                    .prepare_sessions(device, &[Auth::Session(session_handle)])?;
+                    .prepare_sessions(device, &[Auth(Uri::Session(session_handle))])?;
 
                 let live_handle = job
                     .session_cache

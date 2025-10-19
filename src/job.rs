@@ -9,6 +9,7 @@ use crate::{
     key::{AnyKey, KeyError, TpmKey},
     key::{KeyCache, KeyCacheError},
     session::{build_password_session, create_auth, SessionCache, SessionError},
+    uri::Uri,
 };
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
@@ -59,8 +60,8 @@ impl<'a> Job<'a> {
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if let Auth::Session(session_handle) = auth {
-                let uri = Auth::Session(*session_handle).to_string();
+            if let Auth(Uri::Session(_)) = auth {
+                let uri = auth.to_string();
                 if let Ok(session) = self.session_cache.get(&uri) {
                     if session.attributes.contains(TpmaSession::DECRYPT) {
                         nonce_decrypt = Some(session.nonce_tpm);
@@ -78,12 +79,12 @@ impl<'a> Job<'a> {
         for (i, auth) in auth_list.iter().enumerate() {
             let handle = handles.get(i).ok_or(SessionError::TrailingAuthValues)?;
 
-            match auth {
-                Auth::Password(password) => {
+            match &auth.0 {
+                Uri::Password(password) => {
                     built_auths.push(build_password_session(password)?);
                 }
-                Auth::Session(session_handle) => {
-                    let uri = Auth::Session(*session_handle).to_string();
+                Uri::Session(_) => {
+                    let uri = auth.to_string();
                     let session = self.session_cache.get(&uri)?;
 
                     let nonce_size = tpm_hash_size(&session.auth_hash)
@@ -111,7 +112,8 @@ impl<'a> Job<'a> {
                     )?;
                     built_auths.push(result);
                 }
-                Auth::Policy(_) => return Err(SessionError::InvalidAuth),
+                Uri::Policy(_) => return Err(SessionError::InvalidAuth),
+                _ => unreachable!(),
             }
         }
         Ok(built_auths)
@@ -147,7 +149,7 @@ impl<'a> Job<'a> {
 
         let mut persistent_session_handles_used = HashSet::new();
         for auth in &persistent_auths {
-            if let Auth::Session(handle) = auth {
+            if let Auth(Uri::Session(handle)) = auth {
                 persistent_session_handles_used.insert(*handle);
             }
         }

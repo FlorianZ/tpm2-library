@@ -108,6 +108,9 @@ impl SubCommand for Delete {
                             let _ = Delete::delete(job, dev, &uri)?;
                         }
                         Uri::Path(_) => unreachable!(),
+                        Uri::Password(_) | Uri::Policy(_) => {
+                            return Err(CommandError::InvalidInput(uri.to_string()))
+                        }
                     }
                 }
                 Ok(())
