@@ -102,6 +102,8 @@ pub fn deny_keyedhash(algorithm: &crate::key::Alg) -> Result<(), CommandError> {
 
 #[derive(Debug, Error)]
 pub enum CommandError {
+    #[error("authentication denied")]
+    AuthenticationDenied,
     #[error("capability not found: {0}")]
     CapabilityMissing(tpm2_protocol::data::TpmCap),
     #[error("context: {0}")]
@@ -112,10 +114,6 @@ pub enum CommandError {
     Device(#[from] DeviceError),
     #[error("dictionary attack lockout is active")]
     DictionaryAttackLocked,
-    #[error("empty authentication denied")]
-    EmptyAuthenticationDenied,
-    #[error("non-empty authentication denied")]
-    NonEmptyAuthenticationDenied,
     #[error("format: {0}")]
     Fmt(#[from] fmt::Error),
     #[error("invalid input: {0}")]
@@ -134,6 +132,10 @@ pub enum CommandError {
     Policy(#[from] PolicyError),
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
+    #[error("sensitive data denied")]
+    SensitiveDataDenied,
+    #[error("sensitive data missing")]
+    SensitiveDataMissing,
     #[error("session: {0}")]
     Session(#[from] SessionError),
     #[error("unsupported key algorithm: '{0}'")]

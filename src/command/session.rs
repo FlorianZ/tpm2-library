@@ -7,27 +7,8 @@ use crate::{
     job::Job,
 };
 use clap::Args;
-use strum::{Display, EnumString};
 use tabled::Tabled;
 use tpm2_protocol::data::TpmSe;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, EnumString)]
-#[strum(serialize_all = "kebab-case")]
-pub enum SessionType {
-    Hmac,
-    Policy,
-    Trial,
-}
-
-impl From<TpmSe> for SessionType {
-    fn from(val: TpmSe) -> Self {
-        match val {
-            TpmSe::Hmac => Self::Hmac,
-            TpmSe::Policy => Self::Policy,
-            TpmSe::Trial => Self::Trial,
-        }
-    }
-}
 
 #[derive(Tabled)]
 struct SessionRow {
@@ -38,36 +19,25 @@ struct SessionRow {
 /// Lists cached authorization sessions.
 #[derive(Args, Debug)]
 #[command(about = "Lists cached authorization sessions.")]
-pub struct Session {
-    /// Filter by session type
-    #[arg(long = "type")]
-    pub type_filter: Option<SessionType>,
-}
+pub struct Session {}
 
 impl SubCommand for Session {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
-        let mut results: Vec<(u32, SessionType)> = Vec::new();
-
+        let mut handles: Vec<u32> = Vec::new();
         for (_, session) in &job.session_cache {
             let handle = session.context.saved_handle.0;
-            results.push((handle, session.session_type.into()));
+            if session.session_type == TpmSe::Policy {
+                handles.push(handle);
+            }
         }
-
-        if let Some(filter_type) = self.type_filter {
-            results.retain(|(_, session_type)| *session_type == filter_type);
-        }
-
-        results.sort_unstable();
-
-        let rows: Vec<SessionRow> = results
+        handles.sort_unstable();
+        let rows: Vec<SessionRow> = handles
             .into_iter()
-            .map(|(handle, _)| SessionRow {
+            .map(|handle| SessionRow {
                 handle: format!("{handle:08x}"),
             })
             .collect();
-
         print_table(&mut job.key_cache.writer, rows)?;
-
         Ok(())
     }
 }

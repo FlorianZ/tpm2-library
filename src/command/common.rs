@@ -32,7 +32,7 @@ pub struct OutputArgs {
 #[derive(Args, Debug, Clone)]
 pub struct OutputEncodingArgs {
     /// Output encoding: pem or der
-    #[arg(long = "output-encoding", default_value_t = Default::default(), value_parser = clap::value_parser!(OutputEncoding))]
+    #[arg(long = "output-encoding", default_value_t = OutputEncoding::default(), value_parser = clap::value_parser!(OutputEncoding))]
     pub output_encoding: OutputEncoding,
 }
 
@@ -43,14 +43,14 @@ pub struct ParentAuthArgs {
     pub parent: Uri,
 
     /// Authentication: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'a', long = "auth")]
+    #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct AuthArgs {
     /// Authentication: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'a', long = "auth")]
+    #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }
 
@@ -61,19 +61,19 @@ pub struct HierarchyAuthArgs {
     pub hierarchy: Hierarchy,
 
     /// Authentication: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'a', long = "auth")]
+    #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct CreationArgs {
-    /// Authentication value
-    #[arg(long = "auth-value")]
-    pub auth_value: Option<String>,
+    /// Authentication value: '<hex string>'
+    #[arg(long = "password")]
+    pub password: Option<String>,
 
-    /// Policy digest
-    #[arg(long = "policy-digest")]
-    pub policy_digest: Option<String>,
+    /// Policy digest: '<hex string>'
+    #[arg(long = "policy")]
+    pub policy: Option<String>,
 }
 
 impl CreationArgs {
@@ -85,18 +85,18 @@ impl CreationArgs {
     pub fn parse(&self, alg: &Alg) -> Result<(TpmaObject, Tpm2bAuth, Tpm2bDigest), CommandError> {
         let mut attributes: TpmaObject = alg.clone().into();
 
-        if self.auth_value.is_none() && self.policy_digest.is_none() {
+        if self.password.is_none() && self.policy.is_none() {
             attributes |= TpmaObject::USER_WITH_AUTH;
         }
 
-        let user_auth = if let Some(hex_str) = &self.auth_value {
+        let user_auth = if let Some(hex_str) = &self.password {
             attributes |= TpmaObject::USER_WITH_AUTH;
             Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())?
         } else {
             Tpm2bAuth::default()
         };
 
-        let auth_policy = if let Some(hex_str) = &self.policy_digest {
+        let auth_policy = if let Some(hex_str) = &self.policy {
             attributes |= TpmaObject::ADMIN_WITH_POLICY;
             Tpm2bDigest::try_from(hex::decode(hex_str)?.as_slice())?
         } else {

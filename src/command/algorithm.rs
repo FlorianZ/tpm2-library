@@ -37,7 +37,7 @@ struct AlgorithmRow {
 #[derive(Args, Debug)]
 pub struct Algorithm {
     /// Algorithm type: 'key' or 'name'
-    #[arg(long = "type")]
+    #[arg(short = 't', long = "type")]
     pub algorithm_type: Option<AlgorithmType>,
 }
 

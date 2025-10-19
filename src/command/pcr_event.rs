@@ -20,20 +20,7 @@ use tpm2_protocol::{
 
 /// Extends a PCR with an event.
 #[derive(Args, Debug)]
-#[command(
-    name = "pcr-event",
-    long_about = "Extends a Platform Configuration Register (PCR) with data.
-
-This command computes the digest of the provided data and uses it to
-extend the state of the specified PCR. This is a one-way operation.
-
-The output is a single, reusable policy expression that can be used
-in other commands.
-
-Example:
-  # Extend PCR 16 with the SHA256 digest of the string \"my-event\"
-  echo -n \"my-event\" | tpm2sh pcr-event 16"
-)]
+#[command(name = "pcr-event")]
 pub struct PcrEvent {
     /// PCR index
     #[arg(value_name = "pcr-index", value_parser = from_str_to_handle)]

@@ -22,13 +22,13 @@ pub struct Create {
     #[clap(flatten)]
     pub parent_args: ParentAuthArgs,
 
-    /// Object algorithm: (e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256')
+    /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256'.
     #[arg(value_parser = clap::value_parser!(Alg))]
     pub algorithm: Alg,
 
-    /// With data to be encrypted with keyedhash.
-    #[arg(long = "sensitive-data")]
-    pub sensitive_data: Option<String>,
+    /// Sensitive data: hex string
+    #[arg(long = "data")]
+    pub data: Option<String>,
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
@@ -55,34 +55,23 @@ impl Create {
         let (object_attributes, user_auth, auth_policy) =
             self.creation_args.parse(&self.algorithm)?;
 
-        let (sensitive_data, key_type_oid) = match (&self.sensitive_data, &self.algorithm.params) {
+        let (sensitive_data, key_type_oid) = match (&self.data, &self.algorithm.params) {
             (Some(hex_data), AlgInfo::KeyedHash) => {
                 let bytes = hex::decode(hex_data)?;
                 if bytes.is_empty() {
-                    return Err(CommandError::InvalidInput(
-                        "Cannot seal empty data provided via --sensitive-data.".to_string(),
-                    ));
+                    Err(CommandError::SensitiveDataMissing)
+                } else {
+                    Ok((
+                        Tpm2bSensitiveData::try_from(bytes.as_slice())?,
+                        OID_SEALED_DATA,
+                    ))
                 }
-                (
-                    Tpm2bSensitiveData::try_from(bytes.as_slice())?,
-                    OID_SEALED_DATA,
-                )
             }
             (None, AlgInfo::Rsa { .. } | AlgInfo::Ecc { .. }) => {
-                (Tpm2bSensitiveData::default(), OID_LOADABLE_KEY)
+                Ok((Tpm2bSensitiveData::default(), OID_LOADABLE_KEY))
             }
-            (Some(_), _) => {
-                return Err(CommandError::InvalidInput(format!(
-                    "--sensitive-data is only valid with 'keyedhash' algorithms, not '{}'",
-                    self.algorithm
-                )))
-            }
-            (None, AlgInfo::KeyedHash) => {
-                return Err(CommandError::InvalidInput(
-                    "Missing --sensitive-data for 'keyedhash' algorithm.".to_string(),
-                ))
-            }
-        };
+            (Some(_), _) | (None, AlgInfo::KeyedHash) => Err(CommandError::SensitiveDataDenied),
+        }?;
 
         let template = TpmKeyTemplate {
             alg_desc: &self.algorithm,

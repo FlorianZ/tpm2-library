@@ -31,18 +31,16 @@ pub enum PolicyMode {
     #[default]
     Resolve,
     Software,
-    Trial,
+    Tpm,
     Session,
 }
 
 /// Builds an authorization policy.
 #[derive(Args, Debug, Default)]
-#[command(
-    long_about = "A policy expression for the digest is defined with an expression language\ne.g, 'sha256:0,...' or 'secret(\"tpm:...\")'."
-)]
+#[command()]
 pub struct Policy {
-    /// Execution mode: 'resolve' (default), 'software', 'trial', or 'session'.
-    #[arg(long = "mode", default_value_t = Default::default(), value_parser = clap::value_parser!(PolicyMode))]
+    /// Execution mode: 'resolve' (default), 'software', 'tpm', or 'session'.
+    #[arg(short = 'm', long = "mode", default_value_t = PolicyMode::default(), value_parser = clap::value_parser!(PolicyMode))]
     pub mode: PolicyMode,
 
     /// Policy expression
@@ -158,7 +156,7 @@ impl SubCommand for Policy {
                     let final_digest = execute_policy(&ast, &mut session)?;
                     writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
                 }
-                PolicyMode::Trial => {
+                PolicyMode::Tpm => {
                     let session_handle =
                         start_trial_session(device, TpmSe::Trial, session_hash_alg)?;
                     let final_digest = {

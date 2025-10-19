@@ -68,9 +68,9 @@ impl SubCommand for Unseal {
                     if rc.base() == TpmRcBase::AuthFail || rc.base() == TpmRcBase::AuthMissing =>
                 {
                     if self.auth_args.auth.is_none() {
-                        return Err(CommandError::EmptyAuthenticationDenied);
+                        return Err(CommandError::AuthenticationDenied);
                     }
-                    return Err(CommandError::NonEmptyAuthenticationDenied);
+                    return Err(CommandError::AuthenticationDenied);
                 }
                 Err(e) => return Err(e.into()),
             };
