@@ -3,9 +3,8 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    auth::Auth,
     cli::SubCommand,
-    command::CommandError,
+    command::{AuthArgs, CommandError},
     device::{with_device, DeviceError},
     job::Job,
     key::KeyCacheError,
@@ -19,9 +18,8 @@ use tpm2_protocol::{
 /// Resets the dictionary attack lockout counter.
 #[derive(Args, Debug)]
 pub struct ResetLock {
-    /// Hierarchy auth: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'a', long = "auth")]
-    pub auth: Option<Auth>,
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 }
 
 impl SubCommand for ResetLock {
@@ -30,7 +28,7 @@ impl SubCommand for ResetLock {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand { lock_handle };
             let handles = [TpmRh::Lockout as u32];
-            let mut auths = vec![self.auth.clone().unwrap_or_default()];
+            let mut auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
 
             let (resp, _) = match job.execute(device, &command, &handles, &mut auths) {
                 Ok(result) => result,

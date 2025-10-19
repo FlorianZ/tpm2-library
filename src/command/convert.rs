@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncoding},
+    command::{CommandError, InputArgs, OutputArgs, OutputEncoding, ParentAuthArgs},
     convert::{from_input_to_bytes, from_tpm_key_to_output},
     device::with_device,
     job::Job,
@@ -15,7 +15,7 @@ use clap::Args;
 #[derive(Args, Debug)]
 pub struct Convert {
     #[clap(flatten)]
-    pub parent_args: AuthArgs,
+    pub parent_args: ParentAuthArgs,
 
     #[clap(flatten)]
     pub input_args: InputArgs,

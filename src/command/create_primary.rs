@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_keyedhash, CommandError, CreationArgs, HierarchyArgs},
+    command::{deny_keyedhash, CommandError, CreationArgs, HierarchyAuthArgs},
     device::{with_device, DeviceError},
     job::Job,
     key::Alg,
@@ -23,7 +23,7 @@ use tpm2_protocol::{
 #[derive(Args, Debug, Clone)]
 pub struct CreatePrimary {
     #[clap(flatten)]
-    pub hierarchy_args: HierarchyArgs,
+    pub hierarchy_args: HierarchyAuthArgs,
 
     /// Key algorithm
     #[arg(value_parser = clap::value_parser!(Alg))]

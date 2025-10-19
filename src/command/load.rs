@@ -5,7 +5,7 @@
 use crate::{
     auth::Auth,
     cli::SubCommand,
-    command::{AuthArgs, CommandError, InputArgs},
+    command::{CommandError, InputArgs, ParentAuthArgs},
     convert::from_input_to_bytes,
     device::{with_device, Device, DeviceError},
     job::Job,
@@ -22,7 +22,7 @@ use tpm2_protocol::{
 #[derive(Args, Debug)]
 pub struct Load {
     #[clap(flatten)]
-    pub parent_args: AuthArgs,
+    pub parent_args: ParentAuthArgs,
 
     #[clap(flatten)]
     pub input_args: InputArgs,

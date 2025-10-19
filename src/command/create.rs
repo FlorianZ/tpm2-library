@@ -6,7 +6,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncoding},
+    command::{CommandError, CreationArgs, OutputArgs, OutputEncoding, ParentAuthArgs},
     convert::from_tpm_key_to_output,
     device::{with_device, Device},
     job::Job,
@@ -20,7 +20,7 @@ use tpm2_protocol::data::Tpm2bSensitiveData;
 #[command(about = "Creates a secondary key or a sealed data object.")]
 pub struct Create {
     #[clap(flatten)]
-    pub parent_args: AuthArgs,
+    pub parent_args: ParentAuthArgs,
 
     /// Object algorithm: (e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256')
     #[arg(value_parser = clap::value_parser!(Alg))]

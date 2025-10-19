@@ -21,7 +21,7 @@ pub struct OutputArgs {
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct AuthArgs {
+pub struct ParentAuthArgs {
     /// Parent key: 'tpm:<handle>', or 'key:<name grip>'
     #[arg(short = 'P', long)]
     pub parent: Uri,
@@ -32,7 +32,14 @@ pub struct AuthArgs {
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct HierarchyArgs {
+pub struct AuthArgs {
+    /// Authentication: 'password:<hex>' or 'session:<handle>'
+    #[arg(short = 'a', long = "auth")]
+    pub auth: Option<Auth>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct HierarchyAuthArgs {
     /// Hierarchy: owner (default), platform or endorsement
     #[arg(short = 'H', long, default_value_t = Hierarchy::default(), value_parser = clap::value_parser!(Hierarchy))]
     pub hierarchy: Hierarchy,

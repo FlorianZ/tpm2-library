@@ -2,9 +2,8 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    auth::Auth,
     cli::SubCommand,
-    command::CommandError,
+    command::{AuthArgs, CommandError},
     device::{with_device, DeviceError},
     job::Job,
     key::KeyCacheError,
@@ -24,9 +23,8 @@ pub struct Unseal {
     /// Input: 'tpm:<persistent handle>' or 'key:<grip>'
     pub input: Uri,
 
-    /// Key auth: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'a', long = "auth")]
-    pub auth: Option<Auth>,
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 
     /// Force hex output when redirecting to a file or pipe
     #[arg(long)]
@@ -48,7 +46,11 @@ impl SubCommand for Unseal {
                 }
             }
             let item_handle = job.key_cache.load_context(device, &self.input)?;
-            let mut auths = self.auth.clone().map_or_else(Vec::new, |a| vec![a]);
+            let mut auths = self
+                .auth_args
+                .auth
+                .clone()
+                .map_or_else(Vec::new, |a| vec![a]);
 
             let unseal_cmd = TpmUnsealCommand {
                 item_handle: item_handle.0.into(),
@@ -63,13 +65,11 @@ impl SubCommand for Unseal {
                         .out_data
                 }
                 Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
-                    if self.auth.is_none() && rc.base() == TpmRcBase::AuthMissing =>
+                    if rc.base() == TpmRcBase::AuthFail || rc.base() == TpmRcBase::AuthMissing =>
                 {
-                    return Err(CommandError::EmptyAuthenticationDenied);
-                }
-                Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
-                    if self.auth.is_some() && rc.base() == TpmRcBase::AuthFail =>
-                {
+                    if self.auth_args.auth.is_none() {
+                        return Err(CommandError::EmptyAuthenticationDenied);
+                    }
                     return Err(CommandError::NonEmptyAuthenticationDenied);
                 }
                 Err(e) => return Err(e.into()),

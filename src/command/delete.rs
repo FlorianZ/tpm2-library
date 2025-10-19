@@ -3,7 +3,11 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    auth::Auth, cli::SubCommand, command::CommandError, device::with_device, job::Job, uri::Uri,
+    cli::SubCommand,
+    command::{AuthArgs, CommandError},
+    device::with_device,
+    job::Job,
+    uri::Uri,
 };
 use clap::Args;
 use std::str::FromStr;
@@ -14,9 +18,8 @@ pub struct Delete {
     /// Inputs: 'tpm:<handle>', 'key:<name grip>', or 'session:<handle>'
     pub inputs: Vec<String>,
 
-    /// Persistent auth: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'a', long = "auth")]
-    pub auth: Option<Auth>,
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 }
 
 impl SubCommand for Delete {

@@ -5,7 +5,7 @@
 use crate::{
     auth::Auth,
     cli::SubCommand,
-    command::{CommandError, HierarchyArgs},
+    command::{CommandError, HierarchyAuthArgs},
     device::{with_device, Device, DeviceError},
     job::Job,
     uri::Uri,
@@ -22,7 +22,7 @@ use tpm2_protocol::{
 #[derive(Args, Debug)]
 pub struct Evict {
     #[clap(flatten)]
-    pub hierarchy_args: HierarchyArgs,
+    pub hierarchy_args: HierarchyAuthArgs,
 
     /// Input transient key: 'key:<name grip>'
     #[arg(short = 'I', long)]
