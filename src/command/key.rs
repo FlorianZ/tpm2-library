@@ -38,6 +38,7 @@ impl Key {
                 match job.key_cache.load_context(device, &uri) {
                     Ok(handle) => {
                         device.flush_context(handle.0)?;
+                        job.key_cache.untrack(handle.0);
                     }
                     Err(KeyCacheError::ContextNotFound(_)) => {}
                     Err(e) => return Err(e),
