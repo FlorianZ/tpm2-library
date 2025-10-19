@@ -33,8 +33,6 @@ impl From<TpmSe> for SessionType {
 struct SessionRow {
     #[tabled(rename = "HANDLE")]
     handle: String,
-    #[tabled(rename = "DETAILS")]
-    details: String,
 }
 
 /// Lists cached authorization sessions.
@@ -63,9 +61,8 @@ impl SubCommand for Session {
 
         let rows: Vec<SessionRow> = results
             .into_iter()
-            .map(|(handle, session_type)| SessionRow {
+            .map(|(handle, _)| SessionRow {
                 handle: format!("{handle:08x}"),
-                details: session_type.to_string(),
             })
             .collect();
 
