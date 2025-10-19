@@ -11,10 +11,16 @@ use crate::{
     },
     job::Job,
 };
-use clap::{Parser, Subcommand};
+use clap::{builder::styling::Styles, Parser, Subcommand};
 use std::path::PathBuf;
 use strum::{Display, EnumString};
 use tpm2_protocol::data::TpmRh;
+
+const STYLES: Styles = Styles::styled()
+    .header(clap::builder::styling::Style::new().bold())
+    .usage(clap::builder::styling::Style::new().bold())
+    .literal(clap::builder::styling::Style::new())
+    .placeholder(clap::builder::styling::Style::new());
 
 /// A subcommand of the main CLI application.
 pub trait SubCommand {
@@ -42,7 +48,7 @@ pub enum LogFormat {
 
 /// TPM 2.0 shell
 #[derive(Parser, Debug)]
-#[command(version, about)]
+#[command(version, about, styles = STYLES)]
 pub struct TopLevel {
     /// Device path
     #[arg(short = 'd', long, default_value = "/dev/tpmrm0")]
