@@ -3,7 +3,6 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::Auth,
     cli::SubCommand,
     command::CommandError,
     device::{with_device, Device},
@@ -16,10 +15,9 @@ use crate::{
         execute_policy, parse, Expression, PolicyError, SoftwarePolicySession, TpmPolicySession,
     },
     session::Session,
-    uri::Uri,
 };
 use clap::Args;
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashSet;
 use strum::{Display, EnumString};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmRh, TpmSe},
@@ -46,10 +44,6 @@ pub struct Policy {
     /// Execution mode: 'resolve' (default), 'software', 'trial', or 'session'.
     #[arg(long = "mode", default_value_t = Default::default(), value_parser = clap::value_parser!(PolicyMode))]
     pub mode: PolicyMode,
-
-    /// Session to be updated with policy commands
-    #[arg(long)]
-    pub auth: Option<String>,
 
     /// Policy expression
     pub expression: String,
@@ -155,78 +149,47 @@ impl SubCommand for Policy {
 
             resolve_pcr_digests(device, &mut ast, session_hash_alg)?;
 
-            if let Some(session_uri_str) = &self.auth {
-                let session_uri = Uri::from_str(session_uri_str)?;
+            match self.mode {
+                PolicyMode::Resolve => {
+                    writeln!(job.key_cache.writer, "{ast}")?;
+                }
+                PolicyMode::Software => {
+                    let mut session = SoftwarePolicySession::new(session_hash_alg, device)?;
+                    let final_digest = execute_policy(&ast, &mut session)?;
+                    writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
+                }
+                PolicyMode::Trial => {
+                    let session_handle =
+                        start_trial_session(device, TpmSe::Trial, session_hash_alg)?;
+                    let final_digest = {
+                        let mut session =
+                            TpmPolicySession::new(device, session_handle, session_hash_alg);
+                        execute_policy(&ast, &mut session)?
+                    };
+                    device.flush_context(session_handle.0)?;
+                    writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
+                }
+                PolicyMode::Session => {
+                    let (resp, nonce_caller) = device.start_session(
+                        TpmSe::Policy,
+                        session_hash_alg,
+                        (TpmRh::Null as u32).into(),
+                    )?;
+                    let live_handle = resp.session_handle;
 
-                let Uri::Session(session_handle) = session_uri else {
-                    return Err(CommandError::InvalidInput(
-                        "Session must be a session: URI".to_string(),
-                    ));
-                };
+                    let mut tpm_policy_session =
+                        TpmPolicySession::new(device, live_handle, session_hash_alg);
+                    execute_policy(&ast, &mut tpm_policy_session)?;
 
-                job.session_cache
-                    .prepare_sessions(device, &[Auth(Uri::Session(session_handle))])?;
+                    let mut session_data =
+                        Session::new(TpmSe::Policy, session_hash_alg, nonce_caller, &resp, &[])?;
+                    session_data.context = device.save_context(live_handle.0)?;
+                    session_data.handle = tpm2_protocol::TpmHandle(0);
 
-                let live_handle = job
-                    .session_cache
-                    .get(&Uri::Session(session_handle).to_string())?
-                    .handle;
+                    let saved_uri = job.session_cache.add(session_data);
+                    job.session_cache.save()?;
 
-                let mut session = TpmPolicySession::new(device, live_handle, session_hash_alg);
-                execute_policy(&ast, &mut session)?;
-
-                let new_context = device.save_context(live_handle.0)?;
-                let update_session = job.session_cache.get_mut(session_uri_str)?;
-                update_session.context = new_context;
-                update_session.handle = tpm2_protocol::TpmHandle(0);
-            } else {
-                match self.mode {
-                    PolicyMode::Resolve => {
-                        writeln!(job.key_cache.writer, "{ast}")?;
-                    }
-                    PolicyMode::Software => {
-                        let mut session = SoftwarePolicySession::new(session_hash_alg, device)?;
-                        let final_digest = execute_policy(&ast, &mut session)?;
-                        writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
-                    }
-                    PolicyMode::Trial => {
-                        let session_handle =
-                            start_trial_session(device, TpmSe::Trial, session_hash_alg)?;
-                        let final_digest = {
-                            let mut session =
-                                TpmPolicySession::new(device, session_handle, session_hash_alg);
-                            execute_policy(&ast, &mut session)?
-                        };
-                        device.flush_context(session_handle.0)?;
-                        writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
-                    }
-                    PolicyMode::Session => {
-                        let (resp, nonce_caller) = device.start_session(
-                            TpmSe::Policy,
-                            session_hash_alg,
-                            (TpmRh::Null as u32).into(),
-                        )?;
-                        let live_handle = resp.session_handle;
-
-                        let mut tpm_policy_session =
-                            TpmPolicySession::new(device, live_handle, session_hash_alg);
-                        execute_policy(&ast, &mut tpm_policy_session)?;
-
-                        let mut session_data = Session::new(
-                            TpmSe::Policy,
-                            session_hash_alg,
-                            nonce_caller,
-                            &resp,
-                            &[],
-                        )?;
-                        session_data.context = device.save_context(live_handle.0)?;
-                        session_data.handle = tpm2_protocol::TpmHandle(0);
-
-                        let saved_uri = job.session_cache.add(session_data);
-                        job.session_cache.save()?;
-
-                        writeln!(job.key_cache.writer, "{saved_uri}")?;
-                    }
+                    writeln!(job.key_cache.writer, "{saved_uri}")?;
                 }
             }
             Ok(())
