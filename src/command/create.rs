@@ -5,9 +5,8 @@
 //! Handles the `create` command, which creates secondary keys.
 
 use crate::{
-    auth::Auth,
     cli::SubCommand,
-    command::{deny_keyedhash, CommandError, OutputArgs, OutputEncoding, ParentArgs},
+    command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncoding},
     convert::from_tpm_key_to_output,
     device::{with_device, Device},
     job::Job,
@@ -17,11 +16,11 @@ use clap::Args;
 use tpm2_protocol::data::Tpm2bSensitiveData;
 
 /// Creates secondary keys.
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 #[command(about = "Creates a secondary key.")]
 pub struct Create {
     #[clap(flatten)]
-    pub parent_args: ParentArgs,
+    pub parent_args: AuthArgs,
 
     /// Key algorithm
     #[arg(value_parser = clap::value_parser!(Alg))]
@@ -30,9 +29,8 @@ pub struct Create {
     #[clap(flatten)]
     pub output_args: OutputArgs,
 
-    /// Key auth: 'password:<hex>' or 'policy:<hex>'
-    #[arg(short = 'a', long = "auth")]
-    pub auth: Option<Auth>,
+    #[clap(flatten)]
+    pub creation_args: CreationArgs,
 }
 
 impl SubCommand for Create {
@@ -49,14 +47,24 @@ impl Create {
         let parent_handle = job
             .key_cache
             .load_parent(device, &self.parent_args.parent)?;
-        let mut auths = vec![self.parent_args.parent_auth.clone().unwrap_or_default()];
-        let auth = self.auth.clone().unwrap_or_default();
+        let mut auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
+        let (object_attributes, user_auth, auth_policy) =
+            self.creation_args.parse(&self.algorithm)?;
         let template = TpmKeyTemplate {
             alg_desc: &self.algorithm,
             sensitive_data: Tpm2bSensitiveData::default(),
             key_type_oid: OID_LOADABLE_KEY,
         };
-        let tpm_key = TpmKey::new(job, device, &mut auths, &auth, parent_handle, &template)?;
+        let tpm_key = TpmKey::new(
+            job,
+            device,
+            &mut auths,
+            user_auth,
+            auth_policy,
+            object_attributes,
+            parent_handle,
+            &template,
+        )?;
         from_tpm_key_to_output(
             &mut job.key_cache,
             &tpm_key,

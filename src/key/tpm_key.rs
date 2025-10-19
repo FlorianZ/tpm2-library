@@ -32,7 +32,7 @@ use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bPrivate, Tpm2bPrivateKeyRsa, Tpm2bPublic,
-        Tpm2bSensitive, Tpm2bSensitiveCreate, Tpm2bSensitiveData, Tpm2bSymKey, TpmCc,
+        Tpm2bSensitive, Tpm2bSensitiveCreate, Tpm2bSensitiveData, Tpm2bSymKey, TpmCc, TpmaObject,
         TpmlPcrSelection, TpmsSensitiveCreate, TpmtSensitive, TpmtSymDefObject,
         TpmuSensitiveComposite,
     },
@@ -108,20 +108,14 @@ impl TpmKey {
         job: &mut Job,
         device: &mut Device,
         auth_list: &mut [Auth],
-        auth: &Auth,
+        user_auth: Tpm2bAuth,
+        auth_policy: Tpm2bDigest,
+        object_attributes: TpmaObject,
         parent_handle: TpmHandle,
         template: &TpmKeyTemplate,
     ) -> Result<Self, KeyError> {
-        let user_auth = match &auth {
-            Auth::Password(p) => Tpm2bAuth::try_from(p.as_slice())?,
-            Auth::Session(_) | Auth::Policy(_) => Tpm2bAuth::default(),
-        };
-        let auth_policy = match &auth {
-            Auth::Policy(p) => Tpm2bAuth::try_from(p.as_slice())?,
-            Auth::Session(_) | Auth::Password(_) => Tpm2bAuth::default(),
-        };
-        let alg = template.alg_desc.clone();
-        let public_template = template::build_public(template.alg_desc, auth_policy, alg.into());
+        let public_template =
+            template::build_public(template.alg_desc, auth_policy, object_attributes);
 
         let create_cmd = TpmCreateCommand {
             parent_handle: parent_handle.0.into(),

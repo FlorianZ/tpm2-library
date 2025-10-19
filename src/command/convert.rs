@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{CommandError, InputArgs, OutputArgs, OutputEncoding, ParentArgs},
+    command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncoding},
     convert::{from_input_to_bytes, from_tpm_key_to_output},
     device::with_device,
     job::Job,
@@ -15,7 +15,7 @@ use clap::Args;
 #[derive(Args, Debug)]
 pub struct Convert {
     #[clap(flatten)]
-    pub parent_args: ParentArgs,
+    pub parent_args: AuthArgs,
 
     #[clap(flatten)]
     pub input_args: InputArgs,
@@ -34,7 +34,7 @@ impl SubCommand for Convert {
             let parent_handle = job
                 .key_cache
                 .load_parent(device, &self.parent_args.parent)?;
-            let mut auths = vec![self.parent_args.parent_auth.clone().unwrap_or_default()];
+            let mut auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
             let input_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
             let tpm_key = job.import_key(device, parent_handle, &input_bytes, &mut auths)?;
             from_tpm_key_to_output(

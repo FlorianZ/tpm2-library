@@ -4,7 +4,7 @@
 use crate::{
     auth::Auth,
     cli::SubCommand,
-    command::{CommandError, InputArgs, OutputArgs, OutputEncoding, ParentArgs},
+    command::{AuthArgs, CommandError, CreationArgs, InputArgs, OutputArgs, OutputEncoding},
     convert::{from_input_to_bytes, from_str_to_keyedhash_alg, from_tpm_key_to_output},
     device::with_device,
     job::Job,
@@ -18,7 +18,7 @@ use tpm2_protocol::data::Tpm2bSensitiveData;
 #[command(about = "Creates a sealed data object.")]
 pub struct Seal {
     #[clap(flatten)]
-    pub parent_args: ParentArgs,
+    pub parent_args: AuthArgs,
 
     /// Name algorithm
     #[arg(value_parser = from_str_to_keyedhash_alg)]
@@ -30,9 +30,8 @@ pub struct Seal {
     #[clap(flatten)]
     pub input_args: InputArgs,
 
-    /// Key auth: 'password:<hex>' or 'policy:<hex>'
-    #[arg(short = 'a', long = "auth")]
-    pub auth: Option<Auth>,
+    #[clap(flatten)]
+    pub creation_args: CreationArgs,
 }
 
 impl SubCommand for Seal {
@@ -42,9 +41,9 @@ impl SubCommand for Seal {
                 .key_cache
                 .load_parent(device, &self.parent_args.parent)?;
 
-            let mut auths: Vec<Auth> = self.parent_args.parent_auth.clone().into_iter().collect();
-            let auth = self.auth.clone().unwrap_or(Auth::Password(Vec::new()));
-
+            let mut auths: Vec<Auth> = self.parent_args.auth.clone().into_iter().collect();
+            let (object_attributes, user_auth, auth_policy) =
+                self.creation_args.parse(&self.algorithm)?;
             let input_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
 
             if input_bytes.is_empty() {
@@ -62,7 +61,16 @@ impl SubCommand for Seal {
                 key_type_oid: OID_SEALED_DATA,
             };
 
-            let tpm_key = TpmKey::new(job, device, &mut auths, &auth, parent_handle, &template)?;
+            let tpm_key = TpmKey::new(
+                job,
+                device,
+                &mut auths,
+                user_auth,
+                auth_policy,
+                object_attributes,
+                parent_handle,
+                &template,
+            )?;
 
             from_tpm_key_to_output(
                 &mut job.key_cache,

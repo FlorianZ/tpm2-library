@@ -2,33 +2,69 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{auth::Auth, uri::Uri};
+use crate::{auth::Auth, command::CommandError, key::Alg, uri::Uri};
 use clap::Args;
+use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
 
-/// Arguments for specifying an input source.
 #[derive(Args, Debug, Clone)]
 pub struct InputArgs {
-    /// Input file path (if not specified, reads from stdin)
-    #[arg(short = 'i', long)]
+    /// Input file path (default: stdin)
+    #[arg(short = 'I', long)]
     pub input: Option<Uri>,
 }
 
-/// Arguments for specifying an output destination.
 #[derive(Args, Debug, Clone)]
 pub struct OutputArgs {
-    /// Output file path (if not specified, writes to stdout)
-    #[arg(short = 'o', long)]
+    /// Output file path (default: stdout)
+    #[arg(short = 'O', long)]
     pub output: Option<Uri>,
 }
 
-/// Arguments for specifying a parent key and its authentication.
 #[derive(Args, Debug, Clone)]
-pub struct ParentArgs {
+pub struct AuthArgs {
     /// Parent key: 'tpm:<handle>', or 'key:<name grip>'
     #[arg(short = 'P', long)]
     pub parent: Uri,
 
-    /// Parent auth: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'p', long = "parent-auth")]
-    pub parent_auth: Option<Auth>,
+    /// Authentication: 'password:<hex>' or 'session:<handle>'
+    #[arg(short = 'a', long = "auth")]
+    pub auth: Option<Auth>,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct CreationArgs {
+    /// Authentication value
+    #[arg(long = "auth-value")]
+    pub auth_value: Option<String>,
+
+    /// Policy digest
+    #[arg(long = "policy-digest")]
+    pub policy_digest: Option<String>,
+}
+
+impl CreationArgs {
+    /// Parse authorization value and policy digest and create object attributes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `CommandError` if parsing fails.
+    pub fn parse(&self, alg: &Alg) -> Result<(TpmaObject, Tpm2bAuth, Tpm2bDigest), CommandError> {
+        let mut attributes: TpmaObject = alg.clone().into();
+
+        let user_auth = if let Some(hex_str) = &self.auth_value {
+            attributes |= TpmaObject::USER_WITH_AUTH;
+            Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())?
+        } else {
+            Tpm2bAuth::default()
+        };
+
+        let auth_policy = if let Some(hex_str) = &self.policy_digest {
+            attributes |= TpmaObject::ADMIN_WITH_POLICY;
+            Tpm2bDigest::try_from(hex::decode(hex_str)?.as_slice())?
+        } else {
+            Tpm2bDigest::default()
+        };
+
+        Ok((attributes, user_auth, auth_policy))
+    }
 }

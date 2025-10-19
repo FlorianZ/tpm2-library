@@ -5,7 +5,7 @@
 use crate::{
     auth::Auth,
     cli::{Hierarchy, SubCommand},
-    command::{deny_keyedhash, CommandError},
+    command::{deny_keyedhash, CommandError, CreationArgs},
     device::{with_device, DeviceError},
     job::Job,
     key::Alg,
@@ -14,30 +14,29 @@ use crate::{
 use clap::Args;
 use tpm2_protocol::{
     data::{
-        Tpm2bAuth, Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
         TpmlPcrSelection, TpmsSensitiveCreate,
     },
     message::TpmCreatePrimaryCommand,
 };
 
 /// Creates a new primary key in a specified hierarchy.
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct CreatePrimary {
     /// Hierarchy: owner, platform, or endorsement
-    #[arg(short = 'H', long)]
-    pub hierarchy: Option<Hierarchy>,
+    #[arg(short = 'H', long, default_value_t = Hierarchy::default())]
+    pub hierarchy: Hierarchy,
 
     /// Key algorithm
     #[arg(value_parser = clap::value_parser!(Alg))]
     pub algorithm: Alg,
 
     /// Hierarchy auth: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'p', long = "parent-auth")]
-    pub parent_auth: Option<Auth>,
-
-    /// Key auth: 'password:<hex>' or 'policy:<hex>'
     #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
+
+    #[clap(flatten)]
+    pub creation_args: CreationArgs,
 }
 
 impl SubCommand for CreatePrimary {
@@ -45,22 +44,12 @@ impl SubCommand for CreatePrimary {
         with_device(job.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
 
-            let primary_handle: TpmRh = self.hierarchy.unwrap_or_default().into();
-            let mut auths = vec![self.parent_auth.clone().unwrap_or_default()];
-            let auth = self.auth.clone().unwrap_or_default();
+            let primary_handle: TpmRh = self.hierarchy.into();
+            let mut auths = vec![self.auth.clone().unwrap_or_default()];
             let handles = [primary_handle as u32];
 
-            let user_auth = match &auth {
-                Auth::Password(p) => Tpm2bAuth::try_from(p.as_slice())?,
-                Auth::Session(_) | Auth::Policy(_) => Tpm2bAuth::default(),
-            };
-
-            let auth_policy = match &auth {
-                Auth::Policy(p) => Tpm2bAuth::try_from(p.as_slice())?,
-                Auth::Session(_) | Auth::Password(_) => Tpm2bAuth::default(),
-            };
-
-            let object_attributes = self.algorithm.clone().into();
+            let (object_attributes, user_auth, auth_policy) =
+                self.creation_args.parse(&self.algorithm)?;
             let public_template = build_public(&self.algorithm, auth_policy, object_attributes);
 
             let cmd = TpmCreatePrimaryCommand {

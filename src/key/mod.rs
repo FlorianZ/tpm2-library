@@ -68,6 +68,12 @@ pub enum KeyError {
     UnsupportedNameAlgorithm(Tpm2shAlgId),
 }
 
+impl From<hex::FromHexError> for KeyError {
+    fn from(err: hex::FromHexError) -> Self {
+        Self::ValueConversionFailed(err.to_string())
+    }
+}
+
 impl From<TpmErrorKind> for KeyError {
     fn from(err: TpmErrorKind) -> Self {
         Self::Device(DeviceError::Tpm(err))
@@ -167,8 +173,7 @@ pub fn from_str_to_alg_id(s: &str) -> Result<TpmAlgId, KeyError> {
 
 impl From<Alg> for TpmaObject {
     fn from(alg: Alg) -> TpmaObject {
-        let mut attributes =
-            TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT | TpmaObject::USER_WITH_AUTH;
+        let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
 
         if alg.object_type != TpmAlgId::KeyedHash {
             attributes |=

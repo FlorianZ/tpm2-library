@@ -5,7 +5,7 @@
 use crate::{
     auth::Auth,
     cli::SubCommand,
-    command::{CommandError, InputArgs, ParentArgs},
+    command::{AuthArgs, CommandError, InputArgs},
     convert::from_input_to_bytes,
     device::{with_device, Device, DeviceError},
     job::Job,
@@ -22,7 +22,7 @@ use tpm2_protocol::{
 #[derive(Args, Debug)]
 pub struct Load {
     #[clap(flatten)]
-    pub parent_args: ParentArgs,
+    pub parent_args: AuthArgs,
 
     #[clap(flatten)]
     pub input_args: InputArgs,
@@ -34,7 +34,7 @@ impl SubCommand for Load {
             let parent_handle = job
                 .key_cache
                 .load_parent(device, &self.parent_args.parent)?;
-            let mut auths: Vec<Auth> = self.parent_args.parent_auth.clone().into_iter().collect();
+            let mut auths: Vec<Auth> = self.parent_args.auth.clone().into_iter().collect();
             let input_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
 
             let (object_handle, name, public) =

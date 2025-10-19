@@ -25,7 +25,7 @@ pub mod unseal;
 
 pub use algorithm::*;
 pub use certificate::*;
-pub use common::{InputArgs, OutputArgs, ParentArgs};
+pub use common::*;
 pub use convert::Convert;
 pub use create::*;
 pub use create_primary::*;
@@ -156,6 +156,12 @@ pub enum CommandError {
     UnsupportedSession(String),
     #[error("uri: {0}")]
     Uri(#[from] UriError),
+}
+
+impl From<hex::FromHexError> for CommandError {
+    fn from(err: hex::FromHexError) -> Self {
+        Self::InvalidInput(err.to_string())
+    }
 }
 
 impl From<TpmErrorKind> for CommandError {
