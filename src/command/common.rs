@@ -4,7 +4,16 @@
 
 use crate::{auth::Auth, cli::Hierarchy, command::CommandError, key::Alg, uri::Uri};
 use clap::Args;
+use strum::{Display, EnumString};
 use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[strum(serialize_all = "kebab-case")]
+pub enum OutputEncoding {
+    #[default]
+    Pem,
+    Der,
+}
 
 #[derive(Args, Debug, Clone)]
 pub struct InputArgs {
@@ -18,6 +27,13 @@ pub struct OutputArgs {
     /// Output file path (default: stdout)
     #[arg(short = 'O', long)]
     pub output: Option<Uri>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct OutputEncodingArgs {
+    /// Output encoding: pem or der
+    #[arg(long = "output-encoding", default_value_t = Default::default(), value_parser = clap::value_parser!(OutputEncoding))]
+    pub output_encoding: OutputEncoding,
 }
 
 #[derive(Args, Debug, Clone)]

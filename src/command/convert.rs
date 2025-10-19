@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{CommandError, InputArgs, OutputArgs, OutputEncoding, ParentAuthArgs},
+    command::{CommandError, InputArgs, OutputArgs, OutputEncodingArgs, ParentAuthArgs},
     convert::{from_input_to_bytes, from_tpm_key_to_output},
     device::with_device,
     job::Job,
@@ -23,9 +23,8 @@ pub struct Convert {
     #[clap(flatten)]
     pub output_args: OutputArgs,
 
-    /// Output encoding: pem or der
-    #[arg(long, default_value_t = Default::default(), value_parser = clap::value_parser!(OutputEncoding))]
-    pub encoding: OutputEncoding,
+    #[clap(flatten)]
+    pub output_encoding_args: OutputEncodingArgs,
 }
 
 impl SubCommand for Convert {
@@ -41,7 +40,7 @@ impl SubCommand for Convert {
                 &mut job.key_cache,
                 &tpm_key,
                 self.output_args.output.as_ref(),
-                self.encoding,
+                self.output_encoding_args.output_encoding,
             )
         })
     }

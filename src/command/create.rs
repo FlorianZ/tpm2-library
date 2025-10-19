@@ -6,7 +6,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{CommandError, CreationArgs, OutputArgs, OutputEncoding, ParentAuthArgs},
+    command::{CommandError, CreationArgs, OutputArgs, OutputEncodingArgs, ParentAuthArgs},
     convert::from_tpm_key_to_output,
     device::{with_device, Device},
     job::Job,
@@ -32,6 +32,9 @@ pub struct Create {
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
+
+    #[clap(flatten)]
+    pub output_encoding_args: OutputEncodingArgs,
 
     #[clap(flatten)]
     pub creation_args: CreationArgs,
@@ -101,7 +104,7 @@ impl Create {
             &mut job.key_cache,
             &tpm_key,
             self.output_args.output.as_ref(),
-            OutputEncoding::Pem,
+            self.output_encoding_args.output_encoding,
         )
     }
 }

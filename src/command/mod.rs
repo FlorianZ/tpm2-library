@@ -56,21 +56,12 @@ use std::{
     io::{IsTerminal, Write},
     num::TryFromIntError,
 };
-use strum::{Display, EnumString};
 use tabled::{
     settings::{object::Rows, Disable, Format, Modify, Style},
     Table, Tabled,
 };
 use thiserror::Error;
 use tpm2_protocol::{data::TpmCc, TpmErrorKind};
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString)]
-#[strum(serialize_all = "kebab-case")]
-pub enum OutputEncoding {
-    #[default]
-    Pem,
-    Der,
-}
 
 /// Creates, styles, and prints a table from a vector of `Tabled` items.
 ///
