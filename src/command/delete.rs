@@ -11,6 +11,7 @@ use crate::{
 };
 use clap::Args;
 use std::str::FromStr;
+use tpm2_protocol::data::TpmHt;
 
 /// Deletes TPM objects, and cached keys and sessions.
 #[derive(Args, Debug)]
@@ -46,7 +47,10 @@ impl SubCommand for Delete {
                         dev.flush_context(handle.0)?;
                         job.key_cache.remove_context(grip)?;
                     }
-                    Uri::Tpm(_) => {
+                    Uri::Tpm(handle) => {
+                        if (handle >> 24) as u8 == TpmHt::Persistent as u8 {
+                            return Err(CommandError::InvalidInput(handle.to_string()));
+                        }
                         let handle = job.key_cache.load_context(dev, &uri)?;
                         dev.flush_context(handle.0)?;
                     }
