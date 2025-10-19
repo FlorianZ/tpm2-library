@@ -10,6 +10,7 @@ use crate::{
     uri::Uri,
 };
 use clap::Args;
+use std::io::IsTerminal;
 use tpm2_protocol::{data::TpmCc, message::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
@@ -22,6 +23,10 @@ pub struct Unseal {
     /// Key auth: 'password:<hex>' or 'session:<handle>'
     #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
+
+    /// Force hex output when redirecting to a file or pipe
+    #[arg(long)]
+    pub hex: bool,
 }
 
 impl SubCommand for Unseal {
@@ -50,7 +55,12 @@ impl SubCommand for Unseal {
                 .Unseal()
                 .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Unseal))?
                 .out_data;
-            job.key_cache.write_data(None, &out_data)?;
+
+            if self.hex || std::io::stdout().is_terminal() {
+                writeln!(job.key_cache.writer, "{}", hex::encode(out_data.as_ref()))?;
+            } else {
+                job.key_cache.writer.write_all(out_data.as_ref())?;
+            }
             Ok(())
         })
     }
