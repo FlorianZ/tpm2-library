@@ -3,9 +3,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::Auth,
-    cli::{Hierarchy, SubCommand},
-    command::{deny_keyedhash, CommandError, CreationArgs},
+    cli::SubCommand,
+    command::{deny_keyedhash, CommandError, CreationArgs, HierarchyArgs},
     device::{with_device, DeviceError},
     job::Job,
     key::Alg,
@@ -23,17 +22,12 @@ use tpm2_protocol::{
 /// Creates a new primary key in a specified hierarchy.
 #[derive(Args, Debug, Clone)]
 pub struct CreatePrimary {
-    /// Hierarchy: owner, platform, or endorsement
-    #[arg(short = 'H', long, default_value_t = Hierarchy::default())]
-    pub hierarchy: Hierarchy,
+    #[clap(flatten)]
+    pub hierarchy_args: HierarchyArgs,
 
     /// Key algorithm
     #[arg(value_parser = clap::value_parser!(Alg))]
     pub algorithm: Alg,
-
-    /// Hierarchy auth: 'password:<hex>' or 'session:<handle>'
-    #[arg(short = 'a', long = "auth")]
-    pub auth: Option<Auth>,
 
     #[clap(flatten)]
     pub creation_args: CreationArgs,
@@ -44,8 +38,8 @@ impl SubCommand for CreatePrimary {
         with_device(job.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
 
-            let primary_handle: TpmRh = self.hierarchy.into();
-            let mut auths = vec![self.auth.clone().unwrap_or_default()];
+            let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
+            let mut auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
             let handles = [primary_handle as u32];
 
             let (object_attributes, user_auth, auth_policy) =

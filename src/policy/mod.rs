@@ -32,9 +32,8 @@ use nom::{
 use std::{collections::HashMap, fmt, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bDigest, TpmAlgId, TpmlDigest, TpmlPcrSelection},
-    message::TpmFlushContextCommand,
-    TpmErrorKind,
+    data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
+    TpmErrorKind, TpmHandle,
 };
 
 /// An abstract interface for a session that can have a policy applied to it.
@@ -211,7 +210,9 @@ impl Expression {
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
         match self {
             Self::Auth(Auth::Password(bytes)) => Ok(bytes.clone()),
-            _ => Err(PolicyError::InvalidSecret(format!("{self:?}"))),
+            _ => Err(PolicyError::InvalidSecret(format!(
+                "{self:?}: expected 'password:<hex>'"
+            ))),
         }
     }
 
@@ -224,7 +225,7 @@ impl Expression {
         match self {
             Self::Uri(Uri::Tpm(handle)) => Ok(*handle),
             _ => Err(PolicyError::InvalidExpression(format!(
-                "invalid expression: {self:?}"
+                "invalid expression: {self:?}: expected 'tpm:<handle>'"
             ))),
         }
     }
@@ -370,22 +371,25 @@ pub fn execute_policy(
             password,
             cp_hash,
         } => {
-            let flush_handle: Option<u32> = None;
-
-            let handle = match &**auth_handle {
-                Expression::Uri(Uri::Tpm(h)) => *h,
+            let handle_val = match &**auth_handle {
+                Expression::Uri(Uri::Tpm(h)) => {
+                    if (*h >> 24) as u8 != TpmHt::Persistent as u8 {
+                        return Err(PolicyError::InvalidExpression(
+                            "secret() auth must be a persistent 'tpm:<handle>'".to_string(),
+                        ));
+                    }
+                    *h
+                }
                 _ => {
                     return Err(PolicyError::InvalidExpression(
-                        "secret() auth handle must be a 'tpm:'".to_string(),
+                        "secret() auth must be a persistent 'tpm:<handle>'".to_string(),
                     ))
                 }
             };
+            let handle = TpmHandle(handle_val);
 
-            let name = if (handle >> 24) as u8 == tpm2_protocol::data::TpmHt::Transient as u8 {
-                session.device().read_public(handle.into())?.1
-            } else {
-                tpm2_protocol::data::Tpm2bName::try_from(handle.to_be_bytes().as_slice())?
-            };
+            let (_, name) = session.device().read_public(handle)?;
+
             let password_bytes = password.as_ref().map(|p| p.to_bytes()).transpose()?;
             let cp_hash_digest = cp_hash
                 .as_ref()
@@ -395,15 +399,7 @@ pub fn execute_policy(
                 })
                 .transpose()?;
 
-            session.policy_secret(handle, &name, password_bytes.as_deref(), cp_hash_digest)?;
-
-            if let Some(h) = flush_handle {
-                let cmd = TpmFlushContextCommand {
-                    flush_handle: h.into(),
-                };
-                let sessions = vec![];
-                session.device().execute(&cmd, &sessions)?;
-            }
+            session.policy_secret(handle_val, &name, password_bytes.as_deref(), cp_hash_digest)?;
 
             session.get_digest()
         }
@@ -451,8 +447,15 @@ pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
                 populate_pcr_digests(branch, pcr_map)?;
             }
         }
-        Expression::Secret { auth_handle, .. } => {
+        Expression::Secret {
+            auth_handle,
+            password,
+            ..
+        } => {
             populate_pcr_digests(auth_handle, pcr_map)?;
+            if let Some(pwd_expr) = password {
+                populate_pcr_digests(pwd_expr, pcr_map)?;
+            }
         }
         Expression::Auth(_) | Expression::Uri(_) => {}
     }

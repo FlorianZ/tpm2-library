@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{auth::Auth, command::CommandError, key::Alg, uri::Uri};
+use crate::{auth::Auth, cli::Hierarchy, command::CommandError, key::Alg, uri::Uri};
 use clap::Args;
 use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
 
@@ -25,6 +25,17 @@ pub struct AuthArgs {
     /// Parent key: 'tpm:<handle>', or 'key:<name grip>'
     #[arg(short = 'P', long)]
     pub parent: Uri,
+
+    /// Authentication: 'password:<hex>' or 'session:<handle>'
+    #[arg(short = 'a', long = "auth")]
+    pub auth: Option<Auth>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct HierarchyArgs {
+    /// Hierarchy: owner (default), platform or endorsement
+    #[arg(short = 'H', long, default_value_t = Hierarchy::default(), value_parser = clap::value_parser!(Hierarchy))]
+    pub hierarchy: Hierarchy,
 
     /// Authentication: 'password:<hex>' or 'session:<handle>'
     #[arg(short = 'a', long = "auth")]

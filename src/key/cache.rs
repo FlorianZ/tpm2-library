@@ -70,8 +70,8 @@ pub enum KeyCacheError {
     Device(#[from] DeviceError),
     #[error("invalid handle: {0:08x}")]
     InvalidHandle(u32),
-    #[error("invalid parent: must be a tpm: or key: reference")]
-    InvalidParent,
+    #[error("invalid parent: {0}")]
+    InvalidParent(String),
     #[error("invalid URI: {0}")]
     InvalidUri(UriError),
     #[error("I/O: {0}")]
@@ -391,10 +391,11 @@ impl<'a> KeyCache<'a> {
         device: &mut Device,
         uri: &Uri,
     ) -> Result<TpmHandle, KeyCacheError> {
-        if matches!(uri, Uri::Path(_) | Uri::Session(_)) {
-            return Err(KeyCacheError::InvalidParent);
+        if matches!(uri, Uri::Key(_)) {
+            self.load_context(device, uri)
+        } else {
+            Err(KeyCacheError::InvalidParent(uri.to_string()))
         }
-        self.load_context(device, uri)
     }
 
     /// Loads a TPM context from a URI.

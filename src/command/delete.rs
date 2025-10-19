@@ -13,8 +13,8 @@ use crate::{
 use clap::Args;
 use std::str::FromStr;
 use tpm2_protocol::{
-    data::{TpmCc, TpmHt, TpmRcBase, TpmRh},
-    message::{TpmEvictControlCommand, TpmFlushContextCommand},
+    data::{TpmHt, TpmRcBase},
+    message::TpmFlushContextCommand,
     TpmHandle,
 };
 
@@ -30,12 +30,10 @@ pub struct Delete {
 }
 
 impl Delete {
-    fn delete(&self, job: &mut Job, device: &mut Device, uri: &Uri) -> Result<u32, CommandError> {
+    fn delete(job: &mut Job, device: &mut Device, uri: &Uri) -> Result<u32, CommandError> {
         let handle = job.key_cache.load_context(device, uri)?.0;
-
         let mso = (handle >> 24) as u8;
         let result = match TpmHt::try_from(mso) {
-            Ok(TpmHt::Persistent) => self.delete_persistent(job, device, TpmHandle(handle)),
             Ok(TpmHt::Transient) => Self::delete_transient(job, device, TpmHandle(handle)),
             Ok(TpmHt::HmacSession | TpmHt::PolicySession) => {
                 let cmd = TpmFlushContextCommand {
@@ -64,40 +62,15 @@ impl Delete {
         }
     }
 
-    fn delete_persistent(
-        &self,
-        job: &mut Job,
-        device: &mut Device,
-        handle: TpmHandle,
-    ) -> Result<(), CommandError> {
-        let auth_handle = (TpmRh::Owner as u32).into();
-        let mut auths = vec![self.auth.clone().unwrap_or_default()];
-        let handles = [u32::from(auth_handle)];
-
-        let cmd = TpmEvictControlCommand {
-            auth: auth_handle,
-            object_handle: handle.0.into(),
-            persistent_handle: handle,
-        };
-
-        let (resp, _) = job.execute(device, &cmd, &handles, &mut auths)?;
-
-        resp.EvictControl()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
-        Ok(())
-    }
-
     fn delete_transient(
         job: &mut Job,
         device: &mut Device,
-        handle: TpmHandle,
+        flush_handle: TpmHandle,
     ) -> Result<(), CommandError> {
-        let cmd = TpmFlushContextCommand {
-            flush_handle: handle,
-        };
+        let cmd = TpmFlushContextCommand { flush_handle };
         let sessions = vec![];
         device.execute(&cmd, &sessions)?;
-        job.key_cache.handles.remove(&handle.0);
+        job.key_cache.handles.remove(&flush_handle.0);
         Ok(())
     }
 }
@@ -109,15 +82,12 @@ impl SubCommand for Delete {
             .iter()
             .map(|s| Uri::from_str(s))
             .collect::<Result<_, _>>()?;
-
         let (device_ops, local_ops): (Vec<_>, Vec<_>) = uris
             .into_iter()
             .partition(|uri| !matches!(uri, Uri::Path(_)));
-
         if let Some(uri) = local_ops.into_iter().next() {
             return Err(CommandError::InvalidInput(uri.to_string()));
         }
-
         if !device_ops.is_empty() {
             with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
                 for uri in device_ops {
@@ -129,16 +99,13 @@ impl SubCommand for Delete {
                                     log::warn!("{uri}: {err}");
                                 }
                             }
-                            writeln!(job.key_cache.writer, "{uri_str}")?;
                         }
                         Uri::Key(ref grip) => {
-                            let handle = self.delete(job, dev, &uri)?;
+                            let _ = Delete::delete(job, dev, &uri)?;
                             job.key_cache.remove_context(grip)?;
-                            writeln!(job.key_cache.writer, "tpm:{handle:08x} ({uri})")?;
                         }
                         Uri::Tpm(_) => {
-                            let handle = self.delete(job, dev, &uri)?;
-                            writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
+                            let _ = Delete::delete(job, dev, &uri)?;
                         }
                         Uri::Path(_) => unreachable!(),
                     }
@@ -151,9 +118,6 @@ impl SubCommand for Delete {
     }
 
     fn is_local(&self) -> bool {
-        !self
-            .inputs
-            .iter()
-            .any(|s| s.starts_with("tpm:") || s.starts_with("session:") || s.starts_with("key:"))
+        false
     }
 }
