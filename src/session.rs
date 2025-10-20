@@ -18,11 +18,11 @@ use crate::{
     auth::Auth,
     crypto::{crypto_digest, crypto_hmac, crypto_kdfa, CryptoError},
     device::{Device, DeviceError},
+    key::Tpm2shAlgId,
     scheme::Scheme,
 };
 use std::{
     collections::{hash_map, HashMap, HashSet},
-    num::TryFromIntError,
     path::{Path, PathBuf},
 };
 use thiserror::Error;
@@ -38,25 +38,31 @@ use tpm2_protocol::{
 
 #[derive(Debug, Error)]
 pub enum SessionError {
+    #[error("invalid auth")]
+    InvalidAuth,
+    #[error("invalid key bits: {0}")]
+    InvalidKeyBits(String),
+    #[error("{0} not found")]
+    NotFound(String),
+    #[error("trailing passwords or sessions")]
+    TrailingAuthValues,
+    #[error("trailing data")]
+    TrailingData,
+    #[error("unsupported name algorithm: {0}")]
+    UnsupportedNameAlgorithm(Tpm2shAlgId),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[error("invalid auth")]
-    InvalidAuth,
-    #[error("{0} not found")]
-    NotFound(String),
-    #[error("trailing data")]
-    TrailingData,
-    #[error("trailing passwords or sessions")]
-    TrailingAuthValues,
+    #[error("TPM: {0}")]
+    Tpm(TpmErrorKind),
 }
 
-impl From<TryFromIntError> for SessionError {
-    fn from(_err: TryFromIntError) -> Self {
-        Self::Device(DeviceError::Tpm(TpmErrorKind::InvalidValue))
+impl From<TpmErrorKind> for SessionError {
+    fn from(err: TpmErrorKind) -> Self {
+        Self::Tpm(err)
     }
 }
 
@@ -86,21 +92,25 @@ impl Session {
         resp: &TpmStartAuthSessionResponse,
         auth_value: &[u8],
     ) -> Result<Self, SessionError> {
-        let digest_len =
-            tpm_hash_size(&auth_hash).ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
+        let digest_len = tpm_hash_size(&auth_hash).ok_or(
+            SessionError::UnsupportedNameAlgorithm(Tpm2shAlgId(auth_hash)),
+        )?;
 
         let hmac_key_bytes = if session_type == TpmSe::Hmac {
             if auth_value.is_empty() {
                 Vec::new()
             } else {
-                let key_bits = u16::try_from(digest_len * 8)?;
+                let key_bits = digest_len * 8;
+                let Ok(key_bits_u16) = u16::try_from(key_bits) else {
+                    return Err(SessionError::InvalidKeyBits(key_bits.to_string()));
+                };
                 crypto_kdfa(
                     auth_hash,
                     auth_value,
                     "ATH",
                     &resp.nonce_tpm,
                     &nonce_caller,
-                    key_bits,
+                    key_bits_u16,
                 )
                 .map_err(SessionError::Crypto)?
             }
@@ -118,7 +128,7 @@ impl Session {
             },
             nonce_tpm: resp.nonce_tpm,
             attributes: TpmaSession::CONTINUE_SESSION,
-            hmac_key: Tpm2bAuth::try_from(hmac_key_bytes.as_slice()).map_err(DeviceError::Tpm)?,
+            hmac_key: Tpm2bAuth::try_from(hmac_key_bytes.as_slice())?,
             auth_hash,
             session_type,
         })
@@ -133,20 +143,12 @@ impl Session {
         let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            self.session_type
-                .build(&mut writer)
-                .map_err(DeviceError::Tpm)?;
-            self.context.build(&mut writer).map_err(DeviceError::Tpm)?;
-            self.nonce_tpm
-                .build(&mut writer)
-                .map_err(DeviceError::Tpm)?;
-            self.attributes
-                .build(&mut writer)
-                .map_err(DeviceError::Tpm)?;
-            self.hmac_key.build(&mut writer).map_err(DeviceError::Tpm)?;
-            self.auth_hash
-                .build(&mut writer)
-                .map_err(DeviceError::Tpm)?;
+            self.session_type.build(&mut writer)?;
+            self.context.build(&mut writer)?;
+            self.nonce_tpm.build(&mut writer)?;
+            self.attributes.build(&mut writer)?;
+            self.hmac_key.build(&mut writer)?;
+            self.auth_hash.build(&mut writer)?;
             writer.len()
         };
         buf.truncate(len);
@@ -163,12 +165,12 @@ impl Session {
     pub fn load_from_path(path: &Path) -> Result<Self, SessionError> {
         let session_bytes = std::fs::read(path)?;
 
-        let (session_type, remainder) = TpmSe::parse(&session_bytes).map_err(DeviceError::Tpm)?;
-        let (context, remainder) = TpmsContext::parse(remainder).map_err(DeviceError::Tpm)?;
-        let (nonce_tpm, remainder) = Tpm2bNonce::parse(remainder).map_err(DeviceError::Tpm)?;
-        let (attributes, remainder) = TpmaSession::parse(remainder).map_err(DeviceError::Tpm)?;
-        let (hmac_key, remainder) = Tpm2bAuth::parse(remainder).map_err(DeviceError::Tpm)?;
-        let (auth_hash, remainder) = TpmAlgId::parse(remainder).map_err(DeviceError::Tpm)?;
+        let (session_type, remainder) = TpmSe::parse(&session_bytes)?;
+        let (context, remainder) = TpmsContext::parse(remainder)?;
+        let (nonce_tpm, remainder) = Tpm2bNonce::parse(remainder)?;
+        let (attributes, remainder) = TpmaSession::parse(remainder)?;
+        let (hmac_key, remainder) = Tpm2bAuth::parse(remainder)?;
+        let (auth_hash, remainder) = TpmAlgId::parse(remainder)?;
 
         if !remainder.is_empty() {
             return Err(SessionError::TrailingData);
@@ -414,7 +416,7 @@ pub(crate) fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand,
         session_handle: (tpm2_protocol::data::TpmRh::Pw as u32).into(),
         nonce: Tpm2bNonce::default(),
         session_attributes: TpmaSession::empty(),
-        hmac: Tpm2bAuth::try_from(password).map_err(DeviceError::Tpm)?,
+        hmac: Tpm2bAuth::try_from(password)?,
     })
 }
 
@@ -475,6 +477,6 @@ pub(crate) fn create_auth(
         session_handle: session.handle,
         nonce: *nonce_caller,
         session_attributes: session.attributes,
-        hmac: Tpm2bAuth::try_from(hmac_bytes.as_slice()).map_err(DeviceError::Tpm)?,
+        hmac: Tpm2bAuth::try_from(hmac_bytes.as_slice())?,
     })
 }
