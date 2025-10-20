@@ -14,7 +14,7 @@ use crate::{
     policy::{
         execute_policy, parse, Expression, PolicyError, SoftwarePolicySession, TpmPolicySession,
     },
-    session::Session,
+    session_cache::Session,
 };
 use clap::Args;
 use std::collections::HashSet;

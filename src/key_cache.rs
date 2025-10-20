@@ -8,6 +8,7 @@ use crate::{
     device::{Device, DeviceError},
     key::{KeyError, TpmKey},
     scheme::{Scheme, SchemeError},
+    session_cache::SessionError,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -77,7 +78,7 @@ pub enum KeyCacheError {
     #[error("parent not loaded")]
     ParentNotLoaded,
     #[error("session: {0}")]
-    Session(#[from] crate::session::SessionError),
+    Session(#[from] SessionError),
 }
 
 impl From<TpmErrorKind> for KeyCacheError {

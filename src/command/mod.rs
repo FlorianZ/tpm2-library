@@ -47,7 +47,7 @@ use crate::{
     pcr::PcrError,
     policy::PolicyError,
     scheme::SchemeError,
-    session::SessionError,
+    session_cache::SessionError,
 };
 use std::{
     io::{IsTerminal, Write},

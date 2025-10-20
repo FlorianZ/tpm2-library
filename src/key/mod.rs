@@ -10,7 +10,7 @@ mod tpm_key;
 pub use external_key::*;
 pub use tpm_key::*;
 
-use crate::{crypto::CryptoError, device::DeviceError, session::SessionError};
+use crate::{crypto::CryptoError, device::DeviceError, session_cache::SessionError};
 use rasn::{
     types::{Integer, ObjectIdentifier},
     AsnType, Decode, Decoder, Encode,

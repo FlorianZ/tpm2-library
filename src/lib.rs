@@ -18,7 +18,7 @@ pub mod pcr;
 pub mod policy;
 pub mod print;
 pub mod scheme;
-pub mod session;
+pub mod session_cache;
 pub mod template;
 pub mod transport;
 

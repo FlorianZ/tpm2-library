@@ -17,7 +17,7 @@ use crate::{
     key_cache::KeyCacheError,
     pcr::{self, PcrError},
     scheme::{Scheme, SchemeError},
-    session::SessionError,
+    session_cache::SessionError,
 };
 use nom::{
     branch::alt,

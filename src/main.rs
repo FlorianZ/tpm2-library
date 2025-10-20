@@ -9,7 +9,7 @@ use cli::{
     device::{Device, DeviceError},
     job::Job,
     key_cache::KeyCache,
-    session::SessionCache,
+    session_cache::SessionCache,
     transport::FileTransport,
 };
 use std::{

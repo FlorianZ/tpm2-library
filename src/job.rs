@@ -9,7 +9,7 @@ use crate::{
     key::{AnyKey, KeyError, TpmKey},
     key_cache::{KeyCache, KeyCacheError},
     scheme::Scheme,
-    session::{build_password_session, create_auth, SessionCache, SessionError},
+    session_cache::{build_password_session, create_auth, SessionCache, SessionError},
 };
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, rc::Rc};

@@ -4,8 +4,10 @@
 //! A policy session that interacts directly with a TPM device.
 
 use super::{PolicyError, PolicySession};
-use crate::device::Device;
-use crate::session;
+use crate::{
+    device::{Device, DeviceError},
+    session_cache::build_password_session,
+};
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection},
     message::{
@@ -77,7 +79,7 @@ impl PolicySession for TpmPolicySession<'_> {
             expiration: 0,
         };
 
-        let password_auth = session::build_password_session(password.unwrap_or_default())?;
+        let password_auth = build_password_session(password.unwrap_or_default())?;
         let sessions = vec![password_auth];
 
         self.device.execute(&cmd, &sessions)?;
@@ -91,7 +93,7 @@ impl PolicySession for TpmPolicySession<'_> {
         let (resp, _) = self.device.execute(&cmd, &[])?;
         let digest_resp = resp
             .PolicyGetDigest()
-            .map_err(|_| crate::device::DeviceError::ResponseMismatch(TpmCc::PolicyGetDigest))?;
+            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::PolicyGetDigest))?;
         Ok(digest_resp.policy_digest)
     }
 
