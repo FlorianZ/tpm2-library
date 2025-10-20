@@ -65,6 +65,7 @@ pub struct TopLevel {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     Algorithm(Algorithm),
+    Cache(Cache),
     Certificate(Certificate),
     Convert(Convert),
     Create(Create),
@@ -78,13 +79,13 @@ pub enum Command {
     ReturnCode(ReturnCode),
     ResetLock(ResetLock),
     Unseal(Unseal),
-    Cache(Cache),
 }
 
 impl Command {
     fn as_subcommand(&self) -> &dyn SubCommand {
         match self {
             Self::Algorithm(cmd) => cmd,
+            Self::Cache(cmd) => cmd,
             Self::Certificate(cmd) => cmd,
             Self::Convert(cmd) => cmd,
             Self::Create(cmd) => cmd,
@@ -98,7 +99,6 @@ impl Command {
             Self::ReturnCode(cmd) => cmd,
             Self::ResetLock(cmd) => cmd,
             Self::Unseal(cmd) => cmd,
-            Self::Cache(cmd) => cmd,
         }
     }
 }

@@ -25,9 +25,9 @@ struct CacheRow {
     details: String,
 }
 
-/// Lists TPM objects saved to cache.
+/// Lists cached TPM objects.
 #[derive(Args, Debug)]
-#[command(about = "Lists objects inside TPM memory")]
+#[command(about = "Lists cached TPM objects.")]
 pub struct Cache {}
 
 impl Cache {
