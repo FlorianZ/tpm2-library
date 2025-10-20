@@ -184,10 +184,10 @@ impl SubCommand for Policy {
                     session_data.context = device.save_context(live_handle.0)?;
                     session_data.handle = tpm2_protocol::TpmHandle(0);
 
-                    let saved_uri = job.session_cache.add(session_data);
+                    let vhandle = job.session_cache.add(session_data);
                     job.session_cache.save()?;
 
-                    writeln!(job.key_cache.writer, "{saved_uri}")?;
+                    writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
                 }
             }
             Ok(())
