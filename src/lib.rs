@@ -20,7 +20,6 @@ pub mod scheme;
 pub mod session;
 pub mod template;
 pub mod transport;
-pub mod x509;
 
 /// A global flag to signal graceful teardown of the application.
 ///
