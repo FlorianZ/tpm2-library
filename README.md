@@ -14,11 +14,15 @@
 
 ## Architecture
 
-Constraints:
+### Error types
 
-1. Panics are disallowed on new commits, and fixing them is feasible.
-2. Nested subcommands are disallowed, as they encourage to inefficient
-   subcommand design.
+Variant declaration order in error types:
+
+1. Custom variants.
+2. Variants for internal module error types.
+3. Variants for external module error types.
+
+Within each subcategory variants are ordered alphabetically.
 
 ## Licensing
 
