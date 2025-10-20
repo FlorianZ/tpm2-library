@@ -131,10 +131,10 @@ pub enum CommandError {
     Pcr(#[from] PcrError),
     #[error("policy: {0}")]
     Policy(#[from] PolicyError),
+    #[error("uri: {0}")]
+    Scheme(#[from] SchemeError),
     #[error("session: {0}")]
     Session(#[from] SessionError),
-    #[error("uri: {0}")]
-    Uri(#[from] SchemeError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
 }

@@ -8,10 +8,10 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AuthError {
-    #[error(transparent)]
-    Uri(#[from] SchemeError),
     #[error("invalid authentication scheme: {0}")]
     InvalidAuthenticationScheme(String),
+    #[error(transparent)]
+    Uri(#[from] SchemeError),
 }
 
 /// Represents an authorization method for a command.

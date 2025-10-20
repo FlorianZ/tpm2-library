@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    command::{CommandError, OutputEncoding},
+    command::OutputEncoding,
     convert::from_tpm_object_to_vec,
     device::{Device, DeviceError},
     key::{KeyError, TpmKey},
@@ -59,24 +59,22 @@ pub enum KeyCacheError {
     AlreadyTracked(TpmHandle),
     #[error("context not found: {0:08x}")]
     ContextNotFound(u32),
-    #[error("crypto: {0}")]
-    Crypto(#[from] crate::crypto::CryptoError),
-    #[error("device: {0}")]
-    Device(#[from] DeviceError),
     #[error("invalid handle: {0:08x}")]
     InvalidHandle(u32),
     #[error("invalid parent: {0}")]
     InvalidParent(String),
-    #[error("invalid URI: {0}")]
-    InvalidUri(#[from] SchemeError),
+    #[error("parent not loaded")]
+    ParentNotLoaded,
+    #[error("crypto: {0}")]
+    Crypto(#[from] crate::crypto::CryptoError),
+    #[error("device: {0}")]
+    Device(#[from] DeviceError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("key: {0}")]
     Key(#[from] KeyError),
-    #[error("not tracked: {0}")]
-    NotTracked(TpmHandle),
-    #[error("parent not loaded")]
-    ParentNotLoaded,
+    #[error("invalid URI: {0}")]
+    Scheme(#[from] SchemeError),
     #[error("session: {0}")]
     Session(#[from] SessionError),
 }
@@ -90,21 +88,6 @@ impl From<TpmErrorKind> for KeyCacheError {
 impl From<TryFromIntError> for KeyCacheError {
     fn from(err: TryFromIntError) -> Self {
         Self::Device(err.into())
-    }
-}
-
-impl From<CommandError> for KeyCacheError {
-    fn from(err: CommandError) -> Self {
-        match err {
-            CommandError::KeyCacheError(e) => e,
-            CommandError::Crypto(e) => Self::Crypto(e),
-            CommandError::Device(e) => Self::Device(e),
-            CommandError::Io(e) => Self::Io(e),
-            CommandError::Key(e) => Self::Key(e),
-            CommandError::Session(e) => Self::Session(e),
-            CommandError::Uri(e) => Self::InvalidUri(e),
-            _ => Self::Key(KeyError::ValueConversionFailed(err.to_string())),
-        }
     }
 }
 
@@ -351,9 +334,9 @@ impl<'a> KeyCache<'a> {
                     Err(e) => Err(e.into()),
                 }
             }
-            Scheme::Session(_) | Scheme::Password(_) | Scheme::Path(_) | Scheme::Policy(_) => Err(
-                KeyCacheError::InvalidUri(SchemeError::UnsupportedScheme(uri.to_string())),
-            ),
+            Scheme::Session(_) | Scheme::Password(_) | Scheme::Path(_) | Scheme::Policy(_) => {
+                Err(SchemeError::UnsupportedScheme(uri.to_string()).into())
+            }
         }
     }
 
@@ -363,8 +346,9 @@ impl<'a> KeyCache<'a> {
     ///
     /// Returns a `KeyCacheError` if the handle is invalid or does not exist.
     pub fn track(&mut self, handle: TpmHandle) -> Result<(), KeyCacheError> {
-        self.non_existence_invariant(handle)?;
-
+        if self.handles.contains_key(&handle.0) {
+            return Err(KeyCacheError::AlreadyTracked(handle));
+        }
         let mso = (handle.0 >> 24) as u8;
         match TpmHt::try_from(mso) {
             Ok(TpmHt::Transient | TpmHt::HmacSession | TpmHt::PolicySession) => {
@@ -443,20 +427,10 @@ impl<'a> KeyCache<'a> {
                     }
                     Ok(())
                 }
-                _ => Err(KeyCacheError::InvalidUri(SchemeError::UnsupportedScheme(
-                    uri.to_string(),
-                ))),
+                _ => Err(SchemeError::UnsupportedScheme(uri.to_string()).into()),
             }
         } else {
             self.writer.write_all(data)?;
-            Ok(())
-        }
-    }
-
-    fn non_existence_invariant(&self, handle: TpmHandle) -> Result<(), KeyCacheError> {
-        if self.handles.contains_key(&handle.0) {
-            Err(KeyCacheError::AlreadyTracked(handle))
-        } else {
             Ok(())
         }
     }
