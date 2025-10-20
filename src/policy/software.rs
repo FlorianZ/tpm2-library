@@ -121,6 +121,11 @@ impl PolicySession for SoftwarePolicySession<'_> {
         Ok(())
     }
 
+    fn policy_restart(&mut self) -> Result<(), PolicyError> {
+        self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())?;
+        Ok(())
+    }
+
     fn get_digest(&mut self) -> Result<Tpm2bDigest, PolicyError> {
         Ok(self.digest)
     }

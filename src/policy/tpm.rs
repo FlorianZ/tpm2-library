@@ -11,7 +11,8 @@ use crate::{
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection},
     message::{
-        TpmPolicyGetDigestCommand, TpmPolicyOrCommand, TpmPolicyPcrCommand, TpmPolicySecretCommand,
+        TpmPolicyGetDigestCommand, TpmPolicyOrCommand, TpmPolicyPcrCommand,
+        TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
     TpmHandle,
 };
@@ -83,6 +84,14 @@ impl PolicySession for TpmPolicySession<'_> {
         let sessions = vec![password_auth];
 
         self.device.execute(&cmd, &sessions)?;
+        Ok(())
+    }
+
+    fn policy_restart(&mut self) -> Result<(), PolicyError> {
+        let cmd = TpmPolicyRestartCommand {
+            session_handle: self.handle.0.into(),
+        };
+        self.device.execute(&cmd, &[])?;
         Ok(())
     }
 

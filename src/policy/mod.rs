@@ -24,7 +24,7 @@ use nom::{
     bytes::complete::{tag, take_while1},
     character::complete::{char, hex_digit1, space0},
     combinator::{map, map_res, opt},
-    error::ErrorKind,
+    error::{Error as NomError, ErrorKind, ParseError},
     multi::separated_list1,
     sequence::{delimited, preceded, terminated, tuple},
     Err as NomErr, IResult,
@@ -46,6 +46,8 @@ pub enum PolicyError {
     InvalidSecret(String),
     #[error("invalid value: {0}")]
     InvalidValue(String),
+    #[error("no valid branch found for OR policy")]
+    NoValidPolicyOrBranch,
     #[error("PCR value for selection '{0}' not provided")]
     PcrValueMissing(String),
     #[error("crypto: {0}")]
@@ -132,6 +134,13 @@ pub trait PolicySession {
         cp_hash: Option<Tpm2bDigest>,
     ) -> Result<(), PolicyError>;
 
+    /// Applies a `TPM2_PolicyRestart` action to the session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the policy action fails.
+    fn policy_restart(&mut self) -> Result<(), PolicyError>;
+
     /// Retrieves the final policy digest from the session.
     ///
     /// # Errors
@@ -162,7 +171,7 @@ pub enum Expression {
 }
 
 impl fmt::Display for Expression {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Expression::Auth(auth) => write!(f, "{auth}"),
             Expression::Pcr {
@@ -256,13 +265,19 @@ fn secret_expression(input: &str) -> IResult<&str, Expression> {
 }
 
 fn or_expression(input: &str) -> IResult<&str, Expression> {
-    map(
-        separated_list1(
-            preceded(space0, terminated(char(','), space0)),
-            parse_expression,
-        ),
-        Expression::Or,
-    )(input)
+    let (input, branches) = separated_list1(
+        preceded(space0, terminated(char(','), space0)),
+        parse_expression,
+    )(input)?;
+
+    if branches.len() > 8 {
+        return Err(NomErr::Failure(NomError::from_error_kind(
+            input,
+            ErrorKind::TooLarge,
+        )));
+    }
+
+    Ok((input, Expression::Or(branches)))
 }
 
 fn call<'a, F, O>(name: &'static str, f: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
@@ -406,6 +421,12 @@ pub fn execute_policy(
             session.get_digest()
         }
         Expression::Or(branches) => {
+            if branches.len() > 8 {
+                return Err(PolicyError::InvalidExpression(
+                    "or() expression cannot have more than 8 branches".to_string(),
+                ));
+            }
+
             let mut branch_digests = TpmlDigest::new();
             for branch in branches {
                 let mut temp_session =
@@ -415,6 +436,26 @@ pub fn execute_policy(
                     .try_push(branch_digest)
                     .map_err(|e| PolicyError::InvalidExpression(e.to_string()))?;
             }
+
+            let mut last_error: Option<PolicyError> = None;
+            let mut branch_succeeded = false;
+            for branch in branches {
+                session.policy_restart()?;
+                match execute_policy(branch, session) {
+                    Ok(_) => {
+                        branch_succeeded = true;
+                        break;
+                    }
+                    Err(e) => {
+                        last_error = Some(e);
+                    }
+                }
+            }
+
+            if !branch_succeeded {
+                return Err(last_error.unwrap_or(PolicyError::NoValidPolicyOrBranch));
+            }
+
             session.policy_or(&branch_digests)?;
             session.get_digest()
         }

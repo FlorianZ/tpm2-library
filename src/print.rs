@@ -27,9 +27,10 @@ use tpm2_protocol::{
         TpmNvReadPublicResponse, TpmNvReadResponse, TpmPcrEventCommand, TpmPcrEventResponse,
         TpmPcrReadCommand, TpmPcrReadResponse, TpmPolicyGetDigestCommand,
         TpmPolicyGetDigestResponse, TpmPolicyOrCommand, TpmPolicyPcrCommand, TpmPolicyPcrResponse,
-        TpmPolicySecretCommand, TpmPolicySecretResponse, TpmReadPublicCommand,
-        TpmReadPublicResponse, TpmResponseBody, TpmStartAuthSessionCommand,
-        TpmStartAuthSessionResponse, TpmTestParmsCommand, TpmUnsealCommand, TpmUnsealResponse,
+        TpmPolicyRestartCommand, TpmPolicyRestartResponse, TpmPolicySecretCommand,
+        TpmPolicySecretResponse, TpmReadPublicCommand, TpmReadPublicResponse, TpmResponseBody,
+        TpmStartAuthSessionCommand, TpmStartAuthSessionResponse, TpmTestParmsCommand,
+        TpmUnsealCommand, TpmUnsealResponse,
     },
     TpmBuffer, TpmHandle, TpmList,
 };
@@ -235,6 +236,7 @@ tpm_print_struct!(TpmPolicyPcrCommand, policy_session => "policySession", pcr_di
 tpm_print_struct!(TpmPolicySecretCommand, auth_handle => "authHandle", policy_session => "policySession", nonce_tpm => "nonceTpm", cp_hash_a => "cpHashA", policy_ref => "policyRef", expiration => "expiration");
 tpm_print_struct!(TpmPolicyOrCommand, policy_session => "policySession", p_hash_list => "pHashList");
 tpm_print_struct!(TpmPolicyGetDigestCommand, policy_session => "policySession");
+tpm_print_struct!(TpmPolicyRestartCommand, session_handle => "sessionHandle");
 tpm_print_struct!(TpmDictionaryAttackLockResetCommand, lock_handle => "lockHandle");
 tpm_print_struct!(TpmCreateCommand, parent_handle => "parentHandle", in_sensitive => "inSensitive", in_public => "inPublic", outside_info => "outsideInfo", creation_pcr => "creationPcr");
 tpm_print_struct!(TpmUnsealCommand, item_handle => "itemHandle");
@@ -257,6 +259,7 @@ tpm_print_struct!(TpmPcrEventResponse, digests => "digests");
 tpm_print_struct!(TpmPolicyPcrResponse,);
 tpm_print_struct!(TpmPolicySecretResponse, timeout => "timeout", policy_ticket => "policyTicket");
 tpm_print_struct!(TpmPolicyGetDigestResponse, policy_digest => "policyDigest");
+tpm_print_struct!(TpmPolicyRestartResponse,);
 tpm_print_struct!(TpmDictionaryAttackLockResetResponse,);
 tpm_print_struct!(TpmCreateResponse, out_private => "outPrivate", out_public => "outPublic", creation_data => "creationData", creation_hash => "creationHash", creation_ticket => "creationTicket");
 tpm_print_struct!(TpmUnsealResponse, out_data => "outData");
@@ -564,6 +567,7 @@ impl TpmPrint for TpmCommandBody {
             Self::PolicySecret(cmd) => cmd.print(writer, name, indent),
             Self::PolicyOr(cmd) => cmd.print(writer, name, indent),
             Self::PolicyGetDigest(cmd) => cmd.print(writer, name, indent),
+            Self::PolicyRestart(cmd) => cmd.print(writer, name, indent),
             Self::DictionaryAttackLockReset(cmd) => cmd.print(writer, name, indent),
             Self::Create(cmd) => cmd.print(writer, name, indent),
             Self::Unseal(cmd) => cmd.print(writer, name, indent),
@@ -607,6 +611,7 @@ impl TpmPrint for TpmResponseBody {
             Self::PolicyPcr(resp) => resp.print(writer, name, indent),
             Self::PolicySecret(resp) => resp.print(writer, name, indent),
             Self::PolicyGetDigest(resp) => resp.print(writer, name, indent),
+            Self::PolicyRestart(resp) => resp.print(writer, name, indent),
             Self::DictionaryAttackLockReset(resp) => resp.print(writer, name, indent),
             Self::Create(resp) => resp.print(writer, name, indent),
             Self::Unseal(resp) => resp.print(writer, name, indent),
