@@ -78,8 +78,6 @@ pub enum KeyCacheError {
     ParentNotLoaded,
     #[error("session: {0}")]
     Session(#[from] crate::session::SessionError),
-    #[error("unknown handle: {0:08x}")]
-    UnknownHandle(u32),
 }
 
 impl From<TpmErrorKind> for KeyCacheError {
