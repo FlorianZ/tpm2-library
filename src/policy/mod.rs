@@ -179,14 +179,14 @@ impl fmt::Display for Expression {
                 digest,
                 count,
             } => {
-                write!(f, "{selection}")?;
+                write!(f, "pcr({selection}")?;
                 if let Some(d) = digest {
                     write!(f, ":{d}")?;
                 }
                 if let Some(c) = count {
                     write!(f, ", count={c}")?;
                 }
-                Ok(())
+                write!(f, ")")
             }
             Expression::Secret {
                 auth_handle,
@@ -332,7 +332,7 @@ fn parse_expression(input: &str) -> IResult<&str, Expression> {
     alt((
         call("secret", secret_expression),
         call("or", or_expression),
-        pcr_policy_expression,
+        call("pcr", pcr_policy_expression),
         auth_expression,
         uri_expression,
     ))(input)
