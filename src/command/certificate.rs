@@ -5,7 +5,7 @@
 use crate::{
     cli::SubCommand,
     command::{AuthArgs, CommandError},
-    convert::from_str_to_handle,
+    convert::from_str_to_nv_handle,
     device::with_device,
     job::Job,
 };
@@ -15,8 +15,8 @@ use tpm2_protocol::{data::TpmPt, TpmHandle};
 /// Exports an endorsement key certificate.
 #[derive(Args, Debug)]
 pub struct Certificate {
-    /// NV-index
-    #[arg(value_name = "nv-index", value_parser = from_str_to_handle)]
+    /// NV-index: 'tpm:<handle>'
+    #[arg(value_name = "nv-index", value_parser = from_str_to_nv_handle)]
     pub nv_index: TpmHandle,
 
     #[clap(flatten)]
