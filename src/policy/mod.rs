@@ -23,7 +23,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
     character::complete::{char, hex_digit1, space0},
-    combinator::{map, map_res, opt},
+    combinator::{map, map_res, opt, verify},
     error::{Error as NomError, ErrorKind, ParseError},
     multi::separated_list1,
     sequence::{delimited, preceded, terminated, tuple},
@@ -166,12 +166,13 @@ pub enum Expression {
         password: Option<Box<Expression>>,
         cp_hash: Option<String>,
     },
+    And(Vec<Expression>),
     Or(Vec<Expression>),
-    Uri(Scheme),
+    Scheme(Scheme),
 }
 
 impl fmt::Display for Expression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Expression::Auth(auth) => write!(f, "{auth}"),
             Expression::Pcr {
@@ -202,17 +203,21 @@ impl fmt::Display for Expression {
                 }
                 write!(f, ")")
             }
-            Expression::Or(branches) => {
-                let branches_str: Vec<String> = branches.iter().map(ToString::to_string).collect();
-                write!(f, "or({})", branches_str.join(", "))
+            Expression::And(expressions) => {
+                let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
+                write!(f, "{}", s.join(" and "))
             }
-            Expression::Uri(uri) => write!(f, "{uri}"),
+            Expression::Or(expressions) => {
+                let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
+                write!(f, "{}", s.join(" or "))
+            }
+            Expression::Scheme(uri) => write!(f, "{uri}"),
         }
     }
 }
 
 impl Expression {
-    /// Resolves a file path expression into bytes.
+    /// Resolves a password expression into bytes.
     ///
     /// # Errors
     ///
@@ -226,20 +231,13 @@ impl Expression {
             ))),
         }
     }
+}
 
-    /// Parses a TPM handle from a `tpm:` expression.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `PolicyError` if the expression is not a `Expression::Uri(Uri::Tpm)`.
-    pub fn to_tpm_handle(&self) -> Result<u32, PolicyError> {
-        match self {
-            Self::Uri(Scheme::Tpm(handle)) => Ok(*handle),
-            _ => Err(PolicyError::InvalidExpression(format!(
-                "invalid expression: {self:?}: expected 'tpm:<handle>'"
-            ))),
-        }
-    }
+fn ws<'a, F, O, E: ParseError<&'a str>>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O, E>
+where
+    F: FnMut(&'a str) -> IResult<&'a str, O, E>,
+{
+    delimited(space0, inner, space0)
 }
 
 fn comma_sep<'a, F, O>(f: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
@@ -264,22 +262,6 @@ fn secret_expression(input: &str) -> IResult<&str, Expression> {
     )(input)
 }
 
-fn or_expression(input: &str) -> IResult<&str, Expression> {
-    let (input, branches) = separated_list1(
-        preceded(space0, terminated(char(','), space0)),
-        parse_expression,
-    )(input)?;
-
-    if branches.len() > 8 {
-        return Err(NomErr::Failure(NomError::from_error_kind(
-            input,
-            ErrorKind::TooLarge,
-        )));
-    }
-
-    Ok((input, Expression::Or(branches)))
-}
-
 fn call<'a, F, O>(name: &'static str, f: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
 where
     F: FnMut(&'a str) -> IResult<&'a str, O>,
@@ -292,15 +274,23 @@ where
 }
 
 fn auth_expression(input: &str) -> IResult<&str, Expression> {
-    map_res(take_while1(|c: char| c != ',' && c != ')'), |s: &str| {
-        Auth::from_str(s).map(Expression::Auth)
-    })(input)
+    map_res(
+        verify(
+            take_while1(|c: char| !matches!(c, ',' | ')' | ' ')),
+            |s: &str| s.contains(':') && s != "or" && s != "and",
+        ),
+        |s: &str| Auth::from_str(s).map(Expression::Auth),
+    )(input)
 }
 
 fn uri_expression(input: &str) -> IResult<&str, Expression> {
-    map_res(take_while1(|c: char| c != ',' && c != ')'), |s: &str| {
-        Scheme::from_str(s).map(Expression::Uri)
-    })(input)
+    map_res(
+        verify(
+            take_while1(|c: char| !matches!(c, ',' | ')' | ' ')),
+            |s: &str| s.contains(':') && s != "or" && s != "and",
+        ),
+        |s: &str| Scheme::from_str(s).map(Expression::Scheme),
+    )(input)
 }
 
 fn pcr_policy_expression(input: &str) -> IResult<&str, Expression> {
@@ -327,15 +317,40 @@ fn pcr_policy_expression(input: &str) -> IResult<&str, Expression> {
     }
 }
 
-/// Parses any valid expression.
-fn parse_expression(input: &str) -> IResult<&str, Expression> {
+fn parse_factor(input: &str) -> IResult<&str, Expression> {
     alt((
-        call("secret", secret_expression),
-        call("or", or_expression),
         call("pcr", pcr_policy_expression),
+        call("secret", secret_expression),
+        delimited(ws(char('(')), parse_expression, ws(char(')'))),
         auth_expression,
         uri_expression,
     ))(input)
+}
+
+fn parse_term(input: &str) -> IResult<&str, Expression> {
+    let (input, mut factors) = separated_list1(ws(tag("and")), parse_factor)(input)?;
+    if factors.len() == 1 {
+        Ok((input, factors.remove(0)))
+    } else {
+        Ok((input, Expression::And(factors)))
+    }
+}
+
+fn parse_expression(input: &str) -> IResult<&str, Expression> {
+    let (input, mut terms) = separated_list1(ws(tag("or")), parse_term)(input)?;
+
+    if terms.len() > 8 {
+        return Err(NomErr::Failure(NomError::from_error_kind(
+            input,
+            ErrorKind::TooLarge,
+        )));
+    }
+
+    if terms.len() == 1 {
+        Ok((input, terms.remove(0)))
+    } else {
+        Ok((input, Expression::Or(terms)))
+    }
 }
 
 /// Parses an expression string, ensuring the entire input is consumed.
@@ -345,8 +360,8 @@ fn parse_expression(input: &str) -> IResult<&str, Expression> {
 /// Returns a `PolicyError` if the input is not a valid expression or if there
 /// is trailing input left after parsing.
 pub fn parse(input: &str) -> Result<Expression, PolicyError> {
-    let (remaining, expr) =
-        parse_expression(input).map_err(|e| PolicyError::InvalidExpression(e.to_string()))?;
+    let (remaining, expr) = parse_expression(input)
+        .map_err(|_| PolicyError::InvalidExpression(format!("\"{input}\"")))?;
 
     if !remaining.is_empty() {
         return Err(PolicyError::InvalidExpression(format!(
@@ -374,7 +389,7 @@ pub fn execute_policy(
         } => {
             let digest_bytes =
                 hex::decode(digest.as_ref().ok_or(PolicyError::InvalidExpression(
-                    "PCR policy requires a digest for execution".to_string(),
+                    "expected a hex string for optional digest in pcr()".to_string(),
                 ))?)?;
             let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())?;
             let selections = pcr::pcr_selection_vec_from_str(selection)?;
@@ -389,17 +404,17 @@ pub fn execute_policy(
             cp_hash,
         } => {
             let handle_val = match &**auth_handle {
-                Expression::Uri(Scheme::Tpm(h)) => {
-                    if (*h >> 24) as u8 != TpmHt::Persistent as u8 {
+                Expression::Scheme(Scheme::Tpm(h)) => {
+                    if (h.value_raw() >> 24) as u8 != TpmHt::Persistent as u8 {
                         return Err(PolicyError::InvalidExpression(
-                            "secret() auth must be a persistent 'tpm:<handle>'".to_string(),
+                            "secret() must contain persistent 'tpm:<handle>'".to_string(),
                         ));
                     }
-                    *h
+                    h.value_raw()
                 }
                 _ => {
                     return Err(PolicyError::InvalidExpression(
-                        "secret() auth must be a persistent 'tpm:<handle>'".to_string(),
+                        "secret() must contain persistent 'tpm:<handle>'".to_string(),
                     ))
                 }
             };
@@ -420,13 +435,17 @@ pub fn execute_policy(
 
             session.get_digest()
         }
-        Expression::Or(branches) => {
-            if branches.len() > 8 {
-                return Err(PolicyError::InvalidExpression(
-                    "or() expression cannot have more than 8 branches".to_string(),
-                ));
-            }
+        Expression::And(expressions) => {
+            let (last_expr, other_exprs) = expressions.split_last().ok_or_else(|| {
+                PolicyError::InvalidExpression("'and'-expression must be non-empty".to_string())
+            })?;
 
+            for expr in other_exprs {
+                execute_policy(expr, session)?;
+            }
+            execute_policy(last_expr, session)
+        }
+        Expression::Or(branches) => {
             let mut branch_digests = TpmlDigest::new();
             for branch in branches {
                 let mut temp_session =
@@ -459,7 +478,7 @@ pub fn execute_policy(
             session.policy_or(&branch_digests)?;
             session.get_digest()
         }
-        Expression::Uri(uri) => Err(PolicyError::InvalidExpression(uri.to_string())),
+        Expression::Scheme(uri) => Err(PolicyError::InvalidExpression(uri.to_string())),
     }
 }
 
@@ -485,9 +504,9 @@ pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
                 *digest = Some(hex::encode(digest_bytes));
             }
         }
-        Expression::Or(branches) => {
-            for branch in branches.iter_mut() {
-                populate_pcr_digests(branch, pcr_map)?;
+        Expression::And(expressions) | Expression::Or(expressions) => {
+            for expr in expressions.iter_mut() {
+                populate_pcr_digests(expr, pcr_map)?;
             }
         }
         Expression::Secret {
@@ -500,7 +519,7 @@ pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
                 populate_pcr_digests(pwd_expr, pcr_map)?;
             }
         }
-        Expression::Auth(_) | Expression::Uri(_) => {}
+        Expression::Auth(_) | Expression::Scheme(_) => {}
     }
     Ok(())
 }

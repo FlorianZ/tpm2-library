@@ -113,12 +113,8 @@ where
     F: FnMut(&mut Expression) -> Result<(), CommandError>,
 {
     match ast {
-        Expression::Pcr {
-            selection: _,
-            digest: _,
-            count: _,
-        } => visitor(ast)?,
-        Expression::Or(branches) => {
+        Expression::Pcr { .. } => visitor(ast)?,
+        Expression::And(branches) | Expression::Or(branches) => {
             for branch in branches.iter_mut() {
                 try_visit_pcr_expressions_mut(branch, visitor)?;
             }
@@ -126,7 +122,7 @@ where
         Expression::Secret { auth_handle, .. } => {
             try_visit_pcr_expressions_mut(auth_handle, visitor)?;
         }
-        Expression::Auth(_) | Expression::Uri(_) => {}
+        Expression::Auth(_) | Expression::Scheme(_) => {}
     }
     Ok(())
 }
@@ -136,7 +132,7 @@ impl SubCommand for Policy {
         with_device(job.device.clone(), |device| {
             let mut ast = parse(&self.expression)?;
             match ast {
-                Expression::Auth(_) | Expression::Uri(_) => {
+                Expression::Auth(_) | Expression::Scheme(_) => {
                     return Err(CommandError::InvalidInput(
                         "not a valid policy expression".to_string(),
                     ));
