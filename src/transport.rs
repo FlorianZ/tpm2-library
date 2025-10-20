@@ -36,11 +36,11 @@ pub(crate) fn receive_from_stream<R: Read>(stream: &mut R) -> Result<Vec<u8>, De
     let mut header = [0u8; 10];
     stream.read_exact(&mut header)?;
     let Ok(size_bytes): Result<[u8; 4], _> = header[2..6].try_into() else {
-        return Err(DeviceError::ResponseCorrupted);
+        return Err(DeviceError::InvalidResponse);
     };
     let size = u32::from_be_bytes(size_bytes) as usize;
     if size < header.len() || size > TPM_MAX_COMMAND_SIZE {
-        return Err(DeviceError::ResponseCorrupted);
+        return Err(DeviceError::InvalidResponse);
     }
     let mut resp_buf = header.to_vec();
     resp_buf.resize(size, 0);

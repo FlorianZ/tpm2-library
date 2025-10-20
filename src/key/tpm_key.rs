@@ -220,9 +220,7 @@ impl TpmKey {
         let (parent_public, parent_name) = match device.read_public(parent_handle) {
             Ok(result) => result,
             Err(DeviceError::Io(e)) if e.kind() == std::io::ErrorKind::InvalidInput => {
-                return Err(KeyError::Device(DeviceError::UnknownHandleName(
-                    parent_handle.0,
-                )));
+                return Err(KeyError::InvalidParent(parent_handle.0));
             }
             Err(e) => return Err(e.into()),
         };

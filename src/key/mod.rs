@@ -26,10 +26,6 @@ use tpm2_protocol::{
 
 #[derive(Debug, Error)]
 pub enum KeyError {
-    #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
-    #[error("device: {0}")]
-    Device(#[from] DeviceError),
     #[error("unsupported name algorithm: {0}")]
     InvalidAlgorithm(String),
     #[error("invalid algorithm format: '{0}'")]
@@ -46,26 +42,32 @@ pub enum KeyError {
     InvalidModulus(String),
     #[error("invalid OID")]
     InvalidOid,
+    #[error("invalid parent: {0:08x}")]
+    InvalidParent(u32),
     #[error("pem: {0}")]
     Pem(#[from] pem::PemError),
-    #[error("rasn decode: {0}")]
-    RasnDecode(#[from] rasn::error::DecodeError),
-    #[error("rasn encode: {0}")]
-    RasnEncode(#[from] rasn::error::EncodeError),
+    #[error("session: {0}")]
+    Session(#[from] SessionError),
     #[error("unsupported file format")]
     UnsupportedFileFormat,
+    #[error("unsupported key algorithm: {0}")]
+    UnsupportedKeyAlgorithm(Tpm2shAlgId),
+    #[error("unsupported name algorithm: {0}")]
+    UnsupportedNameAlgorithm(Tpm2shAlgId),
     #[error("unsupported OID: {0}")]
     UnsupportedOid(String),
     #[error("invalid PEM tag: {0}")]
     UnsupportedPemTag(String),
     #[error("value conversion failed: {0}")]
     ValueConversionFailed(String),
-    #[error("session: {0}")]
-    Session(#[from] SessionError),
-    #[error("unsupported key algorithm: {0}")]
-    UnsupportedKeyAlgorithm(Tpm2shAlgId),
-    #[error("unsupported name algorithm: {0}")]
-    UnsupportedNameAlgorithm(Tpm2shAlgId),
+    #[error("crypto: {0}")]
+    Crypto(#[from] CryptoError),
+    #[error("device: {0}")]
+    Device(#[from] DeviceError),
+    #[error("rasn decode: {0}")]
+    RasnDecode(#[from] rasn::error::DecodeError),
+    #[error("rasn encode: {0}")]
+    RasnEncode(#[from] rasn::error::EncodeError),
 }
 
 impl From<hex::FromHexError> for KeyError {

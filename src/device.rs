@@ -4,7 +4,6 @@
 
 use crate::{
     cli::LogFormat,
-    crypto::CryptoError,
     print::TpmPrint,
     transport::{receive_from_stream, FileTransport, Transport},
     TEARDOWN,
@@ -48,34 +47,28 @@ impl<T> TpmCommandObject for T where T: TpmHeader + TpmBodyBuild + TpmPrint {}
 
 #[derive(Debug, Error)]
 pub enum DeviceError {
-    #[error("invalid auth: {0}")]
-    InvalidAuth(String),
-    #[error("I/O: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("syscall: {0}")]
-    Nix(#[from] nix::Error),
-    #[error("response corrupted")]
-    ResponseCorrupted,
-    #[error("response mismatch: {0}")]
-    ResponseMismatch(TpmCc),
-    #[error("operation interrupted by user")]
-    Interrupted,
-    #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
-    #[error("unknown handle name: {0:08x}")]
-    UnknownHandleName(u32),
-    #[error("TPM: {0}")]
-    Tpm(TpmErrorKind),
-    #[error("TPM RC: {0}")]
-    TpmRc(TpmRc),
-    #[error("TPM command timed out")]
-    Timeout,
-    #[error("device not available")]
-    NotAvailable,
     #[error("device is already borrowed")]
     AlreadyBorrowed,
     #[error("capability not found: {0}")]
     CapabilityMissing(TpmCap),
+    #[error("operation interrupted by user")]
+    Interrupted,
+    #[error("invalid response")]
+    InvalidResponse,
+    #[error("device not available")]
+    NotAvailable,
+    #[error("response mismatch: {0}")]
+    ResponseMismatch(TpmCc),
+    #[error("TPM command timed out")]
+    Timeout,
+    #[error("I/O: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("syscall: {0}")]
+    Nix(#[from] nix::Error),
+    #[error("TPM: {0}")]
+    Tpm(TpmErrorKind),
+    #[error("TPM RC: {0}")]
+    TpmRc(TpmRc),
 }
 
 impl From<TpmErrorKind> for DeviceError {
