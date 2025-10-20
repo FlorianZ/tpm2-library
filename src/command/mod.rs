@@ -5,6 +5,7 @@
 #![allow(clippy::doc_markdown)]
 
 pub mod algorithm;
+pub mod cache;
 pub mod certificate;
 pub mod common;
 pub mod convert;
@@ -19,9 +20,9 @@ pub mod policy;
 pub mod reset_lock;
 pub mod return_code;
 pub mod unseal;
-pub mod r#virtual;
 
 pub use algorithm::*;
+pub use cache::*;
 pub use certificate::*;
 pub use common::*;
 pub use convert::*;
@@ -33,7 +34,6 @@ pub use load::*;
 pub use memory::*;
 pub use pcr_event::*;
 pub use policy::*;
-pub use r#virtual::*;
 pub use reset_lock::*;
 pub use return_code::*;
 pub use unseal::*;

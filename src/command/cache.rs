@@ -16,7 +16,7 @@ use tabled::Tabled;
 use tpm2_protocol::data::{TpmRcBase, TpmSe};
 
 #[derive(Tabled)]
-struct VirtualRow {
+struct CacheRow {
     #[tabled(rename = "HANDLE")]
     handle: String,
     #[tabled(rename = "TYPE")]
@@ -28,10 +28,10 @@ struct VirtualRow {
 /// Lists TPM objects saved to cache.
 #[derive(Args, Debug)]
 #[command(about = "Lists objects inside TPM memory")]
-pub struct Virtual {}
+pub struct Cache {}
 
-impl Virtual {
-    fn fetch_session_rows(job: &mut Job, rows: &mut Vec<VirtualRow>) {
+impl Cache {
+    fn fetch_session_rows(job: &mut Job, rows: &mut Vec<CacheRow>) {
         let mut vhandles: Vec<u32> = Vec::new();
         for (_, session) in &job.session_cache {
             let handle = session.context.saved_handle.0;
@@ -40,7 +40,7 @@ impl Virtual {
             }
         }
         for vhandle in vhandles {
-            rows.push(VirtualRow {
+            rows.push(CacheRow {
                 handle: format!("{vhandle:08x}"),
                 handle_type: "policy".to_string(),
                 details: String::new(),
@@ -48,9 +48,9 @@ impl Virtual {
         }
     }
 
-    fn fetch_transient_rows(job: &mut Job, rows: &mut Vec<VirtualRow>) {
+    fn fetch_transient_rows(job: &mut Job, rows: &mut Vec<CacheRow>) {
         for (vhandle, key) in &job.key_cache.contexts {
-            rows.push(VirtualRow {
+            rows.push(CacheRow {
                 handle: format!("{vhandle:08x}"),
                 handle_type: "transient".to_string(),
                 details: format_alg_from_public(&key.public.inner),
@@ -103,13 +103,13 @@ impl Virtual {
     }
 }
 
-impl SubCommand for Virtual {
+impl SubCommand for Cache {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             Self::refresh_session_cache(device, job);
             Self::refresh_key_cache(device, job)
         })?;
-        let mut rows: Vec<VirtualRow> = Vec::new();
+        let mut rows: Vec<CacheRow> = Vec::new();
         Self::fetch_session_rows(job, &mut rows);
         Self::fetch_transient_rows(job, &mut rows);
         rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
