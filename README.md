@@ -14,6 +14,11 @@
 
 ## Architecture
 
+### Documentation
+
+Inline comments (`//`) are not allowed. Take advantage of either `///` or `//!`
+when something needs to be documented to the source code.
+
 ### Error types
 
 Variant declaration order in error types:
