@@ -12,15 +12,14 @@ pub mod create;
 pub mod create_primary;
 pub mod delete;
 pub mod evict;
-pub mod key;
 pub mod load;
 pub mod memory;
 pub mod pcr_event;
 pub mod policy;
 pub mod reset_lock;
 pub mod return_code;
-pub mod session;
 pub mod unseal;
+pub mod r#virtual;
 
 pub use algorithm::*;
 pub use certificate::*;
@@ -30,14 +29,13 @@ pub use create::*;
 pub use create_primary::*;
 pub use delete::*;
 pub use evict::*;
-pub use key::*;
 pub use load::*;
 pub use memory::*;
 pub use pcr_event::*;
 pub use policy::*;
+pub use r#virtual::*;
 pub use reset_lock::*;
 pub use return_code::*;
-pub use session::*;
 pub use unseal::*;
 
 use crate::{

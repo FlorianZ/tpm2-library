@@ -298,7 +298,7 @@ impl<'a> KeyCache<'a> {
         uri: &Scheme,
     ) -> Result<TpmHandle, KeyCacheError> {
         match uri {
-            Scheme::Key(_) => self.load_context(device, uri),
+            Scheme::Transient(_) => self.load_context(device, uri),
             Scheme::Tpm(handle) => {
                 if (*handle >> 24) as u8 == TpmHt::Persistent as u8 {
                     Ok(TpmHandle(*handle))
@@ -328,7 +328,7 @@ impl<'a> KeyCache<'a> {
     ) -> Result<TpmHandle, KeyCacheError> {
         match uri {
             Scheme::Tpm(handle) => Ok(TpmHandle(*handle)),
-            Scheme::Key(vhandle) => {
+            Scheme::Transient(vhandle) => {
                 let key = self
                     .contexts
                     .get(vhandle)

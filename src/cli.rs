@@ -6,8 +6,8 @@
 
 use crate::{
     command::{
-        Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Key,
-        Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, /* Seal, */ Session, Unseal,
+        Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Evict,
+        Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal, Virtual,
     },
     job::Job,
 };
@@ -71,15 +71,14 @@ pub enum Command {
     CreatePrimary(CreatePrimary),
     Delete(Delete),
     Evict(Evict),
-    Key(Key),
     Load(Load),
     Memory(Memory),
     PcrEvent(PcrEvent),
     Policy(Policy),
     ReturnCode(ReturnCode),
     ResetLock(ResetLock),
-    Session(Session),
     Unseal(Unseal),
+    Virtual(Virtual),
 }
 
 impl Command {
@@ -92,15 +91,14 @@ impl Command {
             Self::CreatePrimary(cmd) => cmd,
             Self::Delete(cmd) => cmd,
             Self::Evict(cmd) => cmd,
-            Self::Key(cmd) => cmd,
             Self::Load(cmd) => cmd,
             Self::Memory(cmd) => cmd,
             Self::PcrEvent(cmd) => cmd,
             Self::Policy(cmd) => cmd,
             Self::ReturnCode(cmd) => cmd,
             Self::ResetLock(cmd) => cmd,
-            Self::Session(cmd) => cmd,
             Self::Unseal(cmd) => cmd,
+            Self::Virtual(cmd) => cmd,
         }
     }
 }

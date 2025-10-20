@@ -40,7 +40,7 @@ impl SubCommand for Delete {
                             }
                         }
                     }
-                    Scheme::Key(ref vhandle) => {
+                    Scheme::Transient(ref vhandle) => {
                         let handle = job.key_cache.load_context(dev, &uri)?;
                         dev.flush_context(handle.0)?;
                         job.key_cache.remove_context(*vhandle)?;

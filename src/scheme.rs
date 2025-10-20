@@ -34,12 +34,12 @@ impl From<hex::FromHexError> for SchemeError {
 /// A type-safe representation of a resource identifier.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Scheme {
-    Tpm(u32),
-    Key(u32),
-    Path(std::path::PathBuf),
-    Session(u32),
     Password(Vec<u8>),
+    Path(std::path::PathBuf),
     Policy(Vec<u8>),
+    Session(u32),
+    Tpm(u32),
+    Transient(u32),
 }
 
 impl Scheme {
@@ -96,7 +96,7 @@ impl FromStr for Scheme {
                     if mso == TpmHt::PolicySession as u8 {
                         Ok(Self::Session(vhandle))
                     } else if mso == TpmHt::Transient as u8 {
-                        Ok(Self::Key(vhandle))
+                        Ok(Self::Transient(vhandle))
                     } else {
                         Err(SchemeError::UnsupportedScheme(s.to_string()))
                     }
@@ -113,7 +113,7 @@ impl fmt::Display for Scheme {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Tpm(handle) => write!(f, "tpm:{handle:08x}"),
-            Self::Key(vhandle) => write!(f, "vtpm:{vhandle}"),
+            Self::Transient(vhandle) => write!(f, "vtpm:{vhandle}"),
             Self::Path(path) => write!(f, "{}", path.to_string_lossy()),
             Self::Session(vhandle) => write!(f, "vtpm:{vhandle:08x}"),
             Self::Password(bytes) => write!(f, "password:{}", hex::encode(bytes)),

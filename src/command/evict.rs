@@ -76,7 +76,7 @@ impl SubCommand for Evict {
                 if let Some(object_handle_str) = &self.input {
                     let vhandle_uri = Scheme::from_str(object_handle_str)?;
                     let vhandle = match &vhandle_uri {
-                        Scheme::Key(vhandle) => Ok(*vhandle),
+                        Scheme::Transient(vhandle) => Ok(*vhandle),
                         ref uri => Err(CommandError::InvalidInput(uri.to_string())),
                     }?;
                     let transient_handle = job.key_cache.load_context(dev, &vhandle_uri)?;

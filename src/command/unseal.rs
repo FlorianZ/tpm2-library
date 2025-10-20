@@ -40,7 +40,7 @@ impl SubCommand for Unseal {
                         return Err(CommandError::InvalidInput(self.input.to_string()));
                     }
                 }
-                Scheme::Key(_) => {}
+                Scheme::Transient(_) => {}
                 Scheme::Path(_) | Scheme::Session(_) | Scheme::Password(_) | Scheme::Policy(_) => {
                     return Err(CommandError::InvalidInput(self.input.to_string()));
                 }
