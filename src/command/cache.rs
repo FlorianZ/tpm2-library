@@ -32,15 +32,9 @@ pub struct Cache {}
 
 impl Cache {
     fn fetch_session_rows(job: &mut Job, rows: &mut Vec<CacheRow>) {
-        let mut vhandles: Vec<u32> = Vec::new();
         for session in job.session_cache.sessions.values() {
-            let handle = session.context.saved_handle.0;
             if session.session_type == TpmSe::Policy {
-                vhandles.push(handle);
-            }
-        }
-        for vhandle in vhandles {
-            if job.session_cache.get(vhandle).is_ok() {
+                let vhandle = session.context.saved_handle.0;
                 rows.push(CacheRow {
                     handle: format!("{vhandle:08x}"),
                     handle_type: "policy".to_string(),
