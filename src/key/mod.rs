@@ -4,11 +4,9 @@
 
 #![allow(clippy::no_effect_underscore_binding)]
 
-mod cache;
 mod external_key;
 mod tpm_key;
 
-pub use cache::*;
 pub use external_key::*;
 pub use tpm_key::*;
 

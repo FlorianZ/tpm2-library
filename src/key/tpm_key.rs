@@ -14,7 +14,7 @@ use crate::{
     },
     device::{Device, DeviceError},
     job::Job,
-    key::KeyCacheError,
+    key_cache::KeyCacheError,
     template,
 };
 

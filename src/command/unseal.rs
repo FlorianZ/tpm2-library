@@ -6,7 +6,7 @@ use crate::{
     command::{AuthArgs, CommandError},
     device::{with_device, DeviceError},
     job::Job,
-    key::KeyCacheError,
+    key_cache::KeyCacheError,
     scheme::Scheme,
 };
 use clap::Args;

@@ -14,7 +14,7 @@ use crate::{
     auth::Auth,
     crypto::CryptoError,
     device::{Device, DeviceError},
-    key::KeyCacheError,
+    key_cache::KeyCacheError,
     pcr::{self, PcrError},
     scheme::{Scheme, SchemeError},
     session::SessionError,

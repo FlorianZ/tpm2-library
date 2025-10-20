@@ -7,7 +7,7 @@ use crate::{
     convert::from_tpm_object_to_vec,
     device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
-    key::{KeyCache, KeyCacheError},
+    key_cache::{KeyCache, KeyCacheError},
     scheme::Scheme,
     session::{build_password_session, create_auth, SessionCache, SessionError},
 };

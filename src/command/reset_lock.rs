@@ -7,7 +7,7 @@ use crate::{
     command::{AuthArgs, CommandError},
     device::{with_device, DeviceError},
     job::Job,
-    key::KeyCacheError,
+    key_cache::KeyCacheError,
 };
 use clap::Args;
 use tpm2_protocol::{

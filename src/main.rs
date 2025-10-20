@@ -8,7 +8,7 @@ use cli::{
     command::CommandError,
     device::{Device, DeviceError},
     job::Job,
-    key::KeyCache,
+    key_cache::KeyCache,
     session::SessionCache,
     transport::FileTransport,
 };

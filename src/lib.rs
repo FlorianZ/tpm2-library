@@ -13,6 +13,7 @@ pub mod crypto;
 pub mod device;
 pub mod job;
 pub mod key;
+pub mod key_cache;
 pub mod pcr;
 pub mod policy;
 pub mod print;

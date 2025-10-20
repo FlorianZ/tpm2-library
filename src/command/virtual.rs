@@ -7,7 +7,8 @@ use crate::{
     command::{print_table, CommandError},
     device::{with_device, Device, DeviceError},
     job::Job,
-    key::{format_alg_from_public, KeyCacheError},
+    key::format_alg_from_public,
+    key_cache::KeyCacheError,
     scheme::Scheme,
 };
 use clap::Args;

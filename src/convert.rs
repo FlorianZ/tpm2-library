@@ -4,8 +4,8 @@
 
 use crate::{
     command::{CommandError, OutputEncoding},
-    key::KeyCache,
     key::TpmKey,
+    key_cache::KeyCache,
     scheme::Scheme,
 };
 use std::io::{self, Read};
