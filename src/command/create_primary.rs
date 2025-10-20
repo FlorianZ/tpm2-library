@@ -5,7 +5,7 @@
 use crate::{
     cli::SubCommand,
     command::{deny_keyedhash, CommandError, CreationArgs, HierarchyAuthArgs},
-    device::{with_device, DeviceError},
+    device::with_device,
     job::Job,
     key::Alg,
     template::build_public,
@@ -65,7 +65,7 @@ impl SubCommand for CreatePrimary {
 
             let resp = resp
                 .CreatePrimary()
-                .map_err(|_| DeviceError::ResponseMismatch(TpmCc::CreatePrimary))?;
+                .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
 
             let object_handle = resp.object_handle;
             device.name_cache_add(object_handle.0, resp.name);

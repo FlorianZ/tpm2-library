@@ -61,7 +61,7 @@ impl SubCommand for Unseal {
             let out_data = match result {
                 Ok((resp, _)) => {
                     resp.Unseal()
-                        .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Unseal))?
+                        .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
                         .out_data
                 }
                 Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))

@@ -7,7 +7,7 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, InputArgs, ParentAuthArgs},
     convert::from_input_to_bytes,
-    device::{with_device, Device, DeviceError},
+    device::{with_device, Device},
     job::Job,
     key::AnyKey,
 };
@@ -76,7 +76,7 @@ impl Load {
 
         let resp = resp
             .Load()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Load))?;
+            .map_err(|_| CommandError::ResponseMismatch(TpmCc::Load))?;
 
         device.name_cache_add(resp.object_handle.0, resp.name);
         job.key_cache.track(resp.object_handle)?;

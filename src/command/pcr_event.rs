@@ -6,7 +6,7 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, InputArgs},
     convert::{from_input_to_bytes, from_str_to_handle},
-    device::{with_device, DeviceError},
+    device::with_device,
     job::Job,
     key::Tpm2shAlgId,
     pcr::pcr_get_bank_list,
@@ -54,7 +54,7 @@ impl SubCommand for PcrEvent {
 
             let pcr_resp = resp
                 .PcrEvent()
-                .map_err(|_| DeviceError::ResponseMismatch(TpmCc::PcrEvent))?;
+                .map_err(|_| CommandError::ResponseMismatch(TpmCc::PcrEvent))?;
 
             let clauses: Vec<String> = banks
                 .iter()

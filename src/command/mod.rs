@@ -50,7 +50,6 @@ use crate::{
     session::SessionError,
 };
 use std::{
-    fmt,
     io::{IsTerminal, Write},
     num::TryFromIntError,
 };
@@ -102,48 +101,42 @@ pub fn deny_keyedhash(algorithm: &crate::key::Alg) -> Result<(), CommandError> {
 pub enum CommandError {
     #[error("authentication denied")]
     AuthenticationDenied,
-    #[error("capability not found: {0}")]
-    CapabilityMissing(tpm2_protocol::data::TpmCap),
-    #[error("context: {0}")]
-    KeyCacheError(#[from] KeyCacheError),
-    #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
-    #[error("device: {0}")]
-    Device(#[from] DeviceError),
     #[error("dictionary attack lockout is active")]
     DictionaryAttackLocked,
-    #[error("format: {0}")]
-    Fmt(#[from] fmt::Error),
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("invalid output: {0}")]
     InvalidOutput(String),
-    #[error("I/O: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("key error: {0}")]
-    Key(#[from] KeyError),
     #[error("parent missing")]
     ParentMissing,
-    #[error("pcr: {0}")]
-    Pcr(#[from] PcrError),
-    #[error("policy: {0}")]
-    Policy(#[from] PolicyError),
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
     #[error("sensitive data denied")]
     SensitiveDataDenied,
     #[error("sensitive data missing")]
     SensitiveDataMissing,
-    #[error("session: {0}")]
-    Session(#[from] SessionError),
     #[error("unsupported key algorithm: '{0}'")]
     UnsupportedKeyAlgorithm(crate::key::Alg),
-    #[error("unsupported session: {0}")]
-    UnsupportedSession(String),
-    #[error("uri: {0}")]
-    Uri(#[from] SchemeError),
     #[error("auth: {0}")]
     Auth(#[from] AuthError),
+    #[error("crypto: {0}")]
+    Crypto(#[from] CryptoError),
+    #[error("context: {0}")]
+    KeyCacheError(#[from] KeyCacheError),
+    #[error("device: {0}")]
+    Device(#[from] DeviceError),
+    #[error("key error: {0}")]
+    Key(#[from] KeyError),
+    #[error("pcr: {0}")]
+    Pcr(#[from] PcrError),
+    #[error("policy: {0}")]
+    Policy(#[from] PolicyError),
+    #[error("session: {0}")]
+    Session(#[from] SessionError),
+    #[error("uri: {0}")]
+    Uri(#[from] SchemeError),
+    #[error("I/O: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 impl From<hex::FromHexError> for CommandError {

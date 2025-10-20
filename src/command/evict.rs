@@ -6,7 +6,7 @@ use crate::{
     auth::Auth,
     cli::SubCommand,
     command::{CommandError, HierarchyAuthArgs},
-    device::{with_device, Device, DeviceError},
+    device::{with_device, Device},
     job::Job,
     scheme::Scheme,
 };
@@ -51,7 +51,7 @@ impl Evict {
 
         let (resp, _) = job.execute(device, &cmd, &handles_for_session, auths)?;
         resp.EvictControl()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
+            .map_err(|_| CommandError::ResponseMismatch(TpmCc::EvictControl))?;
         Ok(())
     }
 }
