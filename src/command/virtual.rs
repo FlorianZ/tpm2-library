@@ -5,14 +5,14 @@
 use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
-    device::with_device,
+    device::{with_device, Device, DeviceError},
     job::Job,
     key::{format_alg_from_public, KeyCacheError},
     scheme::Scheme,
 };
 use clap::Args;
 use tabled::Tabled;
-use tpm2_protocol::data::TpmSe;
+use tpm2_protocol::data::{TpmRcBase, TpmSe};
 
 #[derive(Tabled)]
 struct VirtualRow {
@@ -24,7 +24,7 @@ struct VirtualRow {
     details: String,
 }
 
-/// Lists objects inside TPM memory.
+/// Lists TPM objects saved to cache.
 #[derive(Args, Debug)]
 #[command(about = "Lists objects inside TPM memory")]
 pub struct Virtual {}
@@ -57,28 +57,57 @@ impl Virtual {
         }
     }
 
-    fn refresh_transient(job: &mut Job) -> Result<(), KeyCacheError> {
+    fn refresh_key_cache(device: &mut Device, job: &mut Job) -> Result<(), CommandError> {
         let vhandles: Vec<u32> = job.key_cache.contexts.keys().copied().collect();
-        with_device(job.device.clone(), |device| {
-            for vhandle in vhandles {
-                let uri = Scheme::Transient(vhandle);
-                match job.key_cache.load_context(device, &uri) {
-                    Ok(handle) => {
-                        device.flush_context(handle.0)?;
-                        job.key_cache.untrack(handle.0);
-                    }
-                    Err(KeyCacheError::ContextNotFound(_)) => {}
-                    Err(e) => return Err(e),
+        for vhandle in vhandles {
+            let uri = Scheme::Transient(vhandle);
+            match job.key_cache.load_context(device, &uri) {
+                Ok(handle) => {
+                    device.flush_context(handle.0)?;
+                    job.key_cache.untrack(handle.0);
                 }
+                Err(KeyCacheError::ContextNotFound(_)) => {}
+                Err(e) => log::warn!("vtpm:{vhandle:08x}: {e}"),
             }
-            Ok(())
-        })
+        }
+        Ok(())
+    }
+
+    fn refresh_session_cache(device: &mut Device, job: &mut Job) {
+        let vhandles: Vec<u32> = job.session_cache.sessions.keys().copied().collect();
+        for vhandle in vhandles {
+            let Ok(session) = job.session_cache.get(vhandle) else {
+                continue;
+            };
+            match device.load_context(session.context.clone()) {
+                Ok(live_handle) => match device.save_context(live_handle) {
+                    Ok(new_context) => {
+                        if let Ok(s) = job.session_cache.get_mut(vhandle) {
+                            s.context = new_context;
+                        }
+                    }
+                    Err(e) => log::warn!("vtpm:{vhandle:08x}: {e}"),
+                },
+                Err(DeviceError::TpmRc(rc))
+                    if matches!(rc.base(), TpmRcBase::Handle | TpmRcBase::ReferenceH0) =>
+                {
+                    log::debug!("vtpm:{vhandle:08x} is stale");
+                    if let Err(e) = job.session_cache.remove(vhandle) {
+                        log::error!("vtpm:{vhandle:08x}: {e}");
+                    }
+                }
+                Err(e) => log::warn!("vtpm:{vhandle:08x}: {e}"),
+            }
+        }
     }
 }
 
 impl SubCommand for Virtual {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
-        Self::refresh_transient(job)?;
+        with_device(job.device.clone(), |device| {
+            Self::refresh_session_cache(device, job);
+            Self::refresh_key_cache(device, job)
+        })?;
         let mut rows: Vec<VirtualRow> = Vec::new();
         Self::fetch_session_rows(job, &mut rows);
         Self::fetch_transient_rows(job, &mut rows);

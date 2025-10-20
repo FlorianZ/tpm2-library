@@ -29,7 +29,7 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bAuth, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaSession,
+        Tpm2bAuth, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmRh, TpmSe, TpmaSession,
         TpmsAuthCommand, TpmsAuthResponse, TpmsContext,
     },
     message::{TpmAuthResponses, TpmStartAuthSessionResponse},
@@ -254,43 +254,6 @@ impl SessionCache {
 
             self.sessions.insert(vhandle, session);
         }
-        Ok(())
-    }
-
-    /// Validates all sessions at startup, and removes expired sessions from the
-    /// previous power cycle.
-    ///
-    /// # Errors
-    ///
-    /// Returns an aggregate `DeviceError` if any non-recoverable errors occur.
-    /// Individual session failures are logged as warnings.
-    pub fn refresh_sessions(&mut self, device: &mut Device) -> Result<(), SessionError> {
-        let vhandles: Vec<u32> = self.sessions.keys().copied().collect();
-        for vhandle in vhandles {
-            let Ok(session) = self.get(vhandle) else {
-                continue;
-            };
-            match device.load_context(session.context.clone()) {
-                Ok(live_handle) => match device.save_context(live_handle) {
-                    Ok(new_context) => {
-                        if let Ok(s) = self.get_mut(vhandle) {
-                            s.context = new_context;
-                        }
-                    }
-                    Err(e) => log::warn!("vtpm:{vhandle}: {e}"),
-                },
-                Err(DeviceError::TpmRc(rc))
-                    if matches!(rc.base(), TpmRcBase::Handle | TpmRcBase::ReferenceH0) =>
-                {
-                    log::debug!("vtpm:{vhandle} is stale");
-                    if let Err(e) = self.remove(vhandle) {
-                        log::error!("vtpm:{vhandle}: {e}");
-                    }
-                }
-                Err(e) => log::warn!("vtpm:{vhandle}: {e}"),
-            }
-        }
-
         Ok(())
     }
 

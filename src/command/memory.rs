@@ -36,7 +36,7 @@ struct MemoryRow {
     details: String,
 }
 
-/// Lists objects inside TPM memory.
+/// Lists active TPM objects.
 #[derive(Args, Debug)]
 #[command(about = "Lists objects inside TPM memory")]
 pub struct Memory {}
