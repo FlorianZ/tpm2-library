@@ -7,7 +7,7 @@ use crate::{
     device::{with_device, DeviceError},
     job::Job,
     key_cache::KeyCacheError,
-    scheme::Scheme,
+    scheme::{Handle, Scheme},
 };
 use clap::Args;
 use std::io::IsTerminal;
@@ -35,13 +35,8 @@ impl SubCommand for Unseal {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             match self.input {
-                Scheme::Tpm(handle) => {
-                    if (handle >> 24) as u8 != tpm2_protocol::data::TpmHt::Persistent as u8 {
-                        return Err(CommandError::InvalidInput(self.input.to_string()));
-                    }
-                }
-                Scheme::Transient(_) => {}
-                Scheme::Path(_) | Scheme::Session(_) | Scheme::Password(_) | Scheme::Policy(_) => {
+                Scheme::Tpm(Handle::Persistent(_)) | Scheme::Vtpm(Handle::Transient(_)) => {}
+                _ => {
                     return Err(CommandError::InvalidInput(self.input.to_string()));
                 }
             }

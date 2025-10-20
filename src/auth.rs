@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::scheme::{Scheme, SchemeError};
+use crate::scheme::{Handle, Scheme, SchemeError};
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -22,8 +22,10 @@ impl TryFrom<Scheme> for Auth {
     type Error = AuthError;
 
     fn try_from(uri: Scheme) -> Result<Self, Self::Error> {
-        match uri {
-            Scheme::Session(_) | Scheme::Password(_) | Scheme::Policy(_) => Ok(Self(uri)),
+        match &uri {
+            Scheme::Vtpm(Handle::Session(_)) | Scheme::Password(_) | Scheme::Policy(_) => {
+                Ok(Self(uri))
+            }
             _ => Err(AuthError::InvalidAuthenticationScheme(uri.to_string())),
         }
     }

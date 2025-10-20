@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::LogFormat, print::TpmPrint, TEARDOWN};
+use crate::{auth::Auth, cli::LogFormat, job::Job, print::TpmPrint, TEARDOWN};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use log::trace;
@@ -29,10 +29,10 @@ use tpm2_protocol::{
     },
     message::{
         tpm_build_command, tpm_parse_response, TpmAuthResponses, TpmBodyBuild,
-        TpmContextLoadCommand, TpmContextSaveCommand, TpmFlushContextCommand,
-        TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmHeader, TpmReadPublicCommand,
-        TpmResponseBody, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
-        TpmTestParmsCommand,
+        TpmContextLoadCommand, TpmContextSaveCommand, TpmEvictControlCommand,
+        TpmFlushContextCommand, TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmHeader,
+        TpmReadPublicCommand, TpmResponseBody, TpmStartAuthSessionCommand,
+        TpmStartAuthSessionResponse, TpmTestParmsCommand,
     },
     tpm_hash_size, TpmErrorKind, TpmHandle, TpmWriter,
 };
@@ -549,5 +549,40 @@ impl Device {
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::StartAuthSession))?;
 
         Ok((resp, nonce_caller))
+    }
+
+    /// Evicts a persistent object or makes a transient object persistent.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DeviceError` on TPM command failure.
+    pub fn evict_control(
+        &mut self,
+        job: &mut Job,
+        auth: TpmHandle,
+        object_handle: TpmHandle,
+        persistent_handle: TpmHandle,
+        auths: &mut [Auth],
+    ) -> Result<(), DeviceError> {
+        let cmd = TpmEvictControlCommand {
+            auth,
+            object_handle: object_handle.0.into(),
+            persistent_handle,
+        };
+        let handles_for_session = [auth.0];
+
+        let (resp, _) = job
+            .execute(self, &cmd, &handles_for_session, auths)
+            .map_err(|e| match e {
+                crate::key_cache::KeyCacheError::Device(d) => d,
+                other => {
+                    log::error!("Unexpected error during evict_control execution: {other}");
+                    DeviceError::Tpm(TpmErrorKind::Failure)
+                }
+            })?;
+
+        resp.EvictControl()
+            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
+        Ok(())
     }
 }

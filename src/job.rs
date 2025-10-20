@@ -8,7 +8,7 @@ use crate::{
     device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
     key_cache::{KeyCache, KeyCacheError},
-    scheme::Scheme,
+    scheme::{Handle, Scheme},
     session_cache::{build_password_session, create_auth, SessionCache, SessionError},
 };
 use rand::{thread_rng, RngCore};
@@ -60,7 +60,7 @@ impl<'a> Job<'a> {
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if let Auth(Scheme::Session(vhandle)) = auth {
+            if let Auth(Scheme::Vtpm(Handle::Session(vhandle))) = auth {
                 if let Ok(session) = self.session_cache.get(*vhandle) {
                     if session.attributes.contains(TpmaSession::DECRYPT) {
                         nonce_decrypt = Some(session.nonce_tpm);
@@ -82,7 +82,7 @@ impl<'a> Job<'a> {
                 Scheme::Password(password) => {
                     built_auths.push(build_password_session(password)?);
                 }
-                Scheme::Session(vhandle) => {
+                Scheme::Vtpm(Handle::Session(vhandle)) => {
                     let session = self.session_cache.get(*vhandle)?;
                     let nonce_size = tpm_hash_size(&session.auth_hash)
                         .ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
@@ -146,7 +146,7 @@ impl<'a> Job<'a> {
 
         let mut persistent_session_handles_used = HashSet::new();
         for auth in &persistent_auths {
-            if let Auth(Scheme::Session(handle)) = auth {
+            if let Auth(Scheme::Vtpm(Handle::Session(handle))) = auth {
                 persistent_session_handles_used.insert(*handle);
             }
         }

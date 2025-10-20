@@ -19,7 +19,7 @@ use crate::{
     crypto::{crypto_digest, crypto_hmac, crypto_kdfa, CryptoError},
     device::{Device, DeviceError},
     key::Tpm2shAlgId,
-    scheme::Scheme,
+    scheme::{Handle, Scheme},
 };
 use std::{
     collections::{hash_map, HashMap, HashSet},
@@ -349,7 +349,7 @@ impl SessionCache {
     ) -> Result<Vec<u32>, SessionError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if let Auth(Scheme::Session(vhandle)) = auth {
+            if let Auth(Scheme::Vtpm(Handle::Session(vhandle))) = auth {
                 let session_is_loaded = {
                     let session = self.get(*vhandle)?;
                     session.handle.0 != 0

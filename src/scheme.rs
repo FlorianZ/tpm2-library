@@ -3,7 +3,7 @@
 
 use std::{fmt, num::ParseIntError, str::FromStr};
 use thiserror::Error;
-use tpm2_protocol::data::TpmHt;
+use tpm2_protocol::{data::TpmHt, TpmHandle};
 
 #[derive(Debug, Error)]
 pub enum SchemeError {
@@ -31,15 +31,36 @@ impl From<hex::FromHexError> for SchemeError {
     }
 }
 
+/// A type-safe representation of a specific handle type.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Handle {
+    Session(u32),
+    Persistent(u32),
+    Transient(u32),
+}
+
+impl Handle {
+    #[must_use]
+    pub fn value_raw(&self) -> u32 {
+        match *self {
+            Handle::Session(h) | Handle::Persistent(h) | Handle::Transient(h) => h,
+        }
+    }
+
+    #[must_use]
+    pub fn value_tpm(&self) -> TpmHandle {
+        TpmHandle(self.value_raw())
+    }
+}
+
 /// A type-safe representation of a resource identifier.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Scheme {
     Password(Vec<u8>),
     Path(std::path::PathBuf),
     Policy(Vec<u8>),
-    Session(u32),
-    Tpm(u32),
-    Transient(u32),
+    Tpm(Handle),
+    Vtpm(Handle),
 }
 
 impl Scheme {
@@ -52,18 +73,6 @@ impl Scheme {
     pub fn to_bytes(&self) -> Result<Vec<u8>, SchemeError> {
         match self {
             Self::Path(path) => Ok(std::fs::read(path)?),
-            _ => Err(SchemeError::UnsupportedScheme(self.to_string())),
-        }
-    }
-
-    /// Extracts the handle from a TPM or Session URI.
-    ///
-    /// # Errors
-    ///
-    /// Returns `UriError::UnsupportedScheme` if called on a non-handle variant.
-    pub fn to_handle(&self) -> Result<u32, SchemeError> {
-        match self {
-            Self::Tpm(handle) | Self::Session(handle) => Ok(*handle),
             _ => Err(SchemeError::UnsupportedScheme(self.to_string())),
         }
     }
@@ -80,7 +89,15 @@ impl FromStr for Scheme {
             match scheme {
                 "tpm" => {
                     let handle = u32::from_str_radix(value, 16)?;
-                    Ok(Self::Tpm(handle))
+                    let mso = (handle >> 24) as u8;
+                    let handle_type = if mso == TpmHt::Persistent as u8 {
+                        Handle::Persistent(handle)
+                    } else if mso == TpmHt::Transient as u8 {
+                        Handle::Transient(handle)
+                    } else {
+                        return Err(SchemeError::UnsupportedScheme(s.to_string()));
+                    };
+                    Ok(Self::Tpm(handle_type))
                 }
                 "password" => {
                     let bytes = hex::decode(value)?;
@@ -93,13 +110,14 @@ impl FromStr for Scheme {
                 "vtpm" => {
                     let vhandle = u32::from_str_radix(value, 16)?;
                     let mso = (vhandle >> 24) as u8;
-                    if mso == TpmHt::PolicySession as u8 {
-                        Ok(Self::Session(vhandle))
+                    let handle_type = if mso == TpmHt::PolicySession as u8 {
+                        Handle::Session(vhandle)
                     } else if mso == TpmHt::Transient as u8 {
-                        Ok(Self::Transient(vhandle))
+                        Handle::Transient(vhandle)
                     } else {
-                        Err(SchemeError::UnsupportedScheme(s.to_string()))
-                    }
+                        return Err(SchemeError::UnsupportedScheme(s.to_string()));
+                    };
+                    Ok(Self::Vtpm(handle_type))
                 }
                 _ => Err(SchemeError::UnsupportedScheme(s.to_string())),
             }
@@ -112,10 +130,15 @@ impl FromStr for Scheme {
 impl fmt::Display for Scheme {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Tpm(handle) => write!(f, "tpm:{handle:08x}"),
-            Self::Transient(vhandle) => write!(f, "vtpm:{vhandle}"),
+            Self::Tpm(handle) => match handle {
+                Handle::Persistent(h) | Handle::Transient(h) => write!(f, "tpm:{h:08x}"),
+                Handle::Session(_) => write!(f, "tpm:<invalid-session>"),
+            },
+            Self::Vtpm(handle) => match handle {
+                Handle::Transient(h) | Handle::Session(h) => write!(f, "vtpm:{h:08x}"),
+                Handle::Persistent(_) => write!(f, "vtpm:<invalid-persistent>"),
+            },
             Self::Path(path) => write!(f, "{}", path.to_string_lossy()),
-            Self::Session(vhandle) => write!(f, "vtpm:{vhandle:08x}"),
             Self::Password(bytes) => write!(f, "password:{}", hex::encode(bytes)),
             Self::Policy(bytes) => write!(f, "policy:{}", hex::encode(bytes)),
         }

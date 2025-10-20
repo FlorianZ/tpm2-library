@@ -20,6 +20,7 @@ pub mod print;
 pub mod scheme;
 pub mod session_cache;
 pub mod template;
+pub mod wildcard;
 
 /// A global flag to signal graceful teardown of the application.
 ///

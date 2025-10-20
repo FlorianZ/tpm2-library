@@ -7,12 +7,12 @@ use crate::{
     convert::from_tpm_object_to_vec,
     device::{Device, DeviceError},
     key::{KeyError, TpmKey},
-    scheme::{Scheme, SchemeError},
+    scheme::{Handle, Scheme, SchemeError},
     session_cache::SessionError,
 };
 use std::{
     collections::{HashMap, HashSet},
-    fmt, fs,
+    fs,
     io::Write,
     num::TryFromIntError,
     path::{Path, PathBuf},
@@ -100,11 +100,11 @@ pub struct KeyCache<'a> {
 }
 
 impl std::fmt::Debug for KeyCache<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let handles: Vec<String> = self
             .handles
             .values()
-            .map(|t| Scheme::Tpm(t.0).to_string())
+            .map(|t| Scheme::Tpm(Handle::Transient(t.0)).to_string())
             .collect();
         f.debug_struct("Context")
             .field("handles", &handles)
@@ -280,16 +280,8 @@ impl<'a> KeyCache<'a> {
         uri: &Scheme,
     ) -> Result<TpmHandle, KeyCacheError> {
         match uri {
-            Scheme::Transient(_) => self.load_context(device, uri),
-            Scheme::Tpm(handle) => {
-                if (*handle >> 24) as u8 == TpmHt::Persistent as u8 {
-                    Ok(TpmHandle(*handle))
-                } else {
-                    Err(KeyCacheError::InvalidParent(
-                        "Parent 'tpm:' handle must be persistent (0x81xxxxxx)".to_string(),
-                    ))
-                }
-            }
+            Scheme::Vtpm(Handle::Transient(_)) => self.load_context(device, uri),
+            Scheme::Tpm(Handle::Persistent(handle)) => Ok(TpmHandle(*handle)),
             _ => Err(KeyCacheError::InvalidParent(uri.to_string())),
         }
     }
@@ -309,8 +301,8 @@ impl<'a> KeyCache<'a> {
         uri: &Scheme,
     ) -> Result<TpmHandle, KeyCacheError> {
         match uri {
-            Scheme::Tpm(handle) => Ok(TpmHandle(*handle)),
-            Scheme::Transient(vhandle) => {
+            Scheme::Tpm(handle) => Ok(handle.value_tpm()),
+            Scheme::Vtpm(Handle::Transient(vhandle)) => {
                 let key = self
                     .contexts
                     .get(vhandle)
@@ -334,9 +326,7 @@ impl<'a> KeyCache<'a> {
                     Err(e) => Err(e.into()),
                 }
             }
-            Scheme::Session(_) | Scheme::Password(_) | Scheme::Path(_) | Scheme::Policy(_) => {
-                Err(SchemeError::UnsupportedScheme(uri.to_string()).into())
-            }
+            _ => Err(SchemeError::UnsupportedScheme(uri.to_string()).into()),
         }
     }
 
@@ -379,7 +369,7 @@ impl<'a> KeyCache<'a> {
             };
             let sessions = vec![];
             if let Err(err) = device.execute(&cmd, &sessions) {
-                let uri = Scheme::Tpm(handle.0);
+                let uri = Scheme::Tpm(Handle::Transient(handle.0));
                 log::error!("{uri}: {err}");
             }
         }

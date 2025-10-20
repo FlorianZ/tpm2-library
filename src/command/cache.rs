@@ -9,7 +9,7 @@ use crate::{
     job::Job,
     key::format_alg_from_public,
     key_cache::KeyCacheError,
-    scheme::Scheme,
+    scheme::{Handle, Scheme},
 };
 use clap::Args;
 use tabled::Tabled;
@@ -63,7 +63,7 @@ impl Cache {
     fn refresh_key_cache(device: &mut Device, job: &mut Job) -> Result<(), CommandError> {
         let vhandles: Vec<u32> = job.key_cache.contexts.keys().copied().collect();
         for vhandle in vhandles {
-            let uri = Scheme::Transient(vhandle);
+            let uri = Scheme::Vtpm(Handle::Transient(vhandle));
             match job.key_cache.load_context(device, &uri) {
                 Ok(handle) => {
                     device.flush_context(handle.0)?;
