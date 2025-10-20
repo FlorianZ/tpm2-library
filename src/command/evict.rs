@@ -8,7 +8,7 @@ use crate::{
     command::{CommandError, HierarchyAuthArgs},
     device::{with_device, Device, DeviceError},
     job::Job,
-    uri::Uri,
+    scheme::Scheme,
 };
 use clap::Args;
 use std::str::FromStr;
@@ -59,10 +59,10 @@ impl Evict {
 impl SubCommand for Evict {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-            let persistent_handle_uri = Uri::from_str(&self.output)?;
+            let persistent_handle_uri = Scheme::from_str(&self.output)?;
             let persistent_handle_val = match persistent_handle_uri {
-                Uri::Tpm(h) if (h >> 24) as u8 == TpmHt::Persistent as u8 => Ok(h),
-                Uri::Tpm(h) => Err(CommandError::InvalidInput(h.to_string())),
+                Scheme::Tpm(h) if (h >> 24) as u8 == TpmHt::Persistent as u8 => Ok(h),
+                Scheme::Tpm(h) => Err(CommandError::InvalidInput(h.to_string())),
                 ref uri => Err(CommandError::InvalidInput(uri.to_string())),
             }?;
             let persistent_handle = TpmHandle(persistent_handle_val);
@@ -74,9 +74,9 @@ impl SubCommand for Evict {
             let mut auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
             let (object_handle, persistent_handle, vhandle) =
                 if let Some(object_handle_str) = &self.input {
-                    let vhandle_uri = Uri::from_str(object_handle_str)?;
+                    let vhandle_uri = Scheme::from_str(object_handle_str)?;
                     let vhandle = match &vhandle_uri {
-                        Uri::Key(vhandle) => Ok(*vhandle),
+                        Scheme::Key(vhandle) => Ok(*vhandle),
                         ref uri => Err(CommandError::InvalidInput(uri.to_string())),
                     }?;
                     let transient_handle = job.key_cache.load_context(dev, &vhandle_uri)?;

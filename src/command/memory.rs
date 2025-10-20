@@ -9,7 +9,7 @@ use crate::{
     device::{self, Device},
     job::Job,
     key::format_alg_from_public,
-    uri::Uri,
+    scheme::Scheme,
     x509::get_algorithm,
 };
 use clap::Args;
@@ -132,7 +132,7 @@ impl SubCommand for Memory {
                         if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle) {
                             return Err(CommandError::InvalidInput("Not a certificate".into()));
                         }
-                        let mut auths = vec![Auth(Uri::Password(Vec::new()))];
+                        let mut auths = vec![Auth(Scheme::Password(Vec::new()))];
                         let cert_bytes = job
                             .read_certificate(device, &mut auths, handle, max_read_size)?
                             .ok_or(CommandError::InvalidInput("No certificate data".into()))?;

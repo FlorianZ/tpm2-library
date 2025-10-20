@@ -7,7 +7,7 @@ use crate::{
     device::{with_device, DeviceError},
     job::Job,
     key::KeyCacheError,
-    uri::Uri,
+    scheme::Scheme,
 };
 use clap::Args;
 use std::io::IsTerminal;
@@ -21,7 +21,7 @@ use tpm2_protocol::{
 #[command(about = "Retrieves data from a sealed data object.")]
 pub struct Unseal {
     /// Input: 'tpm:<persistent handle>' or 'key:<grip>'
-    pub input: Uri,
+    pub input: Scheme,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -35,13 +35,13 @@ impl SubCommand for Unseal {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             match self.input {
-                Uri::Tpm(handle) => {
+                Scheme::Tpm(handle) => {
                     if (handle >> 24) as u8 != tpm2_protocol::data::TpmHt::Persistent as u8 {
                         return Err(CommandError::InvalidInput(self.input.to_string()));
                     }
                 }
-                Uri::Key(_) => {}
-                Uri::Path(_) | Uri::Session(_) | Uri::Password(_) | Uri::Policy(_) => {
+                Scheme::Key(_) => {}
+                Scheme::Path(_) | Scheme::Session(_) | Scheme::Password(_) | Scheme::Policy(_) => {
                     return Err(CommandError::InvalidInput(self.input.to_string()));
                 }
             }

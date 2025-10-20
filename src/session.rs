@@ -18,13 +18,12 @@ use crate::{
     auth::Auth,
     crypto::{crypto_digest, crypto_hmac, crypto_kdfa, CryptoError},
     device::{Device, DeviceError},
-    uri::Uri,
+    scheme::Scheme,
 };
 use std::{
     collections::{hash_map, HashMap, HashSet},
     num::TryFromIntError,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 use thiserror::Error;
 use tpm2_protocol::{
@@ -189,14 +188,14 @@ impl Session {
 
 #[derive(Debug)]
 pub struct SessionCache {
-    pub sessions: HashMap<String, Session>,
-    pub dirty: HashSet<String>,
+    pub sessions: HashMap<u32, Session>,
+    pub dirty: HashSet<u32>,
     pub sessions_dir: PathBuf,
 }
 
 impl<'a> IntoIterator for &'a SessionCache {
-    type Item = (&'a String, &'a Session);
-    type IntoIter = hash_map::Iter<'a, String, Session>;
+    type Item = (&'a u32, &'a Session);
+    type IntoIter = hash_map::Iter<'a, u32, Session>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -241,20 +240,19 @@ impl SessionCache {
                 continue;
             };
 
-            let Ok(handle) = u32::from_str_radix(file_stem, 16) else {
+            let Ok(vhandle) = u32::from_str_radix(file_stem, 16) else {
                 let _ = std::fs::remove_file(path);
                 continue;
             };
 
             let session = Session::load_from_path(&path)?;
 
-            if session.context.saved_handle.0 != handle {
+            if session.context.saved_handle.0 != vhandle {
                 let _ = std::fs::remove_file(path);
                 continue;
             }
 
-            let uri = Auth(Uri::Session(handle)).to_string();
-            self.sessions.insert(uri, session);
+            self.sessions.insert(vhandle, session);
         }
         Ok(())
     }
@@ -267,31 +265,29 @@ impl SessionCache {
     /// Returns an aggregate `DeviceError` if any non-recoverable errors occur.
     /// Individual session failures are logged as warnings.
     pub fn refresh_sessions(&mut self, device: &mut Device) -> Result<(), SessionError> {
-        let uris_to_refresh: Vec<String> = self.sessions.keys().cloned().collect();
-        for uri in uris_to_refresh {
-            let session = match self.get(&uri) {
-                Ok(s) => s.clone(),
-                Err(_) => continue,
+        let vhandles: Vec<u32> = self.sessions.keys().copied().collect();
+        for vhandle in vhandles {
+            let Ok(session) = self.get(vhandle) else {
+                continue;
             };
-
             match device.load_context(session.context.clone()) {
                 Ok(live_handle) => match device.save_context(live_handle) {
                     Ok(new_context) => {
-                        if let Ok(s) = self.get_mut(&uri) {
+                        if let Ok(s) = self.get_mut(vhandle) {
                             s.context = new_context;
                         }
                     }
-                    Err(e) => log::warn!("{uri}: {e}"),
+                    Err(e) => log::warn!("vtpm:{vhandle}: {e}"),
                 },
                 Err(DeviceError::TpmRc(rc))
                     if matches!(rc.base(), TpmRcBase::Handle | TpmRcBase::ReferenceH0) =>
                 {
-                    log::debug!("Removing stale session file for {uri}");
-                    if self.remove(&uri).is_err() {
-                        log::warn!("Failed to remove stale session for {uri}");
+                    log::debug!("vtpm:{vhandle} is stale");
+                    if let Err(e) = self.remove(vhandle) {
+                        log::error!("vtpm:{vhandle}: {e}");
                     }
                 }
-                Err(e) => log::warn!("{uri}: {e}"),
+                Err(e) => log::warn!("vtpm:{vhandle}: {e}"),
             }
         }
 
@@ -321,12 +317,11 @@ impl SessionCache {
     }
 
     /// Adds a new session and returns its URI.
-    pub fn add(&mut self, session: Session) -> String {
-        let handle = session.context.saved_handle.0;
-        let uri = Auth(Uri::Session(handle)).to_string();
-        self.sessions.insert(uri.clone(), session);
-        self.dirty.insert(uri.clone());
-        uri
+    pub fn add(&mut self, session: Session) -> u32 {
+        let vhandle = session.context.saved_handle.0;
+        self.sessions.insert(vhandle, session);
+        self.dirty.insert(vhandle);
+        vhandle
     }
 
     /// Removes a session from the map and deletes its file from disk. This
@@ -335,18 +330,13 @@ impl SessionCache {
     /// # Errors
     ///
     /// Returns `SessionError` on I/O failure (e.g. permissions).
-    pub fn remove(&mut self, uri: &str) -> Result<Option<Session>, SessionError> {
-        let session = self.sessions.remove(uri);
-        self.dirty.remove(uri);
-
-        if let Ok(parsed_uri) = Uri::from_str(uri) {
-            if let Ok(handle) = parsed_uri.to_handle() {
-                let path = self.sessions_dir.join(format!("{handle:08x}.bin"));
-                if let Err(e) = std::fs::remove_file(path) {
-                    if e.kind() != std::io::ErrorKind::NotFound {
-                        return Err(e.into());
-                    }
-                }
+    pub fn remove(&mut self, vhandle: u32) -> Result<Option<Session>, SessionError> {
+        let session = self.sessions.remove(&vhandle);
+        self.dirty.remove(&vhandle);
+        let path = self.sessions_dir.join(format!("{vhandle:08x}.bin"));
+        if let Err(e) = std::fs::remove_file(path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e.into());
             }
         }
         Ok(session)
@@ -357,10 +347,10 @@ impl SessionCache {
     /// # Errors
     ///
     /// Returns `SessionError::NotFound` if no session is found.
-    pub fn get(&self, uri: &str) -> Result<&Session, SessionError> {
+    pub fn get(&self, vhandle: u32) -> Result<&Session, SessionError> {
         self.sessions
-            .get(uri)
-            .ok_or_else(|| SessionError::NotFound(uri.to_string()))
+            .get(&vhandle)
+            .ok_or_else(|| SessionError::NotFound(vhandle.to_string()))
     }
 
     /// Gets a mutable reference to a session, marks it as dirty.
@@ -368,16 +358,16 @@ impl SessionCache {
     /// # Errors
     ///
     /// Returns `SessionError::NotFound` if no session is found.
-    pub fn get_mut(&mut self, uri: &str) -> Result<&mut Session, SessionError> {
-        self.dirty.insert(uri.to_string());
+    pub fn get_mut(&mut self, vhandle: u32) -> Result<&mut Session, SessionError> {
+        self.dirty.insert(vhandle);
         self.sessions
-            .get_mut(uri)
-            .ok_or_else(|| SessionError::NotFound(uri.to_string()))
+            .get_mut(&vhandle)
+            .ok_or_else(|| SessionError::NotFound(vhandle.to_string()))
     }
 
     /// Returns an iterator over the sessions.
     #[must_use]
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, Session> {
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, u32, Session> {
         self.sessions.iter()
     }
 
@@ -394,18 +384,17 @@ impl SessionCache {
     ) -> Result<Vec<u32>, SessionError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if let Auth(Uri::Session(_)) = auth {
-                let uri = auth.to_string();
+            if let Auth(Scheme::Session(vhandle)) = auth {
                 let session_is_loaded = {
-                    let session = self.get(&uri)?;
+                    let session = self.get(*vhandle)?;
                     session.handle.0 != 0
                 };
                 if !session_is_loaded {
                     let new_handle = {
-                        let session = self.get(&uri)?;
+                        let session = self.get(*vhandle)?;
                         device.load_context(session.context.clone())?
                     };
-                    let session = self.get_mut(&uri)?;
+                    let session = self.get_mut(*vhandle)?;
                     session.handle = TpmHandle(new_handle);
                     activated_handles.push(new_handle);
                 }
@@ -426,34 +415,29 @@ impl SessionCache {
         session_handles: &HashSet<u32>,
         auth_responses: &TpmAuthResponses,
     ) -> Result<(), SessionError> {
-        for (i, handle) in session_handles.iter().enumerate() {
-            let uri = Auth(Uri::Session(*handle)).to_string();
-            let session_handle = self.get(&uri)?.handle;
+        for (i, vhandle) in session_handles.iter().enumerate() {
+            let session_handle = self.get(*vhandle)?.handle;
             if session_handle.0 == 0 {
                 continue;
             }
 
             match device.save_context(session_handle.0) {
                 Ok(new_context) => {
-                    let session = self.get_mut(&uri)?;
+                    let session = self.get_mut(*vhandle)?;
                     session.context = new_context;
                     let auth: TpmsAuthResponse = auth_responses[i];
                     session.nonce_tpm = auth.nonce;
                     session.attributes = auth.session_attributes;
                 }
                 Err(e) => {
-                    log::warn!("Failed to save session context for {uri}: {e}. Flushing handle.");
-
-                    if device.flush_context(session_handle.0).is_err() {
-                        log::warn!("Failed to flush orphaned session handle {session_handle}.");
+                    if let Err(e) = device.flush_context(session_handle.0) {
+                        log::warn!("{session_handle}: {e}");
                     }
-
-                    if let Ok(session) = self.get_mut(&uri) {
+                    if let Ok(session) = self.get_mut(*vhandle) {
                         session.handle = TpmHandle(0);
                     } else {
-                        log::warn!("Session '{uri}' not found during error handling.");
+                        log::warn!("unknown {session_handle}");
                     }
-
                     return Err(e.into());
                 }
             }

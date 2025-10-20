@@ -6,10 +6,10 @@ use thiserror::Error;
 use tpm2_protocol::data::TpmHt;
 
 #[derive(Debug, Error)]
-pub enum UriError {
-    #[error("invalid URI format: '{0}'")]
-    InvalidFormat(String),
-    #[error("unsupported URI scheme: '{0}'")]
+pub enum SchemeError {
+    #[error("invalid scheme: '{0}'")]
+    InvalidScheme(String),
+    #[error("unsupported scheme: '{0}'")]
     UnsupportedScheme(String),
     #[error("invalid handle format: {0}")]
     InvalidHandleFormat(String),
@@ -19,13 +19,13 @@ pub enum UriError {
     Io(#[from] std::io::Error),
 }
 
-impl From<ParseIntError> for UriError {
+impl From<ParseIntError> for SchemeError {
     fn from(e: ParseIntError) -> Self {
         Self::InvalidHandleFormat(e.to_string())
     }
 }
 
-impl From<hex::FromHexError> for UriError {
+impl From<hex::FromHexError> for SchemeError {
     fn from(e: hex::FromHexError) -> Self {
         Self::InvalidHexFormat(e.to_string())
     }
@@ -33,7 +33,7 @@ impl From<hex::FromHexError> for UriError {
 
 /// A type-safe representation of a resource identifier.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Uri {
+pub enum Scheme {
     Tpm(u32),
     Key(u32),
     Path(std::path::PathBuf),
@@ -42,17 +42,17 @@ pub enum Uri {
     Policy(Vec<u8>),
 }
 
-impl Uri {
+impl Scheme {
     /// Reads the contents of a file path URI.
     ///
     /// # Errors
     ///
     /// Returns `UriError::Io` on read failure or `UriError::UnsupportedScheme`
     /// if called on a non-Path variant.
-    pub fn to_bytes(&self) -> Result<Vec<u8>, UriError> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, SchemeError> {
         match self {
             Self::Path(path) => Ok(std::fs::read(path)?),
-            _ => Err(UriError::UnsupportedScheme(self.to_string())),
+            _ => Err(SchemeError::UnsupportedScheme(self.to_string())),
         }
     }
 
@@ -61,16 +61,16 @@ impl Uri {
     /// # Errors
     ///
     /// Returns `UriError::UnsupportedScheme` if called on a non-handle variant.
-    pub fn to_handle(&self) -> Result<u32, UriError> {
+    pub fn to_handle(&self) -> Result<u32, SchemeError> {
         match self {
             Self::Tpm(handle) | Self::Session(handle) => Ok(*handle),
-            _ => Err(UriError::UnsupportedScheme(self.to_string())),
+            _ => Err(SchemeError::UnsupportedScheme(self.to_string())),
         }
     }
 }
 
-impl FromStr for Uri {
-    type Err = UriError;
+impl FromStr for Scheme {
+    type Err = SchemeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some((scheme, value)) = s.split_once(':') {
@@ -98,10 +98,10 @@ impl FromStr for Uri {
                     } else if mso == TpmHt::Transient as u8 {
                         Ok(Self::Key(vhandle))
                     } else {
-                        Err(UriError::UnsupportedScheme(s.to_string()))
+                        Err(SchemeError::UnsupportedScheme(s.to_string()))
                     }
                 }
-                _ => Err(UriError::UnsupportedScheme(s.to_string())),
+                _ => Err(SchemeError::UnsupportedScheme(s.to_string())),
             }
         } else {
             Ok(Self::Path(s.into()))
@@ -109,7 +109,7 @@ impl FromStr for Uri {
     }
 }
 
-impl fmt::Display for Uri {
+impl fmt::Display for Scheme {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Tpm(handle) => write!(f, "tpm:{handle:08x}"),

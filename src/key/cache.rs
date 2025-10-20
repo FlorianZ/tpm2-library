@@ -7,7 +7,7 @@ use crate::{
     convert::from_tpm_object_to_vec,
     device::{Device, DeviceError},
     key::{KeyError, TpmKey},
-    uri::{Uri, UriError},
+    scheme::{Scheme, SchemeError},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -67,7 +67,7 @@ pub enum KeyCacheError {
     #[error("invalid parent: {0}")]
     InvalidParent(String),
     #[error("invalid URI: {0}")]
-    InvalidUri(#[from] UriError),
+    InvalidUri(#[from] SchemeError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("key: {0}")]
@@ -122,7 +122,7 @@ impl std::fmt::Debug for KeyCache<'_> {
         let handles: Vec<String> = self
             .handles
             .values()
-            .map(|t| Uri::Tpm(t.0).to_string())
+            .map(|t| Scheme::Tpm(t.0).to_string())
             .collect();
         f.debug_struct("Context")
             .field("handles", &handles)
@@ -295,11 +295,11 @@ impl<'a> KeyCache<'a> {
     pub fn load_parent(
         &mut self,
         device: &mut Device,
-        uri: &Uri,
+        uri: &Scheme,
     ) -> Result<TpmHandle, KeyCacheError> {
         match uri {
-            Uri::Key(_) => self.load_context(device, uri),
-            Uri::Tpm(handle) => {
+            Scheme::Key(_) => self.load_context(device, uri),
+            Scheme::Tpm(handle) => {
                 if (*handle >> 24) as u8 == TpmHt::Persistent as u8 {
                     Ok(TpmHandle(*handle))
                 } else {
@@ -324,11 +324,11 @@ impl<'a> KeyCache<'a> {
     pub fn load_context(
         &mut self,
         device: &mut Device,
-        uri: &Uri,
+        uri: &Scheme,
     ) -> Result<TpmHandle, KeyCacheError> {
         match uri {
-            Uri::Tpm(handle) => Ok(TpmHandle(*handle)),
-            Uri::Key(vhandle) => {
+            Scheme::Tpm(handle) => Ok(TpmHandle(*handle)),
+            Scheme::Key(vhandle) => {
                 let key = self
                     .contexts
                     .get(vhandle)
@@ -352,8 +352,8 @@ impl<'a> KeyCache<'a> {
                     Err(e) => Err(e.into()),
                 }
             }
-            Uri::Session(_) | Uri::Password(_) | Uri::Path(_) | Uri::Policy(_) => Err(
-                KeyCacheError::InvalidUri(UriError::UnsupportedScheme(uri.to_string())),
+            Scheme::Session(_) | Scheme::Password(_) | Scheme::Path(_) | Scheme::Policy(_) => Err(
+                KeyCacheError::InvalidUri(SchemeError::UnsupportedScheme(uri.to_string())),
             ),
         }
     }
@@ -396,8 +396,8 @@ impl<'a> KeyCache<'a> {
             };
             let sessions = vec![];
             if let Err(err) = device.execute(&cmd, &sessions) {
-                let uri = Uri::Tpm(handle.0);
-                log::error!("Failed to flush handle {uri}: {err}");
+                let uri = Scheme::Tpm(handle.0);
+                log::error!("{uri}: {err}");
             }
         }
 
@@ -411,7 +411,7 @@ impl<'a> KeyCache<'a> {
     /// Returns a `KeyCacheError` on failure.
     pub fn write_key_data(
         &mut self,
-        output_uri: Option<&Uri>,
+        output_uri: Option<&Scheme>,
         key: &TpmKey,
         encoding: OutputEncoding,
     ) -> Result<(), KeyCacheError> {
@@ -430,12 +430,12 @@ impl<'a> KeyCache<'a> {
     /// This function will return an error if writing to a file fails.
     pub fn write_data(
         &mut self,
-        output_uri: Option<&Uri>,
+        output_uri: Option<&Scheme>,
         data: &[u8],
     ) -> Result<(), KeyCacheError> {
         if let Some(uri) = output_uri {
             match uri {
-                Uri::Path(path) => {
+                Scheme::Path(path) => {
                     if path.to_str() == Some("-") {
                         self.writer.write_all(data)?;
                     } else {
@@ -444,7 +444,7 @@ impl<'a> KeyCache<'a> {
                     }
                     Ok(())
                 }
-                _ => Err(KeyCacheError::InvalidUri(UriError::UnsupportedScheme(
+                _ => Err(KeyCacheError::InvalidUri(SchemeError::UnsupportedScheme(
                     uri.to_string(),
                 ))),
             }

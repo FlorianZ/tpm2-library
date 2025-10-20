@@ -7,7 +7,7 @@ use crate::{
     command::{AuthArgs, CommandError},
     device::with_device,
     job::Job,
-    uri::Uri,
+    scheme::Scheme,
 };
 use clap::Args;
 use std::str::FromStr;
@@ -31,31 +31,29 @@ impl SubCommand for Delete {
 
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
             for input_str in &self.inputs {
-                let uri = Uri::from_str(input_str)?;
-                let uri_str = uri.to_string();
-
+                let uri = Scheme::from_str(input_str)?;
                 match uri {
-                    Uri::Session(_) => {
-                        if let Some(session) = job.session_cache.remove(&uri_str)? {
+                    Scheme::Session(vhandle) => {
+                        if let Some(session) = job.session_cache.remove(vhandle)? {
                             if let Err(err) = dev.flush_session(session.context) {
                                 log::warn!("{uri}: {err}");
                             }
                         }
                     }
-                    Uri::Key(ref vhandle) => {
+                    Scheme::Key(ref vhandle) => {
                         let handle = job.key_cache.load_context(dev, &uri)?;
                         dev.flush_context(handle.0)?;
                         job.key_cache.remove_context(*vhandle)?;
                         job.key_cache.untrack(handle.0);
                     }
-                    Uri::Tpm(handle) => {
+                    Scheme::Tpm(handle) => {
                         if (handle >> 24) as u8 == TpmHt::Persistent as u8 {
                             return Err(CommandError::InvalidInput(handle.to_string()));
                         }
                         let handle = job.key_cache.load_context(dev, &uri)?;
                         dev.flush_context(handle.0)?;
                     }
-                    Uri::Path(_) | Uri::Password(_) | Uri::Policy(_) => {
+                    Scheme::Path(_) | Scheme::Password(_) | Scheme::Policy(_) => {
                         return Err(CommandError::InvalidInput(uri.to_string()));
                     }
                 }

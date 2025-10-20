@@ -7,7 +7,7 @@ use crate::{
     device::with_device,
     job::Job,
     key::{self, KeyCacheError},
-    uri::Uri,
+    scheme::Scheme,
 };
 use clap::Args;
 use tabled::Tabled;
@@ -30,7 +30,7 @@ impl Key {
         let vhandles: Vec<u32> = job.key_cache.contexts.keys().copied().collect();
         with_device(job.device.clone(), |device| {
             for vhandle in vhandles {
-                let uri = Uri::Key(vhandle);
+                let uri = Scheme::Key(vhandle);
                 match job.key_cache.load_context(device, &uri) {
                     Ok(handle) => {
                         device.flush_context(handle.0)?;

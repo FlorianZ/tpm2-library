@@ -48,8 +48,8 @@ use crate::{
     key::{AlgInfo, KeyError},
     pcr::PcrError,
     policy::PolicyError,
+    scheme::SchemeError,
     session::SessionError,
-    uri::UriError,
 };
 use std::{
     fmt,
@@ -143,7 +143,7 @@ pub enum CommandError {
     #[error("unsupported session: {0}")]
     UnsupportedSession(String),
     #[error("uri: {0}")]
-    Uri(#[from] UriError),
+    Uri(#[from] SchemeError),
     #[error("auth: {0}")]
     Auth(#[from] AuthError),
 }

@@ -16,8 +16,8 @@ use crate::{
     device::{Device, DeviceError},
     key::KeyCacheError,
     pcr::{self, PcrError},
+    scheme::{Scheme, SchemeError},
     session::SessionError,
-    uri::{Uri, UriError},
 };
 use nom::{
     branch::alt,
@@ -108,7 +108,7 @@ pub enum PolicyError {
     #[error("session: {0}")]
     Session(#[from] SessionError),
     #[error("uri: {0}")]
-    Uri(#[from] UriError),
+    Uri(#[from] SchemeError),
 }
 
 impl From<hex::FromHexError> for PolicyError {
@@ -156,7 +156,7 @@ pub enum Expression {
         cp_hash: Option<String>,
     },
     Or(Vec<Expression>),
-    Uri(Uri),
+    Uri(Scheme),
 }
 
 impl fmt::Display for Expression {
@@ -209,7 +209,7 @@ impl Expression {
     /// cannot be read.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
         match self {
-            Self::Auth(Auth(Uri::Password(bytes))) => Ok(bytes.clone()),
+            Self::Auth(Auth(Scheme::Password(bytes))) => Ok(bytes.clone()),
             _ => Err(PolicyError::InvalidSecret(format!(
                 "{self:?}: expected 'password:<hex>'"
             ))),
@@ -223,7 +223,7 @@ impl Expression {
     /// Returns a `PolicyError` if the expression is not a `Expression::Uri(Uri::Tpm)`.
     pub fn to_tpm_handle(&self) -> Result<u32, PolicyError> {
         match self {
-            Self::Uri(Uri::Tpm(handle)) => Ok(*handle),
+            Self::Uri(Scheme::Tpm(handle)) => Ok(*handle),
             _ => Err(PolicyError::InvalidExpression(format!(
                 "invalid expression: {self:?}: expected 'tpm:<handle>'"
             ))),
@@ -282,7 +282,7 @@ fn auth_expression(input: &str) -> IResult<&str, Expression> {
 
 fn uri_expression(input: &str) -> IResult<&str, Expression> {
     map_res(take_while1(|c: char| c != ',' && c != ')'), |s: &str| {
-        Uri::from_str(s).map(Expression::Uri)
+        Scheme::from_str(s).map(Expression::Uri)
     })(input)
 }
 
@@ -372,7 +372,7 @@ pub fn execute_policy(
             cp_hash,
         } => {
             let handle_val = match &**auth_handle {
-                Expression::Uri(Uri::Tpm(h)) => {
+                Expression::Uri(Scheme::Tpm(h)) => {
                     if (*h >> 24) as u8 != TpmHt::Persistent as u8 {
                         return Err(PolicyError::InvalidExpression(
                             "secret() auth must be a persistent 'tpm:<handle>'".to_string(),

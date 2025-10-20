@@ -6,7 +6,7 @@ use crate::{
     command::{CommandError, OutputEncoding},
     key::KeyCache,
     key::TpmKey,
-    uri::Uri,
+    scheme::Scheme,
 };
 use std::io::{self, Read};
 use tpm2_protocol::{
@@ -50,19 +50,19 @@ pub fn from_tpm_object_to_vec<T: TpmBuild>(obj: &T) -> Result<Vec<u8>, TpmErrorK
 /// # Errors
 ///
 /// Returns a `std::io::Error` on failure.
-pub fn from_input_to_bytes(input: Option<&Uri>) -> io::Result<Vec<u8>> {
+pub fn from_input_to_bytes(input: Option<&Scheme>) -> io::Result<Vec<u8>> {
     let mut input_bytes = Vec::new();
     match input {
-        Some(Uri::Path(path)) => {
+        Some(Scheme::Path(path)) => {
             input_bytes = std::fs::read(path)?;
         }
         None => {
             io::stdin().read_to_end(&mut input_bytes)?;
         }
-        Some(uri) => {
+        Some(scheme) => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("input must be a file path, but got '{uri}'"),
+                scheme.to_string(),
             ));
         }
     }
@@ -80,16 +80,14 @@ pub fn from_input_to_bytes(input: Option<&Uri>) -> io::Result<Vec<u8>> {
 pub fn from_tpm_key_to_output(
     key_cache: &mut KeyCache,
     tpm_key: &TpmKey,
-    output: Option<&Uri>,
+    output: Option<&Scheme>,
     encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
-    if let Some(output_uri) = output {
-        if !matches!(output_uri, Uri::Path(_)) {
-            return Err(CommandError::InvalidOutput(format!(
-                "output must be a file path, but got '{output_uri}'"
-            )));
+    if let Some(scheme) = output {
+        if !matches!(scheme, Scheme::Path(_)) {
+            return Err(CommandError::InvalidOutput(scheme.to_string()));
         }
-        key_cache.write_key_data(Some(output_uri), tpm_key, encoding)?;
+        key_cache.write_key_data(Some(scheme), tpm_key, encoding)?;
     } else {
         key_cache.write_key_data(None, tpm_key, encoding)?;
     }

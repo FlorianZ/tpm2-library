@@ -16,10 +16,10 @@ pub mod key;
 pub mod pcr;
 pub mod policy;
 pub mod print;
+pub mod scheme;
 pub mod session;
 pub mod template;
 pub mod transport;
-pub mod uri;
 pub mod x509;
 
 /// A global flag to signal graceful teardown of the application.

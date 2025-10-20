@@ -8,8 +8,8 @@ use crate::{
     device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
     key::{KeyCache, KeyCacheError},
+    scheme::Scheme,
     session::{build_password_session, create_auth, SessionCache, SessionError},
-    uri::Uri,
 };
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
@@ -60,9 +60,8 @@ impl<'a> Job<'a> {
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if let Auth(Uri::Session(_)) = auth {
-                let uri = auth.to_string();
-                if let Ok(session) = self.session_cache.get(&uri) {
+            if let Auth(Scheme::Session(vhandle)) = auth {
+                if let Ok(session) = self.session_cache.get(*vhandle) {
                     if session.attributes.contains(TpmaSession::DECRYPT) {
                         nonce_decrypt = Some(session.nonce_tpm);
                     }
@@ -80,13 +79,11 @@ impl<'a> Job<'a> {
             let handle = handles.get(i).ok_or(SessionError::TrailingAuthValues)?;
 
             match &auth.0 {
-                Uri::Password(password) => {
+                Scheme::Password(password) => {
                     built_auths.push(build_password_session(password)?);
                 }
-                Uri::Session(_) => {
-                    let uri = auth.to_string();
-                    let session = self.session_cache.get(&uri)?;
-
+                Scheme::Session(vhandle) => {
+                    let session = self.session_cache.get(*vhandle)?;
                     let nonce_size = tpm_hash_size(&session.auth_hash)
                         .ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
                     let mut nonce_bytes = vec![0; nonce_size];
@@ -112,7 +109,7 @@ impl<'a> Job<'a> {
                     )?;
                     built_auths.push(result);
                 }
-                Uri::Policy(_) => return Err(SessionError::InvalidAuth),
+                Scheme::Policy(_) => return Err(SessionError::InvalidAuth),
                 _ => unreachable!(),
             }
         }
@@ -149,7 +146,7 @@ impl<'a> Job<'a> {
 
         let mut persistent_session_handles_used = HashSet::new();
         for auth in &persistent_auths {
-            if let Auth(Uri::Session(handle)) = auth {
+            if let Auth(Scheme::Session(handle)) = auth {
                 persistent_session_handles_used.insert(*handle);
             }
         }

@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{auth::Auth, cli::Hierarchy, command::CommandError, key::Alg, uri::Uri};
+use crate::{auth::Auth, cli::Hierarchy, command::CommandError, key::Alg, scheme::Scheme};
 use clap::Args;
 use strum::{Display, EnumString};
 use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
@@ -19,14 +19,14 @@ pub enum OutputEncoding {
 pub struct InputArgs {
     /// Input file path (default: stdin)
     #[arg(short = 'I', long)]
-    pub input: Option<Uri>,
+    pub input: Option<Scheme>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct OutputArgs {
     /// Output file path (default: stdout)
     #[arg(short = 'O', long)]
-    pub output: Option<Uri>,
+    pub output: Option<Scheme>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -40,7 +40,7 @@ pub struct OutputEncodingArgs {
 pub struct ParentAuthArgs {
     /// Parent key: 'tpm:<handle>', or 'key:<name grip>'
     #[arg(short = 'P', long)]
-    pub parent: Uri,
+    pub parent: Scheme,
 
     /// Authentication: 'password:<hex>' or 'vtpm:<handle>'
     #[arg(short = 'A', long = "auth")]
