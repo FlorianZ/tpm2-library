@@ -34,10 +34,12 @@ pub enum KeyError {
     InvalidEccPoint(String),
     #[error("invalid key format")]
     InvalidFormat,
-    #[error("invalid key bits: {0}")]
-    InvalidKeyBits(String),
-    #[error("invalid modulus: {0}")]
-    InvalidModulus(String),
+    #[error("invalid RSA exponent")]
+    InvalidRsaExponent,
+    #[error("invalid RSA key bits: {0}")]
+    InvalidRsaKeyBits(String),
+    #[error("invalid RSA modulus: {0}")]
+    InvalidRsaModulus(String),
     #[error("invalid OID")]
     InvalidOid,
     #[error("invalid parent: {0:08x}")]
@@ -217,7 +219,7 @@ impl std::str::FromStr for Alg {
                 .ok_or_else(|| KeyError::InvalidAlgorithmFormat(s.to_string()))?;
             let key_bits: u16 = bits_str
                 .parse()
-                .map_err(|_| KeyError::InvalidKeyBits(bits_str.to_string()))?;
+                .map_err(|_| KeyError::InvalidRsaKeyBits(bits_str.to_string()))?;
             let name_alg = from_str_to_alg_id(name_alg_str)?;
             Ok(Self {
                 name: s.to_string(),

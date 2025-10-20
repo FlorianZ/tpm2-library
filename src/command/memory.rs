@@ -236,9 +236,9 @@ impl Memory {
             let modulus = key
                 .modulus
                 .to_bigint()
-                .ok_or_else(|| KeyError::InvalidModulus(key.modulus.to_string()))?;
+                .ok_or_else(|| KeyError::InvalidRsaModulus(key.modulus.to_string()))?;
             let key_bits = u16::try_from(modulus.bits())
-                .map_err(|_| KeyError::InvalidModulus(modulus.to_string()))?;
+                .map_err(|_| KeyError::InvalidRsaModulus(modulus.to_string()))?;
             Ok(format!("rsa-{key_bits}:{sig_alg_str}"))
         } else if key_oid == &crate::key::OID_EC_PUBLIC_KEY {
             let curve_param_oid = spki

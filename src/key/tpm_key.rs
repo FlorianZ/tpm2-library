@@ -383,7 +383,7 @@ fn create_import_blob(
         Tpm2shAlgId(parent_name_alg),
     ))? * 8;
     let key_bits =
-        u16::try_from(key_bits).map_err(|_| KeyError::InvalidKeyBits(key_bits.to_string()))?;
+        u16::try_from(key_bits).map_err(|_| KeyError::InvalidRsaKeyBits(key_bits.to_string()))?;
 
     let hmac_key = crypto_kdfa(
         parent_name_alg,

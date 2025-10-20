@@ -78,9 +78,7 @@ fn build_external_key_from_primes(
         .ok_or(KeyError::InvalidFormat)?;
 
     if e_num != BigUint::from(65537u32) {
-        return Err(KeyError::ValueConversionFailed(
-            "unsupported RSA exponent: must be 65537".to_string(),
-        ));
+        return Err(KeyError::InvalidRsaExponent);
     }
 
     let e = rsa::BigUint::from_bytes_be(&e_num.to_bytes_be());
@@ -93,9 +91,7 @@ fn build_external_key_from_primes(
         2048 => Ok(ExternalKey::Rsa2048(Box::new(key))),
         3072 => Ok(ExternalKey::Rsa3072(Box::new(key))),
         4096 => Ok(ExternalKey::Rsa4096(Box::new(key))),
-        bits => Err(KeyError::ValueConversionFailed(format!(
-            "invalid RSA key size: {bits}"
-        ))),
+        _ => Err(KeyError::InvalidRsaExponent),
     }
 }
 
@@ -164,7 +160,7 @@ pub fn rsa_to_public(
         }),
         unique: TpmuPublicId::Rsa(
             Tpm2bPublicKeyRsa::try_from(key.n().to_bytes_be().as_slice())
-                .map_err(|e| KeyError::ValueConversionFailed(e.to_string()))?,
+                .map_err(|_| KeyError::InvalidRsaExponent)?,
         ),
     })
 }

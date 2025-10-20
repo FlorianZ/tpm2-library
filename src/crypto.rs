@@ -29,24 +29,24 @@ pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 
 #[derive(Debug, Error)]
 pub enum CryptoError {
+    #[error("DER encoding failed: {0}")]
+    EncodingDerFailed(String),
+    #[error("invalid ECC point")]
+    InvalidEccPoint,
     #[error("unsupported or invalid hash algorithm")]
     InvalidHashAlgorithm,
+    #[error("invalid HMAC")]
+    InvalidHmac,
     #[error("invalid cryptographic key")]
     InvalidKey,
     #[error("unsupported or invalid cryptographic scheme")]
     InvalidScheme,
-    #[error("MAC verification failed")]
-    MacVerificationFailed,
-    #[error("RSA operation failed: {0}")]
-    RsaOperationFailed(String),
-    #[error("DER encoding failed: {0}")]
-    DerEncodingFailed(String),
+    #[error("invalid RSA exponent")]
+    InvalidRsaExponent,
+    #[error("RSA-OAEP failed: {0}")]
+    RsaOaepEncryptFailed(String),
     #[error("unsupported elliptic curve")]
-    UnsupportedCurve,
-    #[error("invalid elliptic curve point")]
-    InvalidEccPoint,
-    #[error("value conversion failed: {0}")]
-    ValueConversionFailed(String),
+    UnsupportedEccCurve,
     #[error("TPM: {0}")]
     Tpm(TpmErrorKind),
 }
@@ -131,7 +131,7 @@ pub fn crypto_hmac_verify(
                 mac.update(chunk);
             }
             mac.verify_slice(signature)
-                .map_err(|_| CryptoError::MacVerificationFailed)
+                .map_err(|_| CryptoError::InvalidHmac)
         }};
     }
 
@@ -248,7 +248,7 @@ fn dispatch_rsa_oaep_encrypt(
         TpmAlgId::Sha512 => key.encrypt(rng, Oaep::new_with_label::<Sha512, _>(label), data),
         _ => return Err(CryptoError::InvalidScheme),
     };
-    result.map_err(|e| CryptoError::RsaOperationFailed(e.to_string()))
+    result.map_err(|e| CryptoError::RsaOaepEncryptFailed(e.to_string()))
 }
 
 /// Encrypts a seed using the parent's RSA public key for duplication.
@@ -274,11 +274,9 @@ pub fn protect_seed_with_rsa(
     let e = if e_raw == 0 { 65537 } else { e_raw };
     let rsa_pub_key = rsa::RsaPublicKey::new(
         rsa::BigUint::from_bytes_be(n),
-        rsa::BigUint::from_u32(e).ok_or_else(|| {
-            CryptoError::ValueConversionFailed("invalid RSA exponent".to_string())
-        })?,
+        rsa::BigUint::from_u32(e).ok_or(CryptoError::InvalidRsaExponent)?,
     )
-    .map_err(|e| CryptoError::RsaOperationFailed(e.to_string()))?;
+    .map_err(|e| CryptoError::RsaOaepEncryptFailed(e.to_string()))?;
 
     let label = "DUPLICATE\0";
 
@@ -286,7 +284,7 @@ pub fn protect_seed_with_rsa(
         dispatch_rsa_oaep_encrypt(&rsa_pub_key, rng, parent_public.name_alg, label, seed)?;
 
     Tpm2bEncryptedSecret::try_from(encrypted_seed.as_slice())
-        .map_err(|e| CryptoError::ValueConversionFailed(e.to_string()))
+        .map_err(|_| CryptoError::InvalidRsaExponent)
 }
 
 /// Derives a `seed` and an ephemeral public key using ECDH with the parent's ECC public key.
@@ -307,7 +305,7 @@ pub fn derive_seed_with_ecc(
         TpmEccCurve::NistP256 => crypto_ecdh_p256(parent_point, parent_public.name_alg, rng),
         TpmEccCurve::NistP384 => crypto_ecdh_p384(parent_point, parent_public.name_alg, rng),
         TpmEccCurve::NistP521 => crypto_ecdh_p521(parent_point, parent_public.name_alg, rng),
-        _ => Err(CryptoError::UnsupportedCurve),
+        _ => Err(CryptoError::UnsupportedEccCurve),
     }
 }
 
@@ -360,10 +358,8 @@ macro_rules! ecdh {
                 crypto_kdfe(name_alg, &z, KDF_LABEL_DUPLICATE, context_u, context_v, seed_bits)?;
 
             let ephemeral_point = TpmsEccPoint {
-                x: Tpm2bEccParameter::try_from(x)
-                    .map_err(|e| CryptoError::ValueConversionFailed(e.to_string()))?,
-                y: Tpm2bEccParameter::try_from(y)
-                    .map_err(|e| CryptoError::ValueConversionFailed(e.to_string()))?,
+                x: Tpm2bEccParameter::try_from(x)?,
+                y: Tpm2bEccParameter::try_from(y)?
             };
 
             Ok((seed, ephemeral_point))
@@ -407,8 +403,8 @@ pub fn crypto_make_name(public: &TpmtPublic) -> Result<Tpm2bName, CryptoError> {
     let mut name_buf = Vec::new();
     let name_alg = public.name_alg;
     name_buf.extend_from_slice(&(name_alg as u16).to_be_bytes());
-    let public_area_bytes = from_tpm_object_to_vec(public)
-        .map_err(|e| CryptoError::ValueConversionFailed(e.to_string()))?;
+    let public_area_bytes =
+        from_tpm_object_to_vec(public).map_err(|_| CryptoError::InvalidRsaExponent)?;
     let digest = crypto_digest(name_alg, &[&public_area_bytes])?;
     name_buf.extend_from_slice(&digest);
     Tpm2bName::try_from(name_buf.as_slice()).map_err(Into::into)
