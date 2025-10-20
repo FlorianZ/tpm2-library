@@ -36,6 +36,66 @@ use tpm2_protocol::{
     TpmErrorKind, TpmHandle,
 };
 
+#[derive(Debug, Error)]
+pub enum PolicyError {
+    #[error("invalid algorithm: {0:?}")]
+    InvalidAlgorithm(TpmAlgId),
+    #[error("invalid expression: {0}")]
+    InvalidExpression(String),
+    #[error("invalid secret: {0}")]
+    InvalidSecret(String),
+    #[error("invalid value: {0}")]
+    InvalidValue(String),
+    #[error("PCR value for selection '{0}' not provided")]
+    PcrValueMissing(String),
+    #[error("crypto: {0}")]
+    Crypto(#[from] CryptoError),
+    #[error("device: {0}")]
+    Device(#[from] DeviceError),
+    #[error("I/O: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("context: {0}")]
+    KeyCacheError(#[from] KeyCacheError),
+    #[error("pcr: {0}")]
+    Pcr(#[from] PcrError),
+    #[error("uri: {0}")]
+    Scheme(#[from] SchemeError),
+    #[error("session: {0}")]
+    Session(#[from] SessionError),
+    #[error("TPM: {0}")]
+    Tpm(TpmErrorKind),
+}
+
+impl From<TpmErrorKind> for PolicyError {
+    fn from(err: TpmErrorKind) -> Self {
+        Self::Tpm(err)
+    }
+}
+
+impl From<hex::FromHexError> for PolicyError {
+    fn from(err: hex::FromHexError) -> Self {
+        Self::InvalidValue(err.to_string())
+    }
+}
+
+impl From<base64::DecodeError> for PolicyError {
+    fn from(err: base64::DecodeError) -> Self {
+        Self::InvalidValue(err.to_string())
+    }
+}
+
+impl From<std::num::ParseIntError> for PolicyError {
+    fn from(err: std::num::ParseIntError) -> Self {
+        Self::InvalidValue(err.to_string())
+    }
+}
+
+impl From<std::str::Utf8Error> for PolicyError {
+    fn from(err: std::str::Utf8Error) -> Self {
+        Self::InvalidValue(err.to_string())
+    }
+}
+
 /// An abstract interface for a session that can have a policy applied to it.
 pub trait PolicySession {
     /// Returns the device associated with the session.
@@ -81,64 +141,6 @@ pub trait PolicySession {
 
     /// Returns the session's hash algorithm.
     fn hash_alg(&self) -> TpmAlgId;
-}
-
-#[derive(Debug, Error)]
-pub enum PolicyError {
-    #[error("context: {0}")]
-    KeyCacheError(#[from] KeyCacheError),
-    #[error("device: {0}")]
-    Device(#[from] DeviceError),
-    #[error("invalid algorithm: {0:?}")]
-    InvalidAlgorithm(TpmAlgId),
-    #[error("invalid expression: {0}")]
-    InvalidExpression(String),
-    #[error("invalid secret: {0}")]
-    InvalidSecret(String),
-    #[error("invalid value: {0}")]
-    InvalidValue(String),
-    #[error("I/O: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("pcr: {0}")]
-    Pcr(#[from] PcrError),
-    #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
-    #[error("PCR value for selection '{0}' not provided")]
-    PcrValueMissing(String),
-    #[error("session: {0}")]
-    Session(#[from] SessionError),
-    #[error("uri: {0}")]
-    Uri(#[from] SchemeError),
-}
-
-impl From<hex::FromHexError> for PolicyError {
-    fn from(err: hex::FromHexError) -> Self {
-        Self::InvalidValue(err.to_string())
-    }
-}
-
-impl From<base64::DecodeError> for PolicyError {
-    fn from(err: base64::DecodeError) -> Self {
-        Self::InvalidValue(err.to_string())
-    }
-}
-
-impl From<std::num::ParseIntError> for PolicyError {
-    fn from(err: std::num::ParseIntError) -> Self {
-        Self::InvalidValue(err.to_string())
-    }
-}
-
-impl From<std::str::Utf8Error> for PolicyError {
-    fn from(err: std::str::Utf8Error) -> Self {
-        Self::InvalidValue(err.to_string())
-    }
-}
-
-impl From<TpmErrorKind> for PolicyError {
-    fn from(err: TpmErrorKind) -> Self {
-        Self::Device(err.into())
-    }
 }
 
 /// The Abstract Syntax Tree (AST) for the unified policy language.

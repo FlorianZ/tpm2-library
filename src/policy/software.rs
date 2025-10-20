@@ -4,11 +4,7 @@
 //! A pure software implementation of a policy session for dry-run calculations.
 
 use super::{PolicyError, PolicySession};
-use crate::{
-    convert::from_tpm_object_to_vec,
-    crypto,
-    device::{Device, DeviceError},
-};
+use crate::{convert::from_tpm_object_to_vec, crypto::crypto_digest, device::Device};
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection},
     tpm_hash_size,
@@ -32,9 +28,8 @@ pub fn update_policy_digest(
     chunks.push(&cc_bytes);
     chunks.extend(params.iter());
 
-    let new_digest_bytes = crypto::crypto_digest(hash_alg, &chunks)?;
-    *current_digest =
-        Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(DeviceError::from)?;
+    let new_digest_bytes = crypto_digest(hash_alg, &chunks)?;
+    *current_digest = Tpm2bDigest::try_from(new_digest_bytes.as_slice())?;
     Ok(())
 }
 
@@ -55,8 +50,7 @@ impl<'a> SoftwarePolicySession<'a> {
     pub fn new(hash_alg: TpmAlgId, device: &'a mut Device) -> Result<Self, PolicyError> {
         let digest_size =
             tpm_hash_size(&hash_alg).ok_or(PolicyError::InvalidAlgorithm(hash_alg))?;
-        let digest =
-            Tpm2bDigest::try_from(vec![0; digest_size].as_slice()).map_err(DeviceError::from)?;
+        let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())?;
         Ok(Self {
             digest,
             hash_alg,
@@ -76,7 +70,7 @@ impl PolicySession for SoftwarePolicySession<'_> {
         pcr_digest: &Tpm2bDigest,
         pcrs: TpmlPcrSelection,
     ) -> Result<(), PolicyError> {
-        let pcrs_bytes = from_tpm_object_to_vec(&pcrs).map_err(DeviceError::from)?;
+        let pcrs_bytes = from_tpm_object_to_vec(&pcrs)?;
         update_policy_digest(
             &mut self.digest,
             self.hash_alg,
@@ -92,8 +86,7 @@ impl PolicySession for SoftwarePolicySession<'_> {
             .copied()
             .collect();
 
-        self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(DeviceError::from)?;
+        self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())?;
 
         update_policy_digest(
             &mut self.digest,
@@ -114,18 +107,17 @@ impl PolicySession for SoftwarePolicySession<'_> {
         let policy_ref = Tpm2bNonce::default();
         let cc_bytes = (command_code as u32).to_be_bytes();
 
-        let intermediate_digest_bytes = crypto::crypto_digest(
+        let intermediate_digest_bytes = crypto_digest(
             self.hash_alg,
             &[self.digest.as_ref(), &cc_bytes, auth_handle_name.as_ref()],
         )?;
 
-        let final_digest_bytes = crypto::crypto_digest(
+        let final_digest_bytes = crypto_digest(
             self.hash_alg,
             &[&intermediate_digest_bytes, policy_ref.as_ref()],
         )?;
 
-        self.digest =
-            Tpm2bDigest::try_from(final_digest_bytes.as_slice()).map_err(DeviceError::from)?;
+        self.digest = Tpm2bDigest::try_from(final_digest_bytes.as_slice())?;
         Ok(())
     }
 
