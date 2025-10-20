@@ -1449,7 +1449,7 @@ checksum = "5d08bec1926ed3c9895c3052b4420447b0ca78b1129192b6f0887b16ef931bba"
 
 [[package]]
 name = "tpm2sh"
-version = "0.11.21"
+version = "0.11.22"
 dependencies = [
  "aes",
  "base64",

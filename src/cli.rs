@@ -6,8 +6,8 @@
 
 use crate::{
     command::{
-        Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Evict,
-        Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal, Virtual,
+        Algorithm, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load,
+        Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal, Virtual,
     },
     job::Job,
 };
