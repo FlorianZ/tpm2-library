@@ -10,7 +10,6 @@ use cli::{
     job::Job,
     key_cache::KeyCache,
     session_cache::SessionCache,
-    transport::FileTransport,
 };
 use std::{
     cell::RefCell, fs, io::Write, os::unix::io::AsRawFd, process, rc::Rc, sync::atomic::Ordering,
@@ -89,8 +88,7 @@ fn init_device(cli: &TopLevel) -> Result<Option<Rc<RefCell<Device>>>, CommandErr
     nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFL(oflags))
         .map_err(|e| CommandError::from(DeviceError::from(e)))?;
 
-    let transport = FileTransport(file);
-    let device = Device::new(transport, cli.log_format)?;
+    let device = Device::new(file, cli.log_format)?;
 
     Ok(Some(Rc::new(RefCell::new(device))))
 }

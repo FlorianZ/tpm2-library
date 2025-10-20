@@ -2,12 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    cli::LogFormat,
-    print::TpmPrint,
-    transport::{receive_from_stream, FileTransport, Transport},
-    TEARDOWN,
-};
+use crate::{cli::LogFormat, print::TpmPrint, TEARDOWN};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use log::trace;
@@ -16,7 +11,8 @@ use rand::{thread_rng, RngCore};
 use std::{
     cell::RefCell,
     collections::HashMap,
-    io::{IsTerminal, Write},
+    fs::File,
+    io::{IsTerminal, Read, Write},
     num::TryFromIntError,
     rc::Rc,
     sync::atomic::Ordering,
@@ -112,7 +108,7 @@ where
 
 #[derive(Debug)]
 pub struct Device {
-    transport: Box<dyn Transport>,
+    file: File,
     poller: Poller,
     log_format: LogFormat,
     name_cache: HashMap<u32, Tpm2bName>,
@@ -139,13 +135,10 @@ impl Device {
     /// # Errors
     ///
     /// Returns an error if the system poller cannot be created.
-    pub fn new(
-        transport: impl Transport + 'static,
-        log_format: LogFormat,
-    ) -> Result<Self, DeviceError> {
+    pub fn new(file: File, log_format: LogFormat) -> Result<Self, DeviceError> {
         let poller = Poller::new()?;
         Ok(Self {
-            transport: Box::new(transport),
+            file,
             poller,
             log_format,
             name_cache: HashMap::new(),
@@ -173,42 +166,53 @@ impl Device {
     }
 
     fn receive_with_progress(&mut self) -> Result<Vec<u8>, DeviceError> {
-        if let Some(ft) = self.transport.as_any_mut().downcast_mut::<FileTransport>() {
-            let spinner = ProgressBar::new_spinner();
-            spinner.enable_steady_tick(Duration::from_millis(100));
-            spinner.set_style(
-                ProgressStyle::with_template("{spinner:.green} {msg}")
-                    .expect("Invalid progress spinner template")
-                    .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ "),
-            );
-            spinner.set_message("Waiting for TPM...");
+        let spinner = ProgressBar::new_spinner();
+        spinner.enable_steady_tick(Duration::from_millis(100));
+        spinner.set_style(
+            ProgressStyle::with_template("{spinner:.green} {msg}")
+                .expect("Invalid progress spinner template")
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ "),
+        );
+        spinner.set_message("Waiting for TPM...");
 
-            let mut events = Events::new();
-            let file = &mut ft.0;
-            unsafe { self.poller.add(&*file, Event::readable(0))? };
+        let mut events = Events::new();
+        unsafe { self.poller.add(&self.file, Event::readable(0))? };
 
-            let start_time = Instant::now();
-            let result = loop {
-                if TEARDOWN.load(Ordering::Relaxed) {
-                    break Err(DeviceError::Interrupted);
-                }
-                if start_time.elapsed() > Duration::from_secs(60) {
-                    break Err(DeviceError::Timeout);
-                }
+        let start_time = Instant::now();
+        let result = loop {
+            if TEARDOWN.load(Ordering::Relaxed) {
+                break Err(DeviceError::Interrupted);
+            }
+            if start_time.elapsed() > Duration::from_secs(60) {
+                break Err(DeviceError::Timeout);
+            }
 
-                self.poller
-                    .wait(&mut events, Some(Duration::from_millis(100)))?;
-                if !events.is_empty() {
-                    break receive_from_stream(file);
-                }
-            };
+            self.poller
+                .wait(&mut events, Some(Duration::from_millis(100)))?;
+            if !events.is_empty() {
+                break self.receive_from_stream();
+            }
+        };
 
-            spinner.finish_and_clear();
-            self.poller.delete(&*file)?;
-            result
-        } else {
-            self.transport.receive()
+        spinner.finish_and_clear();
+        self.poller.delete(&self.file)?;
+        result
+    }
+
+    fn receive_from_stream(&mut self) -> Result<Vec<u8>, DeviceError> {
+        let mut header = [0u8; 10];
+        self.file.read_exact(&mut header)?;
+        let Ok(size_bytes): Result<[u8; 4], _> = header[2..6].try_into() else {
+            return Err(DeviceError::InvalidResponse);
+        };
+        let size = u32::from_be_bytes(size_bytes) as usize;
+        if size < header.len() || size > TPM_MAX_COMMAND_SIZE {
+            return Err(DeviceError::InvalidResponse);
         }
+        let mut resp_buf = header.to_vec();
+        resp_buf.resize(size, 0);
+        self.file.read_exact(&mut resp_buf[header.len()..])?;
+        Ok(resp_buf)
     }
 
     /// Sends a command to the TPM and waits for the response.
@@ -224,11 +228,12 @@ impl Device {
     ) -> Result<(TpmResponseBody, TpmAuthResponses), DeviceError> {
         let command_vec = self.build_command_buffer(command, sessions)?;
         let cc = command.cc();
-        self.transport.send(&command_vec)?;
+        self.file.write_all(&command_vec)?;
+        self.file.flush()?;
         let resp_buf = if std::io::stderr().is_terminal() {
             self.receive_with_progress()?
         } else {
-            self.transport.receive()?
+            self.receive_from_stream()?
         };
         let result = tpm_parse_response(cc, &resp_buf);
         if self.log_format == LogFormat::Pretty {
