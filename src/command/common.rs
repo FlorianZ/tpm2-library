@@ -42,14 +42,14 @@ pub struct ParentAuthArgs {
     #[arg(short = 'P', long)]
     pub parent: Uri,
 
-    /// Authentication: 'password:<hex>' or 'session:<handle>'
+    /// Authentication: 'password:<hex>' or 'vtpm:<handle>'
     #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct AuthArgs {
-    /// Authentication: 'password:<hex>' or 'session:<handle>'
+    /// Authentication: 'password:<hex>' or 'vtpm:<handle>'
     #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }
@@ -60,7 +60,7 @@ pub struct HierarchyAuthArgs {
     #[arg(short = 'H', long, default_value_t = Hierarchy::default(), value_parser = clap::value_parser!(Hierarchy))]
     pub hierarchy: Hierarchy,
 
-    /// Authentication: 'password:<hex>' or 'session:<handle>'
+    /// Authentication: 'password:<hex>' or 'vtpm:<handle>'
     #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }

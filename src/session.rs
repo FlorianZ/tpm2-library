@@ -231,36 +231,24 @@ impl SessionCache {
 
         for entry in entries {
             let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("session") {
+            if path.extension().and_then(|s| s.to_str()) != Some("bin") {
+                let _ = std::fs::remove_file(path);
                 continue;
             }
 
             let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                let _ = std::fs::remove_file(path);
                 continue;
             };
 
             let Ok(handle) = u32::from_str_radix(file_stem, 16) else {
-                log::warn!("Invalid session filename format: '{}'", path.display());
+                let _ = std::fs::remove_file(path);
                 continue;
             };
 
-            let session = match Session::load_from_path(&path) {
-                Ok(s) => s,
-                Err(e) => {
-                    log::warn!(
-                        "Failed to load session file '{}': {e}. Deleting.",
-                        path.display()
-                    );
-                    let _ = std::fs::remove_file(path);
-                    continue;
-                }
-            };
+            let session = Session::load_from_path(&path)?;
 
             if session.context.saved_handle.0 != handle {
-                log::warn!(
-                    "Session file '{}' has mismatched handle in its content. Deleting.",
-                    path.display()
-                );
                 let _ = std::fs::remove_file(path);
                 continue;
             }
@@ -325,7 +313,7 @@ impl SessionCache {
         for uri in self.dirty.drain() {
             if let Some(session) = self.sessions.get(&uri) {
                 let handle = session.context.saved_handle.0;
-                let path = self.sessions_dir.join(format!("{handle:x}.session"));
+                let path = self.sessions_dir.join(format!("{handle:08x}.bin"));
                 session.save_to_path(&path)?;
             }
         }
@@ -353,7 +341,7 @@ impl SessionCache {
 
         if let Ok(parsed_uri) = Uri::from_str(uri) {
             if let Ok(handle) = parsed_uri.to_handle() {
-                let path = self.sessions_dir.join(format!("{handle:x}.session"));
+                let path = self.sessions_dir.join(format!("{handle:08x}.bin"));
                 if let Err(e) = std::fs::remove_file(path) {
                     if e.kind() != std::io::ErrorKind::NotFound {
                         return Err(e.into());
@@ -362,24 +350,6 @@ impl SessionCache {
             }
         }
         Ok(session)
-    }
-
-    /// Removes all sessions from the map and deletes their files from disk.
-    ///
-    /// # Errors
-    ///
-    /// Returns `SessionError::Io` on I/O failure.
-    pub fn reset(&mut self) -> Result<(), SessionError> {
-        for session in self.sessions.values() {
-            let handle = session.context.saved_handle.0;
-            let path = self.sessions_dir.join(format!("{handle:x}.session"));
-            if path.exists() {
-                std::fs::remove_file(path)?;
-            }
-        }
-        self.sessions.clear();
-        self.dirty.clear();
-        Ok(())
     }
 
     /// Gets an immutable reference to a session.

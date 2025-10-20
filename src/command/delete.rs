@@ -16,7 +16,7 @@ use tpm2_protocol::data::TpmHt;
 /// Deletes TPM objects, and cached keys and sessions.
 #[derive(Args, Debug)]
 pub struct Delete {
-    /// Inputs: 'tpm:<handle>', 'key:<name grip>', or 'session:<handle>'
+    /// Inputs: 'tpm:<handle>', 'key:<name vhandle>', or 'vtpm:<handle>'
     pub inputs: Vec<String>,
 
     #[clap(flatten)]
@@ -42,10 +42,11 @@ impl SubCommand for Delete {
                             }
                         }
                     }
-                    Uri::Key(ref grip) => {
+                    Uri::Key(ref vhandle) => {
                         let handle = job.key_cache.load_context(dev, &uri)?;
                         dev.flush_context(handle.0)?;
-                        job.key_cache.remove_context(grip)?;
+                        job.key_cache.remove_context(*vhandle)?;
+                        job.key_cache.untrack(handle.0);
                     }
                     Uri::Tpm(handle) => {
                         if (handle >> 24) as u8 == TpmHt::Persistent as u8 {

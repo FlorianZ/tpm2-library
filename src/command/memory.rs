@@ -49,14 +49,14 @@ impl Memory {
     fn fetch_rows<F>(
         device: &mut Device,
         rows: &mut Vec<MemoryRow>,
-        handle_type_to_query: u32,
+        handle_type: u32,
         display_type: MemoryHandleType,
         mut get_details: F,
     ) -> Result<(), CommandError>
     where
         F: FnMut(&mut Device, u32) -> Result<String, CommandError>,
     {
-        for handle in device.fetch_handles(handle_type_to_query << 24)? {
+        for handle in device.fetch_handles(handle_type << 24)? {
             match get_details(device, handle) {
                 Ok(details) => {
                     rows.push(MemoryRow {
@@ -65,9 +65,7 @@ impl Memory {
                         details,
                     });
                 }
-                Err(e) => {
-                    log::debug!("Could not retrieve details for handle {handle:08x}: {e}");
-                }
+                Err(e) => log::debug!("{handle:08x}: {e}"),
             }
         }
         Ok(())

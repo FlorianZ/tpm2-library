@@ -37,11 +37,10 @@ impl SubCommand for Load {
             let mut auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
             let input_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
 
-            let (object_handle, name, public) =
+            let (object_handle, _, public) =
                 Self::run_input(job, device, parent_handle, &input_bytes, &mut auths)?;
 
-            job.key_cache
-                .save_context(device, object_handle, &public, &name)?;
+            job.key_cache.save_context(device, object_handle, &public)?;
             Ok(())
         })
     }

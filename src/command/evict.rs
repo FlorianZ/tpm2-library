@@ -24,7 +24,7 @@ pub struct Evict {
     #[clap(flatten)]
     pub hierarchy_args: HierarchyAuthArgs,
 
-    /// Input transient key: 'key:<name grip>'
+    /// Input transient key: 'key:<name vhandle>'
     #[arg(short = 'I', long)]
     pub input: Option<String>,
 
@@ -72,17 +72,17 @@ impl SubCommand for Evict {
                 (TpmRh::Platform as u32).into()
             };
             let mut auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
-            let (object_handle, persistent_handle, grip) =
+            let (object_handle, persistent_handle, vhandle) =
                 if let Some(object_handle_str) = &self.input {
-                    let grip_uri = Uri::from_str(object_handle_str)?;
-                    let grip = match &grip_uri {
-                        Uri::Key(grip) => Ok(grip.clone()),
+                    let vhandle_uri = Uri::from_str(object_handle_str)?;
+                    let vhandle = match &vhandle_uri {
+                        Uri::Key(vhandle) => Ok(*vhandle),
                         ref uri => Err(CommandError::InvalidInput(uri.to_string())),
                     }?;
-                    let transient_handle = job.key_cache.load_context(dev, &grip_uri)?;
-                    (transient_handle, persistent_handle, grip)
+                    let transient_handle = job.key_cache.load_context(dev, &vhandle_uri)?;
+                    (transient_handle, persistent_handle, vhandle)
                 } else {
-                    (persistent_handle, persistent_handle, String::new())
+                    (persistent_handle, persistent_handle, 0)
                 };
             Self::run_evict_control(
                 job,
@@ -92,8 +92,8 @@ impl SubCommand for Evict {
                 persistent_handle,
                 &mut auths,
             )?;
-            if object_handle != persistent_handle {
-                job.key_cache.remove_context(&grip)?;
+            if vhandle != 0 {
+                job.key_cache.remove_context(vhandle)?;
             }
             Ok(())
         })

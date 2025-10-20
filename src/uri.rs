@@ -3,6 +3,7 @@
 
 use std::{fmt, num::ParseIntError, str::FromStr};
 use thiserror::Error;
+use tpm2_protocol::data::TpmHt;
 
 #[derive(Debug, Error)]
 pub enum UriError {
@@ -34,7 +35,7 @@ impl From<hex::FromHexError> for UriError {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Uri {
     Tpm(u32),
-    Key(String),
+    Key(u32),
     Path(std::path::PathBuf),
     Session(u32),
     Password(Vec<u8>),
@@ -76,22 +77,10 @@ impl FromStr for Uri {
             if s.starts_with('/') || scheme.len() == 1 {
                 return Ok(Self::Path(s.into()));
             }
-
             match scheme {
                 "tpm" => {
-                    let handle = u32::from_str_radix(value.trim_start_matches("0x"), 16)?;
+                    let handle = u32::from_str_radix(value, 16)?;
                     Ok(Self::Tpm(handle))
-                }
-                "session" => {
-                    let handle = u32::from_str_radix(value.trim_start_matches("0x"), 16)?;
-                    Ok(Self::Session(handle))
-                }
-                "key" => {
-                    if value.len() == 16 && value.chars().all(|c| c.is_ascii_hexdigit()) {
-                        Ok(Self::Key(value.to_string()))
-                    } else {
-                        Err(UriError::InvalidFormat(value.to_string()))
-                    }
                 }
                 "password" => {
                     let bytes = hex::decode(value)?;
@@ -100,6 +89,17 @@ impl FromStr for Uri {
                 "policy" => {
                     let bytes = hex::decode(value)?;
                     Ok(Self::Policy(bytes))
+                }
+                "vtpm" => {
+                    let vhandle = u32::from_str_radix(value, 16)?;
+                    let mso = (vhandle >> 24) as u8;
+                    if mso == TpmHt::PolicySession as u8 {
+                        Ok(Self::Session(vhandle))
+                    } else if mso == TpmHt::Transient as u8 {
+                        Ok(Self::Key(vhandle))
+                    } else {
+                        Err(UriError::UnsupportedScheme(s.to_string()))
+                    }
                 }
                 _ => Err(UriError::UnsupportedScheme(s.to_string())),
             }
@@ -113,9 +113,9 @@ impl fmt::Display for Uri {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Tpm(handle) => write!(f, "tpm:{handle:08x}"),
-            Self::Key(grip) => write!(f, "key:{grip}"),
+            Self::Key(vhandle) => write!(f, "vtpm:{vhandle}"),
             Self::Path(path) => write!(f, "{}", path.to_string_lossy()),
-            Self::Session(handle) => write!(f, "session:{handle:08x}"),
+            Self::Session(vhandle) => write!(f, "vtpm:{vhandle:08x}"),
             Self::Password(bytes) => write!(f, "password:{}", hex::encode(bytes)),
             Self::Policy(bytes) => write!(f, "policy:{}", hex::encode(bytes)),
         }

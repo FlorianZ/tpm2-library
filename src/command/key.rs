@@ -6,16 +6,16 @@ use crate::{
     command::{print_table, CommandError},
     device::with_device,
     job::Job,
-    key::{self, KeyCacheError, KeyError},
+    key::{self, KeyCacheError},
+    uri::Uri,
 };
 use clap::Args;
 use tabled::Tabled;
-use tpm2_protocol::{data::Tpm2bPublic, TpmParse};
 
 #[derive(Tabled)]
 struct KeyRow {
-    #[tabled(rename = "GRIP")]
-    grip: String,
+    #[tabled(rename = "HANDLE")]
+    handle: String,
     #[tabled(rename = "DETAILS")]
     details: String,
 }
@@ -27,14 +27,10 @@ pub struct Key {}
 
 impl Key {
     fn refresh(job: &mut Job) -> Result<(), KeyCacheError> {
-        let grips: Vec<String> = job.key_cache.contexts.keys().cloned().collect();
-        if grips.is_empty() {
-            return Ok(());
-        }
-
+        let vhandles: Vec<u32> = job.key_cache.contexts.keys().copied().collect();
         with_device(job.device.clone(), |device| {
-            for grip in grips {
-                let uri = crate::uri::Uri::Key(grip);
+            for vhandle in vhandles {
+                let uri = Uri::Key(vhandle);
                 match job.key_cache.load_context(device, &uri) {
                     Ok(handle) => {
                         device.flush_context(handle.0)?;
@@ -52,17 +48,14 @@ impl Key {
 impl SubCommand for Key {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         Key::refresh(job)?;
-
         let mut rows: Vec<KeyRow> = Vec::new();
-        for (grip, key) in &job.key_cache.contexts {
-            let (public_blob, _) =
-                Tpm2bPublic::parse(&key.public).map_err(|e| KeyError::Device(e.into()))?;
+        for (vhandle, key) in &job.key_cache.contexts {
             rows.push(KeyRow {
-                grip: grip.clone(),
-                details: key::format_alg_from_public(&public_blob.inner),
+                handle: format!("{vhandle:08x}"),
+                details: key::format_alg_from_public(&key.public.inner),
             });
         }
-        rows.sort_unstable_by(|a, b| a.grip.cmp(&b.grip));
+        rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
         print_table(&mut job.key_cache.writer, rows)?;
         Ok(())
     }

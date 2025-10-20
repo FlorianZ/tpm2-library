@@ -5,7 +5,6 @@
 use crate::{
     command::{CommandError, OutputEncoding},
     convert::from_tpm_object_to_vec,
-    crypto::{crypto_digest, crypto_make_name},
     device::{Device, DeviceError},
     key::{KeyError, TpmKey},
     uri::{Uri, UriError},
@@ -19,15 +18,14 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_protocol::{
-    constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRcBase, TpmsContext},
+    data::{Tpm2bPublic, TpmHt, TpmRcBase, TpmsContext},
     message::TpmFlushContextCommand,
-    TpmBuffer, TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmSized, TpmWriter,
+    TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
 
 #[derive(Debug, Clone)]
 pub struct CacheKey {
-    pub public: Vec<u8>,
+    pub public: Tpm2bPublic,
     pub context: TpmsContext,
 }
 
@@ -40,20 +38,16 @@ impl TpmSized for CacheKey {
 
 impl TpmBuild for CacheKey {
     fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmErrorKind> {
-        let public_buf = TpmBuffer::<TPM_MAX_COMMAND_SIZE>::try_from(self.public.as_slice())?;
-        public_buf.build(writer)?;
+        self.public.build(writer)?;
         self.context.build(writer)
     }
 }
 
 impl TpmParse for CacheKey {
     fn parse(buffer: &[u8]) -> Result<(Self, &[u8]), TpmErrorKind> {
-        let (public_buf, remainder) = TpmBuffer::<TPM_MAX_COMMAND_SIZE>::parse(buffer)?;
+        let (public, remainder) = Tpm2bPublic::parse(buffer)?;
         let (context, remainder) = TpmsContext::parse(remainder)?;
-        let new_self = Self {
-            public: public_buf.to_vec(),
-            context,
-        };
+        let new_self = Self { public, context };
         Ok((new_self, remainder))
     }
 }
@@ -62,8 +56,8 @@ impl TpmParse for CacheKey {
 pub enum KeyCacheError {
     #[error("already tracked: {0}")]
     AlreadyTracked(TpmHandle),
-    #[error("context not found: {0}")]
-    ContextNotFound(String),
+    #[error("context not found: {0:08x}")]
+    ContextNotFound(u32),
     #[error("crypto: {0}")]
     Crypto(#[from] crate::crypto::CryptoError),
     #[error("device: {0}")]
@@ -117,9 +111,9 @@ impl From<CommandError> for KeyCacheError {
 
 pub struct KeyCache<'a> {
     pub handles: HashMap<u32, TpmHandle>,
+    pub contexts: HashMap<u32, CacheKey>,
     pub writer: &'a mut dyn Write,
-    pub contexts: HashMap<String, CacheKey>,
-    dirty_contexts: HashSet<String>,
+    dirty_contexts: HashSet<u32>,
     contexts_dir: PathBuf,
 }
 
@@ -145,17 +139,17 @@ impl<'a> KeyCache<'a> {
             if let Err(e) = fs::create_dir_all(&self.contexts_dir) {
                 log::error!("teardown: {e:#}");
             }
-            for grip in self.dirty_contexts.drain() {
-                if let Some(data) = self.contexts.get(&grip) {
-                    let path = self.contexts_dir.join(&grip);
+            for vhandle in self.dirty_contexts.drain() {
+                if let Some(data) = self.contexts.get(&vhandle) {
+                    let path = self.contexts_dir.join(format!("{vhandle:08x}.bin"));
                     match from_tpm_object_to_vec(data) {
                         Ok(bytes) => {
                             if let Err(e) = fs::write(path, bytes) {
-                                log::error!("teardown: {grip}: {e:#}");
+                                log::error!("teardown: {vhandle}: {e:#}");
                             }
                         }
                         Err(e) => {
-                            log::error!("teardown: {grip}: {e:#}");
+                            log::error!("teardown: {vhandle}: {e:#}");
                         }
                     }
                 }
@@ -207,30 +201,31 @@ impl<'a> KeyCache<'a> {
 
         for entry in entries {
             let path = entry.path();
-            if path.is_file() {
-                if let Some(grip) = path.file_stem().and_then(|s| s.to_str()) {
-                    if grip.len() == 16 && grip.chars().all(|c| c.is_ascii_hexdigit()) {
-                        let content = fs::read(&path)?;
-                        let (key, remainder) = CacheKey::parse(&content)?;
-                        if !remainder.is_empty() {
-                            log::trace!(
-                                "Pruning invalid or outdated context file: {}",
-                                path.display()
-                            );
-                            fs::remove_file(path)?;
-                            continue;
-                        }
 
-                        self.contexts.insert(grip.to_string(), key);
-                    } else {
-                        log::trace!(
-                            "Pruning invalid or outdated context file: {}",
-                            path.display()
-                        );
-                        fs::remove_file(path)?;
-                    }
-                }
+            if path.extension().and_then(|s| s.to_str()) != Some("bin") {
+                let _ = std::fs::remove_file(path);
+                continue;
             }
+
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                let _ = std::fs::remove_file(path);
+                continue;
+            };
+
+            let Ok(vhandle) = u32::from_str_radix(stem, 16) else {
+                let _ = std::fs::remove_file(path);
+                continue;
+            };
+
+            let content = fs::read(&path)?;
+            let (key, remainder) = CacheKey::parse(&content)?;
+
+            if !remainder.is_empty() {
+                let _ = std::fs::remove_file(path);
+                continue;
+            }
+
+            self.contexts.insert(vhandle, key);
         }
         Ok(())
     }
@@ -240,38 +235,15 @@ impl<'a> KeyCache<'a> {
     /// # Errors
     ///
     /// Returns an I/O error if the context file cannot be removed from disk.
-    pub fn remove_context(&mut self, grip: &str) -> Result<(), KeyCacheError> {
-        if self.contexts.remove(grip).is_some() {
-            let path = self.contexts_dir.join(grip);
+    pub fn remove_context(&mut self, vhandle: u32) -> Result<(), KeyCacheError> {
+        if self.contexts.remove(&vhandle).is_some() {
+            let path = self.contexts_dir.join(format!("{vhandle:08x}.bin"));
             if let Err(e) = fs::remove_file(path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     return Err(e.into());
                 }
             }
         }
-        Ok(())
-    }
-
-    /// Deletes all cached contexts from disk and memory.
-    ///
-    /// # Errors
-    ///
-    /// Returns an I/O error if any context file cannot be removed.
-    pub fn reset(&mut self) -> Result<(), KeyCacheError> {
-        let paths_to_delete: Vec<_> = self
-            .contexts
-            .keys()
-            .map(|grip| self.contexts_dir.join(grip))
-            .collect();
-        for path in paths_to_delete {
-            if let Err(e) = fs::remove_file(path) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    return Err(e.into());
-                }
-            }
-        }
-        self.contexts.clear();
-        self.dirty_contexts.clear();
         Ok(())
     }
 
@@ -286,65 +258,32 @@ impl<'a> KeyCache<'a> {
         device: &mut Device,
         handle: TpmHandle,
         public: &Tpm2bPublic,
-        name: &Tpm2bName,
     ) -> Result<(), KeyCacheError> {
-        let context_struct = device.save_context(handle.0)?;
-        let public_bytes = from_tpm_object_to_vec(public)?;
-        let key = CacheKey {
-            public: public_bytes,
-            context: context_struct,
-        };
-        let digest = crypto_digest(TpmAlgId::Sha256, &[name.as_ref()])?;
-        let grip = hex::encode(&digest[..8]);
-
-        self.contexts.insert(grip.clone(), key);
-        self.dirty_contexts.insert(grip.clone());
-
-        writeln!(self.writer, "key:{grip}")?;
+        let public = public.clone();
+        let context = device.save_context(handle.0)?;
+        for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
+            if let std::collections::hash_map::Entry::Vacant(e) = self.contexts.entry(vhandle) {
+                let key = CacheKey {
+                    public: public.clone(),
+                    context: context.clone(),
+                };
+                e.insert(key.clone());
+                self.dirty_contexts.insert(vhandle);
+                writeln!(self.writer, "vtpm:{vhandle:08x}")?;
+                break;
+            }
+        }
         Ok(())
     }
 
     /// Marks a saved context as needing to be written to disk.
-    pub fn mark_dirty(&mut self, grip: String) {
-        self.dirty_contexts.insert(grip);
+    pub fn mark_dirty(&mut self, vhandle: u32) {
+        self.dirty_contexts.insert(vhandle);
     }
 
     #[must_use]
     pub fn cache_dir(&self) -> &Path {
         &self.contexts_dir
-    }
-
-    /// Loads a TPM context from a byte slice.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `KeyCacheError` on parsing or TPM command failure.
-    pub fn load_context_from_bytes(
-        &mut self,
-        device: &mut Device,
-        blob: &[u8],
-    ) -> Result<(TpmHandle, Tpm2bName), KeyCacheError> {
-        let (key, _) = CacheKey::parse(blob)?;
-        match device.load_context(key.context) {
-            Ok(handle) => {
-                let handle = TpmHandle(handle);
-                let (_, name) = device.read_public(handle)?;
-                self.track(handle)?;
-                Ok((handle, name))
-            }
-            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                let (public, _) =
-                    Tpm2bPublic::parse(&key.public).map_err(|e| KeyCacheError::Device(e.into()))?;
-                let name = crypto_make_name(&public.inner)?;
-                let digest = crypto_digest(TpmAlgId::Sha256, &[name.as_ref()])?;
-                let grip = hex::encode(&digest[..8]);
-                Err(KeyCacheError::ContextNotFound(grip))
-            }
-            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Handle => {
-                Err(KeyCacheError::ParentNotLoaded)
-            }
-            Err(e) => Err(e.into()),
-        }
     }
 
     /// Validates a URI for a parent object and loads its context.
@@ -389,11 +328,11 @@ impl<'a> KeyCache<'a> {
     ) -> Result<TpmHandle, KeyCacheError> {
         match uri {
             Uri::Tpm(handle) => Ok(TpmHandle(*handle)),
-            Uri::Key(grip) => {
+            Uri::Key(vhandle) => {
                 let key = self
                     .contexts
-                    .get(grip)
-                    .ok_or_else(|| KeyCacheError::ContextNotFound(grip.clone()))?
+                    .get(vhandle)
+                    .ok_or(KeyCacheError::ContextNotFound(*vhandle))?
                     .clone();
                 match device.load_context(key.context) {
                     Ok(handle) => {
@@ -403,9 +342,9 @@ impl<'a> KeyCache<'a> {
                         Ok(handle)
                     }
                     Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                        log::debug!("key:{grip}: is stale");
-                        self.remove_context(grip)?;
-                        Err(KeyCacheError::ContextNotFound(grip.clone()))
+                        log::debug!("vtpm:{vhandle} is stale");
+                        self.remove_context(*vhandle)?;
+                        Err(KeyCacheError::ContextNotFound(*vhandle))
                     }
                     Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Handle => {
                         Err(KeyCacheError::ParentNotLoaded)
@@ -413,14 +352,9 @@ impl<'a> KeyCache<'a> {
                     Err(e) => Err(e.into()),
                 }
             }
-            Uri::Path(_) => {
-                let context_blob = uri.to_bytes()?;
-                self.load_context_from_bytes(device, &context_blob)
-                    .map(|(handle, _)| handle)
-            }
-            Uri::Session(_) | Uri::Password(_) | Uri::Policy(_) => Err(KeyCacheError::InvalidUri(
-                UriError::UnsupportedScheme(uri.to_string()),
-            )),
+            Uri::Session(_) | Uri::Password(_) | Uri::Path(_) | Uri::Policy(_) => Err(
+                KeyCacheError::InvalidUri(UriError::UnsupportedScheme(uri.to_string())),
+            ),
         }
     }
 

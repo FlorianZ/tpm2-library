@@ -29,7 +29,7 @@ pub struct PcrEvent {
     #[clap(flatten)]
     pub input_args: InputArgs,
 
-    /// Auth for the PCR: 'password:<hex>' or 'session:<handle>'
+    /// Auth for the PCR: 'password:<hex>' or 'vtpm:<handle>'
     #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
 }
