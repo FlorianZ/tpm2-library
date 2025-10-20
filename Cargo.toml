@@ -1,7 +1,7 @@
 [package]
 name = "tpm2sh"
 description = "TPM 2.0 shell"
-version = "0.11.25"
+version = "0.11.26"
 license = "GPL-3.0-or-later"
 homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2sh.git/about/?h=main"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2sh.git"
