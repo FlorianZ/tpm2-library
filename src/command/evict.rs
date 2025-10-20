@@ -20,11 +20,9 @@ pub struct Evict {
     pub hierarchy_args: HierarchyAuthArgs,
 
     /// Input key: 'vtpm:<vhandle>'
-    #[arg(short = 'I', long)]
     pub input: String,
 
     /// Persistent handle: 'tpm:<handle>'
-    #[arg(short = 'O', long)]
     pub output: String,
 }
 
