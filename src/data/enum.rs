@@ -278,6 +278,13 @@ tpm_enum! {
     }
 }
 
+impl TpmHt {
+    #[allow(non_upper_case_globals)]
+    pub const LoadedSession: TpmHt = TpmHt::HmacSession;
+    #[allow(non_upper_case_globals)]
+    pub const SavedSession: TpmHt = TpmHt::PolicySession;
+}
+
 tpm_enum! {
     #[derive(Debug, PartialEq, Eq, Copy, Clone)]
     pub enum TpmPt(u32) {
