@@ -158,7 +158,7 @@ impl<'a> KeyCache<'a> {
     ///
     /// Returns a `KeyCacheError` if loading or refreshing contexts fails.
     pub fn new(cache_dir: &Path, writer: &'a mut dyn Write) -> Result<KeyCache<'a>, KeyCacheError> {
-        let contexts_dir = cache_dir.join("contexts");
+        let contexts_dir = cache_dir.join("vtpm");
         let mut new_context = Self {
             handles: HashMap::new(),
             writer,

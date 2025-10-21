@@ -211,7 +211,7 @@ impl SessionCache {
         Self {
             sessions: HashMap::new(),
             dirty: HashSet::new(),
-            sessions_dir: cache_dir.join("sessions"),
+            sessions_dir: cache_dir.join("vtpm"),
         }
     }
 
