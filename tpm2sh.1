@@ -4,123 +4,25 @@
 .\"
 .TH TPM2SH 1 "2025-10-15" "tpm2sh 0.11.4" "User Commands"
 .SH NAME
-tpm2sh \- a command-line interface for accessing TPM 2.0 devices
+tpm2sh \- a command-line tool for accessing TPM 2.0 devices
 .SH SYNOPSIS
 .B tpm2sh
 [\fIOPTIONS\fR] \fICOMMAND\fR [\fICOMMAND-OPTIONS\fR] [\fIARGUMENTS\fR]...
 .SH DESCRIPTION
 .B tpm2sh
-is a command-line tool used for interacting directly with a TPM 2.0 chip. It
-provides a compact set of commands for key management and other cryptographic
-operations.
-.P
+is a command-line tool for accessing TPM 2.0 devices.
 .B tpm2sh
-provides a context cache for transient TPM objects, to which commands can be
-targeted. For each command invocation, it loads necessary contexts into TPM from
-the cache. Upon completing the operation, tpm2sh saves the contexts and clears
-out TPM memory.
-.SH OPTIONS
-These options must precede the main command.
-.TP
-.BI \-d ", --device" " path"
-Specify the path to the TPM device. The default value is
-.I /dev/tpmrm0 .
-.TP
-.B \-\-log-format \fIformat\fR
-Set the logging format to either \fBplain\fR or \fBpretty\fR (default).
-.SH COMMANDS
-For detailed options for a specific command, run
-.BI tpm2sh " command " --help .
-.TP
-.B algorithm
-List cryptographic algorithms supported by the TPM, including key and hash
-algorithms.
-.TP
-.B certificate
-Read and export an endorsement certificate as X.509 PEM-encoded certificate.
-.TP
-.B convert
-Import an external key in PKCS#1, PKCS#8, SEC1 format, and turn it as a TPMKey
-file. Supports PEM and DER encodings. Outputs a PEM-encoded TPMKey file.
-.TP
-.B create
-Create a new secondary key to the parent's hierarchy. Outputs PEM-encoded TPMKey
-file.
-.TP
-.B create-primary
-Create a new primary key in a owner, platform, or endorsement hierarchy.  Saves
-the key to the context cache.
-.TP
-.B delete
-Delete a key or a session. Cleans up resources used such as data stored in the
-cache directory, or the resources consumed from the chip.
-.TP
-.B key
-List cached keys.
-.TP
-.B load
-Load a key in PKCS#1, PKCS#8, SEC1 or TPMKey format. Supports PEM and DER
-encodings. Saves the key to the context cache.
-.TP
-.B memory
-Discover and list objects resident inside the chip, including transient objects,
-persistent objects, endorsement certificates and sessions. Identifies objects by
-their handle number. TPM objects can be referred in other subcommands with the
-"tpm:<handle>" syntax.
-.TP
-.B pcr-event
-Extend a Platform Configuration Register (PCR) with data, simulating a platform
-state change. This is a one-way operation.
-.TP
-.B policy
-Build and evaluate an authorization policy. This can be used to generate a
-policy digest, or to provide a policy associated with an active session.
-.TP
-.B reset-lock
-Reset the dictionary attack lockout counter.
-.TP
-.B return-code
-Translate a hexadecimal TPM return code into a human-readable description.
-.TP
-.B save
-Save the key to the TPM chip's non-volatile memory. The storage location is
-provided with the "tpm:<handle>" syntax.
-.TP
-.B seal
-Create a sealed data object that binds data to an authorization policy. The data
-can only be revealed if the policy is satisfied.
-.TP
-.B session
-List all locally cached authorization sessions.
-.TP
-.B unseal
-Reveal the data from a sealed object, provided that the authorization policy
-has been satisfied.
-.SH AUTHORIZATION
-Authorization for commands and objects is provided via resource identifiers,
-either on the command line or through environment variables.
-.TP
-.BI "password:" hex-string
-Authorization password represented as a hex string.
-.TP
-.BI "session:" handle
-Authorization session handle, which is also name of the session, as cached
-sessions retain their handle's in the chip, up until they are deleted, or the
-computer is reset.
-.SH FILES
-.TP
-.I ~/.cache/tpm2sh/vtpm/
-The default directory for cached sessions and transient objects.
-.SH EXIT STATUS
-.TP
-.B 0
-Success.
-.TP
-.B 1
-Execution failure.
-.TP
-.B 2
-Command-line parsing errror.
+provides over-subscribed virtual memory manager for sharing key, sealed object
+and session resources across multiple commands. This the primary mechanism for
+accessing transient TPM objects.
+.P
+The physical memory of a TPM chip is referenced with 'tpm:' tag, and virtual
+memory with 'vtpm:' tag. E.g., 'tpm:81000001' references a persistent handle in
+the physical memory.
+.P
+Virtual memory is based on caching TPM context objects, meaning that the cache
+will automatically invalidate and reset on reboot. Therefore, it requires very
+little management from the user.
 
 .SH BUGS
 Please report bugs to the project's mailing list at tpm-protocol@lists.linux.dev.

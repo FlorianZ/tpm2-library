@@ -1,6 +1,6 @@
 # tpm2sh
 
-`tpm2sh` is a command-line interface for interacting with TPM 2.0 chips.
+`tpm2sh` is a command-line tool for accessing TPM 2.0 chips.
 
 ## Development
 
