@@ -8,6 +8,7 @@ tpm_enum! {
     pub enum TpmAlgId(u16) {
         (Error, 0x0000, "TPM_ALG_ERROR"),
         (Rsa, 0x0001, "TPM_ALG_RSA"),
+        (Tdes, 0x0003, "TPM_ALG_TDES"),
         (Sha1, 0x0004, "TPM_ALG_SHA1"),
         (Hmac, 0x0005, "TPM_ALG_HMAC"),
         (Aes, 0x0006, "TPM_ALG_AES"),
