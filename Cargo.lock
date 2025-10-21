@@ -4,4 +4,4 @@ version = 3
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.10.55"
+version = "0.10.56"
