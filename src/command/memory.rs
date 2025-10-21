@@ -72,7 +72,7 @@ impl SubCommand for Memory {
             Self::fetch_rows(
                 device,
                 &mut rows,
-                TpmHt::HmacSession as u32,
+                TpmHt::LoadedSession as u32,
                 MemoryHandleType::Session,
                 |_, handle| {
                     let mso = (handle >> 24) as u8;
@@ -88,7 +88,7 @@ impl SubCommand for Memory {
             Self::fetch_rows(
                 device,
                 &mut rows,
-                TpmHt::PolicySession as u32,
+                TpmHt::SavedSession as u32,
                 MemoryHandleType::Session,
                 |_, _| Ok("saved".to_string()),
             )?;
