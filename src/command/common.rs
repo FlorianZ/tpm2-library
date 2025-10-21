@@ -38,7 +38,7 @@ pub struct OutputEncodingArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct ParentAuthArgs {
-    /// Parent key: 'tpm:<handle>', or 'key:<name grip>'
+    /// Parent key: 'tpm:<handle>', or 'vtpm:<handle>'
     #[arg(short = 'P', long)]
     pub parent: Scheme,
 

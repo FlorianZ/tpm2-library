@@ -13,7 +13,7 @@ tpm2sh \- a command-line tool for accessing TPM 2.0 devices
 is a command-line tool for accessing TPM 2.0 devices.
 .B tpm2sh
 provides over-subscribed virtual memory manager for sharing key, sealed object
-and session resources across multiple commands. This the primary mechanism for
+and session resources across multiple commands. It is the primary mechanism for
 accessing transient TPM objects.
 .P
 The physical memory of a TPM chip is referenced with 'tpm:' tag, and virtual
@@ -23,6 +23,14 @@ the physical memory.
 Virtual memory is based on caching TPM context objects, meaning that the cache
 will automatically invalidate and reset on reboot. Therefore, it requires very
 little management from the user.
+.SH KEYS
+.B tpm2sh 
+provides 'convert' and 'load' subcommands for loading DER, or PEM
+encoded internal and external keys. TPMKey ASN.1 format is the native output
+format used by the subcommands when creating new TPM keys.
+.P
+.B tpm2sh
+supports PKCS#1, PKCS#8 and SEC1 formats for external keys.
 
 .SH BUGS
 Please report bugs to the project's mailing list at tpm-protocol@lists.linux.dev.
