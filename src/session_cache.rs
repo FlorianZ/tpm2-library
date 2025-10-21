@@ -395,7 +395,7 @@ impl SessionCache {
                     session.attributes = auth.session_attributes;
                 }
                 Err(e) => {
-                    if let Err(e) = device.flush_context(session_handle.0) {
+                    if let Err(e) = device.flush_context(session_handle) {
                         log::warn!("{session_handle}: {e}");
                     }
                     if let Ok(session) = self.get_mut(*vhandle) {
@@ -434,8 +434,8 @@ pub(crate) fn create_auth(
 ) -> Result<TpmsAuthCommand, SessionError> {
     let handle_names: Vec<Tpm2bName> = handles
         .iter()
-        .map(|&handle| device.name_cache_get(handle))
-        .collect::<Result<_, _>>()?;
+        .map(|&handle| device.read_public(handle.into()).map(|(_, name)| name))
+        .collect::<Result<_, DeviceError>>()?;
 
     let command_code_bytes = (command_code as u32).to_be_bytes();
 

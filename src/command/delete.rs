@@ -60,7 +60,7 @@ fn delete_tpm_transient_handles(job: &mut Job, pattern: &str) -> Result<(), Comm
         let pattern = WildcardPattern::new(pattern)?;
         let handles = dev.fetch_handles((TpmHt::Transient as u32) << 24)?;
         for handle in handles.into_iter().filter(|&h| pattern.matches(h)) {
-            dev.flush_context(handle)?;
+            dev.flush_context(handle.into())?;
             writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
             job.key_cache.untrack(handle);
         }
@@ -128,7 +128,7 @@ fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandEr
                     let uri = Scheme::Vtpm(Handle::Transient(vhandle));
                     match job.key_cache.load_context(dev, &uri) {
                         Ok(handle) => {
-                            dev.flush_context(handle.0)?;
+                            dev.flush_context(handle)?;
                             writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
                             job.key_cache.untrack(handle.0);
                             job.key_cache.remove_context(vhandle)?;

@@ -160,7 +160,7 @@ impl SubCommand for Policy {
                             TpmPolicySession::new(device, session_handle, session_hash_alg);
                         execute_policy(&ast, &mut session)?
                     };
-                    device.flush_context(session_handle.0)?;
+                    device.flush_context(session_handle)?;
                     writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Session => {

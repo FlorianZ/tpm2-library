@@ -68,7 +68,6 @@ impl SubCommand for CreatePrimary {
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
 
             let object_handle = resp.object_handle;
-            device.name_cache_add(object_handle.0, resp.name);
             job.key_cache.track(object_handle)?;
             job.key_cache
                 .save_context(device, object_handle, &resp.out_public)?;

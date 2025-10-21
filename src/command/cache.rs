@@ -60,7 +60,7 @@ impl Cache {
             let uri = Scheme::Vtpm(Handle::Transient(vhandle));
             match job.key_cache.load_context(device, &uri) {
                 Ok(handle) => {
-                    device.flush_context(handle.0)?;
+                    device.flush_context(handle)?;
                     job.key_cache.untrack(handle.0);
                 }
                 Err(KeyCacheError::ContextNotFound(_)) => {}
@@ -92,14 +92,14 @@ impl Cache {
                         if let Ok(s) = job.session_cache.get_mut(vhandle) {
                             s.context = new_context;
                         }
-                        if let Err(e) = device.flush_context(live_handle) {
+                        if let Err(e) = device.flush_context(live_handle.into()) {
                             log::warn!("vtpm:{vhandle:08x}: {e}");
                             return Err(e.into());
                         }
                     }
                     Err(e) => {
                         log::warn!("vtpm:{vhandle:08x}: {e}");
-                        if let Err(flush_err) = device.flush_context(live_handle) {
+                        if let Err(flush_err) = device.flush_context(live_handle.into()) {
                             log::warn!("vtpm:{vhandle:08x}: {flush_err}");
                         }
                         return Err(e.into());

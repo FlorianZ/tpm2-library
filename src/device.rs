@@ -22,7 +22,7 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
-        Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCap, TpmCc, TpmHt, TpmPt, TpmRc,
+        Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCap, TpmCc, TpmPt, TpmRc,
         TpmRcBase, TpmRh, TpmSe, TpmSt, TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData,
         TpmsContext, TpmsRsaParms, TpmtPublic, TpmtPublicParms, TpmtSymDefObject, TpmuCapabilities,
         TpmuPublicParms,
@@ -111,7 +111,7 @@ pub struct Device {
     file: File,
     poller: Poller,
     log_format: LogFormat,
-    name_cache: HashMap<u32, Tpm2bName>,
+    name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
 }
 
 /// Checks if the TPM supports a given set of RSA parameters.
@@ -143,26 +143,6 @@ impl Device {
             log_format,
             name_cache: HashMap::new(),
         })
-    }
-
-    /// Adds a transient handle's name to the internal cache.
-    pub fn name_cache_add(&mut self, handle: u32, name: Tpm2bName) {
-        self.name_cache.insert(handle, name);
-    }
-
-    /// Retrieves the TPM Name for a handle, required for authorization computations.
-    pub(crate) fn name_cache_get(&mut self, handle: u32) -> Result<Tpm2bName, DeviceError> {
-        if let Some(name) = self.name_cache.get(&handle) {
-            return Ok(*name);
-        }
-
-        let mso = (handle >> 24) as u8;
-        if mso == TpmHt::Transient as u8 || mso == TpmHt::Persistent as u8 {
-            let (_, name) = self.read_public(handle.into())?;
-            Ok(name)
-        } else {
-            Tpm2bName::try_from(handle.to_be_bytes().as_slice()).map_err(Into::into)
-        }
     }
 
     fn receive_with_progress(&mut self) -> Result<Vec<u8>, DeviceError> {
@@ -432,17 +412,25 @@ impl Device {
         &mut self,
         handle: TpmHandle,
     ) -> Result<(TpmtPublic, Tpm2bName), DeviceError> {
+        if let Some(cached) = self.name_cache.get(&handle.0) {
+            return Ok(cached.clone());
+        }
+
         let cmd = TpmReadPublicCommand {
             object_handle: handle,
         };
         let sessions = vec![];
         let (resp, _) = self.execute(&cmd, &sessions)?;
+
         let read_public_resp = resp
             .ReadPublic()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::ReadPublic))?;
+
+        let public = read_public_resp.out_public.inner;
         let name = read_public_resp.name;
-        self.name_cache_add(handle.0, name);
-        Ok((read_public_resp.out_public.inner, name))
+
+        self.name_cache.insert(handle.0, (public.clone(), name));
+        Ok((public, name))
     }
 
     /// Saves the context of a transient object or session.
@@ -478,15 +466,16 @@ impl Device {
         Ok(resp_inner.loaded_handle.0)
     }
 
-    /// Flushes a transient object or session from the TPM.
+    /// Flushes a transient object or session from the TPM and removes it from the cache.
     ///
     /// # Errors
     ///
     /// Returns a `DeviceError` if the underlying `TPM2_FlushContext` command
     /// execution fails.
-    pub fn flush_context(&mut self, handle: u32) -> Result<(), DeviceError> {
+    pub fn flush_context(&mut self, handle: TpmHandle) -> Result<(), DeviceError> {
+        self.name_cache.remove(&handle.0);
         let cmd = TpmFlushContextCommand {
-            flush_handle: handle.into(),
+            flush_handle: handle,
         };
         let sessions = vec![];
         self.execute(&cmd, &sessions)?;
@@ -500,7 +489,7 @@ impl Device {
     /// Returns `DeviceError` on `ContextLoad` or `FlushContext` failure.
     pub fn flush_session(&mut self, context: TpmsContext) -> Result<(), DeviceError> {
         match self.load_context(context) {
-            Ok(live_handle) => self.flush_context(live_handle),
+            Ok(live_handle) => self.flush_context(live_handle.into()),
             Err(DeviceError::TpmRc(rc))
                 if rc.base() == TpmRcBase::ReferenceH0 || rc.base() == TpmRcBase::Handle =>
             {

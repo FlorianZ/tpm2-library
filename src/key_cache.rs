@@ -19,8 +19,7 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bPublic, TpmHt, TpmRcBase, TpmsContext},
-    message::TpmFlushContextCommand,
+    data::{Tpm2bPublic, TpmRcBase, TpmsContext},
     TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
 
@@ -340,8 +339,12 @@ impl<'a> KeyCache<'a> {
             return Err(KeyCacheError::AlreadyTracked(handle));
         }
         let mso = (handle.0 >> 24) as u8;
-        match TpmHt::try_from(mso) {
-            Ok(TpmHt::Transient | TpmHt::HmacSession | TpmHt::PolicySession) => {
+        match tpm2_protocol::data::TpmHt::try_from(mso) {
+            Ok(
+                tpm2_protocol::data::TpmHt::Transient
+                | tpm2_protocol::data::TpmHt::HmacSession
+                | tpm2_protocol::data::TpmHt::PolicySession,
+            ) => {
                 self.handles.insert(handle.0, handle);
                 Ok(())
             }
@@ -364,11 +367,7 @@ impl<'a> KeyCache<'a> {
         let handles_to_flush: Vec<TpmHandle> = self.handles.drain().map(|(_, v)| v).collect();
 
         for handle in handles_to_flush {
-            let cmd = TpmFlushContextCommand {
-                flush_handle: handle,
-            };
-            let sessions = vec![];
-            if let Err(err) = device.execute(&cmd, &sessions) {
+            if let Err(err) = device.flush_context(handle) {
                 let uri = Scheme::Tpm(Handle::Transient(handle.0));
                 log::error!("{uri}: {err}");
             }
