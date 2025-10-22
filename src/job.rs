@@ -13,7 +13,7 @@ use crate::{
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 use tpm2_protocol::{
-    data::{Tpm2bNonce, TpmCc, TpmRh, TpmaNv, TpmaSession, TpmsAuthCommand},
+    data::{Tpm2bNonce, TpmCc, TpmRcBase, TpmRh, TpmaNv, TpmaSession, TpmsAuthCommand},
     message::{TpmAuthResponses, TpmNvReadCommand, TpmNvReadPublicCommand, TpmResponseBody},
     tpm_hash_size, TpmErrorKind, TpmHandle,
 };
@@ -136,7 +136,19 @@ impl<'a> Job<'a> {
         }
 
         let sessions = self.build_auth_area(device, command, handles, auth_list)?;
-        let (resp, auth_responses) = device.execute(command, &sessions)?;
+        let (resp, auth_responses) = match device.execute(command, &sessions) {
+            Ok((resp, auth_responses)) => (resp, auth_responses),
+            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::PolicyFail => {
+                for auth in auth_list {
+                    if let Auth::Session(vhandle) = auth {
+                        log::debug!("vtpm:{vhandle} is stale");
+                        self.session_cache.remove(*vhandle)?;
+                    }
+                }
+                return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)));
+            }
+            Err(err) => return Err(KeyCacheError::Device(err)),
+        };
 
         let mut used_auth_list = HashSet::new();
         for auth in auth_list {
