@@ -71,7 +71,7 @@ impl std::fmt::Display for Auth {
         match self {
             Auth::Password(bytes) => write!(f, "password:{}", hex::encode(bytes)),
             Auth::Policy(bytes) => write!(f, "policy:{}", hex::encode(bytes)),
-            Auth::Session(handle) => write!(f, "{handle}"),
+            Auth::Session(handle) => write!(f, "vtpm:{handle:08x}"),
         }
     }
 }
