@@ -21,7 +21,7 @@ use tpm2_protocol::{
 pub struct Job<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
     pub key_cache: KeyCache<'a>,
-    pub session_cache: SessionCache,
+    pub session_cache: SessionCache<'a>,
 }
 
 impl<'a> Job<'a> {
@@ -30,7 +30,7 @@ impl<'a> Job<'a> {
     pub fn new(
         device: Option<Rc<RefCell<Device>>>,
         key_cache: KeyCache<'a>,
-        session_cache: SessionCache,
+        session_cache: SessionCache<'a>,
     ) -> Self {
         Self {
             device,

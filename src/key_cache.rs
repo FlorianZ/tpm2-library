@@ -19,7 +19,7 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bPublic, TpmRcBase, TpmsContext},
+    data::{Tpm2bPublic, TpmHt, TpmRcBase, TpmsContext},
     TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
 
@@ -58,8 +58,6 @@ pub enum KeyCacheError {
     AlreadyTracked(TpmHandle),
     #[error("context not found: {0:08x}")]
     ContextNotFound(u32),
-    #[error("invalid handle: {0:08x}")]
-    InvalidHandle(u32),
     #[error("invalid parent: {0}")]
     InvalidParent(String),
     #[error("parent not loaded")]
@@ -93,7 +91,7 @@ pub struct KeyCache<'a> {
     pub contexts: HashMap<u32, CacheKey>,
     pub writer: &'a mut dyn Write,
     dirty_contexts: HashSet<u32>,
-    contexts_dir: PathBuf,
+    cache_dir: &'a PathBuf,
 }
 
 impl std::fmt::Debug for KeyCache<'_> {
@@ -115,12 +113,9 @@ impl<'a> KeyCache<'a> {
     /// Flushes transient handles and saves dirty contexts, logging errors.
     pub fn teardown(&mut self, device: Option<std::rc::Rc<std::cell::RefCell<Device>>>) {
         if !self.dirty_contexts.is_empty() {
-            if let Err(e) = fs::create_dir_all(&self.contexts_dir) {
-                log::error!("teardown: {e:#}");
-            }
             for vhandle in self.dirty_contexts.drain() {
                 if let Some(data) = self.contexts.get(&vhandle) {
-                    let path = self.contexts_dir.join(format!("{vhandle:08x}.bin"));
+                    let path = self.cache_dir.join(format!("{vhandle:08x}.bin"));
                     match from_tpm_object_to_vec(data) {
                         Ok(bytes) => {
                             if let Err(e) = fs::write(path, bytes) {
@@ -154,14 +149,16 @@ impl<'a> KeyCache<'a> {
     /// # Errors
     ///
     /// Returns a `KeyCacheError` if loading or refreshing contexts fails.
-    pub fn new(cache_dir: &Path, writer: &'a mut dyn Write) -> Result<KeyCache<'a>, KeyCacheError> {
-        let contexts_dir = cache_dir.join("vtpm");
+    pub fn new(
+        cache_dir: &'a PathBuf,
+        writer: &'a mut dyn Write,
+    ) -> Result<KeyCache<'a>, KeyCacheError> {
         let mut new_context = Self {
             handles: HashMap::new(),
             writer,
             contexts: HashMap::new(),
             dirty_contexts: HashSet::new(),
-            contexts_dir,
+            cache_dir,
         };
 
         new_context.load_contexts()?;
@@ -171,8 +168,7 @@ impl<'a> KeyCache<'a> {
 
     /// Loads all saved contexts from the cache directory, pruning invalid ones.
     fn load_contexts(&mut self) -> Result<(), KeyCacheError> {
-        fs::create_dir_all(&self.contexts_dir)?;
-        let entries = match fs::read_dir(&self.contexts_dir) {
+        let entries = match fs::read_dir(self.cache_dir) {
             Ok(entries) => entries.filter_map(Result::ok),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(e.into()),
@@ -196,16 +192,19 @@ impl<'a> KeyCache<'a> {
                 continue;
             };
 
-            let content = fs::read(&path)?;
-            let (key, remainder) = CacheKey::parse(&content)?;
-
-            if !remainder.is_empty() {
-                let _ = std::fs::remove_file(path);
-                continue;
+            let vhandle_mso = (vhandle >> 24) as u8;
+            if vhandle_mso == TpmHt::Transient as u8 {
+                let content = fs::read(&path)?;
+                let (key, remainder) = CacheKey::parse(&content)?;
+                if !remainder.is_empty() {
+                    log::warn!("trailing data: {vhandle}");
+                }
+                self.contexts.insert(vhandle, key);
+            } else {
+                log::debug!("skip: {vhandle}");
             }
-
-            self.contexts.insert(vhandle, key);
         }
+
         Ok(())
     }
 
@@ -216,7 +215,7 @@ impl<'a> KeyCache<'a> {
     /// Returns an I/O error if the context file cannot be removed from disk.
     pub fn remove_context(&mut self, vhandle: u32) -> Result<(), KeyCacheError> {
         if self.contexts.remove(&vhandle).is_some() {
-            let path = self.contexts_dir.join(format!("{vhandle:08x}.bin"));
+            let path = self.cache_dir.join(format!("{vhandle:08x}.bin"));
             if let Err(e) = fs::remove_file(path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     return Err(e.into());
@@ -262,7 +261,7 @@ impl<'a> KeyCache<'a> {
 
     #[must_use]
     pub fn cache_dir(&self) -> &Path {
-        &self.contexts_dir
+        self.cache_dir
     }
 
     /// Validates a URI for a parent object and loads its context.
@@ -331,18 +330,8 @@ impl<'a> KeyCache<'a> {
         if self.handles.contains_key(&handle.0) {
             return Err(KeyCacheError::AlreadyTracked(handle));
         }
-        let mso = (handle.0 >> 24) as u8;
-        match tpm2_protocol::data::TpmHt::try_from(mso) {
-            Ok(
-                tpm2_protocol::data::TpmHt::Transient
-                | tpm2_protocol::data::TpmHt::HmacSession
-                | tpm2_protocol::data::TpmHt::PolicySession,
-            ) => {
-                self.handles.insert(handle.0, handle);
-                Ok(())
-            }
-            _ => Err(KeyCacheError::InvalidHandle(handle.0)),
-        }
+        self.handles.insert(handle.0, handle);
+        Ok(())
     }
 
     /// Removes a handle from the automatic cleanup list.

@@ -28,7 +28,7 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bAuth, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmRh, TpmSe, TpmaSession,
+        Tpm2bAuth, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSe, TpmaSession,
         TpmsAuthCommand, TpmsAuthResponse, TpmsContext,
     },
     message::{TpmAuthResponses, TpmStartAuthSessionResponse},
@@ -188,13 +188,13 @@ impl Session {
 }
 
 #[derive(Debug)]
-pub struct SessionCache {
+pub struct SessionCache<'a> {
     pub sessions: HashMap<u32, Session>,
     pub dirty: HashSet<u32>,
-    pub sessions_dir: PathBuf,
+    pub cache_dir: &'a PathBuf,
 }
 
-impl<'a> IntoIterator for &'a SessionCache {
+impl<'a> IntoIterator for &'a SessionCache<'_> {
     type Item = (&'a u32, &'a Session);
     type IntoIter = hash_map::Iter<'a, u32, Session>;
 
@@ -203,14 +203,14 @@ impl<'a> IntoIterator for &'a SessionCache {
     }
 }
 
-impl SessionCache {
+impl<'a> SessionCache<'a> {
     /// Creates a new, empty `SessionCache`.
     #[must_use]
-    pub fn new(cache_dir: &Path) -> Self {
+    pub fn new(cache_dir: &'a PathBuf) -> Self {
         Self {
             sessions: HashMap::new(),
             dirty: HashSet::new(),
-            sessions_dir: cache_dir.join("sessions"),
+            cache_dir,
         }
     }
 
@@ -221,9 +221,7 @@ impl SessionCache {
     ///
     /// Returns `SessionError` on I/O failure.
     pub fn load_sessions(&mut self) -> Result<(), SessionError> {
-        std::fs::create_dir_all(&self.sessions_dir)?;
-
-        let entries = match std::fs::read_dir(&self.sessions_dir) {
+        let entries = match std::fs::read_dir(self.cache_dir) {
             Ok(entries) => entries.filter_map(Result::ok),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(e.into()),
@@ -246,15 +244,16 @@ impl SessionCache {
                 continue;
             };
 
-            let session = Session::load_from_path(&path)?;
-
-            if session.context.saved_handle.0 != vhandle {
-                let _ = std::fs::remove_file(path);
-                continue;
+            let vhandle_mso = (vhandle >> 24) as u8;
+            if vhandle_mso == TpmHt::HmacSession as u8 || vhandle_mso == TpmHt::PolicySession as u8
+            {
+                self.sessions
+                    .insert(vhandle, Session::load_from_path(&path)?);
+            } else {
+                log::debug!("skip: {vhandle}");
             }
-
-            self.sessions.insert(vhandle, session);
         }
+
         Ok(())
     }
 
@@ -267,13 +266,10 @@ impl SessionCache {
         if self.dirty.is_empty() {
             return Ok(());
         }
-
-        std::fs::create_dir_all(&self.sessions_dir)?;
-
         for vhandle in self.dirty.drain() {
             if let Some(session) = self.sessions.get(&vhandle) {
                 let handle = session.context.saved_handle.0;
-                let path = self.sessions_dir.join(format!("{handle:08x}.bin"));
+                let path = self.cache_dir.join(format!("{handle:08x}.bin"));
                 session.save_to_path(&path)?;
             }
         }
@@ -297,7 +293,7 @@ impl SessionCache {
     pub fn remove(&mut self, vhandle: u32) -> Result<Option<Session>, SessionError> {
         let session = self.sessions.remove(&vhandle);
         self.dirty.remove(&vhandle);
-        let path = self.sessions_dir.join(format!("{vhandle:08x}.bin"));
+        let path = self.cache_dir.join(format!("{vhandle:08x}.bin"));
         if let Err(e) = std::fs::remove_file(path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 return Err(e.into());

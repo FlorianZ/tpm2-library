@@ -13,7 +13,8 @@ use cli::{
     session_cache::SessionCache,
 };
 use std::{
-    cell::RefCell, fs, io::Write, os::unix::io::AsRawFd, process, rc::Rc, sync::atomic::Ordering,
+    cell::RefCell, fs, io::Write, os::unix::io::AsRawFd, path::PathBuf, process, rc::Rc,
+    sync::atomic::Ordering,
 };
 
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
@@ -61,17 +62,19 @@ fn main() {
     };
 
     let Some(project) = directories::ProjectDirs::from("", "", "tpm2sh") else {
-        eprintln!("Could not determine directory.");
+        eprintln!("Could not locate cache directory path.");
         std::process::exit(1);
     };
-    let cache_dir = project.cache_dir();
-    if let Err(e) = fs::create_dir_all(cache_dir) {
-        eprintln!("Failed to create cache directory: {e}");
+
+    let cache_dir = project.cache_dir().join("vtpm");
+
+    if let Err(err) = fs::create_dir_all(&cache_dir) {
+        eprintln!("{err}");
         process::exit(1);
     }
 
-    if let Err(err) = execute_cli(&cli, cache_dir) {
-        eprintln!("{:#}", err);
+    if let Err(err) = execute_cli(&cli, &cache_dir) {
+        eprintln!("{err:#}");
         process::exit(1);
     }
 
@@ -80,7 +83,7 @@ fn main() {
     }
 }
 
-fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), CommandError> {
+fn execute_cli(cli: &TopLevel, cache_dir: &PathBuf) -> Result<(), CommandError> {
     let shared_device = init_device(cli)?;
     let mut stdout = std::io::stdout();
 
