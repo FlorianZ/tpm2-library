@@ -4,7 +4,7 @@
 
 use crate::{
     constant::TPM_HEADER_SIZE,
-    data::{TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
+    data::{TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     message::{TpmBodyBuild, TpmHeader},
     TpmBuild, TpmErrorKind, TpmResult, TpmSized,
 };
@@ -73,18 +73,18 @@ pub fn tpm_build_response<R>(
 where
     R: TpmHeader + TpmBodyBuild,
 {
-    let tag = if !rc.is_error() && !sessions.is_empty() {
-        TpmSt::Sessions
-    } else {
-        TpmSt::NoSessions
-    };
-
-    if rc.is_error() || rc.is_warning() {
+    if !matches!(rc, TpmRc::Fmt0(TpmRcBase::Success)) {
         (TpmSt::NoSessions as u16).build(writer)?;
         u32::try_from(TPM_HEADER_SIZE)?.build(writer)?;
         rc.value().build(writer)?;
         return Ok(());
     }
+
+    let tag = if sessions.is_empty() {
+        TpmSt::NoSessions
+    } else {
+        TpmSt::Sessions
+    };
 
     let handle_area_size = R::HANDLES * size_of::<u32>();
     let param_area_size = response.len() - handle_area_size;

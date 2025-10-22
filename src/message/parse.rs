@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     constant::TPM_HEADER_SIZE,
-    data::{TpmCc, TpmRc, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
+    data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     TpmErrorKind, TpmNotDiscriminant, TpmParse, TpmResult,
 };
 use core::{convert::TryFrom, mem::size_of};
@@ -134,7 +134,7 @@ pub fn tpm_parse_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult>
     }
 
     let rc = TpmRc::try_from(code)?;
-    if rc.is_error() || rc.is_warning() {
+    if !matches!(rc, TpmRc::Fmt0(TpmRcBase::Success)) {
         return Ok(Err(rc));
     }
 

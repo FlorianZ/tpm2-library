@@ -146,58 +146,44 @@ tpm_enum! {
     }
 }
 
-/// Extracts the base response code from a raw `u32` value.
-fn get_base_code(value: u32) -> u32 {
-    if (value & TPM_RC_FMT1) != 0 {
-        TPM_RC_FMT1 | (value & TPM_RC_FMT1_ERROR_MASK)
-    } else {
-        value
-    }
+/// A TPM 2.0 response code with a Format 1 structure.
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct TpmRcFmt1 {
+    pub base: TpmRcBase,
+    pub index: Option<TpmRcIndex>,
 }
 
-#[must_use]
+/// A TPM 2.0 response code.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub struct TpmRc {
-    value: u32,
-    base: TpmRcBase,
+pub enum TpmRc {
+    Fmt0(TpmRcBase),
+    Fmt1(TpmRcFmt1),
+    Warn(TpmRcBase),
 }
 
 impl TpmRc {
-    /// Returns the base error code, with handle, parameter, or session index
-    /// stripped out.
-    #[must_use]
-    pub fn base(self) -> TpmRcBase {
-        self.base
-    }
-
-    #[must_use]
-    pub fn index(self) -> Option<TpmRcIndex> {
-        let value = self.value;
-        if (value & TPM_RC_FMT1) == 0 {
-            return None;
-        }
-        let is_parameter = (value & TPM_RC_P_BIT) != 0;
-        let n = ((value >> TPM_RC_N_SHIFT) & 0b1111) as u8;
-
-        match (is_parameter, n) {
-            (_, 0) => None,
-            (true, num) => Some(TpmRcIndex::Parameter(num)),
-            (false, num @ 1..=MAX_HANDLE_INDEX) => Some(TpmRcIndex::Handle(num)),
-            (false, num) => Some(TpmRcIndex::Session(num - SESSION_INDEX_OFFSET)),
-        }
-    }
-
+    /// Returns the raw `u32` value of the response code.
     #[must_use]
     pub fn value(self) -> u32 {
-        self.value
-    }
-    #[must_use]
-    pub fn is_warning(self) -> bool {
-        (self.value & TPM_RC_WARN) == TPM_RC_WARN
-    }
-    #[must_use]
-    pub fn is_error(self) -> bool {
-        !self.is_warning() && self.value != 0
+        match self {
+            Self::Fmt0(base) | Self::Warn(base) => base as u32,
+            Self::Fmt1(fmt1) => {
+                let mut value = fmt1.base as u32;
+                if let Some(index) = fmt1.index {
+                    let (is_parameter, num) = match index {
+                        TpmRcIndex::Parameter(n) => (true, n),
+                        TpmRcIndex::Handle(n) => (false, n),
+                        TpmRcIndex::Session(n) => (false, n + SESSION_INDEX_OFFSET),
+                    };
+
+                    if is_parameter {
+                        value |= TPM_RC_P_BIT;
+                    }
+                    value |= u32::from(num) << TPM_RC_N_SHIFT;
+                }
+                value
+            }
+        }
     }
 }
 
@@ -210,7 +196,7 @@ impl crate::TpmSized for TpmRc {
 
 impl crate::TpmBuild for TpmRc {
     fn build(&self, writer: &mut crate::TpmWriter) -> crate::TpmResult<()> {
-        self.value.build(writer)
+        self.value().build(writer)
     }
 }
 
@@ -225,33 +211,55 @@ impl crate::TpmParse for TpmRc {
 impl TryFrom<u32> for TpmRc {
     type Error = TpmErrorKind;
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        let base_code = get_base_code(value);
+        let base_code = if (value & TPM_RC_FMT1) != 0 {
+            TPM_RC_FMT1 | (value & TPM_RC_FMT1_ERROR_MASK)
+        } else {
+            value
+        };
+
         let base = TpmRcBase::try_from(base_code).map_err(|()| {
             TpmErrorKind::NotDiscriminant(
                 "TpmRcBase",
                 TpmNotDiscriminant::Unsigned(u64::from(base_code)),
             )
         })?;
-        Ok(Self { value, base })
+
+        if (value & TPM_RC_WARN) == TPM_RC_WARN {
+            Ok(Self::Warn(base))
+        } else if (value & TPM_RC_FMT1) != 0 {
+            let is_parameter = (value & TPM_RC_P_BIT) != 0;
+            let n = ((value >> TPM_RC_N_SHIFT) & 0b1111) as u8;
+
+            let index = match (is_parameter, n) {
+                (_, 0) => None,
+                (true, num) => Some(TpmRcIndex::Parameter(num)),
+                (false, num @ 1..=MAX_HANDLE_INDEX) => Some(TpmRcIndex::Handle(num)),
+                (false, num) => Some(TpmRcIndex::Session(num - SESSION_INDEX_OFFSET)),
+            };
+            Ok(Self::Fmt1(TpmRcFmt1 { base, index }))
+        } else {
+            Ok(Self::Fmt0(base))
+        }
     }
 }
 
 impl From<TpmRcBase> for TpmRc {
     fn from(base: TpmRcBase) -> Self {
-        Self {
-            value: base as u32,
-            base,
-        }
+        Self::Fmt0(base)
     }
 }
 
 impl Display for TpmRc {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let base = self.base();
-        if let Some(index) = self.index() {
-            write!(f, "[{base}, {index}]")
-        } else {
-            write!(f, "{base}")
+        match self {
+            Self::Fmt0(base) | Self::Warn(base) => write!(f, "{base}"),
+            Self::Fmt1(fmt1) => {
+                if let Some(index) = fmt1.index {
+                    write!(f, "[{}, {}]", fmt1.base, index)
+                } else {
+                    write!(f, "{}", fmt1.base)
+                }
+            }
         }
     }
 }

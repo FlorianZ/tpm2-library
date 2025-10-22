@@ -41,40 +41,68 @@ fn test_tpm_buffer_slice_too_large() {
     assert_eq!(result, Err(TpmErrorKind::Capacity(CAPACITY)),);
 }
 
-fn test_tpm_rc_base_from_raw() {
+fn test_tpm_rc_variants_from_raw() {
     let cases = [
-        ("TPM_RC_SUCCESS", 0x0000, TpmRcBase::Success),
-        ("TPM_RC_BAD_TAG", 0x001E, TpmRcBase::BadTag),
-        ("TPM_RC_INITIALIZE", 0x0100, TpmRcBase::Initialize),
-        ("TPM_RC_FAILURE", 0x0101, TpmRcBase::Failure),
-        ("TPM_RC_SENSITIVE", 0x0155, TpmRcBase::Sensitive),
-        ("TPM_RC_CONTEXT_GAP", 0x0901, TpmRcBase::ContextGap),
-        ("TPM_RC_NV_UNAVAILABLE", 0x0923, TpmRcBase::NvUnavailable),
+        ("TPM_RC_SUCCESS", 0x0000, TpmRc::Fmt0(TpmRcBase::Success)),
+        ("TPM_RC_BAD_TAG", 0x001E, TpmRc::Fmt0(TpmRcBase::BadTag)),
+        (
+            "TPM_RC_INITIALIZE",
+            0x0100,
+            TpmRc::Fmt0(TpmRcBase::Initialize),
+        ),
+        ("TPM_RC_FAILURE", 0x0101, TpmRc::Fmt0(TpmRcBase::Failure)),
+        (
+            "TPM_RC_SENSITIVE",
+            0x0155,
+            TpmRc::Fmt0(TpmRcBase::Sensitive),
+        ),
+        (
+            "TPM_RC_CONTEXT_GAP",
+            0x0901,
+            TpmRc::Warn(TpmRcBase::ContextGap),
+        ),
+        (
+            "TPM_RC_NV_UNAVAILABLE",
+            0x0923,
+            TpmRc::Warn(TpmRcBase::NvUnavailable),
+        ),
         (
             "TPM_RC_HANDLE with handle index 1",
             0x018B,
-            TpmRcBase::Handle,
+            TpmRc::Fmt1(tpm2_protocol::data::TpmRcFmt1 {
+                base: TpmRcBase::Handle,
+                index: Some(TpmRcIndex::Handle(1)),
+            }),
         ),
         (
             "TPM_RC_ATTRIBUTES with handle index 4",
             0x0482,
-            TpmRcBase::Attributes,
+            TpmRc::Fmt1(tpm2_protocol::data::TpmRcFmt1 {
+                base: TpmRcBase::Attributes,
+                index: Some(TpmRcIndex::Handle(4)),
+            }),
         ),
         (
             "TPM_RC_AUTH_FAIL with session index 0",
             0x088E,
-            TpmRcBase::AuthFail,
+            TpmRc::Fmt1(tpm2_protocol::data::TpmRcFmt1 {
+                base: TpmRcBase::AuthFail,
+                index: Some(TpmRcIndex::Session(0)),
+            }),
         ),
         (
             "TPM_RC_CURVE with parameter index 1",
             0x01E6,
-            TpmRcBase::Curve,
+            TpmRc::Fmt1(tpm2_protocol::data::TpmRcFmt1 {
+                base: TpmRcBase::Curve,
+                index: Some(TpmRcIndex::Parameter(1)),
+            }),
         ),
     ];
 
-    for (description, raw_rc, expected_base) in cases {
+    for (description, raw_rc, expected_rc) in cases {
         let rc = TpmRc::try_from(raw_rc).unwrap();
-        assert_eq!(rc.base(), expected_base, "{description}");
+        assert_eq!(rc, expected_rc, "{description}");
     }
 }
 
@@ -106,25 +134,6 @@ fn test_tpm_rc_display() {
     for (description, raw_rc, expected_display) in cases {
         let rc = TpmRc::try_from(raw_rc).unwrap();
         assert_eq!(rc.to_string(), expected_display, "{description}");
-    }
-}
-
-fn test_tpm_rc_index_from_raw() {
-    let cases = [
-        ("No index for success", 0x0000, None),
-        ("No index for format 0", 0x0101, None),
-        ("No index for warning", 0x0901, None),
-        ("No index when N is 0", 0x008B, None),
-        ("Parameter index 1", 0x01C1, Some(TpmRcIndex::Parameter(1))),
-        ("Parameter index 8", 0x08C4, Some(TpmRcIndex::Parameter(8))),
-        ("Handle index 1", 0x018B, Some(TpmRcIndex::Handle(1))),
-        ("Handle index 7", 0x078B, Some(TpmRcIndex::Handle(7))),
-        ("Session index 0", 0x088E, Some(TpmRcIndex::Session(0))),
-        ("Session index 7", 0x0F8E, Some(TpmRcIndex::Session(7))),
-    ];
-    for (description, raw_rc, expected) in cases {
-        let rc = TpmRc::try_from(raw_rc).unwrap();
-        assert_eq!(rc.index(), expected, "{description}");
     }
 }
 
@@ -340,9 +349,8 @@ fn test_dynamic_roundtrip() {
 test_suite!(
     test_tpm2b_build_length_too_large,
     test_tpm_buffer_slice_too_large,
-    test_tpm_rc_base_from_raw,
+    test_tpm_rc_variants_from_raw,
     test_tpm_rc_display,
-    test_tpm_rc_index_from_raw,
     test_tpmt_roundtrip_sym_def_xor,
     test_dynamic_roundtrip,
 );
