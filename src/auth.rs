@@ -5,9 +5,9 @@
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{char, hex_digit1},
-    combinator::{all_consuming, map_res},
-    sequence::tuple,
+    character::complete::hex_digit1,
+    combinator::{all_consuming, map, map_res},
+    sequence::preceded,
     IResult,
 };
 use std::{num::ParseIntError, str::FromStr};
@@ -16,12 +16,10 @@ use tpm2_protocol::data::TpmHt;
 
 #[derive(Debug, Error)]
 pub enum AuthError {
-    #[error("auth is not a policy handle")]
-    NotPolicyHandle,
-    #[error("auth is not a valid hex string")]
-    InvalidHexString,
     #[error("auth is invalid")]
     InvalidAuth,
+    #[error("auth is not a policy session handle")]
+    NotPolicyHandle,
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
     #[error("handle decode: {0}")]
@@ -38,24 +36,21 @@ pub enum Auth {
 
 /// Nom parser for the Auth enum.
 fn parse_auth(input: &str) -> IResult<&str, Auth> {
-    let parse_password = map_res(hex_digit1, |hex: &str| hex::decode(hex).map(Auth::Password));
-    let parse_policy = map_res(hex_digit1, |hex: &str| hex::decode(hex).map(Auth::Policy));
-    let parse_session = map_res(hex_digit1, |hex: &str| {
-        u32::from_str_radix(hex, 16).map(Auth::Session)
-    });
-
     alt((
-        map_res(
-            tuple((tag("password"), char(':'), parse_password)),
-            |(_, _, auth)| -> Result<Auth, AuthError> { Ok(auth) },
+        map(
+            preceded(tag("password:"), map_res(hex_digit1, hex::decode)),
+            Auth::Password,
         ),
-        map_res(
-            tuple((tag("policy"), char(':'), parse_policy)),
-            |(_, _, auth)| -> Result<Auth, AuthError> { Ok(auth) },
+        map(
+            preceded(tag("policy:"), map_res(hex_digit1, hex::decode)),
+            Auth::Policy,
         ),
-        map_res(
-            tuple((tag("vtpm"), char(':'), parse_session)),
-            |(_, _, auth)| -> Result<Auth, AuthError> { Ok(auth) },
+        map(
+            preceded(
+                tag("vtpm:"),
+                map_res(hex_digit1, |s| u32::from_str_radix(s, 16)),
+            ),
+            Auth::Session,
         ),
     ))(input)
 }
