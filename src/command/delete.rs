@@ -6,7 +6,7 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, HierarchyAuthArgs},
     device::{with_device, Device, DeviceError},
-    handle::HandlePattern,
+    handle::{Handle, HandlePattern},
     job::Job,
 };
 use clap::Args;
@@ -54,12 +54,15 @@ fn for_each_tpm_handle<F>(
     mut action: F,
 ) -> Result<(), CommandError>
 where
-    F: FnMut(&mut Device, &mut Job, u32) -> Result<(), CommandError>,
+    F: FnMut(&mut Device, &mut Job, Handle) -> Result<(), CommandError>,
 {
     with_device(job.device.clone(), |dev| {
         let pattern = HandlePattern::new(pattern_str)?;
         let handles = dev.fetch_handles((handle_type as u32) << 24)?;
-        for handle in handles.into_iter().filter(|&h| pattern.matches(h)) {
+        for handle in handles
+            .into_iter()
+            .filter(|&h| pattern.matches(h.value_raw()))
+        {
             action(dev, job, handle)?;
         }
         Ok(())
@@ -68,9 +71,9 @@ where
 
 fn delete_tpm_transient_handles(job: &mut Job, pattern: &str) -> Result<(), CommandError> {
     for_each_tpm_handle(job, pattern, TpmHt::Transient, |dev, job, handle| {
-        dev.flush_context(handle.into())?;
-        writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
-        job.key_cache.untrack(handle);
+        dev.flush_context(handle.value_tpm())?;
+        writeln!(job.key_cache.writer, "{handle}")?;
+        job.key_cache.untrack(handle.value_raw());
         Ok(())
     })
 }
@@ -81,8 +84,8 @@ fn delete_tpm_persistent_handles(
     hierarchy_args: &HierarchyAuthArgs,
 ) -> Result<(), CommandError> {
     for_each_tpm_handle(job, pattern, TpmHt::Persistent, |dev, job, handle| {
-        let persistent_handle = TpmHandle(handle);
-        let auth_handle_val: TpmHandle = if (handle & 0x00FF_FFFF) <= 0x007F_FFFF {
+        let persistent_handle = handle.value_tpm();
+        let auth_handle_val: TpmHandle = if (handle.value_raw() & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
         } else {
             (TpmRh::Platform as u32).into()
@@ -96,7 +99,7 @@ fn delete_tpm_persistent_handles(
             persistent_handle,
             &auths,
         )?;
-        writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
+        writeln!(job.key_cache.writer, "{handle}")?;
         Ok(())
     })
 }

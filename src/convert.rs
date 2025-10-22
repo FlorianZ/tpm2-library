@@ -4,6 +4,7 @@
 
 use crate::{
     command::{CommandError, OutputEncoding},
+    handle::Handle,
     key::TpmKey,
     key_cache::KeyCache,
 };
@@ -47,8 +48,7 @@ pub fn from_str_to_nv_handle(input: &str) -> Result<TpmHandle, String> {
 
     let handle = u32::from_str_radix(value, 16).map_err(|e| e.to_string())?;
 
-    let mso = (handle >> 24) as u8;
-    if mso != TpmHt::NvIndex as u8 {
+    if TpmHt::try_from(Handle::Tpm(handle)).map_err(|e| e.to_string())? != TpmHt::NvIndex {
         return Err("not an NV index handle".to_string());
     }
 

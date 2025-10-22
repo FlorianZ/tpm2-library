@@ -7,6 +7,7 @@ use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
     device::{self, Device},
+    handle::Handle,
     job::Job,
     key::{
         format_alg_from_public, KeyError, Tpm2shAlgId, OID_ECDSA_WITH_SHA256,
@@ -57,25 +58,25 @@ impl SubCommand for Memory {
             Self::fetch_rows(
                 device,
                 &mut rows,
-                TpmHt::Persistent as u32,
+                TpmHt::Persistent,
                 MemoryHandleType::Persistent,
                 Self::fetch_details,
             )?;
             Self::fetch_rows(
                 device,
                 &mut rows,
-                TpmHt::Transient as u32,
+                TpmHt::Transient,
                 MemoryHandleType::Transient,
                 Self::fetch_details,
             )?;
             Self::fetch_rows(
                 device,
                 &mut rows,
-                TpmHt::LoadedSession as u32,
+                TpmHt::LoadedSession,
                 MemoryHandleType::Session,
                 |_, handle| {
-                    let mso = (handle >> 24) as u8;
-                    let detail = if mso == TpmHt::HmacSession as u8 {
+                    let ht = TpmHt::try_from(handle)?;
+                    let detail = if ht == TpmHt::HmacSession {
                         "hmac"
                     } else {
                         "policy"
@@ -87,7 +88,7 @@ impl SubCommand for Memory {
             Self::fetch_rows(
                 device,
                 &mut rows,
-                TpmHt::SavedSession as u32,
+                TpmHt::SavedSession,
                 MemoryHandleType::Session,
                 |_, _| Ok("saved".to_string()),
             )?;
@@ -98,15 +99,16 @@ impl SubCommand for Memory {
                 Self::fetch_rows(
                     device,
                     &mut rows,
-                    TpmHt::NvIndex as u32,
+                    TpmHt::NvIndex,
                     MemoryHandleType::Certificate,
                     |device, handle| {
-                        if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle) {
+                        let handle_val = handle.value_raw();
+                        if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
                             return Err(CommandError::InvalidInput("Not a certificate".into()));
                         }
                         let auths = vec![Auth::Password(Vec::new())];
                         let cert_bytes = job
-                            .read_certificate(device, &auths, handle, max_read_size)?
+                            .read_certificate(device, &auths, handle_val, max_read_size)?
                             .ok_or(CommandError::InvalidInput("No certificate data".into()))?;
                         if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != (0x30) {
                             return Err(CommandError::InvalidInput("Not a DER certificate".into()));
@@ -181,30 +183,31 @@ impl Memory {
     fn fetch_rows<F>(
         device: &mut Device,
         rows: &mut Vec<MemoryRow>,
-        handle_type: u32,
+        handle_type: TpmHt,
         display_type: MemoryHandleType,
         mut get_details: F,
     ) -> Result<(), CommandError>
     where
-        F: FnMut(&mut Device, u32) -> Result<String, CommandError>,
+        F: FnMut(&mut Device, Handle) -> Result<String, CommandError>,
     {
-        for handle in device.fetch_handles(handle_type << 24)? {
+        for handle in device.fetch_handles((handle_type as u32) << 24)? {
+            let handle_val = handle.value_raw();
             match get_details(device, handle) {
                 Ok(details) => {
                     rows.push(MemoryRow {
-                        handle: format!("{handle:08x}"),
+                        handle: handle.to_string(),
                         handle_type: display_type.to_string(),
                         details,
                     });
                 }
-                Err(e) => log::debug!("{handle:08x}: {e}"),
+                Err(e) => log::debug!("{handle_val:08x}: {e}"),
             }
         }
         Ok(())
     }
 
-    fn fetch_details(device: &mut Device, handle: u32) -> Result<String, CommandError> {
-        let (public, _) = device.read_public(handle.into())?;
+    fn fetch_details(device: &mut Device, handle: Handle) -> Result<String, CommandError> {
+        let (public, _) = device.read_public(handle.value_tpm())?;
         Ok(format_alg_from_public(&public))
     }
 

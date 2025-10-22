@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{auth::Auth, cli::LogFormat, job::Job, print::TpmPrint, TEARDOWN};
+use crate::{auth::Auth, cli::LogFormat, handle::Handle, job::Job, print::TpmPrint, TEARDOWN};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use log::trace;
@@ -335,7 +335,7 @@ impl Device {
     /// # Errors
     ///
     /// Returns a `DeviceError` if the `get_capability_page` call to the TPM device fails.
-    pub fn fetch_handles(&mut self, handle_type: u32) -> Result<Vec<u32>, DeviceError> {
+    pub fn fetch_handles(&mut self, handle_type: u32) -> Result<Vec<Handle>, DeviceError> {
         self.get_capability(
             TpmCap::Handles,
             handle_type,
@@ -346,6 +346,7 @@ impl Device {
             },
             |last| *last + 1,
         )
+        .map(|handles| handles.into_iter().map(Handle::Tpm).collect())
     }
 
     /// Fetches and returns one page of capabilities of a certain type from the TPM.

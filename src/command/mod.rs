@@ -42,7 +42,7 @@ use crate::{
     auth::AuthError,
     crypto::CryptoError,
     device::DeviceError,
-    handle::HandlePatternError,
+    handle::{HandleError, HandlePatternError},
     key::{AlgInfo, KeyError},
     key_cache::KeyCacheError,
     pcr::PcrError,
@@ -123,6 +123,8 @@ pub enum CommandError {
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
+    #[error("handle: {0}")]
+    Handle(#[from] HandleError),
     #[error("handle pattern: {0}")]
     HandlePattern(#[from] HandlePatternError),
     #[error("context: {0}")]

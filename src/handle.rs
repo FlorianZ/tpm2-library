@@ -10,9 +10,9 @@ use nom::{
     sequence::tuple,
     IResult,
 };
-use std::{num::ParseIntError, str::FromStr};
+use std::{convert::TryFrom, num::ParseIntError, str::FromStr};
 use thiserror::Error;
-use tpm2_protocol::TpmHandle;
+use tpm2_protocol::{data::TpmHt, TpmHandle};
 
 #[derive(Debug, Error)]
 pub enum HandleError {
@@ -80,6 +80,16 @@ impl FromStr for Handle {
             Ok((_, handle)) => Ok(handle),
             Err(_) => Err(HandleError::InvalidHandle),
         }
+    }
+}
+
+impl TryFrom<Handle> for TpmHt {
+    type Error = HandleError;
+
+    fn try_from(handle: Handle) -> Result<Self, Self::Error> {
+        let raw_handle = handle.value_raw();
+        let ht_byte = (raw_handle >> 24) as u8;
+        TpmHt::try_from(ht_byte).map_err(|()| HandleError::InvalidHandle)
     }
 }
 
