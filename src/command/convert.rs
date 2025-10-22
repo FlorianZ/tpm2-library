@@ -33,9 +33,9 @@ impl SubCommand for Convert {
             let parent_handle = job
                 .key_cache
                 .load_parent(device, &self.parent_args.parent)?;
-            let mut auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
+            let auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
             let input_bytes = from_input_to_bytes(self.input_args.input.as_deref())?;
-            let tpm_key = job.import_key(device, parent_handle, &input_bytes, &mut auths)?;
+            let tpm_key = job.import_key(device, parent_handle, &input_bytes, &auths)?;
             from_tpm_key_to_output(
                 &mut job.key_cache,
                 &tpm_key,
