@@ -69,7 +69,7 @@ impl SubCommand for Unseal {
                 Err(e) => return Err(e.into()),
             };
 
-            if self.hex || !std::io::stdout().is_terminal() {
+            if self.hex || std::io::stdout().is_terminal() {
                 writeln!(job.key_cache.writer, "{}", hex::encode(out_data.as_ref()))?;
             } else {
                 job.key_cache.writer.write_all(out_data.as_ref())?;
