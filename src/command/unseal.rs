@@ -5,9 +5,9 @@ use crate::{
     cli::SubCommand,
     command::{AuthArgs, CommandError},
     device::{with_device, DeviceError},
+    handle::Handle,
     job::Job,
     key_cache::KeyCacheError,
-    scheme::{Handle, Scheme},
 };
 use clap::Args;
 use std::io::IsTerminal;
@@ -20,8 +20,8 @@ use tpm2_protocol::{
 #[derive(Args, Debug)]
 #[command(about = "Retrieves data from a sealed data object.")]
 pub struct Unseal {
-    /// Input: 'tpm:<persistent handle>' or 'key:<grip>'
-    pub input: Scheme,
+    /// Input: 'tpm:<persistent handle>' or 'vtpm:<transient handle>'
+    pub input: Handle,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -35,13 +35,10 @@ impl SubCommand for Unseal {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             match self.input {
-                Scheme::Tpm(Handle::Persistent(_)) | Scheme::Vtpm(Handle::Transient(_)) => {}
-                _ => {
-                    return Err(CommandError::InvalidInput(self.input.to_string()));
-                }
+                Handle::Tpm(_) | Handle::Vtpm(_) => {}
             }
             let item_handle = job.key_cache.load_context(device, &self.input)?;
-            let mut auths = self
+            let auths = self
                 .auth_args
                 .auth
                 .clone()
@@ -52,7 +49,7 @@ impl SubCommand for Unseal {
             };
             let unseal_handles = [item_handle.0];
 
-            let result = job.execute(device, &unseal_cmd, &unseal_handles, &mut auths);
+            let result = job.execute(device, &unseal_cmd, &unseal_handles, &auths);
             let out_data = match result {
                 Ok((resp, _)) => {
                     resp.Unseal()
@@ -64,10 +61,15 @@ impl SubCommand for Unseal {
                 {
                     return Err(CommandError::AuthenticationDenied);
                 }
+                Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
+                    if rc.base() == TpmRcBase::Lockout =>
+                {
+                    return Err(CommandError::DictionaryAttackLocked);
+                }
                 Err(e) => return Err(e.into()),
             };
 
-            if self.hex || std::io::stdout().is_terminal() {
+            if self.hex || !std::io::stdout().is_terminal() {
                 writeln!(job.key_cache.writer, "{}", hex::encode(out_data.as_ref()))?;
             } else {
                 job.key_cache.writer.write_all(out_data.as_ref())?;

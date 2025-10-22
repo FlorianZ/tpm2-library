@@ -9,7 +9,15 @@ use crate::{
     device::{Device, DeviceError},
     key::from_str_to_alg_id,
 };
-use std::{convert::TryFrom, fmt, str::FromStr};
+use nom::{
+    bytes::complete::take_while1,
+    character::complete::{char, u32 as nom_u32},
+    combinator::{all_consuming, map, map_res},
+    multi::separated_list1,
+    sequence::separated_pair,
+    IResult,
+};
+use std::{convert::TryFrom, fmt};
 use thiserror::Error;
 use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
@@ -61,7 +69,7 @@ pub struct PcrSelection {
 }
 
 impl fmt::Display for PcrSelection {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         let indices_str = self
             .indices
             .iter()
@@ -72,22 +80,22 @@ impl fmt::Display for PcrSelection {
     }
 }
 
-impl FromStr for PcrSelection {
-    type Err = PcrError;
+/// Parses a single PCR selection (e.g., "sha256:0,7").
+fn parse_pcr_selection(input: &str) -> IResult<&str, PcrSelection> {
+    let parse_alg = map_res(take_while1(|c: char| c.is_alphanumeric()), |s: &str| {
+        from_str_to_alg_id(s).map_err(|_| "Invalid algorithm")
+    });
+    let parse_indices = separated_list1(char(','), nom_u32);
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (alg_str, indices_str) = s
-            .split_once(':')
-            .ok_or_else(|| PcrError::InvalidPcrSelection(format!("invalid bank format: '{s}'")))?;
-        let alg = from_str_to_alg_id(alg_str)
-            .map_err(|e| PcrError::InvalidPcrSelection(e.to_string()))?;
-        let indices: Vec<u32> = indices_str
-            .split(',')
-            .map(str::parse)
-            .collect::<Result<_, _>>()
-            .map_err(|e: std::num::ParseIntError| PcrError::InvalidPcrSelection(e.to_string()))?;
-        Ok(PcrSelection { alg, indices })
-    }
+    map(
+        separated_pair(parse_alg, char(':'), parse_indices),
+        |(alg, indices)| PcrSelection { alg, indices },
+    )(input)
+}
+
+/// Parses a full PCR selection string (e.g., "sha256:0,7+sha1:1").
+fn parse_pcr_selections(input: &str) -> IResult<&str, Vec<PcrSelection>> {
+    separated_list1(char('+'), parse_pcr_selection)(input)
 }
 
 /// Discovers the list of available PCR banks and their sizes from the TPM.
@@ -124,10 +132,10 @@ pub fn pcr_get_bank_list(device: &mut Device) -> Result<Vec<PcrBank>, PcrError> 
 /// Returns a `PcrError` if the selection string is malformed, contains an
 /// invalid algorithm name, or has non-numeric PCR indices.
 pub fn pcr_selection_vec_from_str(selection_str: &str) -> Result<Vec<PcrSelection>, PcrError> {
-    selection_str
-        .split('+')
-        .map(PcrSelection::from_str)
-        .collect()
+    match all_consuming(parse_pcr_selections)(selection_str) {
+        Ok((_, selections)) => Ok(selections),
+        Err(_) => Err(PcrError::InvalidPcrSelection(selection_str.to_string())),
+    }
 }
 
 /// Parses a full PCR policy string, including an optional composite digest.

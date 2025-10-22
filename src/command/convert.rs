@@ -34,12 +34,12 @@ impl SubCommand for Convert {
                 .key_cache
                 .load_parent(device, &self.parent_args.parent)?;
             let mut auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
-            let input_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
+            let input_bytes = from_input_to_bytes(self.input_args.input.as_deref())?;
             let tpm_key = job.import_key(device, parent_handle, &input_bytes, &mut auths)?;
             from_tpm_key_to_output(
                 &mut job.key_cache,
                 &tpm_key,
-                self.output_args.output.as_ref(),
+                self.output_args.output.as_deref(),
                 self.output_encoding_args.output_encoding,
             )
         })

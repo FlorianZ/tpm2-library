@@ -8,7 +8,6 @@ use crate::{
     device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
     key_cache::{KeyCache, KeyCacheError},
-    scheme::{Handle, Scheme},
     session_cache::{build_password_session, create_auth, SessionCache, SessionError},
 };
 use rand::{thread_rng, RngCore};
@@ -60,8 +59,9 @@ impl<'a> Job<'a> {
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if let Auth(Scheme::Vtpm(Handle::Session(vhandle))) = auth {
-                if let Ok(session) = self.session_cache.get(*vhandle) {
+            if let Auth::Session(handle) = auth {
+                let vhandle_raw = handle.value_raw();
+                if let Ok(session) = self.session_cache.get(vhandle_raw) {
                     if session.attributes.contains(TpmaSession::DECRYPT) {
                         nonce_decrypt = Some(session.nonce_tpm);
                     }
@@ -76,14 +76,15 @@ impl<'a> Job<'a> {
         }
 
         for (i, auth) in auth_list.iter().enumerate() {
-            let handle = handles.get(i).ok_or(SessionError::TrailingAuthValues)?;
+            let handle_param = handles.get(i).ok_or(SessionError::TrailingAuthValues)?;
 
-            match &auth.0 {
-                Scheme::Password(password) => {
+            match auth {
+                Auth::Password(password) => {
                     built_auths.push(build_password_session(password)?);
                 }
-                Scheme::Vtpm(Handle::Session(vhandle)) => {
-                    let session = self.session_cache.get(*vhandle)?;
+                Auth::Session(handle) => {
+                    let vhandle_raw = handle.value_raw();
+                    let session = self.session_cache.get(vhandle_raw)?;
                     let nonce_size = tpm_hash_size(&session.auth_hash)
                         .ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
                     let mut nonce_bytes = vec![0; nonce_size];
@@ -102,15 +103,14 @@ impl<'a> Job<'a> {
                         &nonce_caller,
                         &[],
                         C::CC,
-                        &[*handle],
+                        &[*handle_param],
                         &params,
                         nonce_decrypt,
                         nonce_encrypt,
                     )?;
                     built_auths.push(result);
                 }
-                Scheme::Policy(_) => return Err(SessionError::InvalidAuth),
-                _ => unreachable!(),
+                Auth::Policy(_) => return Err(SessionError::InvalidAuth),
             }
         }
         Ok(built_auths)
@@ -130,33 +130,33 @@ impl<'a> Job<'a> {
         device: &mut Device,
         command: &C,
         handles: &[u32],
-        auths: &mut [Auth],
+        auths: &[Auth],
     ) -> Result<(TpmResponseBody, TpmAuthResponses), KeyCacheError> {
         let persistent_auths: Vec<Auth> = auths.to_vec();
 
-        let session_handles = self
+        let session_tpm_handles = self
             .session_cache
             .prepare_sessions(device, &persistent_auths)?;
-        for &handle in &session_handles {
+        for &handle in &session_tpm_handles {
             self.key_cache.track(tpm2_protocol::TpmHandle(handle))?;
         }
 
         let sessions = self.build_auth_area(device, command, handles, auths)?;
         let (resp, auth_responses) = device.execute(command, &sessions)?;
 
-        let mut persistent_session_handles_used = HashSet::new();
+        let mut persistent_session_vhandles_used = HashSet::new();
         for auth in &persistent_auths {
-            if let Auth(Scheme::Vtpm(Handle::Session(handle))) = auth {
-                persistent_session_handles_used.insert(*handle);
+            if let Auth::Session(handle) = auth {
+                persistent_session_vhandles_used.insert(handle.value_raw());
             }
         }
 
         self.session_cache.teardown_sessions(
             device,
-            &persistent_session_handles_used,
+            &persistent_session_vhandles_used,
             &auth_responses,
         )?;
-        for handle in session_handles {
+        for handle in session_tpm_handles {
             self.key_cache.untrack(handle);
         }
         Ok((resp, auth_responses))
@@ -172,7 +172,7 @@ impl<'a> Job<'a> {
         device: &mut Device,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
-        auths: &mut [Auth],
+        auths: &[Auth],
     ) -> Result<TpmKey, KeyCacheError> {
         let external_key = match AnyKey::try_from(input_bytes)? {
             AnyKey::Tpm(_) => return Err(KeyCacheError::Key(KeyError::InvalidFormat)),
@@ -198,7 +198,7 @@ impl<'a> Job<'a> {
     pub fn read_certificate(
         &mut self,
         device: &mut Device,
-        auths: &mut [Auth],
+        auths: &[Auth],
         handle: u32,
         max_read_size: usize,
     ) -> Result<Option<Vec<u8>>, KeyCacheError> {
@@ -238,7 +238,16 @@ impl<'a> Job<'a> {
                 offset: u16::try_from(offset)?,
             };
 
-            let (resp, _) = self.execute(device, &nv_read_cmd, &[auth_handle], auths)?;
+            let effective_auths: &[Auth] = if nv_public.attributes.contains(TpmaNv::AUTHREAD)
+                || nv_public.attributes.contains(TpmaNv::OWNERREAD)
+                || nv_public.attributes.contains(TpmaNv::PPREAD)
+            {
+                auths
+            } else {
+                &[]
+            };
+
+            let (resp, _) = self.execute(device, &nv_read_cmd, &[auth_handle], effective_auths)?;
 
             let read_resp = resp
                 .NvRead()

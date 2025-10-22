@@ -6,9 +6,11 @@ use crate::{
     command::{CommandError, OutputEncoding},
     key::TpmKey,
     key_cache::KeyCache,
-    scheme::Scheme,
 };
-use std::io::{self, Read};
+use std::{
+    io::{self, Read},
+    path::Path,
+};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{TpmHt, TpmRc},
@@ -40,7 +42,7 @@ pub fn from_str_to_handle(input: &str) -> Result<TpmHandle, String> {
 /// a valid NV index.
 pub fn from_str_to_nv_handle(input: &str) -> Result<TpmHandle, String> {
     let Some(value) = input.strip_prefix("tpm:") else {
-        return Err("must be in the format 'tpm:<handle>'".to_string());
+        return Err("must be in the format 'tpm:<handle>' ".to_string());
     };
 
     let handle = u32::from_str_radix(value, 16).map_err(|e| e.to_string())?;
@@ -74,20 +76,14 @@ pub fn from_tpm_object_to_vec<T: TpmBuild>(obj: &T) -> Result<Vec<u8>, TpmErrorK
 /// # Errors
 ///
 /// Returns a `std::io::Error` on failure.
-pub fn from_input_to_bytes(input: Option<&Scheme>) -> io::Result<Vec<u8>> {
+pub fn from_input_to_bytes(input: Option<&Path>) -> io::Result<Vec<u8>> {
     let mut input_bytes = Vec::new();
     match input {
-        Some(Scheme::Path(path)) => {
+        Some(path) => {
             input_bytes = std::fs::read(path)?;
         }
         None => {
             io::stdin().read_to_end(&mut input_bytes)?;
-        }
-        Some(scheme) => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                scheme.to_string(),
-            ));
         }
     }
     Ok(input_bytes)
@@ -104,14 +100,11 @@ pub fn from_input_to_bytes(input: Option<&Scheme>) -> io::Result<Vec<u8>> {
 pub fn from_tpm_key_to_output(
     key_cache: &mut KeyCache,
     tpm_key: &TpmKey,
-    output: Option<&Scheme>,
+    output: Option<&Path>,
     encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
-    if let Some(scheme) = output {
-        if !matches!(scheme, Scheme::Path(_)) {
-            return Err(CommandError::InvalidOutput(scheme.to_string()));
-        }
-        key_cache.write_key_data(Some(scheme), tpm_key, encoding)?;
+    if let Some(path) = output {
+        key_cache.write_key_data(Some(path), tpm_key, encoding)?;
     } else {
         key_cache.write_key_data(None, tpm_key, encoding)?;
     }
@@ -127,5 +120,5 @@ pub fn from_str_to_tpm_rc(s: &str) -> Result<TpmRc, String> {
     let s_no_prefix = s.strip_prefix("0x").unwrap_or(s);
     let raw_rc = u32::from_str_radix(s_no_prefix, 16)
         .map_err(|e| format!("Failed to parse hex u32: {e}"))?;
-    TpmRc::try_from(raw_rc).map_err(|e| format!("Invalid TPM RC value '{s}': {e}"))
+    TpmRc::try_from(raw_rc).map_err(|e| format!("Invalid TPM RC value {s}: {e}"))
 }

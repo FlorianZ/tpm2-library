@@ -551,7 +551,7 @@ impl Device {
         auth: TpmHandle,
         object_handle: TpmHandle,
         persistent_handle: TpmHandle,
-        auths: &mut [Auth],
+        auths: &[Auth],
     ) -> Result<(), DeviceError> {
         let cmd = TpmEvictControlCommand {
             auth,

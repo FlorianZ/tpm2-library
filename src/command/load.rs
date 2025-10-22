@@ -34,11 +34,11 @@ impl SubCommand for Load {
             let parent_handle = job
                 .key_cache
                 .load_parent(device, &self.parent_args.parent)?;
-            let mut auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
-            let input_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
+            let auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
+            let input_bytes = from_input_to_bytes(self.input_args.input.as_deref())?;
 
             let (object_handle, _, public) =
-                Self::run_input(job, device, parent_handle, &input_bytes, &mut auths)?;
+                Self::run_input(job, device, parent_handle, &input_bytes, &auths)?;
 
             job.key_cache.save_context(device, object_handle, &public)?;
             Ok(())
@@ -52,7 +52,7 @@ impl Load {
         device: &mut Device,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
-        auths: &mut [Auth],
+        auths: &[Auth],
     ) -> Result<(TpmHandle, Tpm2bName, Tpm2bPublic), CommandError> {
         let tpm_key = match AnyKey::try_from(input_bytes)? {
             AnyKey::Tpm(key) => key,

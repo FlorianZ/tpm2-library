@@ -29,7 +29,7 @@ pub struct PcrEvent {
     #[clap(flatten)]
     pub input_args: InputArgs,
 
-    /// Auth for the PCR: 'password:<hex>' or 'vtpm:<handle>'
+    /// Auth for the PCR: 'password:<hex>', 'policy:<hex>' or 'vtpm:<session_handle>'
     #[arg(short = 'a', long = "auth")]
     pub auth: Option<Auth>,
 }
@@ -40,9 +40,9 @@ impl SubCommand for PcrEvent {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
 
-            let mut auths = vec![self.auth.clone().unwrap_or_default()];
+            let auths = vec![self.auth.clone().unwrap_or_default()];
 
-            let data_bytes = from_input_to_bytes(self.input_args.input.as_ref())?;
+            let data_bytes = from_input_to_bytes(self.input_args.input.as_deref())?;
 
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())?;
             let command = TpmPcrEventCommand {
@@ -50,7 +50,7 @@ impl SubCommand for PcrEvent {
                 event_data,
             };
 
-            let (resp, _) = job.execute(device, &command, &handles, &mut auths)?;
+            let (resp, _) = job.execute(device, &command, &handles, &auths)?;
 
             let pcr_resp = resp
                 .PcrEvent()

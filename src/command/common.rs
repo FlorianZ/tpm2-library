@@ -2,8 +2,9 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{auth::Auth, cli::Hierarchy, command::CommandError, key::Alg, scheme::Scheme};
+use crate::{auth::Auth, cli::Hierarchy, command::CommandError, handle::Handle, key::Alg};
 use clap::Args;
+use std::path::PathBuf;
 use strum::{Display, EnumString};
 use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
 
@@ -19,14 +20,14 @@ pub enum OutputEncoding {
 pub struct InputArgs {
     /// Input file path (default: stdin)
     #[arg(short = 'I', long)]
-    pub input: Option<Scheme>,
+    pub input: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct OutputArgs {
     /// Output file path (default: stdout)
     #[arg(short = 'O', long)]
-    pub output: Option<Scheme>,
+    pub output: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -40,16 +41,16 @@ pub struct OutputEncodingArgs {
 pub struct ParentAuthArgs {
     /// Parent key: 'tpm:<handle>', or 'vtpm:<handle>'
     #[arg(short = 'P', long)]
-    pub parent: Scheme,
+    pub parent: Handle,
 
-    /// Authentication: 'password:<hex>' or 'vtpm:<handle>'
+    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
     #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct AuthArgs {
-    /// Authentication: 'password:<hex>' or 'vtpm:<handle>'
+    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
     #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }
@@ -60,7 +61,7 @@ pub struct HierarchyAuthArgs {
     #[arg(short = 'H', long, default_value_t = Hierarchy::default(), value_parser = clap::value_parser!(Hierarchy))]
     pub hierarchy: Hierarchy,
 
-    /// Authentication: 'password:<hex>' or 'vtpm:<handle>'
+    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
     #[arg(short = 'A', long = "auth")]
     pub auth: Option<Auth>,
 }

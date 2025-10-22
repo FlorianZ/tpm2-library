@@ -6,8 +6,8 @@ use crate::{
     command::OutputEncoding,
     convert::from_tpm_object_to_vec,
     device::{Device, DeviceError},
+    handle::Handle,
     key::{KeyError, TpmKey},
-    scheme::{Handle, Scheme, SchemeError},
     session_cache::SessionError,
 };
 use std::{
@@ -72,8 +72,6 @@ pub enum KeyCacheError {
     Io(#[from] std::io::Error),
     #[error("key: {0}")]
     Key(#[from] KeyError),
-    #[error("invalid URI: {0}")]
-    Scheme(#[from] SchemeError),
     #[error("session: {0}")]
     Session(#[from] SessionError),
 }
@@ -103,7 +101,7 @@ impl std::fmt::Debug for KeyCache<'_> {
         let handles: Vec<String> = self
             .handles
             .values()
-            .map(|t| Scheme::Tpm(Handle::Transient(t.0)).to_string())
+            .map(|t| Handle::Tpm(t.0).to_string())
             .collect();
         f.debug_struct("Context")
             .field("handles", &handles)
@@ -276,16 +274,12 @@ impl<'a> KeyCache<'a> {
     pub fn load_parent(
         &mut self,
         device: &mut Device,
-        uri: &Scheme,
+        handle: &Handle,
     ) -> Result<TpmHandle, KeyCacheError> {
-        match uri {
-            Scheme::Vtpm(Handle::Transient(_)) => self.load_context(device, uri),
-            Scheme::Tpm(Handle::Persistent(handle)) => Ok(TpmHandle(*handle)),
-            _ => Err(KeyCacheError::InvalidParent(uri.to_string())),
-        }
+        self.load_context(device, handle)
     }
 
-    /// Loads a TPM context from a URI.
+    /// Loads a TPM context from a handle.
     ///
     /// If the URI points to a transient context, the context is loaded into the
     /// TPM and its handle is tracked for automatic cleanup. Persistent handles
@@ -297,11 +291,11 @@ impl<'a> KeyCache<'a> {
     pub fn load_context(
         &mut self,
         device: &mut Device,
-        uri: &Scheme,
+        handle: &Handle,
     ) -> Result<TpmHandle, KeyCacheError> {
-        match uri {
-            Scheme::Tpm(handle) => Ok(handle.value_tpm()),
-            Scheme::Vtpm(Handle::Transient(vhandle)) => {
+        match handle {
+            Handle::Tpm(h) => Ok(TpmHandle(*h)),
+            Handle::Vtpm(vhandle) => {
                 let key = self
                     .contexts
                     .get(vhandle)
@@ -325,7 +319,6 @@ impl<'a> KeyCache<'a> {
                     Err(e) => Err(e.into()),
                 }
             }
-            _ => Err(SchemeError::UnsupportedScheme(uri.to_string()).into()),
         }
     }
 
@@ -368,8 +361,7 @@ impl<'a> KeyCache<'a> {
 
         for handle in handles_to_flush {
             if let Err(err) = device.flush_context(handle) {
-                let uri = Scheme::Tpm(Handle::Transient(handle.0));
-                log::error!("{uri}: {err}");
+                log::error!("{handle}: {err}");
             }
         }
 
@@ -383,7 +375,7 @@ impl<'a> KeyCache<'a> {
     /// Returns a `KeyCacheError` on failure.
     pub fn write_key_data(
         &mut self,
-        output_uri: Option<&Scheme>,
+        output_path: Option<&Path>,
         key: &TpmKey,
         encoding: OutputEncoding,
     ) -> Result<(), KeyCacheError> {
@@ -392,7 +384,7 @@ impl<'a> KeyCache<'a> {
             OutputEncoding::Pem => key.to_pem()?.into_bytes(),
         };
 
-        self.write_data(output_uri, &output_bytes)
+        self.write_data(output_path, &output_bytes)
     }
 
     /// Writes data to a file path or stdout.
@@ -402,25 +394,19 @@ impl<'a> KeyCache<'a> {
     /// This function will return an error if writing to a file fails.
     pub fn write_data(
         &mut self,
-        output_uri: Option<&Scheme>,
+        output_path: Option<&Path>,
         data: &[u8],
     ) -> Result<(), KeyCacheError> {
-        if let Some(uri) = output_uri {
-            match uri {
-                Scheme::Path(path) => {
-                    if path.to_str() == Some("-") {
-                        self.writer.write_all(data)?;
-                    } else {
-                        std::fs::write(path, data)?;
-                        writeln!(self.writer, "{uri}")?;
-                    }
-                    Ok(())
-                }
-                _ => Err(SchemeError::UnsupportedScheme(uri.to_string()).into()),
+        if let Some(path) = output_path {
+            if path.to_str() == Some("-") {
+                self.writer.write_all(data)?;
+            } else {
+                std::fs::write(path, data)?;
+                writeln!(self.writer, "file:{}", path.to_string_lossy())?;
             }
         } else {
             self.writer.write_all(data)?;
-            Ok(())
         }
+        Ok(())
     }
 }

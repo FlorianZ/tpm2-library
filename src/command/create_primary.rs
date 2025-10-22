@@ -39,7 +39,7 @@ impl SubCommand for CreatePrimary {
             deny_keyedhash(&self.algorithm)?;
 
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
-            let mut auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
+            let auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
             let handles = [primary_handle as u32];
 
             let (object_attributes, user_auth, auth_policy) =
@@ -61,7 +61,7 @@ impl SubCommand for CreatePrimary {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let (resp, _) = job.execute(device, &cmd, &handles, &mut auths)?;
+            let (resp, _) = job.execute(device, &cmd, &handles, &auths)?;
 
             let resp = resp
                 .CreatePrimary()

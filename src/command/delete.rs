@@ -6,10 +6,8 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, HierarchyAuthArgs},
     device::{with_device, Device, DeviceError},
+    handle::{HandlePattern, HandlePatternError},
     job::Job,
-    key_cache::KeyCacheError,
-    scheme::{Handle, Scheme},
-    wildcard::{WildcardError, WildcardPattern},
 };
 use clap::Args;
 use tpm2_protocol::{
@@ -39,9 +37,9 @@ impl SubCommand for Delete {
     }
 }
 
-impl From<WildcardError> for CommandError {
-    fn from(err: WildcardError) -> Self {
-        CommandError::InvalidInput(format!("Invalid handle pattern: {err}"))
+impl From<HandlePatternError> for CommandError {
+    fn from(err: HandlePatternError) -> Self {
+        CommandError::InvalidInput(format!("invalid handle pattern: {err}"))
     }
 }
 
@@ -57,7 +55,7 @@ fn delete_tpm_handles(
 
 fn delete_tpm_transient_handles(job: &mut Job, pattern: &str) -> Result<(), CommandError> {
     with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-        let pattern = WildcardPattern::new(pattern)?;
+        let pattern = HandlePattern::new(pattern)?;
         let handles = dev.fetch_handles((TpmHt::Transient as u32) << 24)?;
         for handle in handles.into_iter().filter(|&h| pattern.matches(h)) {
             dev.flush_context(handle.into())?;
@@ -74,7 +72,7 @@ fn delete_tpm_persistent_handles(
     hierarchy_args: &HierarchyAuthArgs,
 ) -> Result<(), CommandError> {
     with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-        let pattern = WildcardPattern::new(pattern)?;
+        let pattern = HandlePattern::new(pattern)?;
         let handles = dev.fetch_handles((TpmHt::Persistent as u32) << 24)?;
         for handle in handles.into_iter().filter(|&h| pattern.matches(h)) {
             let persistent_handle = TpmHandle(handle);
@@ -83,14 +81,14 @@ fn delete_tpm_persistent_handles(
             } else {
                 (TpmRh::Platform as u32).into()
             };
-            let mut auths = vec![hierarchy_args.auth.clone().unwrap_or_default()];
+            let auths = vec![hierarchy_args.auth.clone().unwrap_or_default()];
 
             dev.evict_control(
                 job,
                 auth_handle_val,
                 persistent_handle,
                 persistent_handle,
-                &mut auths,
+                &auths,
             )?;
             writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
         }
@@ -98,16 +96,38 @@ fn delete_tpm_persistent_handles(
     })
 }
 
-fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandError> {
-    let pattern = WildcardPattern::new(pattern_str)?;
+fn delete_vtpm_session(job: &mut Job, dev: &mut Device, vhandle: u32) -> Result<(), CommandError> {
+    let session_opt = job.session_cache.remove(vhandle)?;
+    if let Some(session) = session_opt {
+        match dev.flush_session(session.context) {
+            Ok(()) => {}
+            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
+                log::debug!("vtpm session:{vhandle:08x} stale");
+            }
+            Err(e) => return Err(e.into()),
+        }
+    } else {
+        log::warn!("vtpm session:{vhandle:08x} not found");
+    }
+    writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
+    Ok(())
+}
 
-    let matched_transients: Vec<u32> = job
+fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandError> {
+    let pattern = HandlePattern::new(pattern_str)?;
+
+    let matched_keys: Vec<u32> = job
         .key_cache
         .contexts
         .keys()
         .copied()
         .filter(|&h| pattern.matches(h))
         .collect();
+
+    for vhandle in matched_keys {
+        job.key_cache.remove_context(vhandle)?;
+        writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
+    }
 
     let matched_sessions: Vec<u32> = job
         .session_cache
@@ -117,66 +137,14 @@ fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandEr
         .filter(|&h| pattern.matches(h))
         .collect();
 
-    if matched_transients.is_empty() && matched_sessions.is_empty() {
-        return Ok(());
+    if !matched_sessions.is_empty() {
+        with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
+            for vhandle in matched_sessions {
+                delete_vtpm_session(job, dev, vhandle)?;
+            }
+            Ok(())
+        })?;
     }
 
-    with_device(job.device.clone(), |dev| {
-        let delete_vtpm_transient_handles =
-            |job: &mut Job, dev: &mut Device, vhandles: &[u32]| -> Result<(), CommandError> {
-                for &vhandle in vhandles {
-                    let uri = Scheme::Vtpm(Handle::Transient(vhandle));
-                    match job.key_cache.load_context(dev, &uri) {
-                        Ok(handle) => {
-                            dev.flush_context(handle)?;
-                            writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
-                            job.key_cache.untrack(handle.0);
-                            job.key_cache.remove_context(vhandle)?;
-                        }
-                        Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
-                            if rc.base() == TpmRcBase::ReferenceH0 =>
-                        {
-                            log::debug!("vtpm:{vhandle:08x} stale during load, removing");
-                            writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
-                            job.key_cache.remove_context(vhandle)?;
-                        }
-                        Err(KeyCacheError::ContextNotFound(_)) => {
-                            log::debug!(
-                                "vtpm:{vhandle:08x} not found in cache, removing file if exists"
-                            );
-                            writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
-                            job.key_cache.remove_context(vhandle)?;
-                        }
-                        Err(e) => return Err(e.into()),
-                    }
-                }
-                Ok(())
-            };
-
-        let delete_vtpm_session_handles =
-            |job: &mut Job, dev: &mut Device, vhandles: &[u32]| -> Result<(), CommandError> {
-                for &vhandle in vhandles {
-                    let session_opt = job.session_cache.remove(vhandle)?;
-                    if let Some(session) = session_opt {
-                        match dev.flush_session(session.context) {
-                            Ok(()) => {
-                                writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
-                            }
-                            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                                log::debug!("vtpm session:{vhandle:08x} stale during flush");
-                                writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
-                            }
-                            Err(e) => return Err(e.into()),
-                        }
-                    } else {
-                        log::debug!("vtpm session:{vhandle:08x} not found in cache");
-                        writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
-                    }
-                }
-                Ok(())
-            };
-
-        delete_vtpm_transient_handles(job, dev, &matched_transients)?;
-        delete_vtpm_session_handles(job, dev, &matched_sessions)
-    })
+    Ok(())
 }

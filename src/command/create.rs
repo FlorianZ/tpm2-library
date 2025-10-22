@@ -51,7 +51,7 @@ impl Create {
         let parent_handle = job
             .key_cache
             .load_parent(device, &self.parent_args.parent)?;
-        let mut auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
+        let auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
         let (object_attributes, user_auth, auth_policy) =
             self.creation_args.parse(&self.algorithm)?;
 
@@ -82,7 +82,7 @@ impl Create {
         let tpm_key = TpmKey::new(
             job,
             device,
-            &mut auths,
+            &auths,
             user_auth,
             auth_policy,
             object_attributes,
@@ -92,7 +92,7 @@ impl Create {
         from_tpm_key_to_output(
             &mut job.key_cache,
             &tpm_key,
-            self.output_args.output.as_ref(),
+            self.output_args.output.as_deref(),
             self.output_encoding_args.output_encoding,
         )
     }

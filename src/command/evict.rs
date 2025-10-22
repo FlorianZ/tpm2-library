@@ -6,11 +6,10 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, HierarchyAuthArgs},
     device::with_device,
+    handle::Handle,
     job::Job,
-    scheme::{Handle, Scheme},
 };
 use clap::Args;
-use std::str::FromStr;
 use tpm2_protocol::{data::TpmRh, TpmHandle};
 
 /// Create persistent object from transient object.
@@ -20,19 +19,18 @@ pub struct Evict {
     pub hierarchy_args: HierarchyAuthArgs,
 
     /// Input key: 'vtpm:<vhandle>'
-    pub input: String,
+    pub input: Handle,
 
     /// Persistent handle: 'tpm:<handle>'
-    pub output: String,
+    pub output: Handle,
 }
 
 impl SubCommand for Evict {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-            let persistent_handle_uri = Scheme::from_str(&self.output)?;
-            let persistent_handle_val = match persistent_handle_uri {
-                Scheme::Tpm(Handle::Persistent(h)) => Ok(h),
-                uri => Err(CommandError::InvalidInput(uri.to_string())),
+            let persistent_handle_val = match self.output {
+                Handle::Tpm(h) => Ok(h),
+                Handle::Vtpm(_) => Err(CommandError::InvalidInput(self.output.to_string())),
             }?;
             let persistent_handle = TpmHandle(persistent_handle_val);
 
@@ -42,20 +40,19 @@ impl SubCommand for Evict {
                 (TpmRh::Platform as u32).into()
             };
 
-            let transient_uri = Scheme::from_str(&self.input)?;
-            let vhandle = match &transient_uri {
-                Scheme::Vtpm(Handle::Transient(vh)) => Ok(*vh),
-                uri => Err(CommandError::InvalidInput(uri.to_string())),
+            let vhandle = match self.input {
+                Handle::Vtpm(vh) => Ok(vh),
+                Handle::Tpm(_) => Err(CommandError::InvalidInput(self.input.to_string())),
             }?;
-            let transient_handle = job.key_cache.load_context(dev, &transient_uri)?;
+            let transient_handle = job.key_cache.load_context(dev, &self.input)?;
 
-            let mut auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
+            let auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
             dev.evict_control(
                 job,
                 auth_handle,
                 transient_handle,
                 persistent_handle,
-                &mut auths,
+                &auths,
             )
             .map_err(CommandError::Device)?;
 

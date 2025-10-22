@@ -28,9 +28,9 @@ impl SubCommand for ResetLock {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand { lock_handle };
             let handles = [TpmRh::Lockout as u32];
-            let mut auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
+            let auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
 
-            let (resp, _) = match job.execute(device, &command, &handles, &mut auths) {
+            let (resp, _) = match job.execute(device, &command, &handles, &auths) {
                 Ok(result) => result,
                 Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
                     if rc.base() == TpmRcBase::Lockout =>

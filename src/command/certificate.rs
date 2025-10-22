@@ -28,10 +28,8 @@ impl SubCommand for Certificate {
         with_device(job.device.clone(), |device| {
             let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)? as usize;
             let handle = self.nv_index.0;
-            let mut auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
-            if let Some(cert_bytes) =
-                job.read_certificate(device, &mut auths, handle, max_read_size)?
-            {
+            let auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
+            if let Some(cert_bytes) = job.read_certificate(device, &auths, handle, max_read_size)? {
                 let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
                 writeln!(job.key_cache.writer, "{pem_cert}")?;
             } else {

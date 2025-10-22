@@ -19,7 +19,6 @@ use crate::{
     crypto::{crypto_digest, crypto_hmac, crypto_kdfa, CryptoError},
     device::{Device, DeviceError},
     key::Tpm2shAlgId,
-    scheme::{Handle, Scheme},
 };
 use std::{
     collections::{hash_map, HashMap, HashSet},
@@ -42,8 +41,8 @@ pub enum SessionError {
     InvalidAuth,
     #[error("invalid key bits: {0}")]
     InvalidKeyBits(String),
-    #[error("{0} not found")]
-    NotFound(String),
+    #[error("{0:08x} not found")]
+    NotFound(u32),
     #[error("trailing passwords or sessions")]
     TrailingAuthValues,
     #[error("trailing data")]
@@ -211,7 +210,7 @@ impl SessionCache {
         Self {
             sessions: HashMap::new(),
             dirty: HashSet::new(),
-            sessions_dir: cache_dir.join("vtpm"),
+            sessions_dir: cache_dir.join("sessions"),
         }
     }
 
@@ -271,8 +270,8 @@ impl SessionCache {
 
         std::fs::create_dir_all(&self.sessions_dir)?;
 
-        for uri in self.dirty.drain() {
-            if let Some(session) = self.sessions.get(&uri) {
+        for vhandle in self.dirty.drain() {
+            if let Some(session) = self.sessions.get(&vhandle) {
                 let handle = session.context.saved_handle.0;
                 let path = self.sessions_dir.join(format!("{handle:08x}.bin"));
                 session.save_to_path(&path)?;
@@ -315,7 +314,7 @@ impl SessionCache {
     pub fn get(&self, vhandle: u32) -> Result<&Session, SessionError> {
         self.sessions
             .get(&vhandle)
-            .ok_or_else(|| SessionError::NotFound(vhandle.to_string()))
+            .ok_or(SessionError::NotFound(vhandle))
     }
 
     /// Gets a mutable reference to a session, marks it as dirty.
@@ -327,7 +326,7 @@ impl SessionCache {
         self.dirty.insert(vhandle);
         self.sessions
             .get_mut(&vhandle)
-            .ok_or_else(|| SessionError::NotFound(vhandle.to_string()))
+            .ok_or(SessionError::NotFound(vhandle))
     }
 
     /// Returns an iterator over the sessions.
@@ -349,17 +348,18 @@ impl SessionCache {
     ) -> Result<Vec<u32>, SessionError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if let Auth(Scheme::Vtpm(Handle::Session(vhandle))) = auth {
+            if let Auth::Session(handle) = auth {
+                let vhandle = handle.value_raw();
                 let session_is_loaded = {
-                    let session = self.get(*vhandle)?;
+                    let session = self.get(vhandle)?;
                     session.handle.0 != 0
                 };
                 if !session_is_loaded {
                     let new_handle = {
-                        let session = self.get(*vhandle)?;
+                        let session = self.get(vhandle)?;
                         device.load_context(session.context.clone())?
                     };
-                    let session = self.get_mut(*vhandle)?;
+                    let session = self.get_mut(vhandle)?;
                     session.handle = TpmHandle(new_handle);
                     activated_handles.push(new_handle);
                 }
@@ -377,10 +377,10 @@ impl SessionCache {
     pub fn teardown_sessions(
         &mut self,
         device: &mut Device,
-        session_handles: &HashSet<u32>,
+        session_vhandles: &HashSet<u32>,
         auth_responses: &TpmAuthResponses,
     ) -> Result<(), SessionError> {
-        for (i, vhandle) in session_handles.iter().enumerate() {
+        for (i, vhandle) in session_vhandles.iter().enumerate() {
             let session_handle = self.get(*vhandle)?.handle;
             if session_handle.0 == 0 {
                 continue;

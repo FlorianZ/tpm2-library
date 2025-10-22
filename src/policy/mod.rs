@@ -14,22 +14,22 @@ use crate::{
     auth::Auth,
     crypto::CryptoError,
     device::{Device, DeviceError},
+    handle::Handle,
     key_cache::KeyCacheError,
     pcr::{self, PcrError},
-    scheme::{Scheme, SchemeError},
     session_cache::SessionError,
 };
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
     character::complete::{char, hex_digit1, space0},
-    combinator::{map, map_res, opt, verify},
+    combinator::{map, map_res, opt},
     error::{Error as NomError, ErrorKind, ParseError},
     multi::separated_list1,
     sequence::{delimited, preceded, terminated, tuple},
     Err as NomErr, IResult,
 };
-use std::{collections::HashMap, fmt, str::FromStr};
+use std::{collections::HashMap, fmt, path::PathBuf, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
@@ -60,8 +60,6 @@ pub enum PolicyError {
     KeyCacheError(#[from] KeyCacheError),
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
-    #[error("uri: {0}")]
-    Scheme(#[from] SchemeError),
     #[error("session: {0}")]
     Session(#[from] SessionError),
     #[error("TPM: {0}")]
@@ -168,11 +166,12 @@ pub enum Expression {
     },
     And(Vec<Expression>),
     Or(Vec<Expression>),
-    Scheme(Scheme),
+    Handle(Handle),
+    Path(PathBuf),
 }
 
 impl fmt::Display for Expression {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Expression::Auth(auth) => write!(f, "{auth}"),
             Expression::Pcr {
@@ -211,7 +210,8 @@ impl fmt::Display for Expression {
                 let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
                 write!(f, "{}", s.join(" or "))
             }
-            Expression::Scheme(uri) => write!(f, "{uri}"),
+            Expression::Handle(handle) => write!(f, "{handle}"),
+            Expression::Path(path) => write!(f, "{}", path.to_string_lossy()),
         }
     }
 }
@@ -225,7 +225,7 @@ impl Expression {
     /// cannot be read.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
         match self {
-            Self::Auth(Auth(Scheme::Password(bytes))) => Ok(bytes.clone()),
+            Self::Auth(Auth::Password(bytes)) => Ok(bytes.clone()),
             _ => Err(PolicyError::InvalidSecret(format!(
                 "{self:?}: expected 'password:<hex>'"
             ))),
@@ -275,21 +275,22 @@ where
 
 fn auth_expression(input: &str) -> IResult<&str, Expression> {
     map_res(
-        verify(
-            take_while1(|c: char| !matches!(c, ',' | ')' | ' ')),
-            |s: &str| s.contains(':') && s != "or" && s != "and",
-        ),
+        take_while1(|c: char| !matches!(c, ',' | ')' | ' ' | '(' | '&' | '|')),
         |s: &str| Auth::from_str(s).map(Expression::Auth),
     )(input)
 }
 
-fn uri_expression(input: &str) -> IResult<&str, Expression> {
+fn handle_expression(input: &str) -> IResult<&str, Expression> {
     map_res(
-        verify(
-            take_while1(|c: char| !matches!(c, ',' | ')' | ' ')),
-            |s: &str| s.contains(':') && s != "or" && s != "and",
-        ),
-        |s: &str| Scheme::from_str(s).map(Expression::Scheme),
+        take_while1(|c: char| !matches!(c, ',' | ')' | ' ' | '(' | '&' | '|')),
+        |s: &str| Handle::from_str(s).map(Expression::Handle),
+    )(input)
+}
+
+fn path_expression(input: &str) -> IResult<&str, Expression> {
+    map(
+        take_while1(|c: char| !matches!(c, ',' | ')' | ' ' | '(' | '&' | '|')),
+        |s: &str| Expression::Path(PathBuf::from(s.strip_prefix("file:").unwrap_or(s))),
     )(input)
 }
 
@@ -323,7 +324,8 @@ fn parse_factor(input: &str) -> IResult<&str, Expression> {
         call("secret", secret_expression),
         delimited(ws(char('(')), parse_expression, ws(char(')'))),
         auth_expression,
-        uri_expression,
+        handle_expression,
+        path_expression,
     ))(input)
 }
 
@@ -404,13 +406,13 @@ pub fn execute_policy(
             cp_hash,
         } => {
             let handle_val = match &**auth_handle {
-                Expression::Scheme(Scheme::Tpm(h)) => {
-                    if (h.value_raw() >> 24) as u8 != TpmHt::Persistent as u8 {
+                Expression::Handle(Handle::Tpm(h)) => {
+                    if (*h >> 24) as u8 != TpmHt::Persistent as u8 {
                         return Err(PolicyError::InvalidExpression(
                             "secret() must contain persistent 'tpm:<handle>'".to_string(),
                         ));
                     }
-                    h.value_raw()
+                    *h
                 }
                 _ => {
                     return Err(PolicyError::InvalidExpression(
@@ -478,7 +480,10 @@ pub fn execute_policy(
             session.policy_or(&branch_digests)?;
             session.get_digest()
         }
-        Expression::Scheme(uri) => Err(PolicyError::InvalidExpression(uri.to_string())),
+        Expression::Handle(handle) => Err(PolicyError::InvalidExpression(handle.to_string())),
+        Expression::Path(path) => Err(PolicyError::InvalidExpression(
+            path.to_string_lossy().to_string(),
+        )),
     }
 }
 
@@ -519,7 +524,7 @@ pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
                 populate_pcr_digests(pwd_expr, pcr_map)?;
             }
         }
-        Expression::Auth(_) | Expression::Scheme(_) => {}
+        Expression::Auth(_) | Expression::Handle(_) | Expression::Path(_) => {}
     }
     Ok(())
 }

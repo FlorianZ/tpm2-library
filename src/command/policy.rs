@@ -5,12 +5,9 @@
 use crate::{
     cli::SubCommand,
     command::CommandError,
-    device::{with_device, Device},
+    device::with_device,
     job::Job,
-    pcr::{
-        pcr_composite_digest, pcr_get_bank_list, pcr_read, pcr_selection_vec_from_str,
-        pcr_selection_vec_to_tpml, Pcr,
-    },
+    pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read, pcr_selection_vec_from_str},
     policy::{
         execute_policy, parse, Expression, PolicyError, SoftwarePolicySession, TpmPolicySession,
     },
@@ -49,7 +46,7 @@ pub struct Policy {
 
 /// Populates the AST with PCR digests by reading current values from the TPM.
 fn resolve_pcr_digests(
-    device: &mut Device,
+    device: &mut crate::device::Device,
     ast: &mut Expression,
     session_hash_alg: TpmAlgId,
 ) -> Result<(), CommandError> {
@@ -73,7 +70,7 @@ fn resolve_pcr_digests(
             .collect::<Vec<_>>()
             .join("+");
         let selections = pcr_selection_vec_from_str(&selections_str)?;
-        let tpml_selection = pcr_selection_vec_to_tpml(&selections, &banks)?;
+        let tpml_selection = crate::pcr::pcr_selection_vec_to_tpml(&selections, &banks)?;
         let (pcr_values, _) = pcr_read(device, &tpml_selection)?;
 
         let mut populator = |expr: &mut Expression| -> Result<(), CommandError> {
@@ -83,7 +80,7 @@ fn resolve_pcr_digests(
             {
                 if digest.is_none() {
                     let selections_for_node = pcr_selection_vec_from_str(selection)?;
-                    let pcr_subset: Vec<Pcr> = pcr_values
+                    let pcr_subset: Vec<crate::pcr::Pcr> = pcr_values
                         .iter()
                         .filter(|pcr| {
                             selections_for_node
@@ -122,7 +119,7 @@ where
         Expression::Secret { auth_handle, .. } => {
             try_visit_pcr_expressions_mut(auth_handle, visitor)?;
         }
-        Expression::Auth(_) | Expression::Scheme(_) => {}
+        Expression::Auth(_) | Expression::Handle(_) | Expression::Path(_) => {}
     }
     Ok(())
 }
@@ -132,7 +129,7 @@ impl SubCommand for Policy {
         with_device(job.device.clone(), |device| {
             let mut ast = parse(&self.expression)?;
             match ast {
-                Expression::Auth(_) | Expression::Scheme(_) => {
+                Expression::Auth(_) | Expression::Handle(_) | Expression::Path(_) => {
                     return Err(CommandError::InvalidInput(
                         "not a valid policy expression".to_string(),
                     ));
@@ -197,7 +194,7 @@ impl SubCommand for Policy {
 ///
 /// Returns `PolicyError` on failure.
 pub fn start_trial_session(
-    device: &mut Device,
+    device: &mut crate::device::Device,
     session_type: tpm2_protocol::data::TpmSe,
     hash_alg: TpmAlgId,
 ) -> Result<TpmHandle, PolicyError> {

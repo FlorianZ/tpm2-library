@@ -15,7 +15,6 @@ use crate::{
         OID_SHA384_WITH_RSA_ENCRYPTION, OID_SHA512_WITH_RSA_ENCRYPTION, SECP_256_R_1, SECP_384_R_1,
         SECP_521_R_1,
     },
-    scheme::Scheme,
 };
 use clap::Args;
 use num_bigint::ToBigInt;
@@ -105,9 +104,9 @@ impl SubCommand for Memory {
                         if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle) {
                             return Err(CommandError::InvalidInput("Not a certificate".into()));
                         }
-                        let mut auths = vec![Auth(Scheme::Password(Vec::new()))];
+                        let auths = vec![Auth::Password(Vec::new())];
                         let cert_bytes = job
-                            .read_certificate(device, &mut auths, handle, max_read_size)?
+                            .read_certificate(device, &auths, handle, max_read_size)?
                             .ok_or(CommandError::InvalidInput("No certificate data".into()))?;
                         if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != (0x30) {
                             return Err(CommandError::InvalidInput("Not a DER certificate".into()));

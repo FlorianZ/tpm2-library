@@ -46,7 +46,6 @@ use crate::{
     key_cache::KeyCacheError,
     pcr::PcrError,
     policy::PolicyError,
-    scheme::SchemeError,
     session_cache::SessionError,
 };
 use std::{
@@ -131,8 +130,6 @@ pub enum CommandError {
     Pcr(#[from] PcrError),
     #[error("policy: {0}")]
     Policy(#[from] PolicyError),
-    #[error("uri: {0}")]
-    Scheme(#[from] SchemeError),
     #[error("session: {0}")]
     Session(#[from] SessionError),
     #[error("I/O: {0}")]

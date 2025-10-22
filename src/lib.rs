@@ -11,16 +11,15 @@ pub mod command;
 pub mod convert;
 pub mod crypto;
 pub mod device;
+pub mod handle;
 pub mod job;
 pub mod key;
 pub mod key_cache;
 pub mod pcr;
 pub mod policy;
 pub mod print;
-pub mod scheme;
 pub mod session_cache;
 pub mod template;
-pub mod wildcard;
 
 /// A global flag to signal graceful teardown of the application.
 ///

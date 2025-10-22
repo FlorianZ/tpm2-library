@@ -6,10 +6,10 @@ use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
     device::{with_device, Device, DeviceError},
+    handle::Handle,
     job::Job,
     key::format_alg_from_public,
     key_cache::KeyCacheError,
-    scheme::{Handle, Scheme},
 };
 use clap::Args;
 use tabled::Tabled;
@@ -57,8 +57,8 @@ impl Cache {
     fn refresh_key_cache(device: &mut Device, job: &mut Job) -> Result<(), CommandError> {
         let vhandles: Vec<u32> = job.key_cache.contexts.keys().copied().collect();
         for vhandle in vhandles {
-            let uri = Scheme::Vtpm(Handle::Transient(vhandle));
-            match job.key_cache.load_context(device, &uri) {
+            let handle_type = Handle::Vtpm(vhandle);
+            match job.key_cache.load_context(device, &handle_type) {
                 Ok(handle) => {
                     device.flush_context(handle)?;
                     job.key_cache.untrack(handle.0);
@@ -70,9 +70,7 @@ impl Cache {
                     log::debug!("vtpm:{vhandle:08x} stale");
                     job.key_cache.remove_context(vhandle)?;
                 }
-                Err(e) => {
-                    return Err(e.into());
-                }
+                Err(e) => return Err(e.into()),
             }
         }
         Ok(())
@@ -88,15 +86,15 @@ impl Cache {
 
             match device.load_context(context_to_load) {
                 Ok(live_handle) => match device.save_context(live_handle) {
-                    Ok(new_context) => {
-                        if let Ok(s) = job.session_cache.get_mut(vhandle) {
-                            s.context = new_context;
+                    Ok(context) => match job.session_cache.get_mut(vhandle) {
+                        Ok(session) => {
+                            session.context = context;
+                            job.session_cache.dirty.insert(vhandle);
                         }
-                        if let Err(e) = device.flush_context(live_handle.into()) {
-                            log::warn!("vtpm:{vhandle:08x}: {e}");
-                            return Err(e.into());
+                        Err(err) => {
+                            log::debug!("vtpm:{vhandle:08x}: {err}");
                         }
-                    }
+                    },
                     Err(e) => {
                         log::warn!("vtpm:{vhandle:08x}: {e}");
                         if let Err(flush_err) = device.flush_context(live_handle.into()) {
