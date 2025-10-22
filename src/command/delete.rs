@@ -47,15 +47,30 @@ fn delete_tpm_handles(
     transient_res.and(persistent_res)
 }
 
-fn delete_tpm_transient_handles(job: &mut Job, pattern: &str) -> Result<(), CommandError> {
-    with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-        let pattern = HandlePattern::new(pattern)?;
-        let handles = dev.fetch_handles((TpmHt::Transient as u32) << 24)?;
+fn for_each_tpm_handle<F>(
+    job: &mut Job,
+    pattern_str: &str,
+    handle_type: TpmHt,
+    mut action: F,
+) -> Result<(), CommandError>
+where
+    F: FnMut(&mut Device, &mut Job, u32) -> Result<(), CommandError>,
+{
+    with_device(job.device.clone(), |dev| {
+        let pattern = HandlePattern::new(pattern_str)?;
+        let handles = dev.fetch_handles((handle_type as u32) << 24)?;
         for handle in handles.into_iter().filter(|&h| pattern.matches(h)) {
-            dev.flush_context(handle.into())?;
-            writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
-            job.key_cache.untrack(handle);
+            action(dev, job, handle)?;
         }
+        Ok(())
+    })
+}
+
+fn delete_tpm_transient_handles(job: &mut Job, pattern: &str) -> Result<(), CommandError> {
+    for_each_tpm_handle(job, pattern, TpmHt::Transient, |dev, job, handle| {
+        dev.flush_context(handle.into())?;
+        writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
+        job.key_cache.untrack(handle);
         Ok(())
     })
 }
@@ -65,27 +80,23 @@ fn delete_tpm_persistent_handles(
     pattern: &str,
     hierarchy_args: &HierarchyAuthArgs,
 ) -> Result<(), CommandError> {
-    with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-        let pattern = HandlePattern::new(pattern)?;
-        let handles = dev.fetch_handles((TpmHt::Persistent as u32) << 24)?;
-        for handle in handles.into_iter().filter(|&h| pattern.matches(h)) {
-            let persistent_handle = TpmHandle(handle);
-            let auth_handle_val: TpmHandle = if (handle & 0x00FF_FFFF) <= 0x007F_FFFF {
-                (TpmRh::Owner as u32).into()
-            } else {
-                (TpmRh::Platform as u32).into()
-            };
-            let auths = vec![hierarchy_args.auth.clone().unwrap_or_default()];
+    for_each_tpm_handle(job, pattern, TpmHt::Persistent, |dev, job, handle| {
+        let persistent_handle = TpmHandle(handle);
+        let auth_handle_val: TpmHandle = if (handle & 0x00FF_FFFF) <= 0x007F_FFFF {
+            (TpmRh::Owner as u32).into()
+        } else {
+            (TpmRh::Platform as u32).into()
+        };
+        let auths = vec![hierarchy_args.auth.clone().unwrap_or_default()];
 
-            dev.evict_control(
-                job,
-                auth_handle_val,
-                persistent_handle,
-                persistent_handle,
-                &auths,
-            )?;
-            writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
-        }
+        dev.evict_control(
+            job,
+            auth_handle_val,
+            persistent_handle,
+            persistent_handle,
+            &auths,
+        )?;
+        writeln!(job.key_cache.writer, "tpm:{handle:08x}")?;
         Ok(())
     })
 }
