@@ -77,7 +77,8 @@ impl FromStr for Auth {
     fn from_str(uri_str: &str) -> Result<Self, Self::Err> {
         match all_consuming(parse_auth)(uri_str) {
             Ok((_, Auth::Session(handle))) => {
-                if (handle >> 24) as u8 == TpmHt::PolicySession as u8 {
+                let ht = (handle >> 24) as u8;
+                if ht == TpmHt::PolicySession as u8 || ht == TpmHt::HmacSession as u8 {
                     Ok(Auth::Session(handle))
                 } else {
                     Err(AuthError::NotPolicyHandle)
