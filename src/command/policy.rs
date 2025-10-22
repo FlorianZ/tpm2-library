@@ -7,7 +7,7 @@ use crate::{
     command::CommandError,
     device::with_device,
     job::Job,
-    pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read, pcr_selection_vec_from_str},
+    pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
     policy::{
         execute_policy, parse, Expression, PolicyError, SoftwarePolicySession, TpmPolicySession,
     },
@@ -53,37 +53,34 @@ fn resolve_pcr_digests(
     let mut required_selections = HashSet::new();
     try_visit_pcr_expressions_mut(ast, &mut |expr| {
         if let Expression::Pcr {
-            selection,
+            selections,
             digest: None,
             ..
         } = expr
         {
-            required_selections.insert(selection.clone());
+            for s in selections {
+                required_selections.insert(s.clone());
+            }
         }
         Ok(())
     })?;
 
     if !required_selections.is_empty() {
         let banks = pcr_get_bank_list(device)?;
-        let selections_str = required_selections
-            .into_iter()
-            .collect::<Vec<_>>()
-            .join("+");
-        let selections = pcr_selection_vec_from_str(&selections_str)?;
+        let selections: Vec<_> = required_selections.into_iter().collect();
         let tpml_selection = crate::pcr::pcr_selection_vec_to_tpml(&selections, &banks)?;
         let (pcr_values, _) = pcr_read(device, &tpml_selection)?;
 
         let mut populator = |expr: &mut Expression| -> Result<(), CommandError> {
             if let Expression::Pcr {
-                selection, digest, ..
+                selections, digest, ..
             } = expr
             {
                 if digest.is_none() {
-                    let selections_for_node = pcr_selection_vec_from_str(selection)?;
                     let pcr_subset: Vec<crate::pcr::Pcr> = pcr_values
                         .iter()
                         .filter(|pcr| {
-                            selections_for_node
+                            selections
                                 .iter()
                                 .any(|sel| sel.alg == pcr.bank && sel.indices.contains(&pcr.index))
                         })

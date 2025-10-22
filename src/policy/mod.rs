@@ -16,14 +16,14 @@ use crate::{
     device::{Device, DeviceError},
     handle::Handle,
     key_cache::KeyCacheError,
-    pcr::{self, PcrError},
+    pcr::{self, PcrError, PcrSelection},
     session_cache::SessionError,
 };
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
     character::complete::{char, hex_digit1, space0},
-    combinator::{map, map_res, opt},
+    combinator::{all_consuming, map, map_res, opt},
     error::{Error as NomError, ErrorKind, ParseError},
     multi::separated_list1,
     sequence::{delimited, preceded, terminated, tuple},
@@ -33,7 +33,7 @@ use std::{collections::HashMap, fmt, num::ParseIntError, path::PathBuf, str::Fro
 use thiserror::Error;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
-    TpmErrorKind, TpmHandle,
+    tpm_hash_size, TpmErrorKind, TpmHandle,
 };
 
 #[derive(Debug, Error)]
@@ -137,7 +137,7 @@ pub trait PolicySession {
 pub enum Expression {
     Auth(Auth),
     Pcr {
-        selection: String,
+        selections: Vec<PcrSelection>,
         digest: Option<String>,
         count: Option<u32>,
     },
@@ -157,11 +157,16 @@ impl fmt::Display for Expression {
         match self {
             Expression::Auth(auth) => write!(f, "{auth}"),
             Expression::Pcr {
-                selection,
+                selections,
                 digest,
                 count,
             } => {
-                write!(f, "pcr({selection}")?;
+                let selection_str = selections
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("+");
+                write!(f, "pcr({selection_str}")?;
                 if let Some(d) = digest {
                     write!(f, ":{d}")?;
                 }
@@ -279,16 +284,26 @@ fn path_expression(input: &str) -> IResult<&str, Expression> {
 fn pcr_policy_expression(input: &str) -> IResult<&str, Expression> {
     let (remainder, pcr_substring) = take_while1(|c: char| !matches!(c, '(' | ')' | ','))(input)?;
 
-    match pcr::parse_pcr_policy_string(pcr_substring) {
-        Ok((selections, digest)) => {
-            let selection_str = selections
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-                .join("+");
+    let (selection_part, digest_part) =
+        if let Some((selection, digest)) = pcr_substring.rsplit_once(':') {
+            let is_digest = !digest.is_empty()
+                && digest.len() >= tpm_hash_size(&TpmAlgId::Sha1).unwrap_or(20) * 2
+                && digest.chars().all(|c| c.is_ascii_hexdigit());
+
+            if is_digest {
+                (selection, Some(digest.to_string()))
+            } else {
+                (pcr_substring, None)
+            }
+        } else {
+            (pcr_substring, None)
+        };
+
+    match all_consuming(pcr::parse_pcr_selections)(selection_part) {
+        Ok((_, selections)) => {
             let expr = Expression::Pcr {
-                selection: selection_str,
-                digest,
+                selections,
+                digest: digest_part,
                 count: None,
             };
             Ok((remainder, expr))
@@ -367,7 +382,7 @@ pub fn execute_policy(
     match ast {
         Expression::Auth(auth) => Err(PolicyError::InvalidExpression(auth.to_string())),
         Expression::Pcr {
-            selection,
+            selections,
             digest,
             count: _,
         } => {
@@ -376,9 +391,8 @@ pub fn execute_policy(
                     "expected a hex string for optional digest in pcr()".to_string(),
                 ))?)?;
             let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())?;
-            let selections = pcr::pcr_selection_vec_from_str(selection)?;
             let banks = pcr::pcr_get_bank_list(session.device())?;
-            let pcrs = pcr::pcr_selection_vec_to_tpml(&selections, &banks)?;
+            let pcrs = pcr::pcr_selection_vec_to_tpml(selections, &banks)?;
             session.policy_pcr(&pcr_digest, pcrs)?;
             session.get_digest()
         }
@@ -482,12 +496,17 @@ pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
 ) -> Result<(), PolicyError> {
     match ast {
         Expression::Pcr {
-            selection, digest, ..
+            selections, digest, ..
         } => {
             if digest.is_none() {
+                let selection_str = selections
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("+");
                 let digest_bytes = pcr_map
-                    .get(selection)
-                    .ok_or_else(|| PolicyError::PcrValueMissing(selection.clone()))?;
+                    .get(&selection_str)
+                    .ok_or(PolicyError::PcrValueMissing(selection_str))?;
                 *digest = Some(hex::encode(digest_bytes));
             }
         }

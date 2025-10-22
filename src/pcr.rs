@@ -23,7 +23,7 @@ use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
     data::{TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelection, TpmuCapabilities},
     message::TpmPcrReadCommand,
-    tpm_hash_size, TpmBuffer, TpmErrorKind,
+    TpmBuffer, TpmErrorKind,
 };
 
 #[derive(Debug, Error)]
@@ -62,7 +62,7 @@ pub struct PcrBank {
 }
 
 /// Represents a user's selection of PCR indices for a specific bank.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PcrSelection {
     pub alg: TpmAlgId,
     pub indices: Vec<u32>,
@@ -94,7 +94,12 @@ fn parse_pcr_selection(input: &str) -> IResult<&str, PcrSelection> {
 }
 
 /// Parses a full PCR selection string (e.g., "sha256:0,7+sha1:1").
-fn parse_pcr_selections(input: &str) -> IResult<&str, Vec<PcrSelection>> {
+///
+/// # Errors
+///
+/// Returns a `nom::Err` if the input string does not conform to the expected
+/// PCR selection format.
+pub fn parse_pcr_selections(input: &str) -> IResult<&str, Vec<PcrSelection>> {
     separated_list1(char('+'), parse_pcr_selection)(input)
 }
 
@@ -136,33 +141,6 @@ pub fn pcr_selection_vec_from_str(selection_str: &str) -> Result<Vec<PcrSelectio
         Ok((_, selections)) => Ok(selections),
         Err(_) => Err(PcrError::InvalidPcrSelection(selection_str.to_string())),
     }
-}
-
-/// Parses a full PCR policy string, including an optional composite digest.
-///
-/// # Errors
-///
-/// Returns a `PcrError` if the selection part of the string is malformed.
-pub fn parse_pcr_policy_string(
-    policy_str: &str,
-) -> Result<(Vec<PcrSelection>, Option<String>), PcrError> {
-    let (selection_part, digest_part) =
-        if let Some((selection, digest)) = policy_str.rsplit_once(':') {
-            let is_digest = !digest.is_empty()
-                && digest.len() >= tpm_hash_size(&TpmAlgId::Sha1).unwrap_or(20) * 2
-                && digest.chars().all(|c| c.is_ascii_hexdigit());
-
-            if is_digest {
-                (selection, Some(digest.to_string()))
-            } else {
-                (policy_str, None)
-            }
-        } else {
-            (policy_str, None)
-        };
-
-    let selections = pcr_selection_vec_from_str(selection_part)?;
-    Ok((selections, digest_part))
 }
 
 /// Converts a vector of `PcrSelection` into the low-level `TpmlPcrSelection`
