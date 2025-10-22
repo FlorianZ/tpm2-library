@@ -119,41 +119,14 @@ impl HandlePattern {
         let mut mask: u32 = 0;
         let mut value: u32 = 0;
 
-        if let Some(pos) = query.chars().position(|c| c == '*') {
-            let (prefix, suffix_with_asterisk) = query.split_at(pos);
-            let suffix = &suffix_with_asterisk[1..];
-
-            if suffix.contains('*') {
+        let (prefix, suffix) = if let Some((p, s)) = query.split_once('*') {
+            if s.contains('*') {
                 return Err(HandlePatternError::TooManyAsterisks);
             }
-
-            if prefix.len() + suffix.len() > 8 {
+            if p.len() + s.len() > 8 {
                 return Err(HandlePatternError::TooManyDigits);
             }
-
-            for (i, c) in prefix.chars().enumerate() {
-                let shift = (7 - i) * 4;
-                match c.to_digit(16) {
-                    Some(v) => {
-                        mask |= 0xF << shift;
-                        value |= v << shift;
-                    }
-                    None if c == '?' => {}
-                    None => return Err(HandlePatternError::InvalidHexString),
-                }
-            }
-
-            for (i, c) in suffix.chars().rev().enumerate() {
-                let shift = i * 4;
-                match c.to_digit(16) {
-                    Some(v) => {
-                        mask |= 0xF << shift;
-                        value |= v << shift;
-                    }
-                    None if c == '?' => {}
-                    None => return Err(HandlePatternError::InvalidHexString),
-                }
-            }
+            (p, s)
         } else {
             if query.len() < 8 {
                 return Err(HandlePatternError::TooFewDigits);
@@ -161,16 +134,30 @@ impl HandlePattern {
             if query.len() > 8 {
                 return Err(HandlePatternError::TooManyDigits);
             }
-            for (i, c) in query.chars().enumerate() {
-                let shift = (7 - i) * 4;
-                match c.to_digit(16) {
-                    Some(v) => {
-                        mask |= 0xF << shift;
-                        value |= v << shift;
-                    }
-                    None if c == '?' => {}
-                    None => return Err(HandlePatternError::InvalidHexString),
+            (query, "")
+        };
+
+        for (i, c) in prefix.chars().enumerate() {
+            let shift = (7 - i) * 4;
+            match c.to_digit(16) {
+                Some(v) => {
+                    mask |= 0xF << shift;
+                    value |= v << shift;
                 }
+                None if c == '?' => {}
+                None => return Err(HandlePatternError::InvalidHexString),
+            }
+        }
+
+        for (i, c) in suffix.chars().rev().enumerate() {
+            let shift = i * 4;
+            match c.to_digit(16) {
+                Some(v) => {
+                    mask |= 0xF << shift;
+                    value |= v << shift;
+                }
+                None if c == '?' => {}
+                None => return Err(HandlePatternError::InvalidHexString),
             }
         }
 
