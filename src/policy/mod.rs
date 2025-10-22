@@ -29,7 +29,7 @@ use nom::{
     sequence::{delimited, preceded, terminated, tuple},
     Err as NomErr, IResult,
 };
-use std::{collections::HashMap, fmt, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, fmt, num::ParseIntError, path::PathBuf, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
@@ -50,6 +50,8 @@ pub enum PolicyError {
     NoValidPolicyOrBranch,
     #[error("PCR value for selection '{0}' not provided")]
     PcrValueMissing(String),
+    #[error("trailing data")]
+    TrailingData,
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
@@ -62,37 +64,17 @@ pub enum PolicyError {
     Pcr(#[from] PcrError),
     #[error("session: {0}")]
     Session(#[from] SessionError),
-    #[error("TPM: {0}")]
-    Tpm(TpmErrorKind),
+    #[error("hex decode: {0}")]
+    HexDecode(#[from] hex::FromHexError),
+    #[error("handle decode: {0}")]
+    IntDecode(#[from] ParseIntError),
+    #[error("protocol: {0}")]
+    TpmProtocol(TpmErrorKind),
 }
 
 impl From<TpmErrorKind> for PolicyError {
     fn from(err: TpmErrorKind) -> Self {
-        Self::Tpm(err)
-    }
-}
-
-impl From<hex::FromHexError> for PolicyError {
-    fn from(err: hex::FromHexError) -> Self {
-        Self::InvalidValue(err.to_string())
-    }
-}
-
-impl From<base64::DecodeError> for PolicyError {
-    fn from(err: base64::DecodeError) -> Self {
-        Self::InvalidValue(err.to_string())
-    }
-}
-
-impl From<std::num::ParseIntError> for PolicyError {
-    fn from(err: std::num::ParseIntError) -> Self {
-        Self::InvalidValue(err.to_string())
-    }
-}
-
-impl From<std::str::Utf8Error> for PolicyError {
-    fn from(err: std::str::Utf8Error) -> Self {
-        Self::InvalidValue(err.to_string())
+        Self::TpmProtocol(err)
     }
 }
 
@@ -355,21 +337,21 @@ fn parse_expression(input: &str) -> IResult<&str, Expression> {
     }
 }
 
-/// Parses an expression string, ensuring the entire input is consumed.
+/// Parses a policy expression string.
 ///
 /// # Errors
 ///
-/// Returns a `PolicyError` if the input is not a valid expression or if there
-/// is trailing input left after parsing.
+/// Returns a `PolicyError::InvalidExpression` if expression parsing fails.
+/// Returns a `PolicyError::TrailingData` if there is trailing data after the
+/// expression.
 pub fn parse(input: &str) -> Result<Expression, PolicyError> {
-    let (remaining, expr) = parse_expression(input)
-        .map_err(|_| PolicyError::InvalidExpression(format!("\"{input}\"")))?;
+    let (remaining, expr) =
+        parse_expression(input).map_err(|_| PolicyError::InvalidExpression(input.to_string()))?;
 
     if !remaining.is_empty() {
-        return Err(PolicyError::InvalidExpression(format!(
-            "unexpected trailing input: '{remaining}'"
-        )));
+        return Err(PolicyError::TrailingData);
     }
+
     Ok(expr)
 }
 

@@ -64,21 +64,17 @@ pub enum KeyError {
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
+    #[error("hex decode: {0}")]
+    HexDecode(#[from] hex::FromHexError),
     #[error("rasn decode: {0}")]
     RasnDecode(#[from] rasn::error::DecodeError),
     #[error("rasn encode: {0}")]
     RasnEncode(#[from] rasn::error::EncodeError),
 }
 
-impl From<hex::FromHexError> for KeyError {
-    fn from(err: hex::FromHexError) -> Self {
-        Self::ValueConversionFailed(err.to_string())
-    }
-}
-
 impl From<TpmErrorKind> for KeyError {
     fn from(err: TpmErrorKind) -> Self {
-        Self::Device(DeviceError::Tpm(err))
+        Self::Device(DeviceError::TpmProtocol(err))
     }
 }
 

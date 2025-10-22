@@ -182,10 +182,10 @@ impl TpmKey {
             rsa_parent: None,
             parent: parent_handle.0,
             pub_key: OctetString::copy_from_slice(
-                &from_tpm_object_to_vec(out_public).map_err(DeviceError::Tpm)?,
+                &from_tpm_object_to_vec(out_public).map_err(DeviceError::TpmProtocol)?,
             ),
             priv_key: OctetString::copy_from_slice(
-                &from_tpm_object_to_vec(out_private).map_err(DeviceError::Tpm)?,
+                &from_tpm_object_to_vec(out_private).map_err(DeviceError::TpmProtocol)?,
             ),
         })
     }
@@ -281,7 +281,7 @@ impl TpmKey {
     ///
     /// Returns a `KeyError` if the public key bytes cannot be parsed.
     pub fn public(&self) -> Result<Tpm2bPublic, KeyError> {
-        let (public, _) = Tpm2bPublic::parse(&self.pub_key).map_err(DeviceError::Tpm)?;
+        let (public, _) = Tpm2bPublic::parse(&self.pub_key).map_err(DeviceError::TpmProtocol)?;
         Ok(public)
     }
 

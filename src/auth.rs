@@ -2,7 +2,6 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::handle::{Handle, HandleError};
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -11,20 +10,22 @@ use nom::{
     sequence::tuple,
     IResult,
 };
-use std::str::FromStr;
+use std::{num::ParseIntError, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::data::TpmHt;
 
 #[derive(Debug, Error)]
 pub enum AuthError {
-    #[error("auth handle is not a policy session handle")]
-    InvalidHandle,
-    #[error("auth content is not valid hex string")]
+    #[error("auth is not a policy handle")]
+    NotPolicyHandle,
+    #[error("auth is not a valid hex string")]
     InvalidHexString,
-    #[error("auth scheme is invalid or format incorrect")]
-    InvalidScheme,
-    #[error("auth handle error: {0}")]
-    Handle(#[from] HandleError),
+    #[error("auth is invalid")]
+    InvalidAuth,
+    #[error("hex decode: {0}")]
+    HexDecode(#[from] hex::FromHexError),
+    #[error("handle decode: {0}")]
+    IntDecode(#[from] ParseIntError),
 }
 
 /// Represents an authorization method for a command.
@@ -32,33 +33,15 @@ pub enum AuthError {
 pub enum Auth {
     Password(Vec<u8>),
     Policy(Vec<u8>),
-    Session(Handle),
+    Session(u32),
 }
 
 /// Nom parser for the Auth enum.
 fn parse_auth(input: &str) -> IResult<&str, Auth> {
-    let parse_password = map_res(hex_digit1, |hex: &str| {
-        hex::decode(hex)
-            .map(Auth::Password)
-            .map_err(|_| AuthError::InvalidHexString)
-    });
-
-    let parse_policy = map_res(hex_digit1, |hex: &str| {
-        hex::decode(hex)
-            .map(Auth::Policy)
-            .map_err(|_| AuthError::InvalidHexString)
-    });
-
+    let parse_password = map_res(hex_digit1, |hex: &str| hex::decode(hex).map(Auth::Password));
+    let parse_policy = map_res(hex_digit1, |hex: &str| hex::decode(hex).map(Auth::Policy));
     let parse_session = map_res(hex_digit1, |hex: &str| {
-        u32::from_str_radix(hex, 16)
-            .map_err(|_| AuthError::InvalidHexString)
-            .and_then(|val| {
-                if (val >> 24) as u8 == TpmHt::PolicySession as u8 {
-                    Ok(Auth::Session(Handle::Vtpm(val)))
-                } else {
-                    Err(AuthError::InvalidHandle)
-                }
-            })
+        u32::from_str_radix(hex, 16).map(Auth::Session)
     });
 
     alt((
@@ -98,8 +81,15 @@ impl FromStr for Auth {
 
     fn from_str(uri_str: &str) -> Result<Self, Self::Err> {
         match all_consuming(parse_auth)(uri_str) {
+            Ok((_, Auth::Session(handle))) => {
+                if (handle >> 24) as u8 == TpmHt::PolicySession as u8 {
+                    Ok(Auth::Session(handle))
+                } else {
+                    Err(AuthError::NotPolicyHandle)
+                }
+            }
             Ok((_, auth)) => Ok(auth),
-            Err(_) => Err(AuthError::InvalidScheme),
+            Err(_) => Err(AuthError::InvalidAuth),
         }
     }
 }

@@ -57,31 +57,27 @@ pub enum DeviceError {
     ResponseMismatch(TpmCc),
     #[error("TPM command timed out")]
     Timeout,
+    #[error("int decode: {0}")]
+    IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("syscall: {0}")]
     Nix(#[from] nix::Error),
-    #[error("TPM: {0}")]
-    Tpm(TpmErrorKind),
-    #[error("TPM RC: {0}")]
+    #[error("protocol: {0}")]
+    TpmProtocol(TpmErrorKind),
+    #[error("TPM return code: {0}")]
     TpmRc(TpmRc),
 }
 
 impl From<TpmErrorKind> for DeviceError {
     fn from(err: TpmErrorKind) -> Self {
-        Self::Tpm(err)
+        Self::TpmProtocol(err)
     }
 }
 
 impl From<TpmRc> for DeviceError {
     fn from(rc: TpmRc) -> Self {
         Self::TpmRc(rc)
-    }
-}
-
-impl From<TryFromIntError> for DeviceError {
-    fn from(_err: TryFromIntError) -> Self {
-        Self::Tpm(TpmErrorKind::InvalidValue)
     }
 }
 
@@ -514,8 +510,8 @@ impl Device {
         auth_hash: TpmAlgId,
         bind: TpmHandle,
     ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), DeviceError> {
-        let digest_len =
-            tpm_hash_size(&auth_hash).ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
+        let digest_len = tpm_hash_size(&auth_hash)
+            .ok_or(DeviceError::TpmProtocol(TpmErrorKind::InvalidValue))?;
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())?;
@@ -566,7 +562,7 @@ impl Device {
                 crate::key_cache::KeyCacheError::Device(d) => d,
                 other => {
                     log::error!("Unexpected error during evict_control execution: {other}");
-                    DeviceError::Tpm(TpmErrorKind::Failure)
+                    DeviceError::TpmProtocol(TpmErrorKind::Failure)
                 }
             })?;
 

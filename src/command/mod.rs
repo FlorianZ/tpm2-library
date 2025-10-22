@@ -42,6 +42,7 @@ use crate::{
     auth::AuthError,
     crypto::CryptoError,
     device::DeviceError,
+    handle::HandlePatternError,
     key::{AlgInfo, KeyError},
     key_cache::KeyCacheError,
     pcr::PcrError,
@@ -120,10 +121,12 @@ pub enum CommandError {
     Auth(#[from] AuthError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
-    #[error("context: {0}")]
-    KeyCacheError(#[from] KeyCacheError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
+    #[error("handle pattern: {0}")]
+    HandlePattern(#[from] HandlePatternError),
+    #[error("context: {0}")]
+    KeyCacheError(#[from] KeyCacheError),
     #[error("key error: {0}")]
     Key(#[from] KeyError),
     #[error("pcr: {0}")]
@@ -132,24 +135,18 @@ pub enum CommandError {
     Policy(#[from] PolicyError),
     #[error("session: {0}")]
     Session(#[from] SessionError),
+    #[error("hex decode: {0}")]
+    HexDecode(#[from] hex::FromHexError),
+    #[error("int decode: {0}")]
+    IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-}
-
-impl From<hex::FromHexError> for CommandError {
-    fn from(err: hex::FromHexError) -> Self {
-        Self::InvalidInput(err.to_string())
-    }
+    #[error("protocol: {0}")]
+    TpmProtocol(TpmErrorKind),
 }
 
 impl From<TpmErrorKind> for CommandError {
     fn from(err: TpmErrorKind) -> Self {
-        Self::Device(err.into())
-    }
-}
-
-impl From<TryFromIntError> for CommandError {
-    fn from(err: TryFromIntError) -> Self {
-        Self::Device(err.into())
+        Self::TpmProtocol(err)
     }
 }

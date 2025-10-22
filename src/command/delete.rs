@@ -6,7 +6,7 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, HierarchyAuthArgs},
     device::{with_device, Device, DeviceError},
-    handle::{HandlePattern, HandlePatternError},
+    handle::HandlePattern,
     job::Job,
 };
 use clap::Args;
@@ -34,12 +34,6 @@ impl SubCommand for Delete {
         } else {
             Err(CommandError::InvalidInput(self.input.to_string()))
         }
-    }
-}
-
-impl From<HandlePatternError> for CommandError {
-    fn from(err: HandlePatternError) -> Self {
-        CommandError::InvalidInput(format!("invalid handle pattern: {err}"))
     }
 }
 

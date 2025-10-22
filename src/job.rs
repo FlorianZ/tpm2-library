@@ -53,15 +53,14 @@ impl<'a> Job<'a> {
         auth_list: &[Auth],
     ) -> Result<Vec<TpmsAuthCommand>, SessionError> {
         let mut built_auths = Vec::new();
-        let params = from_tpm_object_to_vec(command).map_err(DeviceError::Tpm)?;
+        let params = from_tpm_object_to_vec(command).map_err(DeviceError::TpmProtocol)?;
 
         let mut nonce_decrypt: Option<Tpm2bNonce> = None;
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if let Auth::Session(handle) = auth {
-                let vhandle_raw = handle.value_raw();
-                if let Ok(session) = self.session_cache.get(vhandle_raw) {
+            if let Auth::Session(vhandle) = auth {
+                if let Ok(session) = self.session_cache.get(*vhandle) {
                     if session.attributes.contains(TpmaSession::DECRYPT) {
                         nonce_decrypt = Some(session.nonce_tpm);
                     }
@@ -82,15 +81,14 @@ impl<'a> Job<'a> {
                 Auth::Password(password) => {
                     built_auths.push(build_password_session(password)?);
                 }
-                Auth::Session(handle) => {
-                    let vhandle_raw = handle.value_raw();
-                    let session = self.session_cache.get(vhandle_raw)?;
+                Auth::Session(vhandle) => {
+                    let session = self.session_cache.get(*vhandle)?;
                     let nonce_size = tpm_hash_size(&session.auth_hash)
-                        .ok_or(DeviceError::Tpm(TpmErrorKind::InvalidValue))?;
+                        .ok_or(DeviceError::TpmProtocol(TpmErrorKind::InvalidValue))?;
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
-                    let nonce_caller =
-                        Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(DeviceError::Tpm)?;
+                    let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
+                        .map_err(DeviceError::TpmProtocol)?;
                     let (nonce_decrypt, nonce_encrypt) = if i == 0 {
                         (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
                     } else {
@@ -130,35 +128,30 @@ impl<'a> Job<'a> {
         device: &mut Device,
         command: &C,
         handles: &[u32],
-        auths: &[Auth],
+        auth_list: &[Auth],
     ) -> Result<(TpmResponseBody, TpmAuthResponses), KeyCacheError> {
-        let persistent_auths: Vec<Auth> = auths.to_vec();
-
-        let session_tpm_handles = self
-            .session_cache
-            .prepare_sessions(device, &persistent_auths)?;
-        for &handle in &session_tpm_handles {
+        let auth_handles = self.session_cache.prepare_sessions(device, auth_list)?;
+        for &handle in &auth_handles {
             self.key_cache.track(tpm2_protocol::TpmHandle(handle))?;
         }
 
-        let sessions = self.build_auth_area(device, command, handles, auths)?;
+        let sessions = self.build_auth_area(device, command, handles, auth_list)?;
         let (resp, auth_responses) = device.execute(command, &sessions)?;
 
-        let mut persistent_session_vhandles_used = HashSet::new();
-        for auth in &persistent_auths {
+        let mut used_auth_list = HashSet::new();
+        for auth in auth_list {
             if let Auth::Session(handle) = auth {
-                persistent_session_vhandles_used.insert(handle.value_raw());
+                used_auth_list.insert(*handle);
             }
         }
 
-        self.session_cache.teardown_sessions(
-            device,
-            &persistent_session_vhandles_used,
-            &auth_responses,
-        )?;
-        for handle in session_tpm_handles {
+        self.session_cache
+            .teardown_sessions(device, &used_auth_list, &auth_responses)?;
+
+        for handle in auth_handles {
             self.key_cache.untrack(handle);
         }
+
         Ok((resp, auth_responses))
     }
 

@@ -45,8 +45,6 @@ pub enum SessionError {
     NotFound(u32),
     #[error("trailing passwords or sessions")]
     TrailingAuthValues,
-    #[error("trailing data")]
-    TrailingData,
     #[error("unsupported name algorithm: {0}")]
     UnsupportedNameAlgorithm(Tpm2shAlgId),
     #[error("crypto: {0}")]
@@ -172,7 +170,7 @@ impl Session {
         let (auth_hash, remainder) = TpmAlgId::parse(remainder)?;
 
         if !remainder.is_empty() {
-            return Err(SessionError::TrailingData);
+            log::warn!("trailing data");
         }
 
         Ok(Self {
@@ -344,18 +342,17 @@ impl<'a> SessionCache<'a> {
     ) -> Result<Vec<u32>, SessionError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if let Auth::Session(handle) = auth {
-                let vhandle = handle.value_raw();
+            if let Auth::Session(vhandle) = auth {
                 let session_is_loaded = {
-                    let session = self.get(vhandle)?;
+                    let session = self.get(*vhandle)?;
                     session.handle.0 != 0
                 };
                 if !session_is_loaded {
                     let new_handle = {
-                        let session = self.get(vhandle)?;
+                        let session = self.get(*vhandle)?;
                         device.load_context(session.context.clone())?
                     };
-                    let session = self.get_mut(vhandle)?;
+                    let session = self.get_mut(*vhandle)?;
                     session.handle = TpmHandle(new_handle);
                     activated_handles.push(new_handle);
                 }

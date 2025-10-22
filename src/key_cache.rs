@@ -66,6 +66,8 @@ pub enum KeyCacheError {
     Crypto(#[from] crate::crypto::CryptoError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
+    #[error("int decode: {0}")]
+    IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("key: {0}")]
@@ -77,12 +79,6 @@ pub enum KeyCacheError {
 impl From<TpmErrorKind> for KeyCacheError {
     fn from(err: TpmErrorKind) -> Self {
         Self::Device(DeviceError::from(err))
-    }
-}
-
-impl From<TryFromIntError> for KeyCacheError {
-    fn from(err: TryFromIntError) -> Self {
-        Self::Device(err.into())
     }
 }
 
@@ -197,7 +193,7 @@ impl<'a> KeyCache<'a> {
                 let content = fs::read(&path)?;
                 let (key, remainder) = CacheKey::parse(&content)?;
                 if !remainder.is_empty() {
-                    log::warn!("trailing data: {vhandle}");
+                    log::warn!("trailing data");
                 }
                 self.contexts.insert(vhandle, key);
             } else {
