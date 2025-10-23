@@ -32,15 +32,14 @@ pub mod list;
 pub mod r#macro;
 pub mod message;
 
-use crate::data::TpmAlgId;
 pub use buffer::TpmBuffer;
+pub use list::TpmList;
+
 use core::{
     convert::{From, TryFrom},
-    fmt,
     mem::size_of,
     result::Result,
 };
-pub use list::TpmList;
 
 /// A TPM handle, which is a 32-bit unsigned integer.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -79,21 +78,21 @@ impl TpmSized for TpmHandle {
     }
 }
 
-impl fmt::Display for TpmHandle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
+impl core::fmt::Display for TpmHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.0, f)
     }
 }
 
-impl fmt::LowerHex for TpmHandle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::LowerHex::fmt(&self.0, f)
+impl core::fmt::LowerHex for TpmHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::LowerHex::fmt(&self.0, f)
     }
 }
 
-impl fmt::UpperHex for TpmHandle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::UpperHex::fmt(&self.0, f)
+impl core::fmt::UpperHex for TpmHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::UpperHex::fmt(&self.0, f)
     }
 }
 
@@ -103,8 +102,8 @@ pub enum TpmDiscriminant {
     Unsigned(u64),
 }
 
-impl fmt::LowerHex for TpmDiscriminant {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::LowerHex for TpmDiscriminant {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             TpmDiscriminant::Signed(v) => write!(f, "{v:x}"),
             TpmDiscriminant::Unsigned(v) => write!(f, "{v:x}"),
@@ -127,8 +126,8 @@ pub enum TpmError {
     UnknownDiscriminant(&'static str, TpmDiscriminant),
 }
 
-impl fmt::Display for TpmError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::Display for TpmError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::CapacityExceeded => write!(f, "capacity exceeded"),
             Self::DataTruncated => write!(f, "data truncated"),
@@ -281,16 +280,4 @@ pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
         return Err(TpmError::DataTruncated);
     }
     Ok(buf.split_at(size))
-}
-
-/// Returns the size of a hash digest in bytes for a given hash algorithm.
-#[must_use]
-pub const fn tpm_hash_size(alg_id: &TpmAlgId) -> Option<usize> {
-    match alg_id {
-        TpmAlgId::Sha1 => Some(20),
-        TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => Some(32),
-        TpmAlgId::Sha384 => Some(48),
-        TpmAlgId::Sha512 => Some(64),
-        _ => None,
-    }
 }

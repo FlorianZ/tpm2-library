@@ -13,8 +13,8 @@ use crate::{
         TpmsSchemeHmac, TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa,
         TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
-    tpm_hash_size, TpmBuffer, TpmBuild, TpmError, TpmParse, TpmParseTagged, TpmResult, TpmSized,
-    TpmTagged, TpmWriter,
+    TpmBuffer, TpmBuild, TpmError, TpmParse, TpmParseTagged, TpmResult, TpmSized, TpmTagged,
+    TpmWriter,
 };
 use core::ops::Deref;
 
@@ -125,11 +125,15 @@ impl TpmBuild for TpmuHa {
 
 impl TpmParseTagged for TpmuHa {
     fn parse_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        if tag == TpmAlgId::Null {
-            return Ok((Self::Null, buf));
-        }
+        let digest_size = match tag {
+            TpmAlgId::Null => return Ok((Self::Null, buf)),
+            TpmAlgId::Sha1 => 20,
+            TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => 32,
+            TpmAlgId::Sha384 => 48,
+            TpmAlgId::Sha512 => 64,
+            _ => return Err(TpmError::MalformedData),
+        };
 
-        let digest_size = tpm_hash_size(&tag).ok_or(TpmError::MalformedData)?;
         if buf.len() < digest_size {
             return Err(TpmError::DataTruncated);
         }
