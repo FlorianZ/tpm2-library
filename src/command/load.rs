@@ -6,8 +6,8 @@ use crate::{
     auth::Auth,
     cli::SubCommand,
     command::{CommandError, InputArgs, ParentAuthArgs},
-    convert::from_input_to_bytes,
     device::{with_device, Device},
+    io::read_file_input,
     job::Job,
     key::AnyKey,
 };
@@ -35,7 +35,7 @@ impl SubCommand for Load {
                 .key_cache
                 .load_parent(device, &self.parent_args.parent)?;
             let auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
-            let input_bytes = from_input_to_bytes(self.input_args.input.as_deref())?;
+            let input_bytes = read_file_input(self.input_args.input.as_deref())?;
 
             let (object_handle, _, public) =
                 Self::run_input(job, device, parent_handle, &input_bytes, &auths)?;

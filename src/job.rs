@@ -4,12 +4,12 @@
 
 use crate::{
     auth::{Auth, AuthClass},
-    convert::from_tpm_object_to_vec,
     crypto::crypto_hash_size,
     device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
     key_cache::{KeyCache, KeyCacheError},
     session_cache::{build_password_session, create_auth, SessionCache, SessionError},
+    write_object,
 };
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
@@ -54,7 +54,7 @@ impl<'a> Job<'a> {
         auth_list: &[Auth],
     ) -> Result<Vec<TpmsAuthCommand>, SessionError> {
         let mut built_auths = Vec::new();
-        let params = from_tpm_object_to_vec(command).map_err(DeviceError::TpmProtocol)?;
+        let params = write_object(command).map_err(DeviceError::TpmProtocol)?;
 
         let mut nonce_decrypt: Option<Tpm2bNonce> = None;
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;

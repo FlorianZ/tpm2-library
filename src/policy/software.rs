@@ -5,9 +5,9 @@
 
 use super::{PolicyError, PolicySession};
 use crate::{
-    convert::from_tpm_object_to_vec,
     crypto::{crypto_digest, crypto_hash_size},
     device::Device,
+    write_object,
 };
 use tpm2_protocol::data::{
     Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection,
@@ -73,7 +73,7 @@ impl PolicySession for SoftwarePolicySession<'_> {
         pcr_digest: &Tpm2bDigest,
         pcrs: TpmlPcrSelection,
     ) -> Result<(), PolicyError> {
-        let pcrs_bytes = from_tpm_object_to_vec(&pcrs)?;
+        let pcrs_bytes = write_object(&pcrs)?;
         update_policy_digest(
             &mut self.digest,
             self.hash_alg,

@@ -5,11 +5,11 @@
 use crate::{
     auth::AuthError,
     command::OutputEncoding,
-    convert::from_tpm_object_to_vec,
     device::{Device, DeviceError},
     handle::{Handle, HandleClass},
     key::{KeyError, TpmKey},
     session_cache::SessionError,
+    write_object,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -115,7 +115,7 @@ impl<'a> KeyCache<'a> {
             for vhandle in self.dirty_contexts.drain() {
                 if let Some(data) = self.contexts.get(&vhandle) {
                     let path = self.cache_dir.join(format!("{vhandle:08x}.bin"));
-                    match from_tpm_object_to_vec(data) {
+                    match write_object(data) {
                         Ok(bytes) => {
                             if let Err(e) = fs::write(path, bytes) {
                                 log::error!("teardown: {vhandle}: {e:#}");

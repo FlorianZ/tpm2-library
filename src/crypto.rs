@@ -4,7 +4,7 @@
 
 //! This file contains cryptographic algorithms shared by tpm2sh and `MockTPM`.
 
-use crate::convert::from_tpm_object_to_vec;
+use crate::write_object;
 use hmac::{Hmac, Mac};
 use num_traits::FromPrimitive;
 use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
@@ -415,8 +415,7 @@ pub fn crypto_make_name(public: &TpmtPublic) -> Result<Tpm2bName, CryptoError> {
     let mut name_buf = Vec::new();
     let name_alg = public.name_alg;
     name_buf.extend_from_slice(&(name_alg as u16).to_be_bytes());
-    let public_area_bytes =
-        from_tpm_object_to_vec(public).map_err(|_| CryptoError::InvalidRsaExponent)?;
+    let public_area_bytes = write_object(public).map_err(|_| CryptoError::InvalidRsaExponent)?;
     let digest = crypto_digest(name_alg, &[&public_area_bytes])?;
     name_buf.extend_from_slice(&digest);
     Tpm2bName::try_from(name_buf.as_slice()).map_err(Into::into)

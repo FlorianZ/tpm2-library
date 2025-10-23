@@ -7,7 +7,6 @@
 use super::{Alg, ExternalKey, KeyError, Tpm2shAlgId};
 use crate::{
     auth::Auth,
-    convert::from_tpm_object_to_vec,
     crypto::{
         crypto_hash_size, crypto_hmac, crypto_kdfa, crypto_make_name, derive_seed_with_ecc,
         protect_seed_with_rsa, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
@@ -15,7 +14,7 @@ use crate::{
     device::{Device, DeviceError},
     job::Job,
     key_cache::KeyCacheError,
-    template,
+    template, write_object,
 };
 
 use aes::Aes128;
@@ -179,10 +178,10 @@ impl TpmKey {
             rsa_parent: None,
             parent: parent_handle.0,
             pub_key: OctetString::copy_from_slice(
-                &from_tpm_object_to_vec(out_public).map_err(DeviceError::TpmProtocol)?,
+                &write_object(out_public).map_err(DeviceError::TpmProtocol)?,
             ),
             priv_key: OctetString::copy_from_slice(
-                &from_tpm_object_to_vec(out_private).map_err(DeviceError::TpmProtocol)?,
+                &write_object(out_private).map_err(DeviceError::TpmProtocol)?,
             ),
         })
     }
@@ -356,7 +355,7 @@ fn create_import_blob(
         }
         TpmAlgId::Ecc => {
             let (derived_seed, ephemeral_point) = derive_seed_with_ecc(parent_public, rng)?;
-            let point_bytes = from_tpm_object_to_vec(&ephemeral_point)?;
+            let point_bytes = write_object(&ephemeral_point)?;
             let secret = Tpm2bEncryptedSecret::try_from(point_bytes.as_slice())?;
             (derived_seed, secret)
         }
@@ -412,7 +411,7 @@ fn create_import_blob(
         sensitive: sensitive_composite,
     };
     let sensitive_tpm2b = Tpm2bSensitive::from(sensitive);
-    let mut enc_data = from_tpm_object_to_vec(&sensitive_tpm2b)?;
+    let mut enc_data = write_object(&sensitive_tpm2b)?;
 
     let iv = [0u8; 16];
     let cipher = Encryptor::<Aes128>::new(sym_key.as_slice().into(), &iv.into());

@@ -8,10 +8,10 @@
 pub mod auth;
 pub mod cli;
 pub mod command;
-pub mod convert;
 pub mod crypto;
 pub mod device;
 pub mod handle;
+pub mod io;
 pub mod job;
 pub mod key;
 pub mod key_cache;
@@ -27,3 +27,21 @@ pub mod template;
 /// operation and perform necessary teardown (e.g., flushing TPM contexts)
 /// before exiting.
 pub static TEARDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Serialize a type implementing `TpmBuild` type into `Vec<u8>`.
+///
+/// # Errors
+///
+/// Returns a `TpmError` if the object cannot be serialized into the buffer.
+pub fn write_object<T: tpm2_protocol::TpmBuild>(
+    obj: &T,
+) -> Result<Vec<u8>, tpm2_protocol::TpmError> {
+    let mut buf = vec![0u8; tpm2_protocol::constant::TPM_MAX_COMMAND_SIZE];
+    let len = {
+        let mut writer = tpm2_protocol::TpmWriter::new(&mut buf);
+        obj.build(&mut writer)?;
+        writer.len()
+    };
+    buf.truncate(len);
+    Ok(buf)
+}

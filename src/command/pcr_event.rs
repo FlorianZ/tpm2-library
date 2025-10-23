@@ -5,8 +5,8 @@ use crate::{
     auth::Auth,
     cli::SubCommand,
     command::{CommandError, InputArgs},
-    convert::from_input_to_bytes,
     device::with_device,
+    io::read_file_input,
     job::Job,
     key::Tpm2shAlgId,
     pcr::pcr_get_bank_list,
@@ -49,7 +49,7 @@ impl SubCommand for PcrEvent {
 
             let auths = vec![self.auth.clone().unwrap_or_default()];
 
-            let data_bytes = from_input_to_bytes(self.input_args.input.as_deref())?;
+            let data_bytes = read_file_input(self.input_args.input.as_deref())?;
 
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())?;
             let command = TpmPcrEventCommand {

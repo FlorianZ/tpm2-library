@@ -7,8 +7,8 @@
 use crate::{
     cli::SubCommand,
     command::{CommandError, CreationArgs, OutputArgs, OutputEncodingArgs, ParentAuthArgs},
-    convert::from_tpm_key_to_output,
     device::{with_device, Device},
+    io::write_file_output,
     job::Job,
     key::{Alg, AlgInfo, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY, OID_SEALED_DATA},
 };
@@ -89,7 +89,7 @@ impl Create {
             parent_handle,
             &template,
         )?;
-        from_tpm_key_to_output(
+        write_file_output(
             &mut job.key_cache,
             &tpm_key,
             self.output_args.output.as_deref(),

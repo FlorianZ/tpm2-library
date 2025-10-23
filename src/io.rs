@@ -11,30 +11,13 @@ use std::{
     io::{self, Read},
     path::Path,
 };
-use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmBuild, TpmError, TpmWriter};
-
-/// A helper to build a `TpmBuild` type into a `Vec<u8>`.
-///
-/// # Errors
-///
-/// Returns a `TpmError` if the object cannot be serialized into the buffer.
-pub fn from_tpm_object_to_vec<T: TpmBuild>(obj: &T) -> Result<Vec<u8>, TpmError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        obj.build(&mut writer)?;
-        writer.len()
-    };
-    buf.truncate(len);
-    Ok(buf)
-}
 
 /// Reads data from a file path or from stdin if the path is not provided.
 ///
 /// # Errors
 ///
 /// Returns a `std::io::Error` on failure.
-pub fn from_input_to_bytes(input: Option<&Path>) -> io::Result<Vec<u8>> {
+pub fn read_file_input(input: Option<&Path>) -> io::Result<Vec<u8>> {
     let mut input_bytes = Vec::new();
     match input {
         Some(path) => {
@@ -55,7 +38,7 @@ pub fn from_input_to_bytes(input: Option<&Path>) -> io::Result<Vec<u8>> {
 /// # Errors
 ///
 /// Returns `CommandError` on failure.
-pub fn from_tpm_key_to_output(
+pub fn write_file_output(
     key_cache: &mut KeyCache,
     tpm_key: &TpmKey,
     output: Option<&Path>,
