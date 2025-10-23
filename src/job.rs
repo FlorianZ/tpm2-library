@@ -6,7 +6,7 @@ use crate::{
     auth::{Auth, AuthClass},
     convert::from_tpm_object_to_vec,
     crypto::crypto_hash_size,
-    device::{Device, DeviceError, TpmCommandObject, TpmRcBaseExt},
+    device::{Device, DeviceError, TpmCommandObject},
     key::{AnyKey, KeyError, TpmKey},
     key_cache::{KeyCache, KeyCacheError},
     session_cache::{build_password_session, create_auth, SessionCache, SessionError},

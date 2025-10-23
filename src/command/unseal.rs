@@ -4,7 +4,7 @@
 use crate::{
     cli::SubCommand,
     command::{AuthArgs, CommandError},
-    device::{with_device, DeviceError, TpmRcBaseExt},
+    device::{with_device, DeviceError},
     handle::Handle,
     job::Job,
     key_cache::KeyCacheError,

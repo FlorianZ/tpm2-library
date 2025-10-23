@@ -49,21 +49,6 @@ use tpm2_protocol::{
 pub trait TpmCommandObject: TpmPrint + TpmHeader + TpmBodyBuild {}
 impl<T> TpmCommandObject for T where T: TpmHeader + TpmBodyBuild + TpmPrint {}
 
-/// Extension trait to easily extract the base error code from a `TpmRc`.
-pub trait TpmRcBaseExt {
-    /// Returns the underlying `TpmRcBase` for any `TpmRc` variant.
-    fn base(&self) -> TpmRcBase;
-}
-
-impl TpmRcBaseExt for TpmRc {
-    fn base(&self) -> TpmRcBase {
-        match self {
-            TpmRc::Fmt0(base) | TpmRc::Warn(base) => *base,
-            TpmRc::Fmt1(fmt1) => fmt1.base,
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum DeviceError {
     #[error("device is already borrowed")]

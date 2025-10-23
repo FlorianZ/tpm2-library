@@ -5,7 +5,7 @@ use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
     crypto::crypto_hash_size,
-    device::{test_rsa_parms, with_device, Device, DeviceError, TpmRcBaseExt},
+    device::{test_rsa_parms, with_device, Device, DeviceError},
     job::Job,
     key::{Tpm2shAlgId, Tpm2shEccCurve},
 };

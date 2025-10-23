@@ -5,7 +5,7 @@
 use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
-    device::{with_device, Device, DeviceError, TpmRcBaseExt},
+    device::{with_device, Device, DeviceError},
     handle::{Handle, HandleClass},
     job::Job,
     key::format_alg_from_public,

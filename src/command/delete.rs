@@ -5,7 +5,7 @@
 use crate::{
     cli::SubCommand,
     command::{CommandError, HierarchyAuthArgs},
-    device::{with_device, Device, DeviceError, TpmRcBaseExt},
+    device::{with_device, Device, DeviceError},
     handle::{Handle, HandlePattern},
     job::Job,
 };
