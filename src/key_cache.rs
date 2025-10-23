@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
@@ -19,8 +19,8 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bPublic, TpmHt, TpmRcBase, TpmsContext},
-    TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmSized, TpmWriter,
+    data::{Tpm2bPublic, TpmHt, TpmRc, TpmRcBase, TpmsContext},
+    TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
 
 #[derive(Debug, Clone)]
@@ -37,14 +37,14 @@ impl TpmSized for CacheKey {
 }
 
 impl TpmBuild for CacheKey {
-    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmErrorKind> {
+    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
         self.public.build(writer)?;
         self.context.build(writer)
     }
 }
 
 impl TpmParse for CacheKey {
-    fn parse(buffer: &[u8]) -> Result<(Self, &[u8]), TpmErrorKind> {
+    fn parse(buffer: &[u8]) -> Result<(Self, &[u8]), TpmError> {
         let (public, remainder) = Tpm2bPublic::parse(buffer)?;
         let (context, remainder) = TpmsContext::parse(remainder)?;
         let new_self = Self { public, context };
@@ -76,8 +76,8 @@ pub enum KeyCacheError {
     Session(#[from] SessionError),
 }
 
-impl From<TpmErrorKind> for KeyCacheError {
-    fn from(err: TpmErrorKind) -> Self {
+impl From<TpmError> for KeyCacheError {
+    fn from(err: TpmError) -> Self {
         Self::Device(DeviceError::from(err))
     }
 }
@@ -303,13 +303,20 @@ impl<'a> KeyCache<'a> {
                         self.track(handle)?;
                         Ok(handle)
                     }
-                    Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                        log::debug!("vtpm:{vhandle} is stale");
-                        self.remove_context(*vhandle)?;
-                        Err(KeyCacheError::ContextNotFound(*vhandle))
-                    }
-                    Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Handle => {
-                        Err(KeyCacheError::ParentNotLoaded)
+                    Err(DeviceError::TpmRc(rc)) => {
+                        let base = match rc {
+                            TpmRc::Fmt0(base) | TpmRc::Warn(base) => base,
+                            TpmRc::Fmt1(fmt1) => fmt1.base,
+                        };
+                        if base == TpmRcBase::ReferenceH0 {
+                            log::debug!("vtpm:{vhandle} is stale");
+                            self.remove_context(*vhandle)?;
+                            Err(KeyCacheError::ContextNotFound(*vhandle))
+                        } else if base == TpmRcBase::Handle {
+                            Err(KeyCacheError::ParentNotLoaded)
+                        } else {
+                            Err(DeviceError::TpmRc(rc).into())
+                        }
                     }
                     Err(e) => Err(e.into()),
                 }

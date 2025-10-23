@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
@@ -10,11 +10,12 @@ use tpm2_protocol::{
         TpmEccCurve, TpmPt, TpmRh, TpmSe, TpmSt, TpmaAlgorithm, TpmaCc, TpmaLocality, TpmaNv,
         TpmaObject, TpmaSession, TpmiYesNo, TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData,
         TpmsContext, TpmsCreationData, TpmsEccPoint, TpmsKeyedhashParms, TpmsNvPublic,
-        TpmsPcrSelection, TpmsSchemeHash, TpmsSchemeXor, TpmsSensitiveCreate, TpmsSymcipherParms,
-        TpmsTaggedProperty, TpmtEccScheme, TpmtHa, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtPublic,
-        TpmtPublicParms, TpmtRsaScheme, TpmtSymDefObject, TpmtTkAuth, TpmtTkCreation,
-        TpmtTkHashcheck, TpmuAsymScheme, TpmuCapabilities, TpmuHa, TpmuKeyedhashScheme,
-        TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite, TpmuSymKeyBits, TpmuSymMode,
+        TpmsPcrSelect, TpmsPcrSelection, TpmsSchemeHash, TpmsSchemeXor, TpmsSensitiveCreate,
+        TpmsSymcipherParms, TpmsTaggedProperty, TpmtEccScheme, TpmtHa, TpmtKdfScheme,
+        TpmtKeyedhashScheme, TpmtPublic, TpmtPublicParms, TpmtRsaScheme, TpmtSymDefObject,
+        TpmtTkAuth, TpmtTkCreation, TpmtTkHashcheck, TpmuAsymScheme, TpmuCapabilities, TpmuHa,
+        TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite, TpmuSymKeyBits,
+        TpmuSymMode,
     },
     message::{
         TpmCommandBody, TpmContextLoadCommand, TpmContextLoadResponse, TpmContextSaveCommand,
@@ -138,6 +139,25 @@ impl<const CAPACITY: usize> TpmPrint for TpmBuffer<CAPACITY> {
             name,
             self.len(),
             hex::encode(self)
+        )
+    }
+}
+
+impl TpmPrint for TpmsPcrSelect {
+    fn print(
+        &self,
+        writer: &mut dyn Write,
+        name: &str,
+        indent: usize,
+    ) -> Result<(), std::io::Error> {
+        let prefix = " ".repeat(indent * INDENT);
+        writeln!(
+            writer,
+            "{}{}: (size={}) {}",
+            prefix,
+            name,
+            self.len(),
+            hex::encode(self.as_ref())
         )
     }
 }

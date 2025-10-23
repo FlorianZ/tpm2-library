@@ -4,7 +4,7 @@
 use crate::{
     cli::SubCommand,
     command::{AuthArgs, CommandError},
-    device::{with_device, DeviceError},
+    device::{with_device, DeviceError, TpmRcBaseExt},
     handle::Handle,
     job::Job,
     key_cache::KeyCacheError,
@@ -56,15 +56,15 @@ impl SubCommand for Unseal {
                         .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
                         .out_data
                 }
-                Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
-                    if rc.base() == TpmRcBase::AuthFail || rc.base() == TpmRcBase::AuthMissing =>
-                {
-                    return Err(CommandError::AuthenticationDenied);
-                }
-                Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
-                    if rc.base() == TpmRcBase::Lockout =>
-                {
-                    return Err(CommandError::DictionaryAttackLocked);
+                Err(KeyCacheError::Device(DeviceError::TpmRc(rc))) => {
+                    let base = rc.base();
+                    if base == TpmRcBase::AuthFail || base == TpmRcBase::AuthMissing {
+                        return Err(CommandError::AuthenticationDenied);
+                    }
+                    if base == TpmRcBase::Lockout {
+                        return Err(CommandError::DictionaryAttackLocked);
+                    }
+                    return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)).into());
                 }
                 Err(e) => return Err(e.into()),
             };

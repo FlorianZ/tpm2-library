@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{auth::Auth, cli::LogFormat, handle::Handle, job::Job, print::TpmPrint, TEARDOWN};
+use crate::{
+    auth::Auth, cli::LogFormat, crypto::crypto_hash_size, handle::Handle, job::Job,
+    print::TpmPrint, TEARDOWN,
+};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use log::trace;
@@ -34,12 +37,27 @@ use tpm2_protocol::{
         TpmReadPublicCommand, TpmResponseBody, TpmStartAuthSessionCommand,
         TpmStartAuthSessionResponse, TpmTestParmsCommand,
     },
-    tpm_hash_size, TpmErrorKind, TpmHandle, TpmWriter,
+    TpmError, TpmHandle, TpmWriter,
 };
 
 /// A type-erased object safe TPM command object
 pub trait TpmCommandObject: TpmPrint + TpmHeader + TpmBodyBuild {}
 impl<T> TpmCommandObject for T where T: TpmHeader + TpmBodyBuild + TpmPrint {}
+
+/// Extension trait to easily extract the base error code from a `TpmRc`.
+pub trait TpmRcBaseExt {
+    /// Returns the underlying `TpmRcBase` for any `TpmRc` variant.
+    fn base(&self) -> TpmRcBase;
+}
+
+impl TpmRcBaseExt for TpmRc {
+    fn base(&self) -> TpmRcBase {
+        match self {
+            TpmRc::Fmt0(base) | TpmRc::Warn(base) => *base,
+            TpmRc::Fmt1(fmt1) => fmt1.base,
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum DeviceError {
@@ -64,13 +82,13 @@ pub enum DeviceError {
     #[error("syscall: {0}")]
     Nix(#[from] nix::Error),
     #[error("protocol: {0}")]
-    TpmProtocol(TpmErrorKind),
+    TpmProtocol(TpmError),
     #[error("TPM return code: {0}")]
     TpmRc(TpmRc),
 }
 
-impl From<TpmErrorKind> for DeviceError {
-    fn from(err: TpmErrorKind) -> Self {
+impl From<TpmError> for DeviceError {
+    fn from(err: TpmError) -> Self {
         Self::TpmProtocol(err)
     }
 }
@@ -487,10 +505,13 @@ impl Device {
     pub fn flush_session(&mut self, context: TpmsContext) -> Result<(), DeviceError> {
         match self.load_context(context) {
             Ok(live_handle) => self.flush_context(live_handle.into()),
-            Err(DeviceError::TpmRc(rc))
-                if rc.base() == TpmRcBase::ReferenceH0 || rc.base() == TpmRcBase::Handle =>
-            {
-                Ok(())
+            Err(DeviceError::TpmRc(rc)) => {
+                let base = rc.base();
+                if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
+                    Ok(())
+                } else {
+                    Err(DeviceError::TpmRc(rc))
+                }
             }
             Err(e) => Err(e),
         }
@@ -511,8 +532,8 @@ impl Device {
         auth_hash: TpmAlgId,
         bind: TpmHandle,
     ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), DeviceError> {
-        let digest_len = tpm_hash_size(&auth_hash)
-            .ok_or(DeviceError::TpmProtocol(TpmErrorKind::InvalidValue))?;
+        let digest_len =
+            crypto_hash_size(auth_hash).ok_or(DeviceError::TpmProtocol(TpmError::MalformedData))?;
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())?;
@@ -563,7 +584,7 @@ impl Device {
                 crate::key_cache::KeyCacheError::Device(d) => d,
                 other => {
                     log::error!("Unexpected error during evict_control execution: {other}");
-                    DeviceError::TpmProtocol(TpmErrorKind::Failure)
+                    DeviceError::TpmProtocol(TpmError::MalformedData)
                 }
             })?;
 

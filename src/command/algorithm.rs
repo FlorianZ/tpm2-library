@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
-
 use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
-    device::{test_rsa_parms, with_device, Device, DeviceError},
+    crypto::crypto_hash_size,
+    device::{test_rsa_parms, with_device, Device, DeviceError, TpmRcBaseExt},
     job::Job,
     key::{Tpm2shAlgId, Tpm2shEccCurve},
 };
@@ -15,7 +15,6 @@ use tabled::Tabled;
 use tpm2_protocol::{
     constant::MAX_HANDLES,
     data::{TpmAlgId, TpmCap, TpmRcBase, TpmuCapabilities},
-    tpm_hash_size,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
@@ -47,7 +46,7 @@ impl Algorithm {
         let hashes: Vec<String> = all_algs
             .iter()
             .map(|prop| prop.alg)
-            .filter(|p| tpm_hash_size(p).is_some())
+            .filter(|p| crypto_hash_size(*p).is_some())
             .map(|p| Tpm2shAlgId(p).to_string())
             .collect();
         Ok(hashes)

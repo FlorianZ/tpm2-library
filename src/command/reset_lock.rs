@@ -5,7 +5,7 @@
 use crate::{
     cli::SubCommand,
     command::{AuthArgs, CommandError},
-    device::{with_device, DeviceError},
+    device::{with_device, DeviceError, TpmRcBaseExt},
     job::Job,
     key_cache::KeyCacheError,
 };
@@ -32,10 +32,11 @@ impl SubCommand for ResetLock {
 
             let (resp, _) = match job.execute(device, &command, &handles, &auths) {
                 Ok(result) => result,
-                Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
-                    if rc.base() == TpmRcBase::Lockout =>
-                {
-                    return Err(CommandError::DictionaryAttackLocked);
+                Err(KeyCacheError::Device(DeviceError::TpmRc(rc))) => {
+                    if rc.base() == TpmRcBase::Lockout {
+                        return Err(CommandError::DictionaryAttackLocked);
+                    }
+                    return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)).into());
                 }
                 Err(e) => return Err(e.into()),
             };

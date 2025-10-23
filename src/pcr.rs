@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
@@ -21,9 +21,12 @@ use std::{convert::TryFrom, fmt};
 use thiserror::Error;
 use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
-    data::{TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelection, TpmuCapabilities},
+    data::{
+        TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection,
+        TpmuCapabilities,
+    },
     message::TpmPcrReadCommand,
-    TpmBuffer, TpmErrorKind,
+    TpmError,
 };
 
 #[derive(Debug, Error)]
@@ -35,13 +38,13 @@ pub enum PcrError {
     #[error("invalid PCR selection: {0}")]
     InvalidPcrSelection(String),
     #[error("TPM: {0}")]
-    Tpm(TpmErrorKind),
+    Tpm(TpmError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
 }
 
-impl From<TpmErrorKind> for PcrError {
-    fn from(err: TpmErrorKind) -> Self {
+impl From<TpmError> for PcrError {
+    fn from(err: TpmError) -> Self {
         Self::Tpm(err)
     }
 }
@@ -69,7 +72,7 @@ pub struct PcrSelection {
 }
 
 impl fmt::Display for PcrSelection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let indices_str = self
             .indices
             .iter()
@@ -185,7 +188,7 @@ pub fn pcr_selection_vec_to_tpml(
         }
         list.try_push(TpmsPcrSelection {
             hash: selection.alg,
-            pcr_select: TpmBuffer::try_from(pcr_select_bytes.as_slice())?,
+            pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())?,
         })?;
     }
     Ok(list)

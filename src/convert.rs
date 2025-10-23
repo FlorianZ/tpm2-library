@@ -15,7 +15,7 @@ use std::{
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{TpmHt, TpmRc},
-    TpmBuild, TpmErrorKind, TpmHandle, TpmWriter,
+    TpmBuild, TpmError, TpmHandle, TpmWriter,
 };
 
 /// Parses a 16 character hex string with an optional `0x` prefix into
@@ -59,8 +59,8 @@ pub fn from_str_to_nv_handle(input: &str) -> Result<TpmHandle, String> {
 ///
 /// # Errors
 ///
-/// Returns a `TpmErrorKind` if the object cannot be serialized into the buffer.
-pub fn from_tpm_object_to_vec<T: TpmBuild>(obj: &T) -> Result<Vec<u8>, TpmErrorKind> {
+/// Returns a `TpmError` if the object cannot be serialized into the buffer.
+pub fn from_tpm_object_to_vec<T: TpmBuild>(obj: &T) -> Result<Vec<u8>, TpmError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);

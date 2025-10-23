@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
@@ -18,7 +18,7 @@ use tpm2_protocol::{
         Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmEccCurve, TpmsEccPoint,
         TpmtPublic, TpmuPublicId, TpmuPublicParms,
     },
-    tpm_hash_size, TpmErrorKind,
+    TpmError,
 };
 
 pub const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
@@ -48,12 +48,24 @@ pub enum CryptoError {
     #[error("unsupported elliptic curve")]
     UnsupportedEccCurve,
     #[error("TPM: {0}")]
-    Tpm(TpmErrorKind),
+    Tpm(TpmError),
 }
 
-impl From<TpmErrorKind> for CryptoError {
-    fn from(err: TpmErrorKind) -> Self {
+impl From<TpmError> for CryptoError {
+    fn from(err: TpmError) -> Self {
         Self::Tpm(err)
+    }
+}
+
+/// Returns the size of the digest for a given hash algorithm.
+#[must_use]
+pub fn crypto_hash_size(alg: TpmAlgId) -> Option<usize> {
+    match alg {
+        TpmAlgId::Sha1 => Some(20),
+        TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => Some(32),
+        TpmAlgId::Sha384 => Some(48),
+        TpmAlgId::Sha512 => Some(64),
+        _ => None,
     }
 }
 
@@ -156,7 +168,7 @@ pub fn crypto_kdfa(
     context_b: &[u8],
     key_bits: u16,
 ) -> Result<Vec<u8>, CryptoError> {
-    if tpm_hash_size(&auth_hash).is_none() {
+    if crypto_hash_size(auth_hash).is_none() {
         return Err(CryptoError::InvalidHashAlgorithm);
     }
 
@@ -204,7 +216,7 @@ pub fn crypto_kdfe(
     context_v: &[u8],
     key_bits: u16,
 ) -> Result<Vec<u8>, CryptoError> {
-    if tpm_hash_size(&hash_alg).is_none() {
+    if crypto_hash_size(hash_alg).is_none() {
         return Err(CryptoError::InvalidHashAlgorithm);
     }
 
@@ -352,7 +364,7 @@ macro_rules! ecdh {
             let shared_secret = $dh_fn(ephemeral_sk.to_nonzero_scalar(), parent_pk.as_affine());
             let z = shared_secret.raw_secret_bytes();
             let seed_bits =
-                u16::try_from(tpm_hash_size(&name_alg).ok_or(CryptoError::InvalidHashAlgorithm)? * 8)
+                u16::try_from(crypto_hash_size(name_alg).ok_or(CryptoError::InvalidHashAlgorithm)? * 8)
                     .map_err(|_| CryptoError::InvalidKey)?;
             let seed =
                 crypto_kdfe(name_alg, &z, KDF_LABEL_DUPLICATE, context_u, context_v, seed_bits)?;

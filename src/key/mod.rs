@@ -19,7 +19,7 @@ use strum::{Display, EnumString};
 use thiserror::Error;
 use tpm2_protocol::{
     data::{TpmAlgId, TpmEccCurve, TpmaObject, TpmtPublic, TpmuPublicParms},
-    TpmErrorKind,
+    TpmError,
 };
 
 #[derive(Debug, Error)]
@@ -72,8 +72,8 @@ pub enum KeyError {
     RasnEncode(#[from] rasn::error::EncodeError),
 }
 
-impl From<TpmErrorKind> for KeyError {
-    fn from(err: TpmErrorKind) -> Self {
+impl From<TpmError> for KeyError {
+    fn from(err: TpmError) -> Self {
         Self::Device(DeviceError::TpmProtocol(err))
     }
 }

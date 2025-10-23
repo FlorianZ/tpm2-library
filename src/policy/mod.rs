@@ -33,7 +33,7 @@ use std::{collections::HashMap, fmt, num::ParseIntError, path::PathBuf, str::Fro
 use thiserror::Error;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
-    tpm_hash_size, TpmErrorKind, TpmHandle,
+    TpmError, TpmHandle,
 };
 
 #[derive(Debug, Error)]
@@ -69,11 +69,11 @@ pub enum PolicyError {
     #[error("handle decode: {0}")]
     IntDecode(#[from] ParseIntError),
     #[error("protocol: {0}")]
-    TpmProtocol(TpmErrorKind),
+    TpmProtocol(TpmError),
 }
 
-impl From<TpmErrorKind> for PolicyError {
-    fn from(err: TpmErrorKind) -> Self {
+impl From<TpmError> for PolicyError {
+    fn from(err: TpmError) -> Self {
         Self::TpmProtocol(err)
     }
 }
@@ -153,7 +153,7 @@ pub enum Expression {
 }
 
 impl fmt::Display for Expression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expression::Auth(auth) => write!(f, "{auth}"),
             Expression::Pcr {
@@ -284,20 +284,21 @@ fn path_expression(input: &str) -> IResult<&str, Expression> {
 fn pcr_policy_expression(input: &str) -> IResult<&str, Expression> {
     let (remainder, pcr_substring) = take_while1(|c: char| !matches!(c, '(' | ')' | ','))(input)?;
 
-    let (selection_part, digest_part) =
-        if let Some((selection, digest)) = pcr_substring.rsplit_once(':') {
-            let is_digest = !digest.is_empty()
-                && digest.len() >= tpm_hash_size(&TpmAlgId::Sha1).unwrap_or(20) * 2
-                && digest.chars().all(|c| c.is_ascii_hexdigit());
+    let (selection_part, digest_part) = if let Some((selection, digest)) =
+        pcr_substring.rsplit_once(':')
+    {
+        let is_digest = !digest.is_empty()
+            && digest.len() >= crate::crypto::crypto_hash_size(TpmAlgId::Sha1).unwrap_or(20) * 2
+            && digest.chars().all(|c| c.is_ascii_hexdigit());
 
-            if is_digest {
-                (selection, Some(digest.to_string()))
-            } else {
-                (pcr_substring, None)
-            }
+        if is_digest {
+            (selection, Some(digest.to_string()))
         } else {
             (pcr_substring, None)
-        };
+        }
+    } else {
+        (pcr_substring, None)
+    };
 
     match all_consuming(pcr::parse_pcr_selections)(selection_part) {
         Ok((_, selections)) => {

@@ -58,7 +58,7 @@ use tabled::{
     Table, Tabled,
 };
 use thiserror::Error;
-use tpm2_protocol::{data::TpmCc, TpmErrorKind};
+use tpm2_protocol::{data::TpmCc, TpmError};
 
 /// Creates, styles, and prints a table from a vector of `Tabled` items.
 ///
@@ -144,11 +144,11 @@ pub enum CommandError {
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("protocol: {0}")]
-    TpmProtocol(TpmErrorKind),
+    TpmProtocol(TpmError),
 }
 
-impl From<TpmErrorKind> for CommandError {
-    fn from(err: TpmErrorKind) -> Self {
+impl From<TpmError> for CommandError {
+    fn from(err: TpmError) -> Self {
         Self::TpmProtocol(err)
     }
 }

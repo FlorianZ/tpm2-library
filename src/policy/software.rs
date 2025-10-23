@@ -4,10 +4,13 @@
 //! A pure software implementation of a policy session for dry-run calculations.
 
 use super::{PolicyError, PolicySession};
-use crate::{convert::from_tpm_object_to_vec, crypto::crypto_digest, device::Device};
-use tpm2_protocol::{
-    data::{Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection},
-    tpm_hash_size,
+use crate::{
+    convert::from_tpm_object_to_vec,
+    crypto::{crypto_digest, crypto_hash_size},
+    device::Device,
+};
+use tpm2_protocol::data::{
+    Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection,
 };
 
 /// Updates a policy digest with a new command, mimicking the TPM's internal
@@ -49,7 +52,7 @@ impl<'a> SoftwarePolicySession<'a> {
     /// Returns `PolicyError::InvalidAlgorithm` if the hash algorithm is not supported.
     pub fn new(hash_alg: TpmAlgId, device: &'a mut Device) -> Result<Self, PolicyError> {
         let digest_size =
-            tpm_hash_size(&hash_alg).ok_or(PolicyError::InvalidAlgorithm(hash_alg))?;
+            crypto_hash_size(hash_alg).ok_or(PolicyError::InvalidAlgorithm(hash_alg))?;
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())?;
         Ok(Self {
             digest,

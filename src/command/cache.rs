@@ -5,7 +5,7 @@
 use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
-    device::{with_device, Device, DeviceError},
+    device::{with_device, Device, DeviceError, TpmRcBaseExt},
     handle::Handle,
     job::Job,
     key::format_alg_from_public,
@@ -64,11 +64,13 @@ impl Cache {
                     job.key_cache.untrack(handle.0);
                 }
                 Err(KeyCacheError::ContextNotFound(_)) => {}
-                Err(KeyCacheError::Device(DeviceError::TpmRc(rc)))
-                    if rc.base() == TpmRcBase::ReferenceH0 =>
-                {
-                    log::debug!("vtpm:{vhandle:08x} stale");
-                    job.key_cache.remove_context(vhandle)?;
+                Err(KeyCacheError::Device(DeviceError::TpmRc(rc))) => {
+                    if rc.base() == TpmRcBase::ReferenceH0 {
+                        log::debug!("vtpm:{vhandle:08x} stale");
+                        job.key_cache.remove_context(vhandle)?;
+                    } else {
+                        return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)).into());
+                    }
                 }
                 Err(e) => return Err(e.into()),
             }
@@ -103,9 +105,13 @@ impl Cache {
                         return Err(e.into());
                     }
                 },
-                Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                    log::debug!("vtpm:{vhandle:08x} stale");
-                    job.session_cache.remove(vhandle)?;
+                Err(DeviceError::TpmRc(rc)) => {
+                    if rc.base() == TpmRcBase::ReferenceH0 {
+                        log::debug!("vtpm:{vhandle:08x} stale");
+                        job.session_cache.remove(vhandle)?;
+                    } else {
+                        return Err(DeviceError::TpmRc(rc).into());
+                    }
                 }
                 Err(e) => return Err(e.into()),
             }

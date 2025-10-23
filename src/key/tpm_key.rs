@@ -9,8 +9,8 @@ use crate::{
     auth::Auth,
     convert::from_tpm_object_to_vec,
     crypto::{
-        crypto_hmac, crypto_kdfa, crypto_make_name, derive_seed_with_ecc, protect_seed_with_rsa,
-        KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
+        crypto_hash_size, crypto_hmac, crypto_kdfa, crypto_make_name, derive_seed_with_ecc,
+        protect_seed_with_rsa, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
     },
     device::{Device, DeviceError},
     job::Job,
@@ -28,20 +28,17 @@ use rasn::{
     types::{OctetString, Utf8String},
     AsnType, Decode, Decoder, Encode, Encoder,
 };
+use tpm2_protocol::data::{TpmAlgId, TpmtPublic};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bPrivate, Tpm2bPrivateKeyRsa, Tpm2bPublic,
-        Tpm2bSensitive, Tpm2bSensitiveCreate, Tpm2bSensitiveData, Tpm2bSymKey, TpmCc, TpmaObject,
-        TpmlPcrSelection, TpmsSensitiveCreate, TpmtSensitive, TpmtSymDefObject,
-        TpmuSensitiveComposite,
+        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
+        Tpm2bPrivate, Tpm2bPrivateKeyRsa, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveCreate,
+        Tpm2bSensitiveData, Tpm2bSymKey, TpmCc, TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
+        TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     message::{TpmCreateCommand, TpmImportCommand},
     TpmBuild, TpmHandle, TpmParse, TpmWriter,
-};
-use tpm2_protocol::{
-    data::{Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmtPublic},
-    tpm_hash_size,
 };
 
 pub const OID_LOADABLE_KEY: ObjectIdentifier =
@@ -349,7 +346,7 @@ fn create_import_blob(
 
     let (seed, in_sym_seed) = match parent_key_type {
         TpmAlgId::Rsa => {
-            let seed_size = tpm_hash_size(&parent_name_alg).ok_or(
+            let seed_size = crypto_hash_size(parent_name_alg).ok_or(
                 KeyError::UnsupportedNameAlgorithm(Tpm2shAlgId(parent_name_alg)),
             )? as usize;
             let mut seed = vec![0u8; seed_size];
@@ -379,7 +376,7 @@ fn create_import_blob(
         128,
     )?;
 
-    let key_bits = tpm_hash_size(&parent_name_alg).ok_or(KeyError::UnsupportedNameAlgorithm(
+    let key_bits = crypto_hash_size(parent_name_alg).ok_or(KeyError::UnsupportedNameAlgorithm(
         Tpm2shAlgId(parent_name_alg),
     ))? * 8;
     let key_bits =

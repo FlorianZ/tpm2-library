@@ -49,4 +49,4 @@ sha2 = "0.10"
 strum = { version = "0.26", features = ["derive"] }
 tabled = { version = "0.15", features = ["ansi"] }
 thiserror = "1.0"
-tpm2-protocol = "0.10"
+tpm2-protocol = "0.11"

@@ -5,7 +5,7 @@
 use crate::{
     cli::SubCommand,
     command::{CommandError, HierarchyAuthArgs},
-    device::{with_device, Device, DeviceError},
+    device::{with_device, Device, DeviceError, TpmRcBaseExt},
     handle::{Handle, HandlePattern},
     job::Job,
 };
@@ -109,8 +109,12 @@ fn delete_vtpm_session(job: &mut Job, dev: &mut Device, vhandle: u32) -> Result<
     if let Some(session) = session_opt {
         match dev.flush_session(session.context) {
             Ok(()) => {}
-            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                log::debug!("vtpm session:{vhandle:08x} stale");
+            Err(DeviceError::TpmRc(rc)) => {
+                if rc.base() == TpmRcBase::ReferenceH0 {
+                    log::debug!("vtpm session:{vhandle:08x} stale");
+                } else {
+                    return Err(DeviceError::TpmRc(rc).into());
+                }
             }
             Err(e) => return Err(e.into()),
         }

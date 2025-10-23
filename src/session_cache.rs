@@ -16,7 +16,7 @@
 
 use crate::{
     auth::Auth,
-    crypto::{crypto_digest, crypto_hmac, crypto_kdfa, CryptoError},
+    crypto::{crypto_digest, crypto_hash_size, crypto_hmac, crypto_kdfa, CryptoError},
     device::{Device, DeviceError},
     key::Tpm2shAlgId,
 };
@@ -32,7 +32,7 @@ use tpm2_protocol::{
         TpmsAuthCommand, TpmsAuthResponse, TpmsContext,
     },
     message::{TpmAuthResponses, TpmStartAuthSessionResponse},
-    tpm_hash_size, TpmBuffer, TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmWriter,
+    TpmBuffer, TpmBuild, TpmError, TpmHandle, TpmParse, TpmWriter,
 };
 
 #[derive(Debug, Error)]
@@ -54,11 +54,11 @@ pub enum SessionError {
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("TPM: {0}")]
-    Tpm(TpmErrorKind),
+    Tpm(TpmError),
 }
 
-impl From<TpmErrorKind> for SessionError {
-    fn from(err: TpmErrorKind) -> Self {
+impl From<TpmError> for SessionError {
+    fn from(err: TpmError) -> Self {
         Self::Tpm(err)
     }
 }
@@ -89,7 +89,7 @@ impl Session {
         resp: &TpmStartAuthSessionResponse,
         auth_value: &[u8],
     ) -> Result<Self, SessionError> {
-        let digest_len = tpm_hash_size(&auth_hash).ok_or(
+        let digest_len = crypto_hash_size(auth_hash).ok_or(
             SessionError::UnsupportedNameAlgorithm(Tpm2shAlgId(auth_hash)),
         )?;
 

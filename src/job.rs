@@ -1,11 +1,12 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
     auth::Auth,
     convert::from_tpm_object_to_vec,
-    device::{Device, DeviceError, TpmCommandObject},
+    crypto::crypto_hash_size,
+    device::{Device, DeviceError, TpmCommandObject, TpmRcBaseExt},
     key::{AnyKey, KeyError, TpmKey},
     key_cache::{KeyCache, KeyCacheError},
     session_cache::{build_password_session, create_auth, SessionCache, SessionError},
@@ -15,7 +16,7 @@ use std::{cell::RefCell, collections::HashSet, rc::Rc};
 use tpm2_protocol::{
     data::{Tpm2bNonce, TpmCc, TpmRcBase, TpmRh, TpmaNv, TpmaSession, TpmsAuthCommand},
     message::{TpmAuthResponses, TpmNvReadCommand, TpmNvReadPublicCommand, TpmResponseBody},
-    tpm_hash_size, TpmErrorKind, TpmHandle,
+    TpmError, TpmHandle,
 };
 
 pub struct Job<'a> {
@@ -83,8 +84,8 @@ impl<'a> Job<'a> {
                 }
                 Auth::Session(vhandle) => {
                     let session = self.session_cache.get(*vhandle)?;
-                    let nonce_size = tpm_hash_size(&session.auth_hash)
-                        .ok_or(DeviceError::TpmProtocol(TpmErrorKind::InvalidValue))?;
+                    let nonce_size = crypto_hash_size(session.auth_hash)
+                        .ok_or(DeviceError::TpmProtocol(TpmError::MalformedData))?;
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
@@ -138,12 +139,15 @@ impl<'a> Job<'a> {
         let sessions = self.build_auth_area(device, command, handles, auth_list)?;
         let (resp, auth_responses) = match device.execute(command, &sessions) {
             Ok((resp, auth_responses)) => (resp, auth_responses),
-            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::PolicyFail => {
-                for auth in auth_list {
-                    if let Auth::Session(vhandle) = auth {
-                        log::debug!("vtpm:{vhandle} is stale");
-                        self.session_cache.remove(*vhandle)?;
+            Err(DeviceError::TpmRc(rc)) => {
+                if rc.base() == TpmRcBase::PolicyFail {
+                    for auth in auth_list {
+                        if let Auth::Session(vhandle) = auth {
+                            log::debug!("vtpm:{vhandle} is stale");
+                            self.session_cache.remove(*vhandle)?;
+                        }
                     }
+                    return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)));
                 }
                 return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)));
             }
