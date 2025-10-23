@@ -25,7 +25,7 @@ where
     C: TpmHeader + TpmBodyBuild,
 {
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-        return Err(TpmError::InvalidValue);
+        return Err(TpmError::MalformedData);
     }
 
     let handle_area_size = C::HANDLES * size_of::<u32>();

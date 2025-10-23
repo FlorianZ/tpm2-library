@@ -8,8 +8,8 @@ macro_rules! tpm_integer {
         impl TpmParse for $ty {
             fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
                 let size = size_of::<$ty>();
-                let bytes = buf.get(..size).ok_or(TpmError::Underflow)?;
-                let array = bytes.try_into().map_err(|_| TpmError::InvalidValue)?;
+                let bytes = buf.get(..size).ok_or(TpmError::DataTruncated)?;
+                let array = bytes.try_into().map_err(|_| TpmError::MalformedData)?;
                 let val = <$ty>::from_be_bytes(array);
                 Ok((val, &buf[size..]))
             }
@@ -28,7 +28,7 @@ macro_rules! tpm_integer {
             }
         }
 
-        impl core::convert::From<$ty> for TpmNotDiscriminant {
+        impl core::convert::From<$ty> for TpmDiscriminant {
             fn from(value: $ty) -> Self {
                 Self::$variant(value.into())
             }

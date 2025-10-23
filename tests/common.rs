@@ -6,7 +6,7 @@
 #![allow(clippy::pedantic)]
 
 use std::{io::IsTerminal, vec::Vec};
-use tpm2_protocol::{TpmError, TpmNotDiscriminant};
+use tpm2_protocol::{TpmDiscriminant, TpmError};
 
 #[allow(dead_code)]
 pub fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -99,34 +99,36 @@ fn parse_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static
 #[allow(dead_code)]
 pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
     match s {
-        "InvalidValue" => return Ok(TpmError::InvalidValue),
-        "Underflow" => return Ok(TpmError::Underflow),
+        "MalformedData" => return Ok(TpmError::MalformedData),
+        "DataTruncated" => return Ok(TpmError::DataTruncated),
         "TrailingData" => return Ok(TpmError::TrailingData),
         _ => {}
     }
 
-    if let Some(rest) = s.strip_prefix("NotDiscriminant") {
+    if let Some(rest) = s.strip_prefix("UnknownDiscriminant") {
         let content = rest
             .trim()
             .strip_prefix('(')
             .and_then(|s| s.strip_suffix(')'))
-            .ok_or("NotDiscriminant: missing parentheses")?
+            .ok_or("UnknownDiscriminant: missing parentheses")?
             .trim();
 
         let mut parts = content.splitn(2, ',');
         let type_name_part = parts
             .next()
-            .ok_or("NotDiscriminant: missing type_name part")?;
-        let value_part = parts.next().ok_or("NotDiscriminant: missing value part")?;
+            .ok_or("UnknownDiscriminant: missing type_name part")?;
+        let value_part = parts
+            .next()
+            .ok_or("UnknownDiscriminant: missing value part")?;
 
         let type_name_val = type_name_part
             .trim()
             .strip_prefix('"')
             .and_then(|s| s.strip_suffix('"'))
-            .ok_or("NotDiscriminant: malformed type_name string")?;
+            .ok_or("UnknownDiscriminant: malformed type_name string")?;
         let type_name = match type_name_val {
             "TpmSt" => "TpmSt",
-            _ => return Err("NotDiscriminant: unsupported type_name"),
+            _ => return Err("UnknownDiscriminant: unsupported type_name"),
         };
         let value_str = value_part.trim();
         if let Some(num_str) = value_str
@@ -134,14 +136,14 @@ pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
             .and_then(|s| s.strip_suffix(')'))
         {
             let val = u64::from_str_radix(num_str.strip_prefix("0x").unwrap_or(num_str), 16)
-                .map_err(|_| "NotDiscriminant: invalid number for Unsigned")?;
-            return Ok(TpmError::NotDiscriminant(
+                .map_err(|_| "UnknownDiscriminant: invalid number for Unsigned")?;
+            return Ok(TpmError::UnknownDiscriminant(
                 type_name,
-                TpmNotDiscriminant::Unsigned(val),
+                TpmDiscriminant::Unsigned(val),
             ));
         }
 
-        return Err("NotDiscriminant: unsupported value variant");
+        return Err("UnknownDiscriminant: unsupported value variant");
     }
 
     Err("unknown variant")

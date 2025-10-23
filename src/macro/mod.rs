@@ -126,7 +126,7 @@ macro_rules! tpm_bool {
                 match val {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
-                    _ => Err($crate::TpmError::NotDiscriminant (stringify!($name), TpmNotDiscriminant::Unsigned(u64::from(val)))),
+                    _ => Err($crate::TpmError::UnknownDiscriminant (stringify!($name), TpmDiscriminant::Unsigned(u64::from(val)))),
                 }
             }
         }

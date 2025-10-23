@@ -116,7 +116,7 @@ impl TpmParse for TpmtPublic {
                 (TpmuPublicId::Ecc(point), rest)
             }
             TpmAlgId::Null => (TpmuPublicId::Null, buf),
-            _ => return Err(TpmError::InvalidValue),
+            _ => return Err(TpmError::MalformedData),
         };
         let public_area = Self {
             object_type,
@@ -225,7 +225,7 @@ impl TpmParse for TpmtSensitive {
                 let (val, buf) = Tpm2bSymKey::parse(buf)?;
                 (TpmuSensitiveComposite::Sym(val), buf)
             }
-            _ => return Err(TpmError::InvalidValue),
+            _ => return Err(TpmError::MalformedData),
         };
         Ok((
             Self {
@@ -299,7 +299,7 @@ impl TpmParse for TpmtSymDef {
                 (TpmuSymKeyBits::Xor(val), buf)
             }
             TpmAlgId::Null => (TpmuSymKeyBits::Null, buf),
-            _ => return Err(TpmError::InvalidValue),
+            _ => return Err(TpmError::MalformedData),
         };
         let (mode, buf) = match algorithm {
             TpmAlgId::Aes => {
@@ -319,7 +319,7 @@ impl TpmParse for TpmtSymDef {
                 (TpmuSymMode::Xor(val), buf)
             }
             TpmAlgId::Null => (TpmuSymMode::Null, buf),
-            _ => return Err(TpmError::InvalidValue),
+            _ => return Err(TpmError::MalformedData),
         };
         Ok((
             Self {

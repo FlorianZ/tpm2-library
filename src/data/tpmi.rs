@@ -3,7 +3,7 @@
 
 use crate::{
     data::{TpmAlgId, TpmSt},
-    tpm_bool, tpm_enum, TpmHandle, TpmNotDiscriminant,
+    tpm_bool, tpm_enum, TpmDiscriminant, TpmHandle,
 };
 
 tpm_bool! {

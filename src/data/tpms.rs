@@ -103,7 +103,7 @@ impl TpmParse for TpmsPcrSelect {
             return Err(TpmError::CapacityExceeded);
         }
         if remainder.len() < size_usize {
-            return Err(TpmError::Underflow);
+            return Err(TpmError::DataTruncated);
         }
 
         let (pcr_bytes, final_remainder) = remainder.split_at(size_usize);
@@ -490,7 +490,7 @@ impl TpmParse for TpmsAttest {
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (magic, buf) = u32::parse(buf)?;
         if magic != TPM_GENERATED_VALUE {
-            return Err(TpmError::InvalidValue);
+            return Err(TpmError::MalformedData);
         }
         let (attest_type, buf) = TpmSt::parse(buf)?;
         let (qualified_signer, buf) = Tpm2bName::parse(buf)?;
@@ -530,7 +530,7 @@ impl TpmParse for TpmsAttest {
                 let (val, buf) = TpmsNvDigestCertifyInfo::parse(buf)?;
                 (TpmuAttest::NvDigest(val), buf)
             }
-            _ => return Err(TpmError::InvalidValue),
+            _ => return Err(TpmError::MalformedData),
         };
 
         Ok((

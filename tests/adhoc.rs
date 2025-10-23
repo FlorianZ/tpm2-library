@@ -256,7 +256,7 @@ impl TryFrom<u8> for TypeId {
             0 => Ok(Self::Clock),
             1 => Ok(Self::Alg),
             2 => Ok(Self::SessionAttrs),
-            _ => Err(TpmError::InvalidValue),
+            _ => Err(TpmError::MalformedData),
         }
     }
 }

@@ -74,7 +74,7 @@ impl<const CAPACITY: usize> TpmParse for TpmBuffer<CAPACITY> {
         }
 
         if remainder.len() < size_usize {
-            return Err(TpmError::Underflow);
+            return Err(TpmError::DataTruncated);
         }
 
         let mut buffer = Self::new();

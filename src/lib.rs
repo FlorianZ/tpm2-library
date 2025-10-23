@@ -98,45 +98,45 @@ impl fmt::UpperHex for TpmHandle {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum TpmNotDiscriminant {
+pub enum TpmDiscriminant {
     Signed(i64),
     Unsigned(u64),
 }
 
-impl fmt::LowerHex for TpmNotDiscriminant {
+impl fmt::LowerHex for TpmDiscriminant {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TpmNotDiscriminant::Signed(v) => write!(f, "{v:x}"),
-            TpmNotDiscriminant::Unsigned(v) => write!(f, "{v:x}"),
+            TpmDiscriminant::Signed(v) => write!(f, "{v:x}"),
+            TpmDiscriminant::Unsigned(v) => write!(f, "{v:x}"),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// TPM protocol data error
+/// TPM protocol data error.
 pub enum TpmError {
-    /// A TCG specification capacity was exceeded,
+    /// A specification capacity has been exceeded,
     CapacityExceeded,
-    /// Invalid value
-    InvalidValue,
-    /// Not a valid discriminant for the target enum
-    NotDiscriminant(&'static str, TpmNotDiscriminant),
+    /// Not enough bytes to parse the full data structure.
+    DataTruncated,
+    /// The buffer contains malformed data.
+    MalformedData,
     /// Trailing left data after parsing
     TrailingData,
-    /// Not enough bytes to parse the full data structure.
-    Underflow,
+    /// Unknown discriminant.
+    UnknownDiscriminant(&'static str, TpmDiscriminant),
 }
 
 impl fmt::Display for TpmError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::CapacityExceeded => write!(f, "capacity exceeded"),
-            Self::InvalidValue => write!(f, "invalid value"),
-            Self::NotDiscriminant(type_name, value) => {
-                write!(f, "not discriminant for {type_name}: 0x{value:x}")
-            }
+            Self::DataTruncated => write!(f, "data truncated"),
+            Self::MalformedData => write!(f, "malformed data"),
             Self::TrailingData => write!(f, "trailing data"),
-            Self::Underflow => write!(f, "parse underflow"),
+            Self::UnknownDiscriminant(type_name, value) => {
+                write!(f, "unknown discriminant: {type_name}:  0x{value:x}")
+            }
         }
     }
 }
@@ -242,8 +242,8 @@ pub trait TpmParseTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmParse` implementation,
-    /// such as a `TpmError::Underflow` if the buffer is too small or an
-    /// `TpmError::InvalidValue` if the data is malformed.
+    /// such as a `TpmError::DataTruncated` if the buffer is too small or an
+    /// `TpmError::MalformedData` if the data is malformed.
     fn parse_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where
         Self: TpmTagged,
@@ -272,13 +272,13 @@ pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
 ///
 /// # Errors
 ///
-/// * `TpmError::Underflow` if the buffer is too small.
+/// * `TpmError::DataTruncated` if the buffer is too small.
 pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
     let (size, buf) = u16::parse(buf)?;
     let size = size as usize;
 
     if buf.len() < size {
-        return Err(TpmError::Underflow);
+        return Err(TpmError::DataTruncated);
     }
     Ok(buf.split_at(size))
 }
