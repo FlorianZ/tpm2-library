@@ -12,7 +12,6 @@ use std::{
     any::Any, collections::HashMap, convert::TryFrom, fmt::Debug, string::ToString, vec::Vec,
 };
 use tpm2_protocol::{
-    build_tpm2b,
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
         TpmAlgId, TpmRc, TpmRcBase, TpmRcIndex, TpmaSession, TpmsClockInfo, TpmtSymDef,
@@ -20,19 +19,6 @@ use tpm2_protocol::{
     },
     TpmBuffer, TpmBuild, TpmError, TpmParse, TpmWriter,
 };
-
-fn test_tpm2b_build_length_too_large() {
-    let large_slice: &[u8] = unsafe {
-        std::slice::from_raw_parts(
-            std::ptr::NonNull::<u8>::dangling().as_ptr(),
-            u16::MAX as usize + 1,
-        )
-    };
-    let mut out_buf = [0u8; 10];
-    let mut writer = TpmWriter::new(&mut out_buf);
-    let result = build_tpm2b(&mut writer, large_slice);
-    assert_eq!(result, Err(TpmError::CapacityExceeded));
-}
 
 fn test_tpm_buffer_slice_too_large() {
     const CAPACITY: usize = 4096;
@@ -347,7 +333,6 @@ fn test_dynamic_roundtrip() {
 }
 
 test_suite!(
-    test_tpm2b_build_length_too_large,
     test_tpm_buffer_slice_too_large,
     test_tpm_rc_variants_from_raw,
     test_tpm_rc_display,

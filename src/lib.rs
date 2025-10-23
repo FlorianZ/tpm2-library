@@ -35,11 +35,7 @@ pub mod message;
 pub use buffer::TpmBuffer;
 pub use list::TpmList;
 
-use core::{
-    convert::{From, TryFrom},
-    mem::size_of,
-    result::Result,
-};
+use core::{convert::From, mem::size_of, result::Result};
 
 /// A TPM handle, which is a 32-bit unsigned integer.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -255,29 +251,3 @@ tpm_integer!(i32, Signed);
 tpm_integer!(u16, Unsigned);
 tpm_integer!(u32, Unsigned);
 tpm_integer!(u64, Unsigned);
-
-/// Builds a TPM2B sized buffer.
-///
-/// # Errors
-///
-/// * `TpmError::CapacityExceeded` if the size exceeds `u16`.
-pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
-    let len_u16 = u16::try_from(data.len()).map_err(|_| TpmError::CapacityExceeded)?;
-    TpmBuild::build(&len_u16, writer)?;
-    writer.write_bytes(data)
-}
-
-/// Parses a TPM2B sized buffer.
-///
-/// # Errors
-///
-/// * `TpmError::DataTruncated` if the buffer is too small.
-pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
-    let (size, buf) = u16::parse(buf)?;
-    let size = size as usize;
-
-    if buf.len() < size {
-        return Err(TpmError::DataTruncated);
-    }
-    Ok(buf.split_at(size))
-}

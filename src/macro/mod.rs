@@ -311,7 +311,14 @@ macro_rules! tpm2b_struct {
 
         impl $crate::TpmParse for $wrapper_ty {
             fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (inner_bytes, rest) = $crate::parse_tpm2b(buf)?;
+                let (size, buf_after_size) = u16::parse(buf)?;
+                let size = size as usize;
+
+                if buf_after_size.len() < size {
+                    return Err($crate::TpmError::DataTruncated);
+                }
+                let (inner_bytes, rest) = buf_after_size.split_at(size);
+
                 let (inner_val, tail) = <$inner_ty>::parse(inner_bytes)?;
 
                 if !tail.is_empty() {
