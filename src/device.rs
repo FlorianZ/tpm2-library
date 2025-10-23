@@ -11,8 +11,7 @@ use crate::{
     print::TpmPrint,
     TEARDOWN,
 };
-
-use indicatif::{ProgressBar, ProgressStyle};
+use clap::builder::styling::Style as AnsiStyle;
 use log::trace;
 use polling::{Event, Events, Poller};
 use rand::{thread_rng, RngCore};
@@ -89,6 +88,44 @@ impl From<TpmRc> for DeviceError {
     }
 }
 
+struct Spinner {
+    chars: [char; 10],
+    index: usize,
+    message: &'static str,
+}
+
+impl Spinner {
+    pub fn new(message: &'static str) -> Self {
+        let mut stderr = std::io::stderr();
+        let _ = write!(stderr, "\x1B[?25l");
+        let _ = stderr.flush();
+
+        let spinner = Self {
+            chars: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+            index: 0,
+            message,
+        };
+        spinner.tick();
+        spinner
+    }
+
+    pub fn tick(&self) {
+        let mut stderr = std::io::stderr();
+        let green = AnsiStyle::new().bold();
+        let spinner_char = self.chars[self.index % self.chars.len()];
+        let _ = write!(stderr, "\r{green}{spinner_char}{green:#} {}", self.message);
+        let _ = stderr.flush();
+    }
+
+    pub fn finish(&self) {
+        let mut stderr = std::io::stderr();
+        let len = self.message.len() + 2;
+        let _ = write!(stderr, "\r{:len$}\r", " ");
+        let _ = write!(stderr, "\x1B[?25h");
+        let _ = stderr.flush();
+    }
+}
+
 /// Executes a closure with a mutable reference to a `Device`.
 ///
 /// This helper function centralizes the boilerplate for safely acquiring a
@@ -150,15 +187,7 @@ impl Device {
     }
 
     fn receive_with_progress(&mut self) -> Result<Vec<u8>, DeviceError> {
-        let spinner = ProgressBar::new_spinner();
-        spinner.enable_steady_tick(Duration::from_millis(100));
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.green} {msg}")
-                .expect("Invalid progress spinner template")
-                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ "),
-        );
-        spinner.set_message("Waiting for TPM...");
-
+        let mut spinner = Spinner::new("Waiting for TPM...");
         let mut events = Events::new();
         unsafe { self.poller.add(&self.file, Event::readable(0))? };
 
@@ -171,6 +200,9 @@ impl Device {
                 break Err(DeviceError::Timeout);
             }
 
+            spinner.index += 1;
+            spinner.tick();
+
             self.poller
                 .wait(&mut events, Some(Duration::from_millis(100)))?;
             if !events.is_empty() {
@@ -178,7 +210,7 @@ impl Device {
             }
         };
 
-        spinner.finish_and_clear();
+        spinner.finish();
         self.poller.delete(&self.file)?;
         result
     }
