@@ -15,8 +15,8 @@ readme = "README.md"
 [dependencies]
 
 [[test]]
-name = "adhoc"
-path = "tests/adhoc.rs"
+name = "return_code"
+path = "tests/return_code.rs"
 harness = false
 
 [[test]]

@@ -6,24 +6,25 @@
 
 TARGET_DIR := target
 TARGET := $(TARGET_DIR)/libtpm2_protocol.rlib
-TEST := $(TARGET_DIR)/adhoc
-MESSAGE_TEST := $(TARGET_DIR)/message_adhoc
 
-test: $(TEST) $(MESSAGE_TEST)
+# Test programs:
+MESSAGE := $(TARGET_DIR)/message_return_code
+RETURN_CODE := $(TARGET_DIR)/return_code
+
+test: $(RETURN_CODE) $(MESSAGE)
 	@echo "Running kselftests..."
-	@./$(TEST)
-	@echo "Running message tests..."
-	@./$(MESSAGE_TEST)
+	@./$(MESSAGE)
+	@./$(RETURN_CODE)
 
-$(MESSAGE_TEST): tests/message.rs tests/message.txt $(TARGET)
-	@echo "Compiling message test adhoc..."
-	@rustc tests/message.rs --crate-name message_adhoc --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(MESSAGE_TEST)
+$(MESSAGE): tests/message.rs tests/message.txt $(TARGET)
+	@echo "Compiling test: message..."
+	@rustc tests/message.rs --crate-name message_return_code --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(MESSAGE)
 
-$(TEST): $(TARGET) tests/adhoc.rs
-	@echo "Compiling test adhoc..."
-	@rustc tests/adhoc.rs --crate-name adhoc --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(TEST)
+$(RETURN_CODE): $(TARGET) tests/return_code.rs
+	@echo "Compiling test: return_code..."
+	@rustc tests/return_code.rs --crate-name return_code --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(RETURN_CODE)
 
 $(TARGET): $(wildcard src/*.rs)
-	@echo "Compiling protocol library..."
+	@echo "Compiling tpm2-protocol..."
 	@mkdir -p $(TARGET_DIR)
 	@rustc --crate-type lib --crate-name tpm2_protocol src/lib.rs --edition=2021 --out-dir $(TARGET_DIR)

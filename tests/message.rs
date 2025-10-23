@@ -95,12 +95,7 @@ fn main() {
                             .err()
                             .expect("expected a TpmRc error but got success");
 
-                        let actual_rc_base = match actual_rc {
-                            TpmRc::Fmt0(base) => base,
-                            TpmRc::Fmt1(fmt1) => fmt1.base,
-                            TpmRc::Warn(base) => base,
-                        };
-                        assert_eq!(actual_rc_base, expected_rc_base, "Mismatched TpmRc error");
+                        assert_eq!(actual_rc.base(), expected_rc_base, "Mismatched TpmRc error");
 
                         let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
                         let built_len = {

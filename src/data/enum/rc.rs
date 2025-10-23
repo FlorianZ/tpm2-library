@@ -185,6 +185,15 @@ impl TpmRc {
             }
         }
     }
+
+    /// Returns the underlying `TpmRcBase` for any `TpmRc` variant.
+    #[must_use]
+    pub fn base(&self) -> TpmRcBase {
+        match self {
+            TpmRc::Fmt0(base) | TpmRc::Warn(base) => *base,
+            TpmRc::Fmt1(fmt1) => fmt1.base,
+        }
+    }
 }
 
 impl crate::TpmSized for TpmRc {
