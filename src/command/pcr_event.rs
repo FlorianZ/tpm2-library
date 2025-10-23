@@ -5,7 +5,7 @@ use crate::{
     auth::Auth,
     cli::SubCommand,
     command::{CommandError, InputArgs},
-    convert::{from_input_to_bytes, from_str_to_handle},
+    convert::from_input_to_bytes,
     device::with_device,
     job::Job,
     key::Tpm2shAlgId,
@@ -18,12 +18,19 @@ use tpm2_protocol::{
     TpmHandle,
 };
 
+fn parse_pcr_index(handle_str: &str) -> Result<TpmHandle, String> {
+    let handle_str = handle_str.strip_prefix("0x").unwrap_or(handle_str);
+    u32::from_str_radix(handle_str, 16)
+        .map(TpmHandle)
+        .map_err(|_| "malformed value".to_string())
+}
+
 /// Extends a PCR with an event.
 #[derive(Args, Debug)]
 #[command(name = "pcr-event")]
 pub struct PcrEvent {
     /// PCR index
-    #[arg(value_name = "pcr-index", value_parser = from_str_to_handle)]
+    #[arg(value_name = "pcr-index", value_parser = parse_pcr_index)]
     pub pcr_index: TpmHandle,
 
     #[clap(flatten)]

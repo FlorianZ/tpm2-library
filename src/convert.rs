@@ -11,23 +11,7 @@ use std::{
     io::{self, Read},
     path::Path,
 };
-use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmBuild, TpmError, TpmHandle, TpmWriter};
-
-/// Parses a 16 character hex string with an optional `0x` prefix into
-/// `TpmHandle`.
-///
-/// # Errors
-///
-/// Returns `String` with `ParseIntError` converted to string.
-pub fn from_str_to_handle(input: &str) -> Result<TpmHandle, String> {
-    let input = match input.strip_prefix("0x") {
-        Some(input) => input,
-        None => input,
-    };
-    u32::from_str_radix(input, 16)
-        .map(TpmHandle)
-        .map_err(|e| e.to_string())
-}
+use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmBuild, TpmError, TpmWriter};
 
 /// A helper to build a `TpmBuild` type into a `Vec<u8>`.
 ///
