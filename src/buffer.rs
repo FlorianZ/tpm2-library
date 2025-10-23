@@ -2,22 +2,35 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{build_tpm2b, parse_tpm2b, TpmBuild, TpmErrorKind, TpmParse, TpmResult, TpmSized};
+use crate::{TpmBuild, TpmErrorKind, TpmParse, TpmResult, TpmSized, TpmWriter};
 use core::{convert::TryFrom, fmt::Debug, mem::size_of, ops::Deref};
 
+/// A buffer in the native TPM2B wire format.
+#[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct TpmBuffer<const CAPACITY: usize> {
-    bytes: [u8; CAPACITY],
-    len: usize,
+    size: u16,
+    data: [u8; CAPACITY],
 }
 
 impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
+    /// Creates a new, empty `TpmBuffer`.
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            bytes: [0; CAPACITY],
-            len: 0,
+            size: 0,
+            data: [0; CAPACITY],
         }
+    }
+
+    /// Reads the size field from the buffer's header.
+    fn size(&self) -> u16 {
+        u16::from_be(self.size)
+    }
+
+    /// Writes the size field to the buffer's header.
+    fn set_size(&mut self, size: u16) {
+        self.size = size.to_be();
     }
 }
 
@@ -25,7 +38,8 @@ impl<const CAPACITY: usize> Deref for TpmBuffer<CAPACITY> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.bytes[..self.len]
+        let size = self.size() as usize;
+        &self.data[..size]
     }
 }
 
@@ -38,21 +52,35 @@ impl<const CAPACITY: usize> Default for TpmBuffer<CAPACITY> {
 impl<const CAPACITY: usize> TpmSized for TpmBuffer<CAPACITY> {
     const SIZE: usize = size_of::<u16>() + CAPACITY;
     fn len(&self) -> usize {
-        size_of::<u16>() + self.len
+        size_of::<u16>() + self.size() as usize
     }
 }
 
 impl<const CAPACITY: usize> TpmBuild for TpmBuffer<CAPACITY> {
-    fn build(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        build_tpm2b(writer, self)
+    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        let native_size = self.size();
+        native_size.build(writer)?;
+        writer.write_bytes(&self.data[..native_size as usize])
     }
 }
 
 impl<const CAPACITY: usize> TpmParse for TpmBuffer<CAPACITY> {
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (bytes, remainder) = parse_tpm2b(buf)?;
-        let buffer = Self::try_from(bytes)?;
-        Ok((buffer, remainder))
+        let (native_size, remainder) = u16::parse(buf)?;
+        let size_usize = native_size as usize;
+
+        if size_usize > CAPACITY {
+            return Err(TpmErrorKind::CapacityExceeded);
+        }
+
+        if remainder.len() < size_usize {
+            return Err(TpmErrorKind::Underflow);
+        }
+
+        let mut buffer = Self::new();
+        buffer.set_size(native_size);
+        buffer.data[..size_usize].copy_from_slice(&remainder[..size_usize]);
+        Ok((buffer, &remainder[size_usize..]))
     }
 }
 
@@ -61,18 +89,19 @@ impl<const CAPACITY: usize> TryFrom<&[u8]> for TpmBuffer<CAPACITY> {
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > CAPACITY {
-            return Err(TpmErrorKind::Capacity(CAPACITY));
+            return Err(TpmErrorKind::CapacityExceeded);
         }
         let mut buffer = Self::new();
-        buffer.bytes[..slice.len()].copy_from_slice(slice);
-        buffer.len = slice.len();
+        let len_u16 = u16::try_from(slice.len())?;
+        buffer.set_size(len_u16);
+        buffer.data[..slice.len()].copy_from_slice(slice);
         Ok(buffer)
     }
 }
 
 impl<const CAPACITY: usize> AsRef<[u8]> for TpmBuffer<CAPACITY> {
     fn as_ref(&self) -> &[u8] {
-        &self.bytes[..self.len]
+        self
     }
 }
 

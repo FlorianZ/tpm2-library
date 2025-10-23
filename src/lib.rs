@@ -114,8 +114,8 @@ impl fmt::LowerHex for TpmNotDiscriminant {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TpmErrorKind {
-    /// A value would exceed a capacity limit
-    Capacity(usize),
+    /// A TCG specification capacity was exceeded,
+    CapacityExceeded,
     /// Invalid value
     InvalidValue,
     /// Not a valid discriminant for the target enum
@@ -129,7 +129,7 @@ pub enum TpmErrorKind {
 impl fmt::Display for TpmErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Capacity(size) => write!(f, "exceeds capacity {size}"),
+            Self::CapacityExceeded => write!(f, "capacity exceeded"),
             Self::InvalidValue => write!(f, "invalid value"),
             Self::NotDiscriminant(type_name, value) => {
                 write!(f, "not discriminant for {type_name}: 0x{value:x}")
@@ -142,7 +142,7 @@ impl fmt::Display for TpmErrorKind {
 
 impl From<core::num::TryFromIntError> for TpmErrorKind {
     fn from(_: core::num::TryFromIntError) -> Self {
-        Self::Capacity(usize::MAX)
+        Self::CapacityExceeded
     }
 }
 
@@ -177,12 +177,12 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `TpmErrorKind::Capacity` if the writer does not have enough
+    /// Returns `TpmErrorKind::CapacityExceeded` if the writer does not have enough
     /// capacity to hold the new bytes.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmErrorKind::Capacity(self.buffer.len()));
+            return Err(TpmErrorKind::CapacityExceeded);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
@@ -260,9 +260,9 @@ tpm_integer!(u64, Unsigned);
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::Capacity` if the size exceeds `u16`.
+/// * `TpmErrorKind::CapacityExceeded` if the size exceeds `u16`.
 pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
-    let len_u16 = u16::try_from(data.len()).map_err(|_| TpmErrorKind::Capacity(u16::MAX.into()))?;
+    let len_u16 = u16::try_from(data.len()).map_err(|_| TpmErrorKind::CapacityExceeded)?;
     TpmBuild::build(&len_u16, writer)?;
     writer.write_bytes(data)
 }

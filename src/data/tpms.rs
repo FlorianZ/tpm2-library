@@ -13,12 +13,104 @@ use crate::{
         TpmlTaggedTpmProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtRsaScheme,
         TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
     },
-    tpm_struct, TpmBuffer, TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmResult, TpmSized,
-    TpmWriter,
+    tpm_struct, TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmResult, TpmSized, TpmWriter,
 };
-use core::{convert::TryFrom, mem::size_of, ops::Deref};
+use core::{
+    convert::TryFrom,
+    fmt::{Debug, Formatter},
+    mem::size_of,
+    ops::Deref,
+};
 
-pub type TpmsPcrSelect = TpmBuffer<TPM_PCR_SELECT_MAX>;
+/// A fixed-capacity list for a PCR selection bitmap.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TpmsPcrSelect {
+    size: u8,
+    data: [u8; TPM_PCR_SELECT_MAX],
+}
+
+impl TpmsPcrSelect {
+    /// Creates a new, empty `TpmsPcrSelect`.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            size: 0,
+            data: [0; TPM_PCR_SELECT_MAX],
+        }
+    }
+}
+
+impl Default for TpmsPcrSelect {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Deref for TpmsPcrSelect {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.data[..self.size as usize]
+    }
+}
+
+impl TryFrom<&[u8]> for TpmsPcrSelect {
+    type Error = TpmErrorKind;
+
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        if slice.len() > TPM_PCR_SELECT_MAX {
+            return Err(TpmErrorKind::CapacityExceeded);
+        }
+        let mut pcr_select = Self::new();
+        let len_u8 = u8::try_from(slice.len())?;
+        pcr_select.size = len_u8;
+        pcr_select.data[..slice.len()].copy_from_slice(slice);
+        Ok(pcr_select)
+    }
+}
+
+impl Debug for TpmsPcrSelect {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "TpmsPcrSelect(")?;
+        for byte in self.iter() {
+            write!(f, "{byte:02X}")?;
+        }
+        write!(f, ")")
+    }
+}
+
+impl TpmSized for TpmsPcrSelect {
+    const SIZE: usize = size_of::<u8>() + TPM_PCR_SELECT_MAX;
+
+    fn len(&self) -> usize {
+        size_of::<u8>() + self.size as usize
+    }
+}
+
+impl TpmBuild for TpmsPcrSelect {
+    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        self.size.build(writer)?;
+        writer.write_bytes(self)
+    }
+}
+
+impl TpmParse for TpmsPcrSelect {
+    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (size, remainder) = u8::parse(buf)?;
+        let size_usize = size as usize;
+
+        if size_usize > TPM_PCR_SELECT_MAX {
+            return Err(TpmErrorKind::CapacityExceeded);
+        }
+        if remainder.len() < size_usize {
+            return Err(TpmErrorKind::Underflow);
+        }
+
+        let (pcr_bytes, final_remainder) = remainder.split_at(size_usize);
+        let pcr_select = Self::try_from(pcr_bytes)?;
+        Ok((pcr_select, final_remainder))
+    }
+}
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
@@ -193,36 +285,21 @@ impl TpmSized for TpmsPcrSelection {
     const SIZE: usize = TpmAlgId::SIZE + 1 + TPM_PCR_SELECT_MAX;
 
     fn len(&self) -> usize {
-        self.hash.len() + 1 + self.pcr_select.deref().len()
+        self.hash.len() + self.pcr_select.len()
     }
 }
 
 impl TpmBuild for TpmsPcrSelection {
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.hash.build(writer)?;
-        let size = u8::try_from(self.pcr_select.deref().len())
-            .map_err(|_| TpmErrorKind::Capacity(u8::MAX.into()))?;
-        size.build(writer)?;
-        writer.write_bytes(&self.pcr_select)
+        self.pcr_select.build(writer)
     }
 }
 
 impl TpmParse for TpmsPcrSelection {
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (hash, buf) = TpmAlgId::parse(buf)?;
-        let (size, buf) = u8::parse(buf)?;
-        let size = size as usize;
-
-        if size > TPM_PCR_SELECT_MAX {
-            return Err(TpmErrorKind::Capacity(TPM_PCR_SELECT_MAX));
-        }
-        if buf.len() < size {
-            return Err(TpmErrorKind::Underflow);
-        }
-
-        let (pcr_bytes, buf) = buf.split_at(size);
-        let pcr_select = TpmBuffer::try_from(pcr_bytes)?;
-
+        let (pcr_select, buf) = TpmsPcrSelect::parse(buf)?;
         Ok((Self { hash, pcr_select }, buf))
     }
 }
