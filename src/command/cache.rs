@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{print_table, CommandError},
+    command::{print_table, CommandError, Tabled},
     device::{with_device, Device, DeviceError},
     handle::{Handle, HandleClass},
     job::Job,
@@ -12,17 +12,30 @@ use crate::{
     key_cache::KeyCacheError,
 };
 use clap::Args;
-use tabled::Tabled;
 use tpm2_protocol::data::{TpmRcBase, TpmSe};
 
-#[derive(Tabled)]
 struct CacheRow {
-    #[tabled(rename = "HANDLE")]
     handle: String,
-    #[tabled(rename = "TYPE")]
     handle_type: String,
-    #[tabled(rename = "DETAILS")]
     details: String,
+}
+
+impl Tabled for CacheRow {
+    fn headers() -> Vec<String> {
+        vec![
+            "HANDLE".to_string(),
+            "TYPE".to_string(),
+            "DETAILS".to_string(),
+        ]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.handle.clone(),
+            self.handle_type.clone(),
+            self.details.clone(),
+        ]
+    }
 }
 
 /// Lists cached TPM objects.
@@ -130,7 +143,7 @@ impl SubCommand for Cache {
         Self::fetch_session_rows(job, &mut rows);
         Self::fetch_transient_rows(job, &mut rows);
         rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
-        print_table(&mut job.key_cache.writer, rows)?;
+        print_table(&mut job.key_cache.writer, &rows)?;
         Ok(())
     }
 }

@@ -5,7 +5,7 @@
 use crate::{
     auth::Auth,
     cli::SubCommand,
-    command::{print_table, CommandError},
+    command::{print_table, CommandError, Tabled},
     device::{self, Device},
     handle::Handle,
     job::Job,
@@ -24,7 +24,6 @@ use rasn::{
     AsnType, Decode, Decoder,
 };
 use strum::Display;
-use tabled::Tabled;
 use tpm2_protocol::{
     data::{TpmAlgId, TpmHt, TpmPt},
     TpmHandle,
@@ -39,14 +38,28 @@ enum MemoryHandleType {
     Certificate,
 }
 
-#[derive(Tabled)]
 struct MemoryRow {
-    #[tabled(rename = "HANDLE")]
     handle: String,
-    #[tabled(rename = "TYPE")]
     handle_type: String,
-    #[tabled(rename = "DETAILS")]
     details: String,
+}
+
+impl Tabled for MemoryRow {
+    fn headers() -> Vec<String> {
+        vec![
+            "HANDLE".to_string(),
+            "TYPE".to_string(),
+            "DETAILS".to_string(),
+        ]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.handle.clone(),
+            self.handle_type.clone(),
+            self.details.clone(),
+        ]
+    }
 }
 
 /// Lists active TPM objects.
@@ -121,7 +134,7 @@ impl SubCommand for Memory {
                 )?;
             }
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
-            print_table(&mut job.key_cache.writer, rows)?;
+            print_table(&mut job.key_cache.writer, &rows)?;
             Ok(())
         })
     }

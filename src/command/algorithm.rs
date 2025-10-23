@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 use crate::{
     cli::SubCommand,
-    command::{print_table, CommandError},
+    command::{print_table, CommandError, Tabled},
     crypto::crypto_hash_size,
     device::{test_rsa_parms, with_device, Device, DeviceError},
     job::Job,
@@ -11,7 +11,6 @@ use crate::{
 };
 use clap::Args;
 use strum::{Display, EnumString};
-use tabled::Tabled;
 use tpm2_protocol::{
     constant::MAX_HANDLES,
     data::{TpmAlgId, TpmCap, TpmRcBase, TpmuCapabilities},
@@ -24,12 +23,19 @@ pub enum AlgorithmType {
     Name,
 }
 
-#[derive(Tabled)]
 struct AlgorithmRow {
-    #[tabled(rename = "ALGORITHM")]
     algorithm: String,
-    #[tabled(rename = "TYPE")]
     algorithm_type: String,
+}
+
+impl Tabled for AlgorithmRow {
+    fn headers() -> Vec<String> {
+        vec!["ALGORITHM".to_string(), "TYPE".to_string()]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![self.algorithm.clone(), self.algorithm_type.clone()]
+    }
 }
 
 /// Lists available algorithms supported by the chip.
@@ -152,7 +158,7 @@ impl SubCommand for Algorithm {
                     algorithm_type: algorithm_type.to_string(),
                 })
                 .collect();
-            print_table(&mut job.key_cache.writer, rows)?;
+            print_table(&mut job.key_cache.writer, &rows)?;
             Ok(())
         })
     }
