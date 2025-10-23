@@ -126,7 +126,7 @@ macro_rules! tpm_bool {
                 match val {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
-                    _ => Err($crate::TpmErrorKind::NotDiscriminant (stringify!($name), TpmNotDiscriminant::Unsigned(u64::from(val)))),
+                    _ => Err($crate::TpmError::NotDiscriminant (stringify!($name), TpmNotDiscriminant::Unsigned(u64::from(val)))),
                 }
             }
         }
@@ -184,7 +184,7 @@ macro_rules! tpm_dispatch {
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmErrorKind)` on a build failure.
+            /// Returns `Err(TpmError)` on a build failure.
             pub fn build(
                 &self,
                 tag: $crate::data::TpmSt,
@@ -241,7 +241,7 @@ macro_rules! tpm_dispatch {
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmErrorKind)` on a build failure.
+            /// Returns `Err(TpmError)` on a build failure.
             pub fn build(
                 &self,
                 rc: $crate::data::TpmRc,
@@ -303,7 +303,7 @@ macro_rules! tpm2b_struct {
             fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 u16::try_from(inner_len)
-                    .map_err(|_| $crate::TpmErrorKind::CapacityExceeded)?
+                    .map_err(|_| $crate::TpmError::CapacityExceeded)?
                     .build(writer)?;
                 $crate::TpmBuild::build(&self.inner, writer)
             }
@@ -315,7 +315,7 @@ macro_rules! tpm2b_struct {
                 let (inner_val, tail) = <$inner_ty>::parse(inner_bytes)?;
 
                 if !tail.is_empty() {
-                    return Err($crate::TpmErrorKind::TrailingData);
+                    return Err($crate::TpmError::TrailingData);
                 }
 
                 Ok((Self { inner: inner_val }, rest))

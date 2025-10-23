@@ -38,14 +38,14 @@ pub trait TpmBodyBuild: TpmSized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmErrorKind)` on a build failure.
+    /// Returns `Err(TpmError)` on a build failure.
     fn build_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
     /// Builds the parameter area.
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmErrorKind)` on a build failure.
+    /// Returns `Err(TpmError)` on a build failure.
     fn build_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
@@ -56,7 +56,7 @@ pub(crate) trait TpmCommandBodyParse: Sized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmErrorKind)` on a parse failure.
+    /// Returns `Err(TpmError)` on a parse failure.
     fn parse_body<'a>(handles: &'a [u8], params: &'a [u8]) -> TpmResult<(Self, &'a [u8])>;
 }
 
@@ -67,7 +67,7 @@ pub trait TpmResponseBodyParse: Sized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmErrorKind)` on a parse failure.
+    /// Returns `Err(TpmError)` on a parse failure.
     fn parse_body(tag: crate::data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 

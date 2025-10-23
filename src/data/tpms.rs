@@ -13,7 +13,7 @@ use crate::{
         TpmlTaggedTpmProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtRsaScheme,
         TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
     },
-    tpm_struct, TpmBuild, TpmErrorKind, TpmHandle, TpmParse, TpmResult, TpmSized, TpmWriter,
+    tpm_struct, TpmBuild, TpmError, TpmHandle, TpmParse, TpmResult, TpmSized, TpmWriter,
 };
 use core::{
     convert::TryFrom,
@@ -55,11 +55,11 @@ impl Deref for TpmsPcrSelect {
 }
 
 impl TryFrom<&[u8]> for TpmsPcrSelect {
-    type Error = TpmErrorKind;
+    type Error = TpmError;
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > TPM_PCR_SELECT_MAX {
-            return Err(TpmErrorKind::CapacityExceeded);
+            return Err(TpmError::CapacityExceeded);
         }
         let mut pcr_select = Self::new();
         let len_u8 = u8::try_from(slice.len())?;
@@ -100,10 +100,10 @@ impl TpmParse for TpmsPcrSelect {
         let size_usize = size as usize;
 
         if size_usize > TPM_PCR_SELECT_MAX {
-            return Err(TpmErrorKind::CapacityExceeded);
+            return Err(TpmError::CapacityExceeded);
         }
         if remainder.len() < size_usize {
-            return Err(TpmErrorKind::Underflow);
+            return Err(TpmError::Underflow);
         }
 
         let (pcr_bytes, final_remainder) = remainder.split_at(size_usize);
@@ -490,7 +490,7 @@ impl TpmParse for TpmsAttest {
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (magic, buf) = u32::parse(buf)?;
         if magic != TPM_GENERATED_VALUE {
-            return Err(TpmErrorKind::InvalidValue);
+            return Err(TpmError::InvalidValue);
         }
         let (attest_type, buf) = TpmSt::parse(buf)?;
         let (qualified_signer, buf) = Tpm2bName::parse(buf)?;
@@ -530,7 +530,7 @@ impl TpmParse for TpmsAttest {
                 let (val, buf) = TpmsNvDigestCertifyInfo::parse(buf)?;
                 (TpmuAttest::NvDigest(val), buf)
             }
-            _ => return Err(TpmErrorKind::InvalidValue),
+            _ => return Err(TpmError::InvalidValue),
         };
 
         Ok((

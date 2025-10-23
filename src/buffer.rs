@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmBuild, TpmErrorKind, TpmParse, TpmResult, TpmSized, TpmWriter};
+use crate::{TpmBuild, TpmError, TpmParse, TpmResult, TpmSized, TpmWriter};
 use core::{convert::TryFrom, fmt::Debug, mem::size_of, ops::Deref};
 
 /// A buffer in the native TPM2B wire format.
@@ -70,11 +70,11 @@ impl<const CAPACITY: usize> TpmParse for TpmBuffer<CAPACITY> {
         let size_usize = native_size as usize;
 
         if size_usize > CAPACITY {
-            return Err(TpmErrorKind::CapacityExceeded);
+            return Err(TpmError::CapacityExceeded);
         }
 
         if remainder.len() < size_usize {
-            return Err(TpmErrorKind::Underflow);
+            return Err(TpmError::Underflow);
         }
 
         let mut buffer = Self::new();
@@ -85,11 +85,11 @@ impl<const CAPACITY: usize> TpmParse for TpmBuffer<CAPACITY> {
 }
 
 impl<const CAPACITY: usize> TryFrom<&[u8]> for TpmBuffer<CAPACITY> {
-    type Error = TpmErrorKind;
+    type Error = TpmError;
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > CAPACITY {
-            return Err(TpmErrorKind::CapacityExceeded);
+            return Err(TpmError::CapacityExceeded);
         }
         let mut buffer = Self::new();
         let len_u16 = u16::try_from(slice.len())?;

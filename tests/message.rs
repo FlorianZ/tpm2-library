@@ -125,7 +125,7 @@ fn main() {
                             parse_tpm_error_kind_str(&outcome_str).unwrap_or_else(|e| {
                                 panic!("failed to parse outcome string '{outcome_str}': {e}")
                             });
-                        let actual_err = parse_result.err().expect("expected TpmErrorKind, got Ok");
+                        let actual_err = parse_result.err().expect("expected TpmError, got Ok");
                         assert_eq!(actual_err, expected_err, "mismatched parsing error type");
                     }
                 }

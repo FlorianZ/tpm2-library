@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmBuild, TpmErrorKind, TpmParse, TpmResult, TpmSized};
+use crate::{TpmBuild, TpmError, TpmParse, TpmResult, TpmSized};
 use core::{
     convert::TryFrom,
     fmt::Debug,
@@ -38,11 +38,11 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns a `TpmErrorKind::CapacityExceeded` error if the list is already at
+    /// Returns a `TpmError::CapacityExceeded` error if the list is already at
     /// full capacity.
-    pub fn try_push(&mut self, item: T) -> Result<(), TpmErrorKind> {
+    pub fn try_push(&mut self, item: T) -> Result<(), TpmError> {
         if self.len >= CAPACITY {
-            return Err(TpmErrorKind::CapacityExceeded);
+            return Err(TpmError::CapacityExceeded);
         }
         self.items[self.len].write(item);
         self.len += 1;
@@ -94,7 +94,7 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 
 impl<T: TpmBuild + Copy, const CAPACITY: usize> TpmBuild for TpmList<T, CAPACITY> {
     fn build(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len = u32::try_from(self.len).map_err(|_| TpmErrorKind::CapacityExceeded)?;
+        let len = u32::try_from(self.len).map_err(|_| TpmError::CapacityExceeded)?;
         TpmBuild::build(&len, writer)?;
         for item in &**self {
             TpmBuild::build(item, writer)?;
@@ -108,7 +108,7 @@ impl<T: TpmParse + Copy, const CAPACITY: usize> TpmParse for TpmList<T, CAPACITY
         let (count_u32, mut buf) = u32::parse(buf)?;
         let count = count_u32 as usize;
         if count > CAPACITY {
-            return Err(TpmErrorKind::CapacityExceeded);
+            return Err(TpmError::CapacityExceeded);
         }
 
         let mut list = Self::new();

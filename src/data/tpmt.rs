@@ -9,7 +9,7 @@ use super::{
     TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
-    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmBuild, TpmErrorKind, TpmParse, TpmParseTagged,
+    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmBuild, TpmError, TpmParse, TpmParseTagged,
     TpmResult, TpmSized, TpmWriter,
 };
 
@@ -116,7 +116,7 @@ impl TpmParse for TpmtPublic {
                 (TpmuPublicId::Ecc(point), rest)
             }
             TpmAlgId::Null => (TpmuPublicId::Null, buf),
-            _ => return Err(TpmErrorKind::InvalidValue),
+            _ => return Err(TpmError::InvalidValue),
         };
         let public_area = Self {
             object_type,
@@ -225,7 +225,7 @@ impl TpmParse for TpmtSensitive {
                 let (val, buf) = Tpm2bSymKey::parse(buf)?;
                 (TpmuSensitiveComposite::Sym(val), buf)
             }
-            _ => return Err(TpmErrorKind::InvalidValue),
+            _ => return Err(TpmError::InvalidValue),
         };
         Ok((
             Self {
@@ -299,7 +299,7 @@ impl TpmParse for TpmtSymDef {
                 (TpmuSymKeyBits::Xor(val), buf)
             }
             TpmAlgId::Null => (TpmuSymKeyBits::Null, buf),
-            _ => return Err(TpmErrorKind::InvalidValue),
+            _ => return Err(TpmError::InvalidValue),
         };
         let (mode, buf) = match algorithm {
             TpmAlgId::Aes => {
@@ -319,7 +319,7 @@ impl TpmParse for TpmtSymDef {
                 (TpmuSymMode::Xor(val), buf)
             }
             TpmAlgId::Null => (TpmuSymMode::Null, buf),
-            _ => return Err(TpmErrorKind::InvalidValue),
+            _ => return Err(TpmError::InvalidValue),
         };
         Ok((
             Self {

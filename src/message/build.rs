@@ -6,7 +6,7 @@ use crate::{
     constant::TPM_HEADER_SIZE,
     data::{TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     message::{TpmBodyBuild, TpmHeader},
-    TpmBuild, TpmErrorKind, TpmResult, TpmSized,
+    TpmBuild, TpmError, TpmResult, TpmSized,
 };
 use core::{convert::TryFrom, mem::size_of};
 
@@ -14,7 +14,7 @@ use core::{convert::TryFrom, mem::size_of};
 ///
 /// # Errors
 ///
-/// Returns `Err(TpmErrorKind)` on a build failure.
+/// Returns `Err(TpmError)` on a build failure.
 pub fn tpm_build_command<C>(
     command: &C,
     tag: TpmSt,
@@ -25,7 +25,7 @@ where
     C: TpmHeader + TpmBodyBuild,
 {
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-        return Err(TpmErrorKind::InvalidValue);
+        return Err(TpmError::InvalidValue);
     }
 
     let handle_area_size = C::HANDLES * size_of::<u32>();
@@ -38,8 +38,8 @@ where
     };
 
     let total_body_len = handle_area_size + auth_area_size + param_area_size;
-    let command_size = u32::try_from(TPM_HEADER_SIZE + total_body_len)
-        .map_err(|_| TpmErrorKind::CapacityExceeded)?;
+    let command_size =
+        u32::try_from(TPM_HEADER_SIZE + total_body_len).map_err(|_| TpmError::CapacityExceeded)?;
 
     (tag as u16).build(writer)?;
     command_size.build(writer)?;
@@ -49,7 +49,7 @@ where
 
     if tag == TpmSt::Sessions {
         let sessions_len = u32::try_from(auth_area_size - size_of::<u32>())
-            .map_err(|_| TpmErrorKind::CapacityExceeded)?;
+            .map_err(|_| TpmError::CapacityExceeded)?;
         sessions_len.build(writer)?;
         for s in sessions {
             s.build(writer)?;
@@ -63,7 +63,7 @@ where
 ///
 /// # Errors
 ///
-/// Returns `Err(TpmErrorKind)` on a build failure.
+/// Returns `Err(TpmError)` on a build failure.
 pub fn tpm_build_response<R>(
     response: &R,
     sessions: &[TpmsAuthResponse],
@@ -99,8 +99,8 @@ where
     let total_body_len =
         handle_area_size + parameter_area_size_field_len + param_area_size + sessions_len;
 
-    let response_size = u32::try_from(TPM_HEADER_SIZE + total_body_len)
-        .map_err(|_| TpmErrorKind::CapacityExceeded)?;
+    let response_size =
+        u32::try_from(TPM_HEADER_SIZE + total_body_len).map_err(|_| TpmError::CapacityExceeded)?;
 
     (tag as u16).build(writer)?;
     response_size.build(writer)?;
@@ -109,8 +109,7 @@ where
     response.build_handles(writer)?;
 
     if tag == TpmSt::Sessions {
-        let params_len =
-            u32::try_from(param_area_size).map_err(|_| TpmErrorKind::CapacityExceeded)?;
+        let params_len = u32::try_from(param_area_size).map_err(|_| TpmError::CapacityExceeded)?;
         params_len.build(writer)?;
     }
 

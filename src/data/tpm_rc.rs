@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 #[allow(unused_imports)]
-use crate::{tpm_enum, TpmErrorKind, TpmNotDiscriminant, TpmParse};
+use crate::{tpm_enum, TpmError, TpmNotDiscriminant, TpmParse};
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display, Formatter},
@@ -209,7 +209,7 @@ impl crate::TpmParse for TpmRc {
 }
 
 impl TryFrom<u32> for TpmRc {
-    type Error = TpmErrorKind;
+    type Error = TpmError;
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         let base_code = if (value & TPM_RC_FMT1) != 0 {
             TPM_RC_FMT1 | (value & TPM_RC_FMT1_ERROR_MASK)
@@ -218,7 +218,7 @@ impl TryFrom<u32> for TpmRc {
         };
 
         let base = TpmRcBase::try_from(base_code).map_err(|()| {
-            TpmErrorKind::NotDiscriminant(
+            TpmError::NotDiscriminant(
                 "TpmRcBase",
                 TpmNotDiscriminant::Unsigned(u64::from(base_code)),
             )

@@ -113,7 +113,8 @@ impl fmt::LowerHex for TpmNotDiscriminant {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum TpmErrorKind {
+/// TPM protocol data error
+pub enum TpmError {
     /// A TCG specification capacity was exceeded,
     CapacityExceeded,
     /// Invalid value
@@ -126,7 +127,7 @@ pub enum TpmErrorKind {
     Underflow,
 }
 
-impl fmt::Display for TpmErrorKind {
+impl fmt::Display for TpmError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::CapacityExceeded => write!(f, "capacity exceeded"),
@@ -140,13 +141,13 @@ impl fmt::Display for TpmErrorKind {
     }
 }
 
-impl From<core::num::TryFromIntError> for TpmErrorKind {
+impl From<core::num::TryFromIntError> for TpmError {
     fn from(_: core::num::TryFromIntError) -> Self {
         Self::CapacityExceeded
     }
 }
 
-pub type TpmResult<T> = Result<T, TpmErrorKind>;
+pub type TpmResult<T> = Result<T, TpmError>;
 
 /// Writes into a mutable byte slice.
 pub struct TpmWriter<'a> {
@@ -177,12 +178,12 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `TpmErrorKind::CapacityExceeded` if the writer does not have enough
+    /// Returns `TpmError::CapacityExceeded` if the writer does not have enough
     /// capacity to hold the new bytes.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmErrorKind::CapacityExceeded);
+            return Err(TpmError::CapacityExceeded);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
@@ -211,7 +212,7 @@ pub trait TpmBuild: TpmSized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmErrorKind)` on a build failure.
+    /// Returns `Err(TpmError)` on a build failure.
     fn build(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
@@ -222,7 +223,7 @@ pub trait TpmParse: Sized + TpmSized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmErrorKind)` on a parse failure.
+    /// Returns `Err(TpmError)` on a parse failure.
     fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 
@@ -241,8 +242,8 @@ pub trait TpmParseTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmParse` implementation,
-    /// such as a `TpmErrorKind::Underflow` if the buffer is too small or an
-    /// `TpmErrorKind::InvalidValue` if the data is malformed.
+    /// such as a `TpmError::Underflow` if the buffer is too small or an
+    /// `TpmError::InvalidValue` if the data is malformed.
     fn parse_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where
         Self: TpmTagged,
@@ -260,9 +261,9 @@ tpm_integer!(u64, Unsigned);
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::CapacityExceeded` if the size exceeds `u16`.
+/// * `TpmError::CapacityExceeded` if the size exceeds `u16`.
 pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
-    let len_u16 = u16::try_from(data.len()).map_err(|_| TpmErrorKind::CapacityExceeded)?;
+    let len_u16 = u16::try_from(data.len()).map_err(|_| TpmError::CapacityExceeded)?;
     TpmBuild::build(&len_u16, writer)?;
     writer.write_bytes(data)
 }
@@ -271,13 +272,13 @@ pub fn build_tpm2b(writer: &mut TpmWriter, data: &[u8]) -> TpmResult<()> {
 ///
 /// # Errors
 ///
-/// * `TpmErrorKind::Underflow` if the buffer is too small.
+/// * `TpmError::Underflow` if the buffer is too small.
 pub fn parse_tpm2b(buf: &[u8]) -> TpmResult<(&[u8], &[u8])> {
     let (size, buf) = u16::parse(buf)?;
     let size = size as usize;
 
     if buf.len() < size {
-        return Err(TpmErrorKind::Underflow);
+        return Err(TpmError::Underflow);
     }
     Ok(buf.split_at(size))
 }

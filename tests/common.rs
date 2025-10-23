@@ -6,7 +6,7 @@
 #![allow(clippy::pedantic)]
 
 use std::{io::IsTerminal, vec::Vec};
-use tpm2_protocol::{TpmErrorKind, TpmNotDiscriminant};
+use tpm2_protocol::{TpmError, TpmNotDiscriminant};
 
 #[allow(dead_code)]
 pub fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -97,11 +97,11 @@ fn parse_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static
 }
 
 #[allow(dead_code)]
-pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmErrorKind, &'static str> {
+pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
     match s {
-        "InvalidValue" => return Ok(TpmErrorKind::InvalidValue),
-        "Underflow" => return Ok(TpmErrorKind::Underflow),
-        "TrailingData" => return Ok(TpmErrorKind::TrailingData),
+        "InvalidValue" => return Ok(TpmError::InvalidValue),
+        "Underflow" => return Ok(TpmError::Underflow),
+        "TrailingData" => return Ok(TpmError::TrailingData),
         _ => {}
     }
 
@@ -135,7 +135,7 @@ pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmErrorKind, &'static str> {
         {
             let val = u64::from_str_radix(num_str.strip_prefix("0x").unwrap_or(num_str), 16)
                 .map_err(|_| "NotDiscriminant: invalid number for Unsigned")?;
-            return Ok(TpmErrorKind::NotDiscriminant(
+            return Ok(TpmError::NotDiscriminant(
                 type_name,
                 TpmNotDiscriminant::Unsigned(val),
             ));

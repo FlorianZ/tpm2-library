@@ -18,7 +18,7 @@ use tpm2_protocol::{
         TpmAlgId, TpmRc, TpmRcBase, TpmRcIndex, TpmaSession, TpmsClockInfo, TpmtSymDef,
         TpmuSymKeyBits, TpmuSymMode,
     },
-    TpmBuffer, TpmBuild, TpmErrorKind, TpmParse, TpmWriter,
+    TpmBuffer, TpmBuild, TpmError, TpmParse, TpmWriter,
 };
 
 fn test_tpm2b_build_length_too_large() {
@@ -31,14 +31,14 @@ fn test_tpm2b_build_length_too_large() {
     let mut out_buf = [0u8; 10];
     let mut writer = TpmWriter::new(&mut out_buf);
     let result = build_tpm2b(&mut writer, large_slice);
-    assert_eq!(result, Err(TpmErrorKind::CapacityExceeded));
+    assert_eq!(result, Err(TpmError::CapacityExceeded));
 }
 
 fn test_tpm_buffer_slice_too_large() {
     const CAPACITY: usize = 4096;
     let data = vec![0; CAPACITY + 1];
     let result = TpmBuffer::<CAPACITY>::try_from(data.as_slice());
-    assert_eq!(result, Err(TpmErrorKind::CapacityExceeded),);
+    assert_eq!(result, Err(TpmError::CapacityExceeded),);
 }
 
 fn test_tpm_rc_variants_from_raw() {
@@ -218,7 +218,7 @@ impl Rng {
 }
 
 pub trait TpmObject: Any + Debug {
-    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmErrorKind>;
+    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmError>;
     fn as_any(&self) -> &dyn Any;
     fn dyn_eq(&self, other: &dyn TpmObject) -> bool;
 }
@@ -227,7 +227,7 @@ impl<T> TpmObject for T
 where
     T: TpmBuild + TpmParse + PartialEq + Any + Debug,
 {
-    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmErrorKind> {
+    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
         TpmBuild::build(self, writer)
     }
     fn as_any(&self) -> &dyn Any {
@@ -250,18 +250,18 @@ enum TypeId {
 }
 
 impl TryFrom<u8> for TypeId {
-    type Error = TpmErrorKind;
+    type Error = TpmError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Clock),
             1 => Ok(Self::Alg),
             2 => Ok(Self::SessionAttrs),
-            _ => Err(TpmErrorKind::InvalidValue),
+            _ => Err(TpmError::InvalidValue),
         }
     }
 }
 
-type ObjectParser = fn(&[u8]) -> Result<(Box<dyn TpmObject>, &[u8]), TpmErrorKind>;
+type ObjectParser = fn(&[u8]) -> Result<(Box<dyn TpmObject>, &[u8]), TpmError>;
 
 fn make_parser<T: TpmParse + TpmObject>() -> ObjectParser {
     |bytes: &[u8]| {
