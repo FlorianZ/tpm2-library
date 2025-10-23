@@ -11,9 +11,7 @@ use std::{
     io::{self, Read},
     path::Path,
 };
-use tpm2_protocol::{
-    constant::TPM_MAX_COMMAND_SIZE, data::TpmRc, TpmBuild, TpmError, TpmHandle, TpmWriter,
-};
+use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmBuild, TpmError, TpmHandle, TpmWriter};
 
 /// Parses a 16 character hex string with an optional `0x` prefix into
 /// `TpmHandle`.
@@ -85,16 +83,4 @@ pub fn from_tpm_key_to_output(
         key_cache.write_key_data(None, tpm_key, encoding)?;
     }
     Ok(())
-}
-
-/// Parses a string into a `TpmRc`.
-///
-/// # Errors
-///
-/// Returns a `String` error if parsing fails.
-pub fn from_str_to_tpm_rc(s: &str) -> Result<TpmRc, String> {
-    let s_no_prefix = s.strip_prefix("0x").unwrap_or(s);
-    let raw_rc = u32::from_str_radix(s_no_prefix, 16)
-        .map_err(|e| format!("Failed to parse hex u32: {e}"))?;
-    TpmRc::try_from(raw_rc).map_err(|e| format!("Invalid TPM RC value {s}: {e}"))
 }
