@@ -194,16 +194,15 @@ impl Memory {
         F: FnMut(&mut Device, Handle) -> Result<String, CommandError>,
     {
         for handle in device.fetch_handles((handle_type as u32) << 24)? {
-            let handle_val = handle.value();
             match get_details(device, handle) {
                 Ok(details) => {
                     rows.push(MemoryRow {
-                        handle: handle.to_string(),
+                        handle: format!("{:08x}", handle.value()),
                         handle_type: display_type.to_string(),
                         details,
                     });
                 }
-                Err(e) => log::debug!("{handle_val:08x}: {e}"),
+                Err(e) => log::debug!("{:08x}: {e}", handle.value()),
             }
         }
         Ok(())
