@@ -11,7 +11,7 @@ pub use software::*;
 pub use tpm::*;
 
 use crate::{
-    auth::Auth,
+    auth::{Auth, AuthClass},
     crypto::CryptoError,
     device::{Device, DeviceError},
     handle::{Handle, HandleClass},
@@ -212,7 +212,9 @@ impl Expression {
     /// cannot be read.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
         match self {
-            Self::Auth(Auth::Password(bytes)) => Ok(bytes.clone()),
+            Self::Auth(auth_instance) if auth_instance.class() == AuthClass::Password => {
+                Ok(auth_instance.value().to_vec())
+            }
             _ => Err(PolicyError::InvalidSecret(format!(
                 "{self:?}: expected 'password:<hex>'"
             ))),

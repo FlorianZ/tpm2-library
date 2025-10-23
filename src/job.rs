@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::Auth,
+    auth::{Auth, AuthClass},
     convert::from_tpm_object_to_vec,
     crypto::crypto_hash_size,
     device::{Device, DeviceError, TpmCommandObject, TpmRcBaseExt},
@@ -60,8 +60,9 @@ impl<'a> Job<'a> {
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if let Auth::Session(vhandle) = auth {
-                if let Ok(session) = self.session_cache.get(*vhandle) {
+            if auth.class() == AuthClass::Session {
+                let vhandle = auth.session()?;
+                if let Ok(session) = self.session_cache.get(vhandle) {
                     if session.attributes.contains(TpmaSession::DECRYPT) {
                         nonce_decrypt = Some(session.nonce_tpm);
                     }
@@ -78,19 +79,20 @@ impl<'a> Job<'a> {
         for (i, auth) in auth_list.iter().enumerate() {
             let handle_param = handles.get(i).ok_or(SessionError::TrailingAuthValues)?;
 
-            match auth {
-                Auth::Password(password) => {
-                    built_auths.push(build_password_session(password)?);
+            match auth.class() {
+                AuthClass::Password => {
+                    built_auths.push(build_password_session(auth.value())?);
                 }
-                Auth::Session(vhandle) => {
-                    let session = self.session_cache.get(*vhandle)?;
+                AuthClass::Session => {
+                    let vhandle = auth.session()?;
+                    let session = self.session_cache.get(vhandle)?;
                     let nonce_size = crypto_hash_size(session.auth_hash)
                         .ok_or(DeviceError::TpmProtocol(TpmError::MalformedData))?;
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
                         .map_err(DeviceError::TpmProtocol)?;
-                    let (nonce_decrypt, nonce_encrypt) = if i == 0 {
+                    let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
                         (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
                     } else {
                         (None, None)
@@ -104,12 +106,12 @@ impl<'a> Job<'a> {
                         C::CC,
                         &[*handle_param],
                         &params,
-                        nonce_decrypt,
-                        nonce_encrypt,
+                        current_nonce_decrypt,
+                        current_nonce_encrypt,
                     )?;
                     built_auths.push(result);
                 }
-                Auth::Policy(_) => return Err(SessionError::InvalidAuth),
+                AuthClass::Policy => return Err(SessionError::InvalidAuth),
             }
         }
         Ok(built_auths)
@@ -142,9 +144,10 @@ impl<'a> Job<'a> {
             Err(DeviceError::TpmRc(rc)) => {
                 if rc.base() == TpmRcBase::PolicyFail {
                     for auth in auth_list {
-                        if let Auth::Session(vhandle) = auth {
+                        if auth.class() == AuthClass::Session {
+                            let vhandle = auth.session()?;
                             log::debug!("vtpm:{vhandle} is stale");
-                            self.session_cache.remove(*vhandle)?;
+                            self.session_cache.remove(vhandle)?;
                         }
                     }
                     return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)));
@@ -156,8 +159,9 @@ impl<'a> Job<'a> {
 
         let mut used_auth_list = HashSet::new();
         for auth in auth_list {
-            if let Auth::Session(handle) = auth {
-                used_auth_list.insert(*handle);
+            if auth.class() == AuthClass::Session {
+                let handle = auth.session()?;
+                used_auth_list.insert(handle);
             }
         }
 

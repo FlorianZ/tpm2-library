@@ -15,7 +15,7 @@
 //! 2. `TPM2_FlushContext` can be only applied to a loaded session.
 
 use crate::{
-    auth::Auth,
+    auth::{Auth, AuthClass, AuthError},
     crypto::{crypto_digest, crypto_hash_size, crypto_hmac, crypto_kdfa, CryptoError},
     device::{Device, DeviceError},
     key::Tpm2shAlgId,
@@ -48,6 +48,8 @@ pub enum SessionError {
     TrailingAuthValues,
     #[error("unsupported name algorithm: {0}")]
     UnsupportedNameAlgorithm(Tpm2shAlgId),
+    #[error("auth error: {0}")]
+    Auth(#[from] AuthError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
@@ -343,17 +345,18 @@ impl<'a> SessionCache<'a> {
     ) -> Result<Vec<u32>, SessionError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if let Auth::Session(vhandle) = auth {
+            if auth.class() == AuthClass::Session {
+                let vhandle = auth.session()?;
                 let session_is_loaded = {
-                    let session = self.get(*vhandle)?;
+                    let session = self.get(vhandle)?;
                     session.handle.0 != 0
                 };
                 if !session_is_loaded {
                     let new_handle = {
-                        let session = self.get(*vhandle)?;
+                        let session = self.get(vhandle)?;
                         device.load_context(session.context.clone())?
                     };
-                    let session = self.get_mut(*vhandle)?;
+                    let session = self.get_mut(vhandle)?;
                     session.handle = TpmHandle(new_handle);
                     activated_handles.push(new_handle);
                 }

@@ -3,6 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    auth::AuthError,
     command::OutputEncoding,
     convert::from_tpm_object_to_vec,
     device::{Device, DeviceError},
@@ -62,6 +63,8 @@ pub enum KeyCacheError {
     InvalidParent(String),
     #[error("parent not loaded")]
     ParentNotLoaded,
+    #[error("auth error: {0}")]
+    Auth(#[from] AuthError),
     #[error("crypto: {0}")]
     Crypto(#[from] crate::crypto::CryptoError),
     #[error("device: {0}")]

@@ -109,7 +109,7 @@ impl SubCommand for Memory {
                         if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
                             return Err(CommandError::InvalidInput("Not a certificate".into()));
                         }
-                        let auths = vec![Auth::Password(Vec::new())];
+                        let auths = vec![Auth::default()];
                         let cert_bytes = job
                             .read_certificate(device, &auths, handle_val, max_read_size)?
                             .ok_or(CommandError::InvalidInput("No certificate data".into()))?;

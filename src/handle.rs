@@ -10,26 +10,24 @@ use nom::{
     sequence::tuple,
     IResult,
 };
-use std::{convert::TryFrom, num::ParseIntError, str::FromStr};
+use std::{convert::TryFrom, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::data::TpmHt;
 
 #[derive(Debug, Error)]
 pub enum HandleError {
-    #[error("handle is invalid")]
+    #[error("invalid handle")]
     InvalidHandle,
-    #[error("handle decode: {0}")]
-    IntDecode(#[from] ParseIntError),
 }
 
-/// Distinguishes between physical TPM handles and virtual (cached) handles.
+/// Handle types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleClass {
     Tpm,
     Vtpm,
 }
 
-/// A type-safe representation of a handle, storing its class and value.
+/// TPM and vTPM handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Handle(pub (HandleClass, u32));
 
@@ -53,16 +51,16 @@ fn parse_handle(input: &str) -> IResult<&str, Handle> {
 }
 
 impl Handle {
-    /// Returns the raw u32 value of the handle.
-    #[must_use]
-    pub fn value(&self) -> u32 {
-        self.0 .1
-    }
-
-    /// Returns the class (Tpm or Vtpm) of the handle.
+    /// Returns class of the handle.
     #[must_use]
     pub fn class(&self) -> HandleClass {
         self.0 .0
+    }
+
+    /// Returns value of the handle.
+    #[must_use]
+    pub fn value(&self) -> u32 {
+        self.0 .1
     }
 }
 
