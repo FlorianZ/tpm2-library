@@ -135,7 +135,7 @@ impl<'a> Job<'a> {
     ) -> Result<(TpmResponseBody, TpmAuthResponses), KeyCacheError> {
         let auth_handles = self.session_cache.prepare_sessions(device, auth_list)?;
         for &handle in &auth_handles {
-            self.key_cache.track(tpm2_protocol::TpmHandle(handle))?;
+            self.key_cache.track(handle)?;
         }
 
         let sessions = self.build_auth_area(device, command, handles, auth_list)?;
@@ -169,7 +169,7 @@ impl<'a> Job<'a> {
             .teardown_sessions(device, &used_auth_list, &auth_responses)?;
 
         for handle in auth_handles {
-            self.key_cache.untrack(handle);
+            self.key_cache.untrack(handle.0);
         }
 
         Ok((resp, auth_responses))

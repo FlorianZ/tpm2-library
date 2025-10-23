@@ -12,7 +12,7 @@ use crate::{
     key_cache::KeyCacheError,
 };
 use clap::Args;
-use tpm2_protocol::data::{TpmRcBase, TpmSe};
+use tpm2_protocol::data::{TpmHt, TpmRcBase};
 
 struct CacheRow {
     handle: String,
@@ -46,8 +46,8 @@ pub struct Cache {}
 impl Cache {
     fn fetch_session_rows(job: &mut Job, rows: &mut Vec<CacheRow>) {
         for session in job.session_cache.sessions.values() {
-            if session.session_type == TpmSe::Policy {
-                let vhandle = session.context.saved_handle.0;
+            let vhandle = session.context.saved_handle.0;
+            if (vhandle >> 24) as u8 == TpmHt::PolicySession as u8 {
                 rows.push(CacheRow {
                     handle: format!("{vhandle:08x}"),
                     handle_type: "policy".to_string(),

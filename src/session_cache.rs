@@ -29,7 +29,7 @@ use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bAuth, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSe, TpmaSession,
+        Tpm2bAuth, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaSession,
         TpmsAuthCommand, TpmsAuthResponse, TpmsContext,
     },
     message::{TpmAuthResponses, TpmStartAuthSessionResponse},
@@ -69,13 +69,11 @@ impl From<TpmError> for SessionError {
 /// Manages the state of an active authorization session.
 #[derive(Debug, Clone)]
 pub struct Session {
-    pub handle: TpmHandle,
     pub context: TpmsContext,
     pub nonce_tpm: Tpm2bNonce,
     pub attributes: TpmaSession,
     pub hmac_key: Tpm2bAuth,
     pub auth_hash: TpmAlgId,
-    pub session_type: TpmSe,
 }
 
 impl Session {
@@ -86,7 +84,6 @@ impl Session {
     /// Returns a `SessionError` if key derivation for the HMAC key fails or if
     /// other value conversions are not possible.
     pub fn new(
-        session_type: TpmSe,
         auth_hash: TpmAlgId,
         nonce_caller: Tpm2bNonce,
         resp: &TpmStartAuthSessionResponse,
@@ -96,7 +93,7 @@ impl Session {
             SessionError::UnsupportedNameAlgorithm(Tpm2shAlgId(auth_hash)),
         )?;
 
-        let hmac_key_bytes = if session_type == TpmSe::Hmac {
+        let hmac_key_bytes = if (resp.session_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
             if auth_value.is_empty() {
                 Vec::new()
             } else {
@@ -119,7 +116,6 @@ impl Session {
         };
 
         Ok(Self {
-            handle: resp.session_handle,
             context: TpmsContext {
                 sequence: 0,
                 saved_handle: resp.session_handle.0.into(),
@@ -130,7 +126,6 @@ impl Session {
             attributes: TpmaSession::CONTINUE_SESSION,
             hmac_key: Tpm2bAuth::try_from(hmac_key_bytes.as_slice())?,
             auth_hash,
-            session_type,
         })
     }
 
@@ -143,7 +138,6 @@ impl Session {
         let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            self.session_type.build(&mut writer)?;
             self.context.build(&mut writer)?;
             self.nonce_tpm.build(&mut writer)?;
             self.attributes.build(&mut writer)?;
@@ -165,8 +159,7 @@ impl Session {
     pub fn load_from_path(path: &Path) -> Result<Self, SessionError> {
         let session_bytes = std::fs::read(path)?;
 
-        let (session_type, remainder) = TpmSe::parse(&session_bytes)?;
-        let (context, remainder) = TpmsContext::parse(remainder)?;
+        let (context, remainder) = TpmsContext::parse(&session_bytes)?;
         let (nonce_tpm, remainder) = Tpm2bNonce::parse(remainder)?;
         let (attributes, remainder) = TpmaSession::parse(remainder)?;
         let (hmac_key, remainder) = Tpm2bAuth::parse(remainder)?;
@@ -177,13 +170,11 @@ impl Session {
         }
 
         Ok(Self {
-            handle: TpmHandle(0),
             context,
             nonce_tpm,
             attributes,
             hmac_key,
             auth_hash,
-            session_type,
         })
     }
 }
@@ -342,24 +333,14 @@ impl<'a> SessionCache<'a> {
         &mut self,
         device: &mut Device,
         auth_list: &[Auth],
-    ) -> Result<Vec<u32>, SessionError> {
+    ) -> Result<Vec<TpmHandle>, SessionError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
             if auth.class() == AuthClass::Session {
                 let vhandle = auth.session()?;
-                let session_is_loaded = {
-                    let session = self.get(vhandle)?;
-                    session.handle.0 != 0
-                };
-                if !session_is_loaded {
-                    let new_handle = {
-                        let session = self.get(vhandle)?;
-                        device.load_context(session.context.clone())?
-                    };
-                    let session = self.get_mut(vhandle)?;
-                    session.handle = TpmHandle(new_handle);
-                    activated_handles.push(new_handle);
-                }
+                let session = self.get(vhandle)?;
+                let new_handle = device.load_context(session.context.clone())?;
+                activated_handles.push(TpmHandle(new_handle));
             }
         }
         Ok(activated_handles)
@@ -378,10 +359,7 @@ impl<'a> SessionCache<'a> {
         auth_responses: &TpmAuthResponses,
     ) -> Result<(), SessionError> {
         for (i, vhandle) in session_vhandles.iter().enumerate() {
-            let session_handle = self.get(*vhandle)?.handle;
-            if session_handle.0 == 0 {
-                continue;
-            }
+            let session_handle = self.get(*vhandle)?.context.saved_handle;
 
             match device.save_context(session_handle.0) {
                 Ok(new_context) => {
@@ -394,11 +372,6 @@ impl<'a> SessionCache<'a> {
                 Err(e) => {
                     if let Err(e) = device.flush_context(session_handle) {
                         log::warn!("{session_handle}: {e}");
-                    }
-                    if let Ok(session) = self.get_mut(*vhandle) {
-                        session.handle = TpmHandle(0);
-                    } else {
-                        log::warn!("unknown {session_handle}");
                     }
                     return Err(e.into());
                 }
@@ -445,7 +418,7 @@ pub(crate) fn create_auth(
 
     let cp_hash = crypto_digest(session.auth_hash, &cp_hash_chunks)?;
 
-    let hmac_bytes = if session.session_type == TpmSe::Hmac {
+    let hmac_bytes = if (session.context.saved_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
         let hmac_key = [session.hmac_key.as_ref(), auth_value].concat();
 
         let mut hmac_payload: Vec<&[u8]> = Vec::with_capacity(8);
@@ -471,7 +444,7 @@ pub(crate) fn create_auth(
     };
 
     Ok(TpmsAuthCommand {
-        session_handle: session.handle,
+        session_handle: session.context.saved_handle,
         nonce: *nonce_caller,
         session_attributes: session.attributes,
         hmac: Tpm2bAuth::try_from(hmac_bytes.as_slice())?,

@@ -170,9 +170,8 @@ impl SubCommand for Policy {
                     execute_policy(&ast, &mut tpm_policy_session)?;
 
                     let mut session_data =
-                        Session::new(TpmSe::Policy, session_hash_alg, nonce_caller, &resp, &[])?;
+                        Session::new(session_hash_alg, nonce_caller, &resp, &[])?;
                     session_data.context = device.save_context(live_handle.0)?;
-                    session_data.handle = tpm2_protocol::TpmHandle(0);
 
                     let vhandle = job.session_cache.add(session_data);
                     job.session_cache.save()?;
