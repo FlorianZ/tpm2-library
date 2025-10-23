@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
@@ -12,7 +12,7 @@ use nom::{
 };
 use std::{convert::TryFrom, num::ParseIntError, str::FromStr};
 use thiserror::Error;
-use tpm2_protocol::{data::TpmHt, TpmHandle};
+use tpm2_protocol::data::TpmHt;
 
 #[derive(Debug, Error)]
 pub enum HandleError {
@@ -22,14 +22,18 @@ pub enum HandleError {
     IntDecode(#[from] ParseIntError),
 }
 
-/// A type-safe representation of a specific handle type.
+/// Distinguishes between physical TPM handles and virtual (cached) handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Handle {
-    Tpm(u32),
-    Vtpm(u32),
+pub enum HandleClass {
+    Tpm,
+    Vtpm,
 }
 
-/// Nom parser for the Handle enum.
+/// A type-safe representation of a handle, storing its class and value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Handle(pub (HandleClass, u32));
+
+/// Nom parser for the Handle struct.
 fn parse_handle(input: &str) -> IResult<&str, Handle> {
     map_res(
         tuple((
@@ -38,11 +42,12 @@ fn parse_handle(input: &str) -> IResult<&str, Handle> {
             map_res(hex_digit1, |s: &str| u32::from_str_radix(s, 16)),
         )),
         |(scheme, _, value)| -> Result<Handle, HandleError> {
-            match scheme {
-                "tpm" => Ok(Handle::Tpm(value)),
-                "vtpm" => Ok(Handle::Vtpm(value)),
+            let class = match scheme {
+                "tpm" => HandleClass::Tpm,
+                "vtpm" => HandleClass::Vtpm,
                 _ => unreachable!(),
-            }
+            };
+            Ok(Handle((class, value)))
         },
     )(input)
 }
@@ -50,24 +55,23 @@ fn parse_handle(input: &str) -> IResult<&str, Handle> {
 impl Handle {
     /// Returns the raw u32 value of the handle.
     #[must_use]
-    pub fn value_raw(&self) -> u32 {
-        match *self {
-            Handle::Tpm(h) | Handle::Vtpm(h) => h,
-        }
+    pub fn value(&self) -> u32 {
+        self.0 .1
     }
 
-    /// Returns the handle value as a `TpmHandle`.
+    /// Returns the class (Tpm or Vtpm) of the handle.
     #[must_use]
-    pub fn value_tpm(&self) -> TpmHandle {
-        TpmHandle(self.value_raw())
+    pub fn class(&self) -> HandleClass {
+        self.0 .0
     }
 }
 
 impl std::fmt::Display for Handle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Handle::Tpm(h) => write!(f, "tpm:{h:08x}"),
-            Handle::Vtpm(h) => write!(f, "vtpm:{h:08x}"),
+        let value = self.value();
+        match self.class() {
+            HandleClass::Tpm => write!(f, "tpm:{value:08x}"),
+            HandleClass::Vtpm => write!(f, "vtpm:{value:08x}"),
         }
     }
 }
@@ -87,7 +91,7 @@ impl TryFrom<Handle> for TpmHt {
     type Error = HandleError;
 
     fn try_from(handle: Handle) -> Result<Self, Self::Error> {
-        let raw_handle = handle.value_raw();
+        let raw_handle = handle.value();
         let ht_byte = (raw_handle >> 24) as u8;
         TpmHt::try_from(ht_byte).map_err(|()| HandleError::InvalidHandle)
     }

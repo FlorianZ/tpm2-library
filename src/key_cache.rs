@@ -6,7 +6,7 @@ use crate::{
     command::OutputEncoding,
     convert::from_tpm_object_to_vec,
     device::{Device, DeviceError},
-    handle::Handle,
+    handle::{Handle, HandleClass},
     key::{KeyError, TpmKey},
     session_cache::SessionError,
 };
@@ -95,7 +95,7 @@ impl std::fmt::Debug for KeyCache<'_> {
         let handles: Vec<String> = self
             .handles
             .values()
-            .map(|t| Handle::Tpm(t.0).to_string())
+            .map(|t| Handle((HandleClass::Tpm, t.0)).to_string())
             .collect();
         f.debug_struct("Context")
             .field("handles", &handles)
@@ -288,20 +288,21 @@ impl<'a> KeyCache<'a> {
         device: &mut Device,
         handle: &Handle,
     ) -> Result<TpmHandle, KeyCacheError> {
-        match handle {
-            Handle::Tpm(h) => Ok(TpmHandle(*h)),
-            Handle::Vtpm(vhandle) => {
+        match handle.class() {
+            HandleClass::Tpm => Ok(TpmHandle(handle.value())),
+            HandleClass::Vtpm => {
+                let vhandle = handle.value();
                 let key = self
                     .contexts
-                    .get(vhandle)
-                    .ok_or(KeyCacheError::ContextNotFound(*vhandle))?
+                    .get(&vhandle)
+                    .ok_or(KeyCacheError::ContextNotFound(vhandle))?
                     .clone();
                 match device.load_context(key.context) {
-                    Ok(handle) => {
-                        let handle = TpmHandle(handle);
-                        let (_, _) = device.read_public(handle)?;
-                        self.track(handle)?;
-                        Ok(handle)
+                    Ok(loaded_handle_val) => {
+                        let loaded_handle = TpmHandle(loaded_handle_val);
+                        let (_, _) = device.read_public(loaded_handle)?;
+                        self.track(loaded_handle)?;
+                        Ok(loaded_handle)
                     }
                     Err(DeviceError::TpmRc(rc)) => {
                         let base = match rc {
@@ -309,9 +310,9 @@ impl<'a> KeyCache<'a> {
                             TpmRc::Fmt1(fmt1) => fmt1.base,
                         };
                         if base == TpmRcBase::ReferenceH0 {
-                            log::debug!("vtpm:{vhandle} is stale");
-                            self.remove_context(*vhandle)?;
-                            Err(KeyCacheError::ContextNotFound(*vhandle))
+                            log::debug!("vtpm:{vhandle:08x} is stale");
+                            self.remove_context(vhandle)?;
+                            Err(KeyCacheError::ContextNotFound(vhandle))
                         } else if base == TpmRcBase::Handle {
                             Err(KeyCacheError::ParentNotLoaded)
                         } else {

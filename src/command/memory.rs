@@ -25,7 +25,10 @@ use rasn::{
 };
 use strum::Display;
 use tabled::Tabled;
-use tpm2_protocol::data::{TpmAlgId, TpmHt, TpmPt};
+use tpm2_protocol::{
+    data::{TpmAlgId, TpmHt, TpmPt},
+    TpmHandle,
+};
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[strum(serialize_all = "kebab-case")]
@@ -102,7 +105,7 @@ impl SubCommand for Memory {
                     TpmHt::NvIndex,
                     MemoryHandleType::Certificate,
                     |device, handle| {
-                        let handle_val = handle.value_raw();
+                        let handle_val = handle.value();
                         if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
                             return Err(CommandError::InvalidInput("Not a certificate".into()));
                         }
@@ -191,7 +194,7 @@ impl Memory {
         F: FnMut(&mut Device, Handle) -> Result<String, CommandError>,
     {
         for handle in device.fetch_handles((handle_type as u32) << 24)? {
-            let handle_val = handle.value_raw();
+            let handle_val = handle.value();
             match get_details(device, handle) {
                 Ok(details) => {
                     rows.push(MemoryRow {
@@ -207,7 +210,8 @@ impl Memory {
     }
 
     fn fetch_details(device: &mut Device, handle: Handle) -> Result<String, CommandError> {
-        let (public, _) = device.read_public(handle.value_tpm())?;
+        let tpm_handle = TpmHandle(handle.value());
+        let (public, _) = device.read_public(tpm_handle)?;
         Ok(format_alg_from_public(&public))
     }
 

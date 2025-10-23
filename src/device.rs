@@ -3,8 +3,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::Auth, cli::LogFormat, crypto::crypto_hash_size, handle::Handle, job::Job,
-    print::TpmPrint, TEARDOWN,
+    auth::Auth,
+    cli::LogFormat,
+    crypto::crypto_hash_size,
+    handle::{Handle, HandleClass},
+    job::Job,
+    print::TpmPrint,
+    TEARDOWN,
 };
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -364,7 +369,12 @@ impl Device {
             },
             |last| *last + 1,
         )
-        .map(|handles| handles.into_iter().map(Handle::Tpm).collect())
+        .map(|handles| {
+            handles
+                .into_iter()
+                .map(|h| Handle((HandleClass::Tpm, h)))
+                .collect()
+        })
     }
 
     /// Fetches and returns one page of capabilities of a certain type from the TPM.

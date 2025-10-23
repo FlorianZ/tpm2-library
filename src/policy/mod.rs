@@ -14,7 +14,7 @@ use crate::{
     auth::Auth,
     crypto::CryptoError,
     device::{Device, DeviceError},
-    handle::Handle,
+    handle::{Handle, HandleClass},
     key_cache::KeyCacheError,
     pcr::{self, PcrError, PcrSelection},
     session_cache::SessionError,
@@ -403,13 +403,14 @@ pub fn execute_policy(
             cp_hash,
         } => {
             let handle_val = match &**auth_handle {
-                Expression::Handle(Handle::Tpm(h)) => {
-                    if (*h >> 24) as u8 != TpmHt::Persistent as u8 {
+                Expression::Handle(handle) if handle.class() == HandleClass::Tpm => {
+                    let h_val = handle.value();
+                    if (h_val >> 24) as u8 != TpmHt::Persistent as u8 {
                         return Err(PolicyError::InvalidExpression(
                             "secret() must contain persistent 'tpm:<handle>'".to_string(),
                         ));
                     }
-                    *h
+                    h_val
                 }
                 _ => {
                     return Err(PolicyError::InvalidExpression(

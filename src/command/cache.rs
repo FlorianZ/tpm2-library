@@ -6,7 +6,7 @@ use crate::{
     cli::SubCommand,
     command::{print_table, CommandError},
     device::{with_device, Device, DeviceError, TpmRcBaseExt},
-    handle::Handle,
+    handle::{Handle, HandleClass},
     job::Job,
     key::format_alg_from_public,
     key_cache::KeyCacheError,
@@ -57,7 +57,7 @@ impl Cache {
     fn refresh_key_cache(device: &mut Device, job: &mut Job) -> Result<(), CommandError> {
         let vhandles: Vec<u32> = job.key_cache.contexts.keys().copied().collect();
         for vhandle in vhandles {
-            let handle_type = Handle::Vtpm(vhandle);
+            let handle_type = Handle((HandleClass::Vtpm, vhandle));
             match job.key_cache.load_context(device, &handle_type) {
                 Ok(handle) => {
                     device.flush_context(handle)?;

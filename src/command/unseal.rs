@@ -34,9 +34,6 @@ pub struct Unseal {
 impl SubCommand for Unseal {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
-            match self.input {
-                Handle::Tpm(_) | Handle::Vtpm(_) => {}
-            }
             let item_handle = job.key_cache.load_context(device, &self.input)?;
             let auths = self
                 .auth_args

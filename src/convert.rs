@@ -4,7 +4,6 @@
 
 use crate::{
     command::{CommandError, OutputEncoding},
-    handle::Handle,
     key::TpmKey,
     key_cache::KeyCache,
 };
@@ -13,9 +12,7 @@ use std::{
     path::Path,
 };
 use tpm2_protocol::{
-    constant::TPM_MAX_COMMAND_SIZE,
-    data::{TpmHt, TpmRc},
-    TpmBuild, TpmError, TpmHandle, TpmWriter,
+    constant::TPM_MAX_COMMAND_SIZE, data::TpmRc, TpmBuild, TpmError, TpmHandle, TpmWriter,
 };
 
 /// Parses a 16 character hex string with an optional `0x` prefix into
@@ -32,27 +29,6 @@ pub fn from_str_to_handle(input: &str) -> Result<TpmHandle, String> {
     u32::from_str_radix(input, 16)
         .map(TpmHandle)
         .map_err(|e| e.to_string())
-}
-
-/// Parses a string in the format "tpm:<8 hex chars>" into a `TpmHandle`,
-/// ensuring it's an NV index.
-///
-/// # Errors
-///
-/// Returns a `String` error if the format is incorrect or the handle is not
-/// a valid NV index.
-pub fn from_str_to_nv_handle(input: &str) -> Result<TpmHandle, String> {
-    let Some(value) = input.strip_prefix("tpm:") else {
-        return Err("must be in the format 'tpm:<handle>' ".to_string());
-    };
-
-    let handle = u32::from_str_radix(value, 16).map_err(|e| e.to_string())?;
-
-    if TpmHt::try_from(Handle::Tpm(handle)).map_err(|e| e.to_string())? != TpmHt::NvIndex {
-        return Err("not an NV index handle".to_string());
-    }
-
-    Ok(TpmHandle(handle))
 }
 
 /// A helper to build a `TpmBuild` type into a `Vec<u8>`.

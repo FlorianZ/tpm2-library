@@ -6,7 +6,7 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, HierarchyAuthArgs},
     device::with_device,
-    handle::Handle,
+    handle::{Handle, HandleClass, HandleError},
     job::Job,
 };
 use clap::Args;
@@ -28,9 +28,9 @@ pub struct Evict {
 impl SubCommand for Evict {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-            let persistent_handle_val = match self.output {
-                Handle::Tpm(h) => Ok(h),
-                Handle::Vtpm(_) => Err(CommandError::InvalidInput(self.output.to_string())),
+            let persistent_handle_val = match self.output.class() {
+                HandleClass::Tpm => Ok(self.output.value()),
+                HandleClass::Vtpm => Err(CommandError::Handle(HandleError::InvalidHandle)),
             }?;
             let persistent_handle = TpmHandle(persistent_handle_val);
 
@@ -40,9 +40,9 @@ impl SubCommand for Evict {
                 (TpmRh::Platform as u32).into()
             };
 
-            let vhandle = match self.input {
-                Handle::Vtpm(vh) => Ok(vh),
-                Handle::Tpm(_) => Err(CommandError::InvalidInput(self.input.to_string())),
+            let vhandle = match self.input.class() {
+                HandleClass::Vtpm => Ok(self.input.value()),
+                HandleClass::Tpm => Err(CommandError::Handle(HandleError::InvalidHandle)),
             }?;
             let transient_handle = job.key_cache.load_context(dev, &self.input)?;
 

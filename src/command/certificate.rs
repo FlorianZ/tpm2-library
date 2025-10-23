@@ -5,19 +5,19 @@
 use crate::{
     cli::SubCommand,
     command::{AuthArgs, CommandError},
-    convert::from_str_to_nv_handle,
     device::with_device,
+    handle::Handle,
     job::Job,
 };
 use clap::Args;
-use tpm2_protocol::{data::TpmPt, TpmHandle};
+use tpm2_protocol::data::TpmPt;
 
 /// Exports an endorsement key certificate.
 #[derive(Args, Debug)]
 pub struct Certificate {
     /// NV-index: 'tpm:<handle>'
-    #[arg(value_name = "nv-index", value_parser = from_str_to_nv_handle)]
-    pub nv_index: TpmHandle,
+    #[arg(value_name = "nv-index")]
+    pub nv_index: Handle,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -27,7 +27,7 @@ impl SubCommand for Certificate {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)? as usize;
-            let handle = self.nv_index.0;
+            let handle = self.nv_index.value();
             let auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
             if let Some(cert_bytes) = job.read_certificate(device, &auths, handle, max_read_size)? {
                 let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
