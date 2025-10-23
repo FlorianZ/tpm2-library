@@ -3,20 +3,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 mod r#enum;
-mod tpm_rc;
 mod tpma;
 mod tpmi;
 mod tpms;
 mod tpmt;
 mod tpmu;
 
-pub use self::r#enum::*;
-pub use self::tpm_rc::*;
-pub use self::tpma::*;
-pub use self::tpmi::*;
-pub use self::tpms::*;
-pub use self::tpmt::*;
-pub use self::tpmu::*;
+pub use self::{r#enum::*, tpma::*, tpmi::*, tpms::*, tpmt::*, tpmu::*};
 
 use crate::{
     constant::{

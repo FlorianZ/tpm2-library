@@ -278,7 +278,7 @@ macro_rules! tpm_dispatch {
 #[macro_export]
 macro_rules! tpm2b {
     ($name:ident, $capacity:expr) => {
-        pub type $name = $crate::TpmBuffer<$capacity>;
+        pub type $name = $crate::basic::TpmBuffer<$capacity>;
     };
 }
 
@@ -353,6 +353,6 @@ macro_rules! tpm2b_struct {
 #[macro_export]
 macro_rules! tpml {
     ($name:ident, $inner_ty:ty, $capacity:expr) => {
-        pub type $name = $crate::TpmList<$inner_ty, $capacity>;
+        pub type $name = $crate::basic::TpmList<$inner_ty, $capacity>;
     };
 }

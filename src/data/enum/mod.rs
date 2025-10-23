@@ -2,7 +2,12 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+mod rc;
+
+pub use self::rc::*;
+
 use crate::tpm_enum;
+
 tpm_enum! {
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash, Default)]
     pub enum TpmAlgId(u16) {

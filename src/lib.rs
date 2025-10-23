@@ -24,31 +24,25 @@
 #![deny(clippy::pedantic)]
 #![recursion_limit = "256"]
 
-pub mod buffer;
+pub mod basic;
 pub mod constant;
 pub mod data;
-pub mod list;
 #[macro_use]
 pub mod r#macro;
 pub mod message;
-
-pub use buffer::TpmBuffer;
-pub use list::TpmList;
-
-use core::{convert::From, mem::size_of, result::Result};
 
 /// A TPM handle, which is a 32-bit unsigned integer.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct TpmHandle(pub u32);
 
-impl From<u32> for TpmHandle {
+impl core::convert::From<u32> for TpmHandle {
     fn from(val: u32) -> Self {
         Self(val)
     }
 }
 
-impl From<TpmHandle> for u32 {
+impl core::convert::From<TpmHandle> for u32 {
     fn from(val: TpmHandle) -> Self {
         val.0
     }

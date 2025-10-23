@@ -12,12 +12,13 @@ use std::{
     any::Any, collections::HashMap, convert::TryFrom, fmt::Debug, string::ToString, vec::Vec,
 };
 use tpm2_protocol::{
+    basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
         TpmAlgId, TpmRc, TpmRcBase, TpmRcIndex, TpmaSession, TpmsClockInfo, TpmtSymDef,
         TpmuSymKeyBits, TpmuSymMode,
     },
-    TpmBuffer, TpmBuild, TpmError, TpmParse, TpmWriter,
+    TpmBuild, TpmError, TpmParse, TpmWriter,
 };
 
 fn test_tpm_buffer_slice_too_large() {

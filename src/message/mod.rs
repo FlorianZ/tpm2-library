@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{tpm_dispatch, TpmBuild, TpmList, TpmResult, TpmSized, TpmWriter};
+use crate::{basic::TpmList, tpm_dispatch, TpmBuild, TpmResult, TpmSized, TpmWriter};
 use core::fmt::Debug;
 
 mod build;
