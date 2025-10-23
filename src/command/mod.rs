@@ -55,7 +55,10 @@ use std::{
     num::TryFromIntError,
 };
 use thiserror::Error;
-use tpm2_protocol::{data::TpmCc, TpmError};
+use tpm2_protocol::{
+    data::{TpmCc, TpmRcBase},
+    TpmError,
+};
 
 /// A trait for data structures that can be represented as a table row.
 pub trait Tabled {
@@ -165,7 +168,7 @@ pub enum CommandError {
     #[error("handle pattern: {0}")]
     HandlePattern(#[from] HandlePatternError),
     #[error("context: {0}")]
-    KeyCacheError(#[from] KeyCacheError),
+    KeyCacheError(KeyCacheError),
     #[error("key error: {0}")]
     Key(#[from] KeyError),
     #[error("pcr: {0}")]
@@ -182,6 +185,21 @@ pub enum CommandError {
     Io(#[from] std::io::Error),
     #[error("protocol: {0}")]
     TpmProtocol(TpmError),
+}
+
+impl From<KeyCacheError> for CommandError {
+    fn from(err: KeyCacheError) -> Self {
+        if let KeyCacheError::Device(DeviceError::TpmRc(rc)) = &err {
+            let base = rc.base();
+            if base == TpmRcBase::AuthFail || base == TpmRcBase::AuthMissing {
+                return Self::AuthenticationDenied;
+            }
+            if base == TpmRcBase::Lockout {
+                return Self::DictionaryAttackLocked;
+            }
+        }
+        Self::KeyCacheError(err)
+    }
 }
 
 impl From<TpmError> for CommandError {

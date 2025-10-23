@@ -4,17 +4,13 @@
 use crate::{
     cli::SubCommand,
     command::{AuthArgs, CommandError},
-    device::{with_device, DeviceError},
+    device::with_device,
     handle::Handle,
     job::Job,
-    key_cache::KeyCacheError,
 };
 use clap::Args;
 use std::io::IsTerminal;
-use tpm2_protocol::{
-    data::{TpmCc, TpmRcBase},
-    message::TpmUnsealCommand,
-};
+use tpm2_protocol::{data::TpmCc, message::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
@@ -46,25 +42,12 @@ impl SubCommand for Unseal {
             };
             let unseal_handles = [item_handle.0];
 
-            let result = job.execute(device, &unseal_cmd, &unseal_handles, &auths);
-            let out_data = match result {
-                Ok((resp, _)) => {
-                    resp.Unseal()
-                        .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
-                        .out_data
-                }
-                Err(KeyCacheError::Device(DeviceError::TpmRc(rc))) => {
-                    let base = rc.base();
-                    if base == TpmRcBase::AuthFail || base == TpmRcBase::AuthMissing {
-                        return Err(CommandError::AuthenticationDenied);
-                    }
-                    if base == TpmRcBase::Lockout {
-                        return Err(CommandError::DictionaryAttackLocked);
-                    }
-                    return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)).into());
-                }
-                Err(e) => return Err(e.into()),
-            };
+            let (resp, _) = job.execute(device, &unseal_cmd, &unseal_handles, &auths)?;
+
+            let out_data = resp
+                .Unseal()
+                .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
+                .out_data;
 
             if self.hex || std::io::stdout().is_terminal() {
                 writeln!(job.key_cache.writer, "{}", hex::encode(out_data.as_ref()))?;

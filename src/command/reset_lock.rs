@@ -5,13 +5,12 @@
 use crate::{
     cli::SubCommand,
     command::{AuthArgs, CommandError},
-    device::{with_device, DeviceError},
+    device::with_device,
     job::Job,
-    key_cache::KeyCacheError,
 };
 use clap::Args;
 use tpm2_protocol::{
-    data::{TpmCc, TpmRcBase, TpmRh},
+    data::{TpmCc, TpmRh},
     message::TpmDictionaryAttackLockResetCommand,
 };
 
@@ -30,16 +29,8 @@ impl SubCommand for ResetLock {
             let handles = [TpmRh::Lockout as u32];
             let auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
 
-            let (resp, _) = match job.execute(device, &command, &handles, &auths) {
-                Ok(result) => result,
-                Err(KeyCacheError::Device(DeviceError::TpmRc(rc))) => {
-                    if rc.base() == TpmRcBase::Lockout {
-                        return Err(CommandError::DictionaryAttackLocked);
-                    }
-                    return Err(KeyCacheError::Device(DeviceError::TpmRc(rc)).into());
-                }
-                Err(e) => return Err(e.into()),
-            };
+            let (resp, _) = job.execute(device, &command, &handles, &auths)?;
+
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;
             Ok(())
