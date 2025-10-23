@@ -2,14 +2,12 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::SubCommand, command::CommandError, job::Job};
+use crate::{cli::SubCommand, command::CommandError, job::Job, parse_hex_u32};
 use clap::Args;
 use tpm2_protocol::data::TpmRc;
 
 fn parse_rc(rc_str: &str) -> Result<TpmRc, String> {
-    let rc_str = rc_str.strip_prefix("0x").unwrap_or(rc_str);
-    let rc_u32 = u32::from_str_radix(rc_str, 16).map_err(|_| "malformed value".to_string())?;
-
+    let rc_u32 = parse_hex_u32(rc_str).map_err(|_| "malformed value".to_string())?;
     TpmRc::try_from(rc_u32).map_err(|_| "unknown discriminant".to_string())
 }
 

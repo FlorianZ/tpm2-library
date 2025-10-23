@@ -45,3 +45,13 @@ pub fn write_object<T: tpm2_protocol::TpmBuild>(
     buf.truncate(len);
     Ok(buf)
 }
+
+/// Parses a hexadecimal string with an optional "0x" prefix into a `u32`.
+///
+/// # Errors
+///
+/// Returns an error if the string is not a valid hexadecimal number.
+pub fn parse_hex_u32(hex_str: &str) -> Result<u32, std::num::ParseIntError> {
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    u32::from_str_radix(hex_str, 16)
+}

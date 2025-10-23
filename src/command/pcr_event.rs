@@ -9,6 +9,7 @@ use crate::{
     io::read_file_input,
     job::Job,
     key::Tpm2shAlgId,
+    parse_hex_u32,
     pcr::pcr_get_bank_list,
 };
 use clap::Args;
@@ -19,8 +20,7 @@ use tpm2_protocol::{
 };
 
 fn parse_pcr_index(handle_str: &str) -> Result<TpmHandle, String> {
-    let handle_str = handle_str.strip_prefix("0x").unwrap_or(handle_str);
-    u32::from_str_radix(handle_str, 16)
+    parse_hex_u32(handle_str)
         .map(TpmHandle)
         .map_err(|_| "malformed value".to_string())
 }
