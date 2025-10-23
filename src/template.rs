@@ -3,13 +3,13 @@
 
 use crate::key::{Alg, AlgInfo};
 use tpm2_protocol::{
+    basic::TpmBuffer,
     data::{
         Tpm2bDigest, TpmAlgId, TpmaObject, TpmsEccParms, TpmsKeyedhashParms, TpmsRsaParms,
         TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtPublic, TpmtRsaScheme,
         TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms, TpmuSymKeyBits,
         TpmuSymMode,
     },
-    TpmBuffer,
 };
 
 /// Builds a `TpmtPublic` template for creating new objects.

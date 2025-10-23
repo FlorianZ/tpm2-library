@@ -5,6 +5,7 @@
 use std::{io::Write, vec::Vec};
 use tpm2_protocol::{
     self,
+    basic::{TpmBuffer, TpmList},
     data::{
         self, Tpm2bNvPublic, Tpm2bPublic, Tpm2bSensitiveCreate, TpmAlgId, TpmCap, TpmCc,
         TpmEccCurve, TpmPt, TpmRh, TpmSe, TpmSt, TpmaAlgorithm, TpmaCc, TpmaLocality, TpmaNv,
@@ -33,7 +34,7 @@ use tpm2_protocol::{
         TpmStartAuthSessionCommand, TpmStartAuthSessionResponse, TpmTestParmsCommand,
         TpmUnsealCommand, TpmUnsealResponse,
     },
-    TpmBuffer, TpmHandle, TpmList,
+    TpmHandle,
 };
 
 pub const INDENT: usize = 2;

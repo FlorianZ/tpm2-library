@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
@@ -26,13 +26,14 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_protocol::{
+    basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bAuth, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSe, TpmaSession,
         TpmsAuthCommand, TpmsAuthResponse, TpmsContext,
     },
     message::{TpmAuthResponses, TpmStartAuthSessionResponse},
-    TpmBuffer, TpmBuild, TpmError, TpmHandle, TpmParse, TpmWriter,
+    TpmBuild, TpmError, TpmHandle, TpmParse, TpmWriter,
 };
 
 #[derive(Debug, Error)]
