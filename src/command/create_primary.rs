@@ -69,8 +69,12 @@ impl SubCommand for CreatePrimary {
 
             let object_handle = resp.object_handle;
             job.key_cache.track(object_handle)?;
-            job.key_cache
-                .save_context(device, object_handle, &resp.out_public)?;
+            job.key_cache.save_context(
+                device,
+                object_handle,
+                &resp.out_public,
+                &Tpm2bPublic::default(),
+            )?;
             Ok(())
         })
     }

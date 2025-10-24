@@ -88,6 +88,8 @@ pub struct TpmKey {
     pub description: Option<Utf8String>,
     #[rasn(tag(explicit(context, 5)))]
     pub rsa_parent: Option<bool>,
+    #[rasn(tag(explicit(context, 6)))]
+    pub parent_pub_key: Option<OctetString>,
     pub parent: u32,
     pub pub_key: OctetString,
     pub priv_key: OctetString,
@@ -141,6 +143,11 @@ impl TpmKey {
             .Create()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Create))?;
 
+        let (parent_public, _) = device.read_public(parent_handle)?;
+        let parent_public_2b = Tpm2bPublic {
+            inner: parent_public,
+        };
+
         Self::from_creation_data(
             user_auth.is_empty(),
             parent_handle,
@@ -148,10 +155,12 @@ impl TpmKey {
             &create_resp.out_private,
             &auth_policy,
             template.key_type_oid.clone(),
+            &parent_public_2b,
         )
     }
 
     /// Creates a new `TpmKey` from the raw TPM creation response data.
+    #[allow(clippy::too_many_arguments)]
     fn from_creation_data(
         empty_auth: bool,
         parent_handle: TpmHandle,
@@ -159,6 +168,7 @@ impl TpmKey {
         out_private: &Tpm2bPrivate,
         policy_digest: &Tpm2bDigest,
         key_type: ObjectIdentifier,
+        parent_public: &Tpm2bPublic,
     ) -> Result<Self, KeyError> {
         let policy = if policy_digest.is_empty() {
             None
@@ -176,6 +186,9 @@ impl TpmKey {
             auth_policy: None,
             description: None,
             rsa_parent: None,
+            parent_pub_key: Some(OctetString::copy_from_slice(
+                &write_object(parent_public).map_err(DeviceError::TpmProtocol)?,
+            )),
             parent: parent_handle.0,
             pub_key: OctetString::copy_from_slice(
                 &write_object(out_public).map_err(DeviceError::TpmProtocol)?,
@@ -259,6 +272,9 @@ impl TpmKey {
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Import))?;
         let out_private = import_resp.out_private;
 
+        let parent_public_2b = Tpm2bPublic {
+            inner: parent_public,
+        };
         let tpm_key = Self::from_creation_data(
             true,
             parent_handle,
@@ -266,6 +282,7 @@ impl TpmKey {
             &out_private,
             &Tpm2bDigest::default(),
             OID_IMPORTABLE_KEY,
+            &parent_public_2b,
         )?;
 
         Ok(tpm_key)

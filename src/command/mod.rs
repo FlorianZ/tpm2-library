@@ -155,6 +155,8 @@ pub enum CommandError {
     SensitiveDataDenied,
     #[error("sensitive data missing")]
     SensitiveDataMissing,
+    #[error("unknown parent")]
+    UnknownParent,
     #[error("unsupported key algorithm: '{0}'")]
     UnsupportedKeyAlgorithm(crate::key::Alg),
     #[error("auth: {0}")]

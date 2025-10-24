@@ -26,29 +26,36 @@ use tpm2_protocol::{
 
 #[derive(Debug, Clone)]
 pub struct CacheKey {
-    pub public: Tpm2bPublic,
     pub context: TpmsContext,
+    pub public: Tpm2bPublic,
+    pub parent: Tpm2bPublic,
 }
 
 impl TpmSized for CacheKey {
     const SIZE: usize = 0;
     fn len(&self) -> usize {
-        2 + self.public.len() + self.context.len()
+        self.context.len() + self.public.len() + self.parent.len()
     }
 }
 
 impl TpmBuild for CacheKey {
     fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
+        self.context.build(writer)?;
         self.public.build(writer)?;
-        self.context.build(writer)
+        self.parent.build(writer)
     }
 }
 
 impl TpmParse for CacheKey {
     fn parse(buffer: &[u8]) -> Result<(Self, &[u8]), TpmError> {
-        let (public, remainder) = Tpm2bPublic::parse(buffer)?;
-        let (context, remainder) = TpmsContext::parse(remainder)?;
-        let new_self = Self { public, context };
+        let (context, remainder) = TpmsContext::parse(buffer)?;
+        let (public, remainder) = Tpm2bPublic::parse(remainder)?;
+        let (parent, remainder) = Tpm2bPublic::parse(remainder)?;
+        let new_self = Self {
+            context,
+            public,
+            parent,
+        };
         Ok((new_self, remainder))
     }
 }
@@ -235,16 +242,18 @@ impl<'a> KeyCache<'a> {
         device: &mut Device,
         handle: TpmHandle,
         public: &Tpm2bPublic,
+        parent_public: &Tpm2bPublic,
     ) -> Result<(), KeyCacheError> {
         let public = public.clone();
         let context = device.save_context(handle.0)?;
         for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
             if let std::collections::hash_map::Entry::Vacant(e) = self.contexts.entry(vhandle) {
                 let key = CacheKey {
-                    public: public.clone(),
                     context: context.clone(),
+                    public: public.clone(),
+                    parent: parent_public.clone(),
                 };
-                e.insert(key.clone());
+                e.insert(key);
                 self.dirty_contexts.insert(vhandle);
                 writeln!(self.writer, "vtpm:{vhandle:08x}")?;
                 break;

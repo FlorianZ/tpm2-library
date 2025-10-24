@@ -42,9 +42,11 @@ fn delete_tpm_handles(
     pattern: &str,
     hierarchy_args: &HierarchyAuthArgs,
 ) -> Result<(), CommandError> {
+    let session_res = delete_tpm_session_handles(job, pattern);
     let transient_res = delete_tpm_transient_handles(job, pattern);
     let persistent_res = delete_tpm_persistent_handles(job, pattern, hierarchy_args);
-    transient_res.and(persistent_res)
+
+    session_res.and(transient_res).and(persistent_res)
 }
 
 fn for_each_tpm_handle<F>(
@@ -64,6 +66,19 @@ where
         }
         Ok(())
     })
+}
+
+fn delete_tpm_session_handles(job: &mut Job, pattern: &str) -> Result<(), CommandError> {
+    let action = |dev: &mut Device, job: &mut Job, handle: Handle| {
+        dev.flush_context(TpmHandle(handle.value()))?;
+        writeln!(job.key_cache.writer, "{handle}")?;
+        Ok(())
+    };
+
+    let hmac_res = for_each_tpm_handle(job, pattern, TpmHt::HmacSession, action);
+    let policy_res = for_each_tpm_handle(job, pattern, TpmHt::PolicySession, action);
+
+    hmac_res.and(policy_res)
 }
 
 fn delete_tpm_transient_handles(job: &mut Job, pattern: &str) -> Result<(), CommandError> {
