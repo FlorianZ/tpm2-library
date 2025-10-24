@@ -48,6 +48,7 @@ pub enum AuthClass {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Auth(pub (AuthClass, [u8; MAX_AUTH_SIZE]));
 
+/// Helper function to build a handle array from a u32 value.
 fn build_handle_array(handle_val: u32) -> Result<[u8; MAX_AUTH_SIZE], TpmError> {
     let handle = TpmHandle(handle_val);
     let mut array = [0u8; MAX_AUTH_SIZE];
@@ -56,36 +57,29 @@ fn build_handle_array(handle_val: u32) -> Result<[u8; MAX_AUTH_SIZE], TpmError> 
     Ok(array)
 }
 
+/// Helper function to parse hex string, validate size, and copy to fixed array.
+fn parse_hex_to_auth_array(s: &str) -> Result<[u8; MAX_AUTH_SIZE], AuthError> {
+    let bytes = hex::decode(s)?;
+    if bytes.len() > MAX_AUTH_SIZE {
+        return Err(AuthError::ValueTooLarge);
+    }
+    let mut array = [0u8; MAX_AUTH_SIZE];
+    array[..bytes.len()].copy_from_slice(&bytes);
+    Ok(array)
+}
+
+/// Parses an authorization string into an `Auth` struct.
 fn parse_auth(input: &str) -> IResult<&str, Auth> {
     alt((
         map(
             preceded(
                 tag("password:"),
-                map_res(hex_digit1, |s: &str| -> Result<_, AuthError> {
-                    let bytes = hex::decode(s)?;
-                    if bytes.len() > MAX_AUTH_SIZE {
-                        return Err(AuthError::ValueTooLarge);
-                    }
-                    let mut array = [0u8; MAX_AUTH_SIZE];
-                    array[..bytes.len()].copy_from_slice(&bytes);
-                    Ok(array)
-                }),
+                map_res(hex_digit1, parse_hex_to_auth_array),
             ),
             |array| Auth((AuthClass::Password, array)),
         ),
         map(
-            preceded(
-                tag("policy:"),
-                map_res(hex_digit1, |s: &str| -> Result<_, AuthError> {
-                    let bytes = hex::decode(s)?;
-                    if bytes.len() > MAX_AUTH_SIZE {
-                        return Err(AuthError::ValueTooLarge);
-                    }
-                    let mut array = [0u8; MAX_AUTH_SIZE];
-                    array[..bytes.len()].copy_from_slice(&bytes);
-                    Ok(array)
-                }),
-            ),
+            preceded(tag("policy:"), map_res(hex_digit1, parse_hex_to_auth_array)),
             |array| Auth((AuthClass::Policy, array)),
         ),
         map(
@@ -109,6 +103,10 @@ impl Auth {
     }
 
     /// Returns value of the auth as a slice.
+    ///
+    /// For `Password` and `Policy` types, this returns a slice up to the last
+    /// non-zero byte, respecting `MAX_AUTH_SIZE`. For `Session`, it returns
+    /// the fixed-size handle bytes.
     #[must_use]
     pub fn value(&self) -> &[u8] {
         match self.0 .0 {
@@ -125,15 +123,17 @@ impl Auth {
     ///
     /// # Errors
     ///
-    /// Returns `AuthError::InvalidAuth` if the class is not `AuthClass::Session`.
-    /// Returns `AuthError::Protocol` if the stored bytes are not a valid handle.
+    /// Returns [`InvalidAuth`](crate::auth::AuthError::InvalidAuth) when the class is not
+    /// `AuthClass::Session`.
+    /// Returns [`MalformedAuth`](crate::auth::AuthError::MalformedAuth) when the stored bytes
+    /// are not a valid handle.
     pub fn session(&self) -> Result<u32, AuthError> {
         if self.class() != AuthClass::Session {
             return Err(AuthError::InvalidAuth);
         }
         let (handle, remainder) = TpmHandle::parse(&self.0 .1[0..TpmHandle::SIZE])?;
         if !remainder.is_empty() {
-            return Err(AuthError::InvalidAuth);
+            return Err(AuthError::MalformedAuth);
         }
         Ok(handle.0)
     }
@@ -150,11 +150,9 @@ impl std::fmt::Display for Auth {
         match self.0 .0 {
             AuthClass::Password => write!(f, "password:{}", hex::encode(self.value())),
             AuthClass::Policy => write!(f, "policy:{}", hex::encode(self.value())),
-            AuthClass::Session => match TpmHandle::parse(&self.0 .1[0..TpmHandle::SIZE]) {
-                Ok((handle, [])) => {
-                    write!(f, "vtpm:{:08x}", handle.0)
-                }
-                _ => Err(std::fmt::Error),
+            AuthClass::Session => match self.session() {
+                Ok(handle_val) => write!(f, "vtpm:{handle_val:08x}"),
+                Err(_) => Err(std::fmt::Error),
             },
         }
     }
