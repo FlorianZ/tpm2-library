@@ -2,7 +2,7 @@
 
 `tpm2sh` is a command-line tool for accessing TPM 2.0 chips.
 
-## Development
+## Overview
 
 * Git: https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2sh.git
 * Contributions: patches can be submitted to `tpm-protocol@lists.linux.dev`.
@@ -12,22 +12,23 @@
 * New commits must include a `Signed-off-by` trailer.
 * Versioning scheme uses [Semantic Versioning](https://semver.org/).
 
-## Architecture
+## Development
 
 ### Documentation
 
 Inline comments (`//`) are not allowed. Take advantage of either `///` or `//!`
 when something needs to be documented to the source code.
 
-### Error types
+Errors are documented with a convention stolen from
+[Project Mu](https://microsoft.github.io/mu/CodeDevelopment/rust_documentation_conventions/#errors)::::
 
-Variant declaration order in error types:
-
-1. Custom variants.
-2. Variants for internal module error types.
-3. Variants for external module error types.
-
-Within each subcategory variants are ordered alphabetically.
+```
+/// # Errors
+///
+/// Returns [ErrorName1](crate::module::ErrorEnum::Error1) when <this> happens
+/// Returns [ErrorName2](crate::module::ErrorEnum::Error2) when <this> happens
+///
+```
 
 ## Licensing
 

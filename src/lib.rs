@@ -19,6 +19,7 @@ pub mod pcr;
 pub mod policy;
 pub mod print;
 pub mod session_cache;
+pub mod spinner;
 pub mod template;
 
 /// A global flag to signal graceful teardown of the application.

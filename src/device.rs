@@ -9,9 +9,9 @@ use crate::{
     handle::{Handle, HandleClass},
     job::Job,
     print::TpmPrint,
+    spinner::Spinner,
     TEARDOWN,
 };
-use clap::builder::styling::Style as AnsiStyle;
 use log::trace;
 use polling::{Event, Events, Poller};
 use rand::{thread_rng, RngCore};
@@ -19,7 +19,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     fs::File,
-    io::{IsTerminal, Read, Write},
+    io::{Read, Write},
     num::TryFromIntError,
     rc::Rc,
     sync::atomic::Ordering,
@@ -88,44 +88,6 @@ impl From<TpmRc> for DeviceError {
     }
 }
 
-struct Spinner {
-    chars: [char; 10],
-    index: usize,
-    message: &'static str,
-}
-
-impl Spinner {
-    pub fn new(message: &'static str) -> Self {
-        let mut stderr = std::io::stderr();
-        let _ = write!(stderr, "\x1B[?25l");
-        let _ = stderr.flush();
-
-        let spinner = Self {
-            chars: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
-            index: 0,
-            message,
-        };
-        spinner.tick();
-        spinner
-    }
-
-    pub fn tick(&self) {
-        let mut stderr = std::io::stderr();
-        let green = AnsiStyle::new().bold();
-        let spinner_char = self.chars[self.index % self.chars.len()];
-        let _ = write!(stderr, "\r{green}{spinner_char}{green:#} {}", self.message);
-        let _ = stderr.flush();
-    }
-
-    pub fn finish(&self) {
-        let mut stderr = std::io::stderr();
-        let len = self.message.len() + 2;
-        let _ = write!(stderr, "\r{:len$}\r", " ");
-        let _ = write!(stderr, "\x1B[?25h");
-        let _ = stderr.flush();
-    }
-}
-
 /// Executes a closure with a mutable reference to a `Device`.
 ///
 /// This helper function centralizes the boilerplate for safely acquiring a
@@ -186,35 +148,6 @@ impl Device {
         })
     }
 
-    fn receive_with_progress(&mut self) -> Result<Vec<u8>, DeviceError> {
-        let mut spinner = Spinner::new("Waiting for TPM...");
-        let mut events = Events::new();
-        unsafe { self.poller.add(&self.file, Event::readable(0))? };
-
-        let start_time = Instant::now();
-        let result = loop {
-            if TEARDOWN.load(Ordering::Relaxed) {
-                break Err(DeviceError::Interrupted);
-            }
-            if start_time.elapsed() > Duration::from_secs(60) {
-                break Err(DeviceError::Timeout);
-            }
-
-            spinner.index += 1;
-            spinner.tick();
-
-            self.poller
-                .wait(&mut events, Some(Duration::from_millis(100)))?;
-            if !events.is_empty() {
-                break self.receive_from_stream();
-            }
-        };
-
-        spinner.finish();
-        self.poller.delete(&self.file)?;
-        result
-    }
-
     fn receive_from_stream(&mut self) -> Result<Vec<u8>, DeviceError> {
         let mut header = [0u8; 10];
         self.file.read_exact(&mut header)?;
@@ -231,12 +164,20 @@ impl Device {
         Ok(resp_buf)
     }
 
-    /// Sends a command to the TPM and waits for the response.
+    /// Performs the whole TPM command transmission process.
     ///
     /// # Errors
     ///
-    /// This function will return an error if building the command fails, I/O
-    /// with the device fails, or the TPM itself returns an error.
+    /// Returns [`Interrupted`](crate::device::DeviceError::Interrupted) when
+    /// user interrupts the program.
+    /// Returns [`Io`](crate::device::DeviceError::Io) when an I/O operation
+    /// fails.
+    /// Returns [`Timeout`](crate::device::DeviceError::Timeout) when the
+    /// transmission timeouts.
+    /// Returns [`TpmProtocol`](crate::device::DeviceError::TpmProtocol) when
+    /// either built command or parsed response is malformed.
+    /// Returns [`TpmRc`](crate::device::DeviceError::TpmRc) when the chip
+    /// responses with a return code.
     pub fn execute<C: TpmCommandObject>(
         &mut self,
         command: &C,
@@ -244,13 +185,39 @@ impl Device {
     ) -> Result<(TpmResponseBody, TpmAuthResponses), DeviceError> {
         let command_vec = self.build_command_buffer(command, sessions)?;
         let cc = command.cc();
+
+        let mut spinner = Spinner::new("Waiting for TPM...");
+
         self.file.write_all(&command_vec)?;
         self.file.flush()?;
-        let resp_buf = if std::io::stderr().is_terminal() {
-            self.receive_with_progress()?
-        } else {
-            self.receive_from_stream()?
-        };
+
+        let mut events = Events::new();
+        unsafe { self.poller.add(&self.file, Event::readable(0))? };
+
+        let start_time = Instant::now();
+        let resp_buf = loop {
+            if TEARDOWN.load(Ordering::Relaxed) {
+                spinner.finish();
+                let _ = self.poller.delete(&self.file);
+                break Err(DeviceError::Interrupted);
+            }
+            if start_time.elapsed() > Duration::from_secs(60) {
+                spinner.finish();
+                let _ = self.poller.delete(&self.file);
+                break Err(DeviceError::Timeout);
+            }
+
+            spinner.tick();
+
+            self.poller
+                .wait(&mut events, Some(Duration::from_millis(100)))?;
+
+            if !events.is_empty() {
+                let _ = self.poller.delete(&self.file);
+                break self.receive_from_stream();
+            }
+        }?;
+
         let result = tpm_parse_response(cc, &resp_buf);
         if self.log_format == LogFormat::Pretty {
             let mut buf = Vec::new();
