@@ -28,7 +28,10 @@ pub struct Delete {
 impl SubCommand for Delete {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         if let Some(pattern) = self.input.strip_prefix("tpm:") {
-            delete_tpm_handles(job, pattern, &self.hierarchy_args)
+            let session_res = delete_tpm_session_handles(job, pattern);
+            let transient_res = delete_tpm_transient_handles(job, pattern);
+            let persistent_res = delete_tpm_persistent_handles(job, pattern, &self.hierarchy_args);
+            session_res.and(transient_res).and(persistent_res)
         } else if let Some(pattern) = self.input.strip_prefix("vtpm:") {
             delete_vtpm_handles(job, pattern)
         } else {
@@ -37,18 +40,8 @@ impl SubCommand for Delete {
     }
 }
 
-fn delete_tpm_handles(
-    job: &mut Job,
-    pattern: &str,
-    hierarchy_args: &HierarchyAuthArgs,
-) -> Result<(), CommandError> {
-    let session_res = delete_tpm_session_handles(job, pattern);
-    let transient_res = delete_tpm_transient_handles(job, pattern);
-    let persistent_res = delete_tpm_persistent_handles(job, pattern, hierarchy_args);
-
-    session_res.and(transient_res).and(persistent_res)
-}
-
+/// Helper to iterate through TPM handles of a specific type matching a pattern
+/// and apply an action.
 fn for_each_tpm_handle<F>(
     job: &mut Job,
     pattern_str: &str,
@@ -68,6 +61,7 @@ where
     })
 }
 
+/// Deletes TPM session handles (HMAC and Policy) matching the pattern.
 fn delete_tpm_session_handles(job: &mut Job, pattern: &str) -> Result<(), CommandError> {
     let action = |dev: &mut Device, job: &mut Job, handle: Handle| {
         dev.flush_context(TpmHandle(handle.value()))?;
@@ -81,6 +75,7 @@ fn delete_tpm_session_handles(job: &mut Job, pattern: &str) -> Result<(), Comman
     hmac_res.and(policy_res)
 }
 
+/// Deletes TPM transient object handles matching the pattern.
 fn delete_tpm_transient_handles(job: &mut Job, pattern: &str) -> Result<(), CommandError> {
     for_each_tpm_handle(job, pattern, TpmHt::Transient, |dev, job, handle| {
         dev.flush_context(TpmHandle(handle.value()))?;
@@ -90,6 +85,7 @@ fn delete_tpm_transient_handles(job: &mut Job, pattern: &str) -> Result<(), Comm
     })
 }
 
+/// Deletes TPM persistent object handles matching the pattern using EvictControl.
 fn delete_tpm_persistent_handles(
     job: &mut Job,
     pattern: &str,
@@ -116,6 +112,7 @@ fn delete_tpm_persistent_handles(
     })
 }
 
+/// Helper function to delete a specific vTPM session.
 fn delete_vtpm_session(job: &mut Job, dev: &mut Device, vhandle: u32) -> Result<(), CommandError> {
     let session_opt = job.session_cache.remove(vhandle)?;
     if let Some(session) = session_opt {
@@ -137,6 +134,7 @@ fn delete_vtpm_session(job: &mut Job, dev: &mut Device, vhandle: u32) -> Result<
     Ok(())
 }
 
+/// Deletes vTPM objects (keys and sessions) matching the pattern.
 fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandError> {
     let pattern = HandlePattern::new(pattern_str)?;
 
