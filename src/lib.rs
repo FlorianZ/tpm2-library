@@ -14,13 +14,12 @@ pub mod handle;
 pub mod io;
 pub mod job;
 pub mod key;
-pub mod key_cache;
 pub mod pcr;
 pub mod policy;
 pub mod print;
-pub mod session_cache;
 pub mod spinner;
 pub mod template;
+pub mod vtpm;
 
 /// A global flag to signal graceful teardown of the application.
 ///

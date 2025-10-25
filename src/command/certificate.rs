@@ -31,7 +31,7 @@ impl SubCommand for Certificate {
             let auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
             if let Some(cert_bytes) = job.read_certificate(device, &auths, handle, max_read_size)? {
                 let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
-                writeln!(job.key_cache.writer, "{pem_cert}")?;
+                writeln!(job.writer, "{pem_cert}")?;
             } else {
                 log::warn!("{handle:08x}: no certificate");
             }

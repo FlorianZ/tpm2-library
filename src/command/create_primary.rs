@@ -68,13 +68,14 @@ impl SubCommand for CreatePrimary {
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
 
             let object_handle = resp.object_handle;
-            job.key_cache.track(object_handle)?;
-            job.key_cache.save_context(
+            job.cache.track(object_handle)?;
+            let vhandle = job.cache.save_context(
                 device,
                 object_handle,
                 &resp.out_public,
                 &Tpm2bPublic::default(),
             )?;
+            writeln!(job.writer, "vtpm:{vhandle:08x}")?;
             Ok(())
         })
     }

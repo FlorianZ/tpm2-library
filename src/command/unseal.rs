@@ -30,7 +30,7 @@ pub struct Unseal {
 impl SubCommand for Unseal {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
-            let item_handle = job.key_cache.load_context(device, &self.input)?;
+            let item_handle = job.load_context(device, &self.input, &[])?;
             let auths = self
                 .auth_args
                 .auth
@@ -50,9 +50,9 @@ impl SubCommand for Unseal {
                 .out_data;
 
             if self.hex || std::io::stdout().is_terminal() {
-                writeln!(job.key_cache.writer, "{}", hex::encode(out_data.as_ref()))?;
+                writeln!(job.writer, "{}", hex::encode(out_data.as_ref()))?;
             } else {
-                job.key_cache.writer.write_all(out_data.as_ref())?;
+                job.writer.write_all(out_data.as_ref())?;
             }
             Ok(())
         })

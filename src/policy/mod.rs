@@ -15,9 +15,8 @@ use crate::{
     crypto::CryptoError,
     device::{Device, DeviceError},
     handle::{Handle, HandleClass},
-    key_cache::KeyCacheError,
     pcr::{self, PcrError, PcrSelection},
-    session_cache::SessionError,
+    vtpm::VtpmError,
 };
 use nom::{
     branch::alt,
@@ -58,12 +57,10 @@ pub enum PolicyError {
     Device(#[from] DeviceError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[error("context: {0}")]
-    KeyCacheError(#[from] KeyCacheError),
+    #[error("cache: {0}")]
+    Cache(#[from] VtpmError),
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
-    #[error("session: {0}")]
-    Session(#[from] SessionError),
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
     #[error("handle decode: {0}")]

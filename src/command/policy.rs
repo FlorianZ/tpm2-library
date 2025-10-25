@@ -11,7 +11,7 @@ use crate::{
     policy::{
         execute_policy, parse, Expression, PolicyError, SoftwarePolicySession, TpmPolicySession,
     },
-    session_cache::Session,
+    vtpm::VtpmSession,
 };
 use clap::Args;
 use std::collections::HashSet;
@@ -139,12 +139,12 @@ impl SubCommand for Policy {
 
             match self.mode {
                 PolicyMode::Resolve => {
-                    writeln!(job.key_cache.writer, "{ast}")?;
+                    writeln!(job.writer, "{ast}")?;
                 }
                 PolicyMode::Software => {
                     let mut session = SoftwarePolicySession::new(session_hash_alg, device)?;
                     let final_digest = execute_policy(&ast, &mut session)?;
-                    writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
+                    writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Tpm => {
                     let session_handle =
@@ -155,7 +155,7 @@ impl SubCommand for Policy {
                         execute_policy(&ast, &mut session)?
                     };
                     device.flush_context(session_handle)?;
-                    writeln!(job.key_cache.writer, "{}", hex::encode(&*final_digest))?;
+                    writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Session => {
                     let (resp, nonce_caller) = device.start_session(
@@ -163,20 +163,15 @@ impl SubCommand for Policy {
                         session_hash_alg,
                         (TpmRh::Null as u32).into(),
                     )?;
-                    let live_handle = resp.session_handle;
-
                     let mut tpm_policy_session =
-                        TpmPolicySession::new(device, live_handle, session_hash_alg);
+                        TpmPolicySession::new(device, resp.session_handle, session_hash_alg);
                     execute_policy(&ast, &mut tpm_policy_session)?;
-
                     let mut session_data =
-                        Session::new(session_hash_alg, nonce_caller, &resp, &[])?;
-                    session_data.context = device.save_context(live_handle.0)?;
-
-                    let vhandle = job.session_cache.add(session_data);
-                    job.session_cache.save()?;
-
-                    writeln!(job.key_cache.writer, "vtpm:{vhandle:08x}")?;
+                        VtpmSession::new(session_hash_alg, nonce_caller, &resp, &[])?;
+                    session_data.context = device.save_context(resp.session_handle.0)?;
+                    let vhandle = job.cache.add_session(session_data);
+                    job.cache.save()?;
+                    writeln!(job.writer, "vtpm:{vhandle:08x}")?;
                 }
             }
             Ok(())

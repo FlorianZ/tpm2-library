@@ -6,7 +6,7 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, InputArgs, OutputArgs, OutputEncodingArgs, ParenBindArgs},
     device::with_device,
-    io::{read_file_input, write_file_output},
+    io::{read_file_input, write_key_data},
     job::Job,
 };
 use clap::Args;
@@ -30,14 +30,13 @@ pub struct Convert {
 impl SubCommand for Convert {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
-            let parent_handle = job
-                .key_cache
-                .load_parent(device, &self.parent_args.parent)?;
-            let auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
+            let auths = &self.parent_args.auth;
+            let parent_handle = job.load_context(device, &self.parent_args.parent, auths)?;
+
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
-            let tpm_key = job.import_key(device, parent_handle, &input_bytes, &auths)?;
-            write_file_output(
-                &mut job.key_cache,
+            let tpm_key = job.import_key(device, parent_handle, &input_bytes, auths)?;
+            write_key_data(
+                &mut job.writer,
                 &tpm_key,
                 self.output_args.output.as_deref(),
                 self.output_encoding_args.output_encoding,

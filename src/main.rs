@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
 use clap::error::ErrorKind;
@@ -9,11 +8,10 @@ use cli::{
     command::CommandError,
     device::{Device, DeviceError},
     job::Job,
-    key_cache::KeyCache,
-    session_cache::SessionCache,
+    vtpm::VtpmCache,
 };
 use std::{
-    cell::RefCell, fs, io::Write, os::unix::io::AsRawFd, path::PathBuf, process, rc::Rc,
+    cell::RefCell, fs, io::Write, os::unix::io::AsRawFd, path::Path, process, rc::Rc,
     sync::atomic::Ordering,
 };
 
@@ -83,15 +81,11 @@ fn main() {
     }
 }
 
-fn execute_cli(cli: &TopLevel, cache_dir: &PathBuf) -> Result<(), CommandError> {
+fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
     let shared_device = init_device(cli)?;
     let mut stdout = std::io::stdout();
-
-    let mut session_cache = SessionCache::new(cache_dir);
-    session_cache.load_sessions()?;
-
-    let key_cache = KeyCache::new(cache_dir, &mut stdout)?;
-    let mut job = Job::new(shared_device, key_cache, session_cache);
+    let mut cache = VtpmCache::new(cache_dir)?;
+    let mut job = Job::new(shared_device, &mut cache, &mut stdout);
 
     cli.command.run(&mut job)
 }

@@ -43,11 +43,11 @@ use crate::{
     crypto::CryptoError,
     device::DeviceError,
     handle::{HandleError, HandlePatternError},
+    job::JobError,
     key::{AlgInfo, KeyError},
-    key_cache::KeyCacheError,
     pcr::PcrError,
     policy::PolicyError,
-    session_cache::SessionError,
+    vtpm::VtpmError,
 };
 use clap::builder::styling::Style as AnsiStyle;
 use std::{
@@ -143,10 +143,14 @@ pub enum CommandError {
     AuthenticationDenied,
     #[error("dictionary attack lockout is active")]
     DictionaryAttackLocked,
+    #[error("invalid key format")]
+    InvalidFormat,
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("invalid output: {0}")]
     InvalidOutput(String),
+    #[error("invalid parent: {0}{1:08x}")]
+    InvalidParent(&'static str, u32),
     #[error("parent missing")]
     ParentMissing,
     #[error("response mismatch: {0}")]
@@ -161,24 +165,22 @@ pub enum CommandError {
     UnsupportedKeyAlgorithm(crate::key::Alg),
     #[error("auth: {0}")]
     Auth(#[from] AuthError),
+    #[error("cache: {0}")]
+    Cache(VtpmError),
+    #[error("job: {0}")]
+    Job(JobError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
-    #[error("device: {0}")]
-    Device(#[from] DeviceError),
     #[error("handle: {0}")]
     Handle(#[from] HandleError),
     #[error("handle pattern: {0}")]
     HandlePattern(#[from] HandlePatternError),
-    #[error("context: {0}")]
-    KeyCacheError(KeyCacheError),
     #[error("key error: {0}")]
     Key(#[from] KeyError),
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
     #[error("policy: {0}")]
     Policy(#[from] PolicyError),
-    #[error("session: {0}")]
-    Session(#[from] SessionError),
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
     #[error("int decode: {0}")]
@@ -189,9 +191,24 @@ pub enum CommandError {
     TpmProtocol(TpmError),
 }
 
-impl From<KeyCacheError> for CommandError {
-    fn from(err: KeyCacheError) -> Self {
-        if let KeyCacheError::Device(DeviceError::TpmRc(rc)) = &err {
+impl From<JobError> for CommandError {
+    fn from(err: JobError) -> Self {
+        if let JobError::InvalidParent(prefix, handle) = err {
+            return Self::InvalidParent(prefix, handle);
+        }
+        Self::Job(err)
+    }
+}
+
+impl From<VtpmError> for CommandError {
+    fn from(err: VtpmError) -> Self {
+        Self::Cache(err)
+    }
+}
+
+impl From<DeviceError> for CommandError {
+    fn from(err: DeviceError) -> Self {
+        if let DeviceError::TpmRc(rc) = &err {
             let base = rc.base();
             if base == TpmRcBase::AuthFail || base == TpmRcBase::AuthMissing {
                 return Self::AuthenticationDenied;
@@ -200,7 +217,7 @@ impl From<KeyCacheError> for CommandError {
                 return Self::DictionaryAttackLocked;
             }
         }
-        Self::KeyCacheError(err)
+        Self::Job(err.into())
     }
 }
 

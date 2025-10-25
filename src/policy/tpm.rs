@@ -6,7 +6,7 @@
 use super::{PolicyError, PolicySession};
 use crate::{
     device::{Device, DeviceError},
-    session_cache::build_password_session,
+    vtpm::build_password_session,
 };
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection},

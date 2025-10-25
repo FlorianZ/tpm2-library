@@ -80,7 +80,7 @@ impl SubCommand for PcrEvent {
                 })
                 .collect();
 
-            writeln!(job.key_cache.writer, "{}", clauses.join("+"))?;
+            writeln!(job.writer, "{}", clauses.join("+"))?;
 
             Ok(())
         })

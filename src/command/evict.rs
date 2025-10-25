@@ -40,23 +40,19 @@ impl SubCommand for Evict {
                 (TpmRh::Platform as u32).into()
             };
 
+            let transient_handle = job.load_context(dev, &self.input, &[])?;
+
+            let auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
+
+            job.evict_control(auth_handle, transient_handle, persistent_handle, &auths)?;
+
             let vhandle = match self.input.class() {
                 HandleClass::Vtpm => Ok(self.input.value()),
                 HandleClass::Tpm => Err(CommandError::Handle(HandleError::InvalidHandle)),
             }?;
-            let transient_handle = job.key_cache.load_context(dev, &self.input)?;
+            job.cache.remove(dev, vhandle)?;
 
-            let auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
-            dev.evict_control(
-                job,
-                auth_handle,
-                transient_handle,
-                persistent_handle,
-                &auths,
-            )
-            .map_err(CommandError::Device)?;
-
-            job.key_cache.remove_context(vhandle)?;
+            job.cache.untrack(transient_handle.0);
 
             Ok(())
         })

@@ -5,10 +5,10 @@
 use crate::{
     command::{CommandError, OutputEncoding},
     key::TpmKey,
-    key_cache::KeyCache,
 };
 use std::{
-    io::{self, Read},
+    fs,
+    io::{self, Read, Write},
     path::Path,
 };
 
@@ -30,24 +30,43 @@ pub fn read_file_input(input: Option<&Path>) -> io::Result<Vec<u8>> {
     Ok(input_bytes)
 }
 
-/// Handles the output logic for a command that produces a `TpmKey`.
+/// Handles the output of a `TpmKey`, choosing PEM or DER format based on the
+/// URI.
 ///
-/// This function will either save it to a file or print it to stdout as PEM,
-/// based on the provided output string.
+/// It will either save it to a file or print it to stdout as PEM, based on the
+/// provided output string.
 ///
 /// # Errors
 ///
 /// Returns `CommandError` on failure.
-pub fn write_file_output(
-    key_cache: &mut KeyCache,
+pub fn write_key_data(
+    writer: &mut dyn Write,
     tpm_key: &TpmKey,
     output: Option<&Path>,
     encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
-    if let Some(path) = output {
-        key_cache.write_key_data(Some(path), tpm_key, encoding)?;
+    let output_bytes = match encoding {
+        OutputEncoding::Der => tpm_key.to_der().map_err(CommandError::Key)?,
+        OutputEncoding::Pem => tpm_key.to_pem().map_err(CommandError::Key)?.into_bytes(),
+    };
+
+    write_data(writer, output, &output_bytes)
+}
+
+fn write_data(
+    writer: &mut dyn Write,
+    output_path: Option<&Path>,
+    data: &[u8],
+) -> Result<(), CommandError> {
+    if let Some(path) = output_path {
+        if path.to_str() == Some("-") {
+            writer.write_all(data)?;
+        } else {
+            fs::write(path, data)?;
+            writeln!(writer, "file:{}", path.to_string_lossy())?;
+        }
     } else {
-        key_cache.write_key_data(None, tpm_key, encoding)?;
+        writer.write_all(data)?;
     }
     Ok(())
 }

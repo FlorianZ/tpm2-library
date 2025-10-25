@@ -10,7 +10,7 @@ mod tpm_key;
 pub use external_key::*;
 pub use tpm_key::*;
 
-use crate::{crypto::CryptoError, device::DeviceError, session_cache::SessionError};
+use crate::{crypto::CryptoError, device::DeviceError};
 use rasn::{
     types::{Integer, ObjectIdentifier},
     AsnType, Decode, Decoder, Encode,
@@ -46,8 +46,6 @@ pub enum KeyError {
     InvalidParent(u32),
     #[error("pem: {0}")]
     Pem(#[from] pem::PemError),
-    #[error("session: {0}")]
-    Session(#[from] SessionError),
     #[error("unsupported file format")]
     UnsupportedFileFormat,
     #[error("unsupported key algorithm: {0}")]

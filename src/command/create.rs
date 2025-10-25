@@ -8,9 +8,9 @@ use crate::{
     cli::SubCommand,
     command::{CommandError, CreationArgs, OutputArgs, OutputEncodingArgs, ParenBindArgs},
     device::{with_device, Device},
-    io::write_file_output,
+    io::write_key_data,
     job::Job,
-    key::{Alg, AlgInfo, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY, OID_SEALED_DATA},
+    key::{Alg, AlgInfo, KeyError, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY, OID_SEALED_DATA},
 };
 use clap::Args;
 use tpm2_protocol::data::Tpm2bSensitiveData;
@@ -48,10 +48,9 @@ impl SubCommand for Create {
 
 impl Create {
     fn create_object(&self, job: &mut Job, device: &mut Device) -> Result<(), CommandError> {
-        let parent_handle = job
-            .key_cache
-            .load_parent(device, &self.parent_args.parent)?;
-        let auths = vec![self.parent_args.auth.clone().unwrap_or_default()];
+        let auths = &self.parent_args.auth;
+        let parent_handle = job.load_context(device, &self.parent_args.parent, auths)?;
+
         let (object_attributes, user_auth, auth_policy) =
             self.creation_args.parse(&self.algorithm)?;
 
@@ -82,15 +81,25 @@ impl Create {
         let tpm_key = TpmKey::new(
             job,
             device,
-            &auths,
+            auths,
             user_auth,
             auth_policy,
             object_attributes,
             parent_handle,
             &template,
-        )?;
-        write_file_output(
-            &mut job.key_cache,
+        )
+        .map_err(|e| {
+            if let KeyError::InvalidParent(phandle) = e {
+                if let Ok(key) = job.cache.find_by_phandle(device, phandle) {
+                    return CommandError::InvalidParent("vtpm:", key.context.saved_handle.0);
+                }
+                return CommandError::InvalidParent("tpm:", phandle);
+            }
+            CommandError::Key(e)
+        })?;
+
+        write_key_data(
+            &mut job.writer,
             &tpm_key,
             self.output_args.output.as_deref(),
             self.output_encoding_args.output_encoding,

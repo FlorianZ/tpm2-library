@@ -3,11 +3,9 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::Auth,
     cli::LogFormat,
     crypto::crypto_hash_size,
     handle::{Handle, HandleClass},
-    job::Job,
     print::TpmPrint,
     spinner::Spinner,
     TEARDOWN,
@@ -29,7 +27,7 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
-        Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCap, TpmCc, TpmPt, TpmRc,
+        Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCap, TpmCc, TpmHt, TpmPt, TpmRc,
         TpmRcBase, TpmRh, TpmSe, TpmSt, TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData,
         TpmsContext, TpmsRsaParms, TpmtPublic, TpmtPublicParms, TpmtSymDefObject, TpmuCapabilities,
         TpmuPublicParms,
@@ -342,10 +340,10 @@ impl Device {
     /// # Errors
     ///
     /// Returns a `DeviceError` if the `get_capability_page` call to the TPM device fails.
-    pub fn fetch_handles(&mut self, handle_type: u32) -> Result<Vec<Handle>, DeviceError> {
+    pub fn fetch_handles(&mut self, class: u32) -> Result<Vec<Handle>, DeviceError> {
         self.get_capability(
             TpmCap::Handles,
-            handle_type,
+            class,
             u32::try_from(MAX_HANDLES)?,
             |caps| match caps {
                 TpmuCapabilities::Handles(handles) => Ok(handles),
@@ -442,6 +440,26 @@ impl Device {
         Ok((public, name))
     }
 
+    /// Finds a persistent handle by its public area.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `DeviceError` if fetching handles or reading public areas fails.
+    pub fn find_persistent(
+        &mut self,
+        target: &TpmtPublic,
+    ) -> Result<Option<(TpmHandle, Tpm2bName)>, DeviceError> {
+        let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
+        for handle in handles {
+            if let Ok((public, name)) = self.read_public(handle.value().into()) {
+                if public == *target {
+                    return Ok(Some((handle.value().into(), name)));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Saves the context of a transient object or session.
     ///
     /// # Errors
@@ -498,7 +516,7 @@ impl Device {
     /// Returns `DeviceError` on `ContextLoad` or `FlushContext` failure.
     pub fn flush_session(&mut self, context: TpmsContext) -> Result<(), DeviceError> {
         match self.load_context(context) {
-            Ok(live_handle) => self.flush_context(live_handle.into()),
+            Ok(handle) => self.flush_context(handle.into()),
             Err(DeviceError::TpmRc(rc)) => {
                 let base = rc.base();
                 if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
@@ -559,28 +577,17 @@ impl Device {
     /// Returns `DeviceError` on TPM command failure.
     pub fn evict_control(
         &mut self,
-        job: &mut Job,
         auth: TpmHandle,
         object_handle: TpmHandle,
         persistent_handle: TpmHandle,
-        auths: &[Auth],
+        sessions: &[TpmsAuthCommand],
     ) -> Result<(), DeviceError> {
         let cmd = TpmEvictControlCommand {
             auth,
             object_handle: object_handle.0.into(),
             persistent_handle,
         };
-        let handles_for_session = [auth.0];
-
-        let (resp, _) = job
-            .execute(self, &cmd, &handles_for_session, auths)
-            .map_err(|e| match e {
-                crate::key_cache::KeyCacheError::Device(d) => d,
-                other => {
-                    log::error!("Unexpected error during evict_control execution: {other}");
-                    DeviceError::TpmProtocol(TpmError::MalformedData)
-                }
-            })?;
+        let (resp, _) = self.execute(&cmd, sessions)?;
 
         resp.EvictControl()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;

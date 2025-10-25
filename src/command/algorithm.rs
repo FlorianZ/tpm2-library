@@ -158,7 +158,7 @@ impl SubCommand for Algorithm {
                     algorithm_type: algorithm_type.to_string(),
                 })
                 .collect();
-            print_table(&mut job.key_cache.writer, &rows)?;
+            print_table(&mut job.writer, &rows)?;
             Ok(())
         })
     }

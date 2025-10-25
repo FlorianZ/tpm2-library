@@ -40,7 +40,7 @@ enum MemoryHandleType {
 
 struct MemoryRow {
     handle: String,
-    handle_type: String,
+    class: String,
     details: String,
 }
 
@@ -56,7 +56,7 @@ impl Tabled for MemoryRow {
     fn row(&self) -> Vec<String> {
         vec![
             self.handle.clone(),
-            self.handle_type.clone(),
+            self.class.clone(),
             self.details.clone(),
         ]
     }
@@ -134,7 +134,7 @@ impl SubCommand for Memory {
                 )?;
             }
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
-            print_table(&mut job.key_cache.writer, &rows)?;
+            print_table(&mut job.writer, &rows)?;
             Ok(())
         })
     }
@@ -199,19 +199,19 @@ impl Memory {
     fn fetch_rows<F>(
         device: &mut Device,
         rows: &mut Vec<MemoryRow>,
-        handle_type: TpmHt,
+        class: TpmHt,
         display_type: MemoryHandleType,
         mut get_details: F,
     ) -> Result<(), CommandError>
     where
         F: FnMut(&mut Device, Handle) -> Result<String, CommandError>,
     {
-        for handle in device.fetch_handles((handle_type as u32) << 24)? {
+        for handle in device.fetch_handles((class as u32) << 24)? {
             match get_details(device, handle) {
                 Ok(details) => {
                     rows.push(MemoryRow {
                         handle: format!("{:08x}", handle.value()),
-                        handle_type: display_type.to_string(),
+                        class: display_type.to_string(),
                         details,
                     });
                 }

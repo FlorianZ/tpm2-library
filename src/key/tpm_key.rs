@@ -12,9 +12,10 @@ use crate::{
         protect_seed_with_rsa, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
     },
     device::{Device, DeviceError},
-    job::Job,
-    key_cache::KeyCacheError,
-    template, write_object,
+    job::{Job, JobError},
+    template,
+    vtpm::VtpmError,
+    write_object,
 };
 
 use aes::Aes128;
@@ -27,7 +28,7 @@ use rasn::{
     types::{OctetString, Utf8String},
     AsnType, Decode, Decoder, Encode, Encoder,
 };
-use tpm2_protocol::data::{TpmAlgId, TpmtPublic};
+use tpm2_protocol::data::{TpmAlgId, TpmRcBase, TpmtPublic};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -37,7 +38,7 @@ use tpm2_protocol::{
         TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     message::{TpmCreateCommand, TpmImportCommand},
-    TpmBuild, TpmHandle, TpmParse, TpmWriter,
+    TpmBuild, TpmError, TpmHandle, TpmParse, TpmWriter,
 };
 
 pub const OID_LOADABLE_KEY: ObjectIdentifier =
@@ -133,10 +134,21 @@ impl TpmKey {
         let handles = [parent_handle.0];
         let (resp, _) = job
             .execute(device, &create_cmd, &handles, auth_list)
-            .map_err(|e| match e {
-                KeyCacheError::Device(d) => KeyError::Device(d),
-                KeyCacheError::Session(s) => KeyError::Session(s),
-                other => KeyError::ValueConversionFailed(other.to_string()),
+            .map_err(|e| {
+                if let JobError::Device(DeviceError::TpmRc(rc)) = &e {
+                    if rc.base() == TpmRcBase::Type {
+                        return KeyError::InvalidParent(parent_handle.0);
+                    }
+                }
+                match e {
+                    JobError::Device(d) => KeyError::Device(d),
+                    JobError::Vtpm(
+                        VtpmError::Auth(_)
+                        | VtpmError::HandleNotFound(_, _)
+                        | VtpmError::TrailingAuthorizations,
+                    ) => KeyError::Device(DeviceError::TpmProtocol(TpmError::MalformedData)),
+                    _ => KeyError::ValueConversionFailed(e.to_string()),
+                }
             })?;
 
         let create_resp = resp
@@ -262,9 +274,13 @@ impl TpmKey {
         let (resp, _) = job
             .execute(device, &import_cmd, handles, auth_list)
             .map_err(|e| match e {
-                KeyCacheError::Device(d) => KeyError::Device(d),
-                KeyCacheError::Session(s) => KeyError::Session(s),
-                other => KeyError::ValueConversionFailed(other.to_string()),
+                JobError::Device(d) => KeyError::Device(d),
+                JobError::Vtpm(
+                    VtpmError::Auth(_)
+                    | VtpmError::HandleNotFound(_, _)
+                    | VtpmError::TrailingAuthorizations,
+                ) => KeyError::Device(DeviceError::TpmProtocol(TpmError::MalformedData)),
+                _ => KeyError::ValueConversionFailed(e.to_string()),
             })?;
 
         let import_resp = resp

@@ -44,8 +44,8 @@ pub struct ParenBindArgs {
     pub parent: Handle,
 
     /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
-    #[arg(short = 'A', long = "auth")]
-    pub auth: Option<Auth>,
+    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
+    pub auth: Vec<Auth>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -55,8 +55,8 @@ pub struct ParenLoadArgs {
     pub parent: Option<Handle>,
 
     /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
-    #[arg(short = 'A', long = "auth")]
-    pub auth: Option<Auth>,
+    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
+    pub auth: Vec<Auth>,
 }
 
 #[derive(Args, Debug, Clone)]
