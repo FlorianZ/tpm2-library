@@ -11,6 +11,7 @@ use crate::{
     vtpm::VtpmKey,
 };
 use clap::Args;
+use std::collections::VecDeque;
 use tpm2_protocol::{
     data::{TpmHt, TpmRh, TpmtPublic},
     TpmHandle,
@@ -24,16 +25,17 @@ pub struct Delete {
 }
 
 impl Delete {
-    /// Iteratively finds and removes child keys from the cache.
+    /// Iteratively finds and removes child keys from the cache using BFS.
     fn delete_vtpm_children(
         job: &mut Job,
         dev: &mut Device,
         first_public: &TpmtPublic,
         deleted: &mut Vec<u32>,
     ) -> Result<(), CommandError> {
-        let mut ancestor_list = vec![first_public.clone()];
+        let mut ancestor_list = VecDeque::new();
+        ancestor_list.push_back(first_public.clone());
 
-        while let Some(parent_public) = ancestor_list.pop() {
+        while let Some(parent_public) = ancestor_list.pop_front() {
             let children_to_process: Vec<(u32, TpmtPublic)> = job
                 .cache
                 .key_iter()
@@ -41,13 +43,15 @@ impl Delete {
                 .map(|(vhandle, key)| (*vhandle, key.public.inner.clone()))
                 .collect();
 
-            for (vhandle, child_public) in children_to_process {
-                if deleted.contains(&vhandle) || !job.cache.contexts.contains_key(&vhandle) {
+            for (child_vhandle, child_public) in children_to_process {
+                if deleted.contains(&child_vhandle)
+                    || !job.cache.contexts.contains_key(&child_vhandle)
+                {
                     continue;
                 }
-                ancestor_list.push(child_public);
-                job.cache.remove(dev, vhandle)?;
-                deleted.push(vhandle);
+                job.cache.remove(dev, child_vhandle)?;
+                deleted.push(child_vhandle);
+                ancestor_list.push_back(child_public);
             }
         }
         Ok(())
@@ -128,7 +132,13 @@ fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandEr
     }
 
     with_device(job.device.clone(), |dev| {
+        let mut deleted_vhandles = Vec::new();
+
         for vhandle in matched_handles {
+            if deleted_vhandles.contains(&vhandle) || !job.cache.contexts.contains_key(&vhandle) {
+                continue;
+            }
+
             let maybe_public = if let Some(context) = job.cache.contexts.get(&vhandle) {
                 context
                     .as_any()
@@ -140,11 +150,26 @@ fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandEr
 
             job.cache.remove(dev, vhandle)?;
             writeln!(job.writer, "vtpm:{vhandle:08x}")?;
+            deleted_vhandles.push(vhandle);
 
             if let Some(public_key) = maybe_public {
-                let mut children_deleted = Vec::new();
-                Delete::delete_vtpm_children(job, dev, &public_key, &mut children_deleted)?;
-                for child_vhandle in children_deleted {
+                Delete::delete_vtpm_children(job, dev, &public_key, &mut deleted_vhandles)?;
+
+                let deleted_children: Vec<u32> = deleted_vhandles
+                    .iter()
+                    .filter(|&&h| {
+                        let vhandle_pos = deleted_vhandles.iter().position(|&x| x == vhandle);
+                        let h_pos = deleted_vhandles.iter().position(|&x| x == h);
+                        if let (Some(vp), Some(hp)) = (vhandle_pos, h_pos) {
+                            hp > vp
+                        } else {
+                            false
+                        }
+                    })
+                    .copied()
+                    .collect();
+
+                for child_vhandle in deleted_children {
                     writeln!(job.writer, "vtpm:{child_vhandle:08x}")?;
                 }
             }
