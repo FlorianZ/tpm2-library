@@ -30,8 +30,7 @@ pub struct Convert {
 impl SubCommand for Convert {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
-            let parent_handle =
-                job.load_context(device, &self.parent_args.parent, job.auth_list)?;
+            let parent_handle = job.load_context(device, &self.parent_args.parent)?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
             let tpm_key = job.import_key(device, parent_handle, &input_bytes, job.auth_list)?;

@@ -75,7 +75,7 @@ impl Load {
             .map(|(vhandle, _)| *vhandle);
 
         if let Some(vhandle) = vhandle_opt {
-            return Ok(job.load_context(device, &Handle((HandleClass::Vtpm, vhandle)), &[])?);
+            return Ok(job.load_context(device, &Handle((HandleClass::Vtpm, vhandle)))?);
         }
 
         Err(CommandError::UnknownParent)

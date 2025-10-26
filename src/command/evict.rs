@@ -37,7 +37,7 @@ impl SubCommand for Evict {
                 (TpmRh::Platform as u32).into()
             };
 
-            let transient_handle = job.load_context(dev, &self.input, &[])?;
+            let transient_handle = job.load_context(dev, &self.input)?;
 
             let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
 

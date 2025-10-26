@@ -48,7 +48,7 @@ impl SubCommand for Create {
 
 impl Create {
     fn create_object(&self, job: &mut Job, device: &mut Device) -> Result<(), CommandError> {
-        let parent_handle = job.load_context(device, &self.parent_args.parent, job.auth_list)?;
+        let parent_handle = job.load_context(device, &self.parent_args.parent)?;
 
         let (object_attributes, user_auth, auth_policy) =
             self.creation_args.parse(&self.algorithm)?;

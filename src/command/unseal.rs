@@ -23,7 +23,7 @@ pub struct Unseal {
 impl SubCommand for Unseal {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
-            let item_handle = job.load_context(device, &self.input, &[])?;
+            let item_handle = job.load_context(device, &self.input)?;
             let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
 
             let unseal_cmd = TpmUnsealCommand {
