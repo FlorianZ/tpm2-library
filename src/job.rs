@@ -90,15 +90,102 @@ impl<'a> Job<'a> {
         }
     }
 
+    /// Finds the ancestor chain for a given VTPM handle.
+    ///
+    /// Traverses up the parent hierarchy from the target `vhandle`, checking
+    /// both the cache and persistent TPM handles, until it finds the root. The
+    /// root can be a persistent physical handle or a non-persistent primary key
+    /// stored in the VTPM cache.
+    ///
+    /// Returns a list of `(Handle, Auth)` pairs representing the path from the
+    /// root *down* to the target, ready for loading. The first handle in the
+    /// vector indicates the root type (`HandleClass::Tpm` or `HandleClass::Vtpm`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandleNotFound`](crate::job::JobError::HandleNotFound) when the
+    /// `target_vhandle` doesn't exist in the cache.
+    /// Returns [`ParentNotFound`](crate::job::JobError::ParentNotFound) when an
+    /// intermediate parent cannot be found in the cache or as a persistent
+    /// handle.
+    /// Returns [`TrailingAuthorizations`](crate::job::JobError::TrailingAuthorizations)
+    /// when more `Auth` values are provided than needed for the ancestor chain.
+    /// Returns [`Device`](crate::job::JobError::Device) when reading persistent
+    /// handles fails.
+    fn fetch_ancestor_chain(
+        &self,
+        target_vhandle: u32,
+        device: &mut Device,
+        auths: &[Auth],
+    ) -> Result<Vec<(Handle, Auth)>, JobError> {
+        let mut current_vhandle = target_vhandle;
+        let mut vtp_chain: Vec<(Handle, Auth)> = Vec::new();
+        let mut physical_primary: Option<Handle> = None;
+
+        loop {
+            let key = self.cache.find_by_vhandle(current_vhandle)?;
+
+            if key.parent.inner.object_type == TpmAlgId::Null {
+                break;
+            }
+
+            if let Some(parent_key) = self.cache.find_by_public(&key.parent.inner) {
+                let parent_vhandle = parent_key.handle();
+                let auth_index = vtp_chain.len();
+                let auth = auths.get(auth_index).cloned().unwrap_or_default();
+                vtp_chain.push((Handle((HandleClass::Vtpm, current_vhandle)), auth));
+                current_vhandle = parent_vhandle;
+            } else {
+                match device.find_persistent(&key.parent.inner)? {
+                    Some((phandle, _)) => {
+                        physical_primary = Some(Handle((HandleClass::Tpm, phandle.0)));
+                        break;
+                    }
+                    None => {
+                        return Err(JobError::ParentNotFound);
+                    }
+                }
+            }
+        }
+
+        let final_auth_index = vtp_chain.len();
+        let final_auth = auths.get(final_auth_index).cloned().unwrap_or_default();
+        vtp_chain.push((Handle((HandleClass::Vtpm, current_vhandle)), final_auth));
+
+        if auths.len() > vtp_chain.len() {
+            return Err(JobError::TrailingAuthorizations);
+        }
+
+        vtp_chain.reverse();
+
+        if let Some(root_handle) = physical_primary {
+            let mut final_chain = vec![(root_handle, Auth::default())];
+            final_chain.extend(vtp_chain);
+            Ok(final_chain)
+        } else {
+            Ok(vtp_chain)
+        }
+    }
+
     /// Loads a TPM context from a handle, recursively loading its ancestors
     /// first.
     ///
     /// # Errors
     ///
-    /// Returns [`HandleNotFound`](crate::job::JobError::HandleNotFound) when
-    /// the given VTPM handle does not exist.
-    /// Returns [`ParentNotFound`](crate::job::JobError::HandleNotFound) when
-    /// for the given handle neither VTPM nor persistent parent is found.
+    /// Returns [`HandleNotFound`](crate::job::JobError::HandleNotFound) when the
+    /// target handle or any parent handle cannot be found, or if the chain is empty.
+    /// Returns [`ParentNotFound`](crate::job::JobError::ParentNotFound) when a
+    /// necessary parent handle isn't found in cache or persistent storage.
+    /// Returns [`TrailingAuthorizations`](crate::job::JobError::TrailingAuthorizations)
+    /// when more auth values are provided than necessary for the hierarchy.
+    /// Returns [`Device`](crate::job::JobError::Device) or
+    /// [`TpmProtocol`](crate::job::JobError::Device) when TPM commands fail.
+    /// Returns [`ResponseMismatch`](crate::job::JobError::ResponseMismatch) when
+    /// a TPM command returns an unexpected response type.
+    /// Returns [`Vtpm`](crate::job::JobError::Vtpm) when tracking the loaded
+    /// handle fails.
+    /// Returns [`MalformedData`](crate::job::JobError::MalformedData) when an
+    /// internal logic error occurs (e.g., trying to load under a None parent handle).
     pub fn load_context(
         &mut self,
         device: &mut Device,
@@ -109,78 +196,73 @@ impl<'a> Job<'a> {
             return Ok(TpmHandle(target.value()));
         }
 
-        let mut vhandle = target.value();
-        let mut ancestor_list: Vec<(u32, Auth)> = vec![(vhandle, Auth::default())];
-        let primary_handle: Option<TpmHandle>;
+        let target_vhandle = target.value();
+        let chain = self.fetch_ancestor_chain(target_vhandle, device, auths)?;
 
-        loop {
-            let key = self.cache.find_by_vhandle(vhandle)?;
+        if chain.is_empty() {
+            return Err(JobError::HandleNotFound("vtpm:", target_vhandle));
+        }
 
-            if key.parent.inner.object_type == TpmAlgId::Null {
-                primary_handle = None;
-                break;
-            }
+        let mut phandle: Option<TpmHandle> = None;
+        let mut chain_iter = chain.into_iter();
 
-            if let Some(parent_key) = self.cache.find_by_public(&key.parent.inner) {
-                let parent_vhandle = parent_key.handle();
-                let parent_index = ancestor_list.len();
-                let parent_auth = auths.get(parent_index).cloned().unwrap_or_default();
-
-                ancestor_list.push((parent_vhandle, parent_auth));
-                vhandle = parent_vhandle;
-            } else {
-                match device.find_persistent(&key.parent.inner)? {
-                    Some((phandle, _)) => {
-                        primary_handle = Some(phandle);
-                        break;
-                    }
-                    None => {
-                        return Err(JobError::ParentNotFound);
-                    }
+        if let Some((first_handle, _first_auth)) = chain_iter.next() {
+            match first_handle.class() {
+                HandleClass::Tpm => {
+                    phandle = Some(TpmHandle(first_handle.value()));
+                }
+                HandleClass::Vtpm => {
+                    let key = self.cache.find_by_vhandle(first_handle.value())?;
+                    let loaded_phandle = device.load_context(key.context.clone())?;
+                    self.cache.track(loaded_phandle)?;
+                    phandle = Some(loaded_phandle);
                 }
             }
         }
 
-        if auths.len() > ancestor_list.len() {
-            return Err(JobError::TrailingAuthorizations);
-        }
-
-        ancestor_list.reverse();
-
-        let mut phandle: Option<TpmHandle> = primary_handle;
-
-        for (vhandle, auth) in ancestor_list {
+        for (handle, auth) in chain_iter {
+            let vhandle = handle.value();
             let key = self.cache.find_by_vhandle(vhandle)?;
 
-            let loaded_phandle = if let Some(parent_phandle) = phandle {
-                let (in_private, _) = Tpm2bPrivate::parse(&key.context.context_blob)?;
-                let cmd = TpmLoadCommand {
-                    parent_handle: parent_phandle,
-                    in_private,
-                    in_public: key.public.clone(),
-                };
-                let (resp_body, _) = self.execute(device, &cmd, &[parent_phandle.0], &[auth])?;
-                let resp = resp_body
-                    .Load()
-                    .map_err(|_| JobError::ResponseMismatch(TpmCc::Load))?;
-                resp.object_handle
-            } else {
-                device.load_context(key.context.clone())?
-            };
+            let parent_phandle = phandle.ok_or(JobError::MalformedData)?;
 
+            let (in_private, _) = Tpm2bPrivate::parse(&key.context.context_blob)?;
+            let cmd = TpmLoadCommand {
+                parent_handle: parent_phandle,
+                in_private,
+                in_public: key.public.clone(),
+            };
+            let (resp_body, _) = self.execute(device, &cmd, &[parent_phandle.0], &[auth])?;
+            let resp = resp_body
+                .Load()
+                .map_err(|_| JobError::ResponseMismatch(TpmCc::Load))?;
+
+            let loaded_phandle = resp.object_handle;
             self.cache.track(loaded_phandle)?;
             phandle = Some(loaded_phandle);
         }
 
-        phandle.ok_or(JobError::HandleNotFound("vtpm:", target.value()))
+        phandle.ok_or(JobError::HandleNotFound("vtpm:", target_vhandle))
     }
 
     /// Builds the authorization area for a command.
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError`] if a session is not found, or if building
-    /// any part of the authorization command fails.
+    /// Returns [`TrailingAuthorizations`](crate::job::JobError::TrailingAuthorizations)
+    /// when more auth values are provided than handles requiring authorization.
+    /// Returns [`InvalidAuth`](crate::job::JobError::InvalidAuth) when a `Policy`
+    /// auth class is encountered.
+    /// Returns [`HandleNotFound`](crate::job::JobError::HandleNotFound) when a
+    /// session handle in `auth_list` is not found.
+    /// Returns [`MalformedData`](crate::job::JobError::MalformedData) when the
+    /// session's hash algorithm is unsupported.
+    /// Returns [`Device`](crate::job::JobError::Device) when building TPM data
+    /// structures fails or crypto operations fail.
+    /// Returns [`Auth`](crate::job::JobError::Auth) when extracting a session
+    /// handle fails.
+    /// Returns [`Vtpm`](crate::job::JobError::Vtpm) when building a password
+    /// session fails.
     fn build_auth_area<C: TpmCommandObject>(
         &self,
         device: &mut Device,
@@ -262,8 +344,9 @@ impl<'a> Job<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`JobError`] if any stage of the session management or
-    /// command execution fails.
+    /// Returns [`JobError`] if any stage of the session management or
+    /// command execution fails. This includes errors from `prepare_sessions`,
+    /// `build_auth_area`, `device.execute`, or `teardown_sessions`.
     pub fn execute<C: TpmCommandObject>(
         &mut self,
         device: &mut Device,
@@ -316,7 +399,11 @@ impl<'a> Job<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`JobError`] on authorization building or command execution failure.
+    /// Returns [`Device`](crate::job::JobError::Device) when the underlying
+    /// `with_device` fails.
+    /// Returns [`ResponseMismatch`](crate::job::JobError::ResponseMismatch) when
+    /// the TPM command returns an unexpected response type.
+    /// Returns [`JobError`] from the underlying `execute` call on failure.
     pub fn evict_control(
         &mut self,
         auth_handle: TpmHandle,
@@ -344,7 +431,12 @@ impl<'a> Job<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`JobError`] if the TPM import operation fails.
+    /// Returns [`InvalidFormat`](crate::job::JobError::InvalidFormat) when the
+    /// input bytes represent a TPM key, not an external key.
+    /// Returns [`Key`](crate::job::JobError::Key) when converting the external
+    /// key or building the TPM key fails.
+    /// Returns [`JobError`] from the underlying `TpmKey::from_external_key` call
+    /// on failure.
     pub fn import_key(
         &mut self,
         device: &mut Device,
@@ -374,7 +466,11 @@ impl<'a> Job<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`JobError`] if the TPM commands fail or if the response is invalid.
+    /// Returns [`ResponseMismatch`](crate::job::JobError::ResponseMismatch) when
+    /// TPM commands return unexpected response types.
+    /// Returns [`IntDecode`](crate::job::JobError::IntDecode) when converting
+    /// chunk size or offset fails.
+    /// Returns [`JobError`] from the underlying `execute` calls on failure.
     pub fn read_certificate(
         &mut self,
         device: &mut Device,
