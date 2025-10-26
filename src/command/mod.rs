@@ -169,6 +169,8 @@ pub enum CommandError {
     Cache(VtpmError),
     #[error("job: {0}")]
     Job(JobError),
+    #[error("device: {0}")]
+    Device(DeviceError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("handle: {0}")]
@@ -193,10 +195,11 @@ pub enum CommandError {
 
 impl From<JobError> for CommandError {
     fn from(err: JobError) -> Self {
-        if let JobError::InvalidParent(prefix, handle) = err {
-            return Self::InvalidParent(prefix, handle);
+        match err {
+            JobError::InvalidParent(prefix, handle) => Self::InvalidParent(prefix, handle),
+            JobError::Device(dev_err) => Self::from(dev_err),
+            _ => Self::Job(err),
         }
-        Self::Job(err)
     }
 }
 
@@ -217,7 +220,7 @@ impl From<DeviceError> for CommandError {
                 return Self::DictionaryAttackLocked;
             }
         }
-        Self::Job(err.into())
+        Self::Device(err)
     }
 }
 
