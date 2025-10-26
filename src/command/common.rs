@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{auth::Auth, cli::Hierarchy, command::CommandError, handle::Handle, key::Alg};
+use crate::{cli::Hierarchy, command::CommandError, handle::Handle, key::Alg};
 use clap::Args;
 use std::path::PathBuf;
 use strum::{Display, EnumString};
@@ -42,10 +42,6 @@ pub struct ParenBindArgs {
     /// Parent key: 'tpm:<handle>', or 'vtpm:<handle>'
     #[arg(short = 'P', long)]
     pub parent: Handle,
-
-    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
-    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
-    pub auth: Vec<Auth>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -53,28 +49,13 @@ pub struct ParenLoadArgs {
     /// Parent key: 'tpm:<handle>', or 'vtpm:<handle>'
     #[arg(short = 'P', long)]
     pub parent: Option<Handle>,
-
-    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
-    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
-    pub auth: Vec<Auth>,
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct AuthArgs {
-    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
-    #[arg(short = 'A', long = "auth")]
-    pub auth: Option<Auth>,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct HierarchyAuthArgs {
+pub struct HierarchyArgs {
     /// Hierarchy: owner (default), platform or endorsement
     #[arg(short = 'H', long, default_value_t = Hierarchy::default(), value_parser = clap::value_parser!(Hierarchy))]
     pub hierarchy: Hierarchy,
-
-    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
-    #[arg(short = 'A', long = "auth")]
-    pub auth: Option<Auth>,
 }
 
 #[derive(Args, Debug, Clone, Default)]

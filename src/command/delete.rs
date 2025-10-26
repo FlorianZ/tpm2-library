@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{CommandError, HierarchyAuthArgs},
+    command::CommandError,
     device::{with_device, Device},
     handle::HandlePattern,
     job::Job,
@@ -21,9 +21,6 @@ use tpm2_protocol::{
 pub struct Delete {
     /// Input: 'tpm:<handle pattern>', or 'vtpm:<handle pattern>'
     pub input: String,
-
-    #[clap(flatten)]
-    pub hierarchy_args: HierarchyAuthArgs,
 }
 
 impl Delete {
@@ -60,7 +57,7 @@ impl Delete {
 impl SubCommand for Delete {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         if let Some(pattern) = self.input.strip_prefix("tpm:") {
-            delete_tpm_handles(job, pattern, &self.hierarchy_args)
+            delete_tpm_handles(job, pattern)
         } else if let Some(pattern) = self.input.strip_prefix("vtpm:") {
             delete_vtpm_handles(job, pattern)
         } else {
@@ -70,11 +67,7 @@ impl SubCommand for Delete {
 }
 
 /// Deletes TPM objects matching a pattern across sessions, transient, and persistent handles.
-fn delete_tpm_handles(
-    job: &mut Job,
-    pattern_str: &str,
-    hierarchy_args: &HierarchyAuthArgs,
-) -> Result<(), CommandError> {
+fn delete_tpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandError> {
     with_device(job.device.clone(), |dev| {
         let pattern = HandlePattern::new(pattern_str)?;
 
@@ -101,7 +94,7 @@ fn delete_tpm_handles(
                             } else {
                                 (TpmRh::Platform as u32).into()
                             };
-                        let auths = vec![hierarchy_args.auth.clone().unwrap_or_default()];
+                        let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
                         job.evict_control(
                             auth_handle,
                             persistent_handle,

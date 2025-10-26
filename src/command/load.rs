@@ -25,10 +25,6 @@ use tpm2_protocol::{
 pub struct Load {
     #[clap(flatten)]
     pub input_args: InputArgs,
-
-    /// Authentication for parent hierarchy: 'empty', 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
-    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
-    pub auth: Vec<Auth>,
 }
 
 impl SubCommand for Load {
@@ -51,7 +47,7 @@ impl SubCommand for Load {
             let parent_handle = Self::fetch_parent(job, device, &parent_public)?;
 
             let (object_handle, _, loaded_public) =
-                Self::run_load(job, device, parent_handle, &tpm_key, &self.auth)?;
+                Self::run_load(job, device, parent_handle, &tpm_key, job.auth_list)?;
 
             let vhandle =
                 job.cache

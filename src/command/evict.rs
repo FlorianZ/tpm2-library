@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{CommandError, HierarchyAuthArgs},
+    command::CommandError,
     device::with_device,
     handle::{Handle, HandleClass, HandleError},
     job::Job,
@@ -15,9 +15,6 @@ use tpm2_protocol::{data::TpmRh, TpmHandle};
 /// Create persistent object from transient object.
 #[derive(Args, Debug)]
 pub struct Evict {
-    #[clap(flatten)]
-    pub hierarchy_args: HierarchyAuthArgs,
-
     /// Input key: 'vtpm:<vhandle>'
     pub input: Handle,
 
@@ -42,7 +39,7 @@ impl SubCommand for Evict {
 
             let transient_handle = job.load_context(dev, &self.input, &[])?;
 
-            let auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
+            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
 
             job.evict_control(auth_handle, transient_handle, persistent_handle, &auths)?;
 

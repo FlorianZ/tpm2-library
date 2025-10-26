@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_keyedhash, CommandError, CreationArgs, HierarchyAuthArgs},
+    command::{deny_keyedhash, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
     job::Job,
     key::Alg,
@@ -23,7 +23,7 @@ use tpm2_protocol::{
 #[derive(Args, Debug, Clone)]
 pub struct CreatePrimary {
     #[clap(flatten)]
-    pub hierarchy_args: HierarchyAuthArgs,
+    pub hierarchy_args: HierarchyArgs,
 
     /// Key algorithm
     #[arg(value_parser = clap::value_parser!(Alg))]
@@ -39,7 +39,7 @@ impl SubCommand for CreatePrimary {
             deny_keyedhash(&self.algorithm)?;
 
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
-            let auths = vec![self.hierarchy_args.auth.clone().unwrap_or_default()];
+            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
             let handles = [primary_handle as u32];
 
             let (object_attributes, user_auth, auth_policy) =

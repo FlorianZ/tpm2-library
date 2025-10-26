@@ -69,6 +69,7 @@ impl From<TpmError> for JobError {
 pub struct Job<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
     pub cache: &'a mut VtpmCache<'a>,
+    pub auth_list: &'a [Auth],
     pub writer: &'a mut dyn Write,
 }
 
@@ -78,11 +79,13 @@ impl<'a> Job<'a> {
     pub fn new(
         device: Option<Rc<RefCell<Device>>>,
         cache: &'a mut VtpmCache<'a>,
+        auth_list: &'a [Auth],
         writer: &'a mut dyn Write,
     ) -> Self {
         Self {
             device,
             cache,
+            auth_list,
             writer,
         }
     }

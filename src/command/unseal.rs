@@ -2,11 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::SubCommand,
-    command::{AuthArgs, CommandError},
-    device::with_device,
-    handle::Handle,
-    job::Job,
+    cli::SubCommand, command::CommandError, device::with_device, handle::Handle, job::Job,
 };
 use clap::Args;
 use std::io::IsTerminal;
@@ -19,9 +15,6 @@ pub struct Unseal {
     /// Input: 'tpm:<persistent handle>' or 'vtpm:<transient handle>'
     pub input: Handle,
 
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
-
     /// Force hex output when redirecting to a file or pipe
     #[arg(long)]
     pub hex: bool,
@@ -31,11 +24,7 @@ impl SubCommand for Unseal {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let item_handle = job.load_context(device, &self.input, &[])?;
-            let auths = self
-                .auth_args
-                .auth
-                .clone()
-                .map_or_else(Vec::new, |a| vec![a]);
+            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
 
             let unseal_cmd = TpmUnsealCommand {
                 item_handle: item_handle.0.into(),

@@ -48,8 +48,7 @@ impl SubCommand for Create {
 
 impl Create {
     fn create_object(&self, job: &mut Job, device: &mut Device) -> Result<(), CommandError> {
-        let auths = &self.parent_args.auth;
-        let parent_handle = job.load_context(device, &self.parent_args.parent, auths)?;
+        let parent_handle = job.load_context(device, &self.parent_args.parent, job.auth_list)?;
 
         let (object_attributes, user_auth, auth_policy) =
             self.creation_args.parse(&self.algorithm)?;
@@ -81,7 +80,7 @@ impl Create {
         let tpm_key = TpmKey::new(
             job,
             device,
-            auths,
+            job.auth_list,
             user_auth,
             auth_policy,
             object_attributes,

@@ -2,15 +2,8 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    auth::Auth,
-    cli::SubCommand,
-    command::{CommandError, InputArgs},
-    device::with_device,
-    io::read_file_input,
-    job::Job,
-    key::Tpm2shAlgId,
-    parse_hex_u32,
-    pcr::pcr_get_bank_list,
+    cli::SubCommand, command::CommandError, device::with_device, io::read_file_input, job::Job,
+    key::Tpm2shAlgId, parse_hex_u32, pcr::pcr_get_bank_list,
 };
 use clap::Args;
 use tpm2_protocol::{
@@ -32,13 +25,6 @@ pub struct PcrEvent {
     /// PCR index
     #[arg(value_name = "pcr-index", value_parser = parse_pcr_index)]
     pub pcr_index: TpmHandle,
-
-    #[clap(flatten)]
-    pub input_args: InputArgs,
-
-    /// Auth for the PCR: 'password:<hex>', 'policy:<hex>' or 'vtpm:<session_handle>'
-    #[arg(short = 'a', long = "auth")]
-    pub auth: Option<Auth>,
 }
 
 impl SubCommand for PcrEvent {
@@ -47,9 +33,9 @@ impl SubCommand for PcrEvent {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
 
-            let auths = vec![self.auth.clone().unwrap_or_default()];
+            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
 
-            let data_bytes = read_file_input(self.input_args.input.as_deref())?;
+            let data_bytes = read_file_input(None)?;
 
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())?;
             let command = TpmPcrEventCommand {

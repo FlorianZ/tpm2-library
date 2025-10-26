@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 #![allow(clippy::doc_markdown)]
 
 use crate::{
+    auth::Auth,
     command::{
         Algorithm, Cache, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Evict,
         Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal,
@@ -57,6 +58,10 @@ pub struct TopLevel {
     /// Log format: 'plain' or 'pretty'
     #[arg(long, default_value_t = LogFormat::default(), value_parser = clap::value_parser!(LogFormat))]
     pub log_format: LogFormat,
+
+    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
+    #[arg(short = 'A', long = "auth", global = true, value_delimiter = ',')]
+    pub auth: Vec<Auth>,
 
     #[command(subcommand)]
     pub command: Command,

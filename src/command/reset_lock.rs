@@ -2,12 +2,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{
-    cli::SubCommand,
-    command::{AuthArgs, CommandError},
-    device::with_device,
-    job::Job,
-};
+use crate::{cli::SubCommand, command::CommandError, device::with_device, job::Job};
 use clap::Args;
 use tpm2_protocol::{
     data::{TpmCc, TpmRh},
@@ -16,10 +11,7 @@ use tpm2_protocol::{
 
 /// Resets the dictionary attack lockout counter.
 #[derive(Args, Debug)]
-pub struct ResetLock {
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
-}
+pub struct ResetLock {}
 
 impl SubCommand for ResetLock {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
@@ -27,7 +19,7 @@ impl SubCommand for ResetLock {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand { lock_handle };
             let handles = [TpmRh::Lockout as u32];
-            let auths = vec![self.auth_args.auth.clone().unwrap_or_default()];
+            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
 
             let (resp, _) = job.execute(device, &command, &handles, &auths)?;
 

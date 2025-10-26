@@ -1,9 +1,11 @@
-// SPDX-License-Identifier: GPL-3-0-or-later Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use cli::{
+    auth::Auth,
     cli::{SubCommand, TopLevel},
     command::CommandError,
     device::{Device, DeviceError},
@@ -85,8 +87,14 @@ fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
     let shared_device = init_device(cli)?;
     let mut stdout = std::io::stdout();
     let mut cache = VtpmCache::new(cache_dir)?;
-    let mut job = Job::new(shared_device, &mut cache, &mut stdout);
 
+    let auth_list = if cli.auth.is_empty() {
+        &[Auth::default(); 1]
+    } else {
+        cli.auth.as_slice()
+    };
+
+    let mut job = Job::new(shared_device, &mut cache, auth_list, &mut stdout);
     cli.command.run(&mut job)
 }
 
