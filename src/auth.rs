@@ -4,14 +4,6 @@
 
 //! Handles parsing and representation of authorization data for TPM commands.
 
-use nom::{
-    branch::alt,
-    bytes::complete::tag,
-    character::complete::hex_digit1,
-    combinator::{all_consuming, map, map_res},
-    sequence::preceded,
-    IResult,
-};
 use std::{num::ParseIntError, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::{data::TpmHt, TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter};
@@ -103,48 +95,6 @@ fn parse_auth_hex(s: &str) -> Result<([u8; MAX_AUTH_SIZE], usize), AuthError> {
     Ok((array, bytes.len()))
 }
 
-/// Parses a "password:<hex>" string into an `Auth` struct.
-fn parse_password_auth(input: &str) -> IResult<&str, Auth> {
-    map(
-        preceded(tag("password:"), map_res(hex_digit1, parse_auth_hex)),
-        |(array, len)| Auth {
-            class: AuthClass::Password,
-            data: array,
-            len,
-        },
-    )(input)
-}
-
-/// Parses a "policy:<hex>" string into an `Auth` struct.
-fn parse_policy_auth(input: &str) -> IResult<&str, Auth> {
-    map(
-        preceded(tag("policy:"), map_res(hex_digit1, parse_auth_hex)),
-        |(array, len)| Auth {
-            class: AuthClass::Policy,
-            data: array,
-            len,
-        },
-    )(input)
-}
-
-/// Parses a "vtpm:<hex>" string into an `Auth` struct representing a session handle.
-fn parse_session_auth(input: &str) -> IResult<&str, Auth> {
-    map(
-        preceded(
-            tag("vtpm:"),
-            map_res(hex_digit1, |s: &str| -> Result<_, AuthError> {
-                let handle_val = u32::from_str_radix(s, 16)?;
-                Ok(build_handle_array(handle_val)?)
-            }),
-        ),
-        |(array, len)| Auth {
-            class: AuthClass::Session,
-            data: array,
-            len,
-        },
-    )(input)
-}
-
 impl Auth {
     /// Returns the authorization class (`Password`, `Policy`, or `Session`).
     #[must_use]
@@ -166,8 +116,10 @@ impl Auth {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidAuth`](AuthError::InvalidAuth) if the class is not `AuthClass::Session`.
-    /// Returns [`MalformedAuth`](AuthError::MalformedAuth) if the stored bytes are not a valid `TpmHandle`.
+    /// Returns [`InvalidAuth`](AuthError::InvalidAuth) if the class is not
+    /// `AuthClass::Session`.
+    /// Returns [`MalformedAuth`](AuthError::MalformedAuth) if the stored bytes
+    /// are not a valid `TpmHandle`.
     pub fn session(&self) -> Result<u32, AuthError> {
         if self.class() != AuthClass::Session {
             return Err(AuthError::InvalidAuth);
@@ -214,6 +166,7 @@ impl FromStr for Auth {
     /// Parses an authorization string into an `Auth` structure.
     ///
     /// Valid formats:
+    ///
     /// * `empty` - Represents an empty password.
     /// * `password:<hex>` - Password specified as a hex string.
     /// * `policy:<hex>` - Policy digest specified as a hex string.
@@ -221,33 +174,51 @@ impl FromStr for Auth {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidAuth`](AuthError::InvalidAuth) if the string does not match any valid format,
-    /// or if the session handle type (extracted from the high byte) is not `HmacSession` or `PolicySession`.
+    /// Returns [`InvalidAuth`](AuthError::InvalidAuth) when the string does not
+    /// match any valid format.
+    /// Returns [`ValueTooLarge`](AuthError::ValueTooLarge) when the password or
+    /// policy hex data exceeds `MAX_AUTH_SIZE`.
     fn from_str(auth_str: &str) -> Result<Self, Self::Err> {
         if auth_str == "empty" {
             return Ok(Self::default());
         }
 
-        match all_consuming(alt((
-            parse_password_auth,
-            parse_policy_auth,
-            parse_session_auth,
-        )))(auth_str)
-        {
-            Ok((_, auth)) => {
-                if auth.class() == AuthClass::Session {
-                    let handle = auth.session()?;
-                    let ht = (handle >> 24) as u8;
-                    if ht == TpmHt::PolicySession as u8 || ht == TpmHt::HmacSession as u8 {
-                        Ok(auth)
-                    } else {
-                        Err(AuthError::InvalidAuth)
-                    }
+        let (prefix, value) = auth_str.split_once(':').ok_or(AuthError::InvalidAuth)?;
+
+        match prefix {
+            "password" => {
+                let (data, len) = parse_auth_hex(value)?;
+                Ok(Auth {
+                    class: AuthClass::Password,
+                    data,
+                    len,
+                })
+            }
+            "policy" => {
+                let (data, len) = parse_auth_hex(value)?;
+                Ok(Auth {
+                    class: AuthClass::Policy,
+                    data,
+                    len,
+                })
+            }
+            "vtpm" => {
+                let handle_val = u32::from_str_radix(value, 16)?;
+                let ht = (handle_val >> 24) as u8;
+
+                if ht == TpmHt::PolicySession as u8 || ht == TpmHt::HmacSession as u8 {
+                    let (data, len) =
+                        build_handle_array(handle_val).map_err(|_| AuthError::MalformedAuth)?;
+                    Ok(Auth {
+                        class: AuthClass::Session,
+                        data,
+                        len,
+                    })
                 } else {
-                    Ok(auth)
+                    Err(AuthError::InvalidAuth)
                 }
             }
-            Err(_) => Err(AuthError::InvalidAuth),
+            _ => Err(AuthError::InvalidAuth),
         }
     }
 }
