@@ -2,11 +2,15 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use super::{VtpmContext, VtpmError};
-use crate::{device::Device, key::format_alg_from_public, write_object};
+use super::{RefreshAction, VtpmContext, VtpmError};
+use crate::{
+    device::{Device, DeviceError},
+    key::format_alg_from_public,
+    write_object,
+};
 use std::{any::Any, fs, path::Path};
 use tpm2_protocol::{
-    data::{Tpm2bPublic, TpmsContext},
+    data::{Tpm2bPublic, TpmRcBase, TpmsContext},
     TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
 
@@ -103,5 +107,18 @@ impl VtpmContext for VtpmKey {
             }
         }
         Ok(())
+    }
+
+    fn refresh(&mut self, device: &mut Device) -> Result<RefreshAction, VtpmError> {
+        match device.load_context(self.context.clone()) {
+            Ok(handle) => match device.flush_context(handle) {
+                Ok(()) => Ok(RefreshAction::Keep),
+                Err(e) => Err(e.into()),
+            },
+            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
+                Ok(RefreshAction::Stale)
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 }

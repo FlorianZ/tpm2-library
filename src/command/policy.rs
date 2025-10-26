@@ -146,10 +146,10 @@ impl SubCommand for Policy {
                         TpmPolicySession::new(device, resp.session_handle, session_hash_alg);
                     match execute_policy(&ast, &mut tpm_policy_session) {
                         Ok(_) => {
-                            let mut session_data =
+                            let mut session =
                                 VtpmSession::new(session_hash_alg, nonce_caller, &resp, &[])?;
-                            session_data.context = device.save_context(resp.session_handle.0)?;
-                            let vhandle = job.cache.add_session(session_data);
+                            session.context = device.save_context(resp.session_handle)?;
+                            let vhandle = job.cache.add_session(session);
                             job.cache.save()?;
                             writeln!(job.writer, "vtpm:{vhandle:08x}")?;
                         }

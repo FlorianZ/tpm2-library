@@ -21,7 +21,7 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bPublic, TpmHt, TpmRc, TpmtPublic},
+    data::{Tpm2bPublic, TpmHt, TpmRc, TpmsContext, TpmtPublic},
     message::TpmAuthResponses,
     TpmError, TpmHandle,
 };
@@ -80,6 +80,19 @@ impl From<TpmRc> for VtpmError {
     }
 }
 
+/// Outcome of refreshing [`VtpmContext`](crate::vtpm::VtpmContext) against the
+/// TPM.
+#[derive(Debug)]
+pub enum RefreshAction {
+    /// The context is still valid.
+    Keep,
+    /// The context is no longer valid.
+    Stale,
+    /// A new [`TpmsContext`](tpm2_protocol::data::VtpmsContext) substituting
+    /// the old one.
+    Updated(Box<TpmsContext>),
+}
+
 /// A VTPM object.
 pub trait VtpmContext: 'static {
     /// Immutable cast.
@@ -88,7 +101,7 @@ pub trait VtpmContext: 'static {
     /// Mutable cast.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    /// Returns the virtual handle of the context.
+    /// Returns the VTPM handle.
     fn handle(&self) -> u32;
 
     /// Returns class string.
@@ -97,19 +110,33 @@ pub trait VtpmContext: 'static {
     /// Returns details string.
     fn details(&self) -> String;
 
-    /// Saves the context to a file.
+    /// Saves a context to a file.
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError`] if the context cannot be serialized or written to disk.
+    /// Returns a [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation
+    /// fails.
     fn save(&self, path: &Path) -> Result<(), VtpmError>;
 
-    /// Deletes the context.
+    /// Deletes a context.
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError`] if disk or TPM device operations fail.
+    /// Returns a [`Device`](crate::vtpm::VtpmError::Device) when the TPM
+    /// transmission fails.
+    /// Returns a [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation
+    /// fails.
     fn delete(&self, device: &mut Device, cache_dir: &Path, vhandle: u32) -> Result<(), VtpmError>;
+
+    /// Refreshes a context.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Device`](crate::vtpm::VtpmError::Device) when the TPM
+    /// transmission fails.
+    /// Returns a [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation
+    /// fails.
+    fn refresh(&mut self, device: &mut Device) -> Result<RefreshAction, VtpmError>;
 }
 
 pub struct VtpmCache<'a> {
@@ -302,7 +329,7 @@ impl<'a> VtpmCache<'a> {
         public: &Tpm2bPublic,
         parent_public: &Tpm2bPublic,
     ) -> Result<u32, VtpmError> {
-        let context = device.save_context(handle.0)?;
+        let context = device.save_context(handle)?;
         for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
             if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
                 let key = VtpmKey {
@@ -372,8 +399,7 @@ impl<'a> VtpmCache<'a> {
                 let session = self
                     .get_session(vhandle)
                     .ok_or(VtpmError::HandleNotFound("vtpm:", vhandle))?;
-                let new_handle = device.load_context(session.context.clone())?;
-                activated_handles.push(TpmHandle(new_handle));
+                activated_handles.push(device.load_context(session.context.clone())?);
             }
         }
         Ok(activated_handles)
@@ -398,7 +424,7 @@ impl<'a> VtpmCache<'a> {
                 .context
                 .saved_handle;
 
-            match device.save_context(session_handle.0) {
+            match device.save_context(session_handle) {
                 Ok(new_context) => {
                     let session = self
                         .get_mut_session(*vhandle)
@@ -409,8 +435,8 @@ impl<'a> VtpmCache<'a> {
                     session.attributes = auth.session_attributes;
                 }
                 Err(e) => {
-                    if let Err(flush_err) = device.flush_context(session_handle) {
-                        log::warn!("{session_handle}: {flush_err}");
+                    if let Err(e) = device.flush_context(session_handle) {
+                        log::warn!("{session_handle}: {e}");
                     }
                     return Err(e.into());
                 }

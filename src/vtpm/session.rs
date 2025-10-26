@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use super::{VtpmContext, VtpmError};
+use super::{RefreshAction, VtpmContext, VtpmError};
 use crate::{
     crypto::{crypto_digest, crypto_hash_size, crypto_hmac, crypto_kdfa},
     device::{Device, DeviceError},
@@ -143,6 +143,36 @@ impl VtpmContext for VtpmSession {
             Err(e) => return Err(e.into()),
         }
         Ok(())
+    }
+
+    fn refresh(&mut self, device: &mut Device) -> Result<RefreshAction, VtpmError> {
+        let vhandle = self.handle();
+        match device.load_context(self.context.clone()) {
+            Ok(phandle) => match device.save_context(phandle) {
+                Ok(context) => match device.flush_context(phandle) {
+                    Ok(()) => Ok(RefreshAction::Updated(Box::new(context))),
+                    Err(e) => {
+                        log::warn!("vtpm:{vhandle:08x}: {e}");
+                        Ok(RefreshAction::Stale)
+                    }
+                },
+                Err(e) => {
+                    log::warn!("vtpm:{vhandle:08x}: {e}");
+                    if let Err(e) = device.flush_context(phandle) {
+                        log::warn!("vtpm:{vhandle:08x}: {e}");
+                    }
+                    if matches!(&e, DeviceError::TpmRc(rc) if rc.base() == TpmRcBase::ReferenceH0) {
+                        Ok(RefreshAction::Stale)
+                    } else {
+                        Err(e.into())
+                    }
+                }
+            },
+            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
+                Ok(RefreshAction::Stale)
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 }
 

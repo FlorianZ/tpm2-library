@@ -165,8 +165,7 @@ impl<'a> Job<'a> {
                     .map_err(|_| JobError::ResponseMismatch(TpmCc::Load))?;
                 resp.object_handle
             } else {
-                let handle_val = device.load_context(key.context.clone())?;
-                TpmHandle(handle_val)
+                device.load_context(key.context.clone())?
             };
 
             self.cache.track(loaded_phandle)?;

@@ -466,10 +466,8 @@ impl Device {
     ///
     /// Returns a `DeviceError` if the underlying `TPM2_ContextSave` command
     /// execution fails or if the TPM returns a response of an unexpected type.
-    pub fn save_context(&mut self, handle: u32) -> Result<TpmsContext, DeviceError> {
-        let cmd = TpmContextSaveCommand {
-            save_handle: handle.into(),
-        };
+    pub fn save_context(&mut self, save_handle: TpmHandle) -> Result<TpmsContext, DeviceError> {
+        let cmd = TpmContextSaveCommand { save_handle };
         let sessions = vec![];
         let (resp, _) = self.execute(&cmd, &sessions)?;
         let save_resp = resp
@@ -483,14 +481,14 @@ impl Device {
     /// # Errors
     ///
     /// Returns a `DeviceError` if the `TPM2_ContextLoad` command fails.
-    pub fn load_context(&mut self, context: TpmsContext) -> Result<u32, DeviceError> {
+    pub fn load_context(&mut self, context: TpmsContext) -> Result<TpmHandle, DeviceError> {
         let cmd = TpmContextLoadCommand { context };
         let sessions = vec![];
         let (resp, _) = self.execute(&cmd, &sessions)?;
         let resp_inner = resp
             .ContextLoad()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::ContextLoad))?;
-        Ok(resp_inner.loaded_handle.0)
+        Ok(resp_inner.loaded_handle)
     }
 
     /// Flushes a transient object or session from the TPM and removes it from the cache.
@@ -516,7 +514,7 @@ impl Device {
     /// Returns `DeviceError` on `ContextLoad` or `FlushContext` failure.
     pub fn flush_session(&mut self, context: TpmsContext) -> Result<(), DeviceError> {
         match self.load_context(context) {
-            Ok(handle) => self.flush_context(handle.into()),
+            Ok(handle) => self.flush_context(handle),
             Err(DeviceError::TpmRc(rc)) => {
                 let base = rc.base();
                 if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {

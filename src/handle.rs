@@ -71,7 +71,7 @@ impl TryFrom<Handle> for TpmHt {
     fn try_from(handle: Handle) -> Result<Self, Self::Error> {
         let raw_handle = handle.value();
         let ht_byte = (raw_handle >> 24) as u8;
-        TpmHt::try_from(ht_byte).map_err(|_| HandleError::InvalidHandle)
+        TpmHt::try_from(ht_byte).map_err(|()| HandleError::InvalidHandle)
     }
 }
 
