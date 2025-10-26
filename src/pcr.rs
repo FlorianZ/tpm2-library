@@ -7,15 +7,7 @@
 use crate::{
     crypto::{crypto_digest, CryptoError},
     device::{Device, DeviceError},
-    key::from_str_to_alg_id,
-};
-use nom::{
-    bytes::complete::take_while1,
-    character::complete::{char, u32 as nom_u32},
-    combinator::{all_consuming, map, map_res},
-    multi::separated_list1,
-    sequence::separated_pair,
-    IResult,
+    key::Tpm2shAlgId,
 };
 use std::{convert::TryFrom, fmt};
 use thiserror::Error;
@@ -83,29 +75,6 @@ impl fmt::Display for PcrSelection {
     }
 }
 
-/// Parses a single PCR selection (e.g., "sha256:0,7").
-fn parse_pcr_selection(input: &str) -> IResult<&str, PcrSelection> {
-    let parse_alg = map_res(take_while1(|c: char| c.is_alphanumeric()), |s: &str| {
-        from_str_to_alg_id(s).map_err(|_| "Invalid algorithm")
-    });
-    let parse_indices = separated_list1(char(','), nom_u32);
-
-    map(
-        separated_pair(parse_alg, char(':'), parse_indices),
-        |(alg, indices)| PcrSelection { alg, indices },
-    )(input)
-}
-
-/// Parses a full PCR selection string (e.g., "sha256:0,7+sha1:1").
-///
-/// # Errors
-///
-/// Returns a `nom::Err` if the input string does not conform to the expected
-/// PCR selection format.
-pub fn parse_pcr_selections(input: &str) -> IResult<&str, Vec<PcrSelection>> {
-    separated_list1(char('+'), parse_pcr_selection)(input)
-}
-
 /// Discovers the list of available PCR banks and their sizes from the TPM.
 ///
 /// # Errors
@@ -140,10 +109,28 @@ pub fn pcr_get_bank_list(device: &mut Device) -> Result<Vec<PcrBank>, PcrError> 
 /// Returns a `PcrError` if the selection string is malformed, contains an
 /// invalid algorithm name, or has non-numeric PCR indices.
 pub fn pcr_selection_vec_from_str(selection_str: &str) -> Result<Vec<PcrSelection>, PcrError> {
-    match all_consuming(parse_pcr_selections)(selection_str) {
-        Ok((_, selections)) => Ok(selections),
-        Err(_) => Err(PcrError::InvalidPcrSelection(selection_str.to_string())),
-    }
+    selection_str
+        .split('+')
+        .map(|part| {
+            let (alg_str, indices_str) = part
+                .split_once(':')
+                .ok_or_else(|| PcrError::InvalidPcrSelection(part.to_string()))?;
+
+            let alg = Tpm2shAlgId::try_from(alg_str)
+                .map_err(|e| PcrError::InvalidPcrSelection(e.to_string()))?
+                .0;
+
+            let indices: Vec<u32> = indices_str
+                .split(',')
+                .map(|s| {
+                    s.parse::<u32>()
+                        .map_err(|_| PcrError::InvalidPcrSelection(indices_str.to_string()))
+                })
+                .collect::<Result<_, _>>()?;
+
+            Ok(PcrSelection { alg, indices })
+        })
+        .collect()
 }
 
 /// Converts a vector of `PcrSelection` into the low-level `TpmlPcrSelection`

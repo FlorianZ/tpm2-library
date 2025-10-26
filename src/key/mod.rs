@@ -142,31 +142,6 @@ pub struct Alg {
     pub params: AlgInfo,
 }
 
-/// Converts string to `TpmAlgId`.
-///
-/// # Errors
-///
-/// `KeyError::InvalidNameAlgorithm` returned when string is not match any
-/// algorithm.
-pub fn from_str_to_alg_id(s: &str) -> Result<TpmAlgId, KeyError> {
-    match s {
-        "rsa" => Ok(TpmAlgId::Rsa),
-        "sha1" => Ok(TpmAlgId::Sha1),
-        "hmac" => Ok(TpmAlgId::Hmac),
-        "aes" => Ok(TpmAlgId::Aes),
-        "keyedhash" => Ok(TpmAlgId::KeyedHash),
-        "xor" => Ok(TpmAlgId::Xor),
-        "sha256" => Ok(TpmAlgId::Sha256),
-        "sha384" => Ok(TpmAlgId::Sha384),
-        "sha512" => Ok(TpmAlgId::Sha512),
-        "null" => Ok(TpmAlgId::Null),
-        "sm3_256" => Ok(TpmAlgId::Sm3_256),
-        "sm4" => Ok(TpmAlgId::Sm4),
-        "ecc" => Ok(TpmAlgId::Ecc),
-        _ => Err(KeyError::InvalidAlgorithm(s.to_string())),
-    }
-}
-
 impl From<Alg> for TpmaObject {
     fn from(alg: Alg) -> TpmaObject {
         let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
@@ -187,7 +162,7 @@ impl Alg {
     ///
     /// Returns an `KeyError` if the provided hash algorithm string is invalid.
     pub fn new_keyedhash(hash_alg: &str) -> Result<Self, KeyError> {
-        let name_alg = from_str_to_alg_id(hash_alg)?;
+        let name_alg = Tpm2shAlgId::try_from(hash_alg)?.0;
         Ok(Self {
             name: format!("keyedhash:{hash_alg}"),
             object_type: TpmAlgId::KeyedHash,
@@ -214,7 +189,7 @@ impl std::str::FromStr for Alg {
             let key_bits: u16 = bits_str
                 .parse()
                 .map_err(|_| KeyError::InvalidRsaKeyBits(bits_str.to_string()))?;
-            let name_alg = from_str_to_alg_id(name_alg_str)?;
+            let name_alg = Tpm2shAlgId::try_from(name_alg_str)?.0;
             Ok(Self {
                 name: s.to_string(),
                 object_type: TpmAlgId::Rsa,
@@ -228,7 +203,7 @@ impl std::str::FromStr for Alg {
             let curve_id: TpmEccCurve = Tpm2shEccCurve::from_str(curve_str)
                 .map_err(|e| KeyError::InvalidEccCurve(e.to_string()))?
                 .into();
-            let name_alg = from_str_to_alg_id(name_alg_str)?;
+            let name_alg = Tpm2shAlgId::try_from(name_alg_str)?.0;
             Ok(Self {
                 name: s.to_string(),
                 object_type: TpmAlgId::Ecc,
@@ -236,7 +211,7 @@ impl std::str::FromStr for Alg {
                 params: AlgInfo::Ecc { curve_id },
             })
         } else if let Some(name_alg_str) = s.strip_prefix("keyedhash:") {
-            let name_alg = from_str_to_alg_id(name_alg_str)?;
+            let name_alg = Tpm2shAlgId::try_from(name_alg_str)?.0;
             Ok(Self {
                 name: s.to_string(),
                 object_type: TpmAlgId::KeyedHash,
@@ -264,6 +239,30 @@ impl std::cmp::PartialOrd for Alg {
 /// A newtype wrapper to provide a project-specific `Display` implementation for `TpmAlgId`.
 #[derive(Debug, Clone, Copy)]
 pub struct Tpm2shAlgId(pub TpmAlgId);
+
+impl TryFrom<&str> for Tpm2shAlgId {
+    type Error = KeyError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let alg_id = match s {
+            "rsa" => TpmAlgId::Rsa,
+            "sha1" => TpmAlgId::Sha1,
+            "hmac" => TpmAlgId::Hmac,
+            "aes" => TpmAlgId::Aes,
+            "keyedhash" => TpmAlgId::KeyedHash,
+            "xor" => TpmAlgId::Xor,
+            "sha256" => TpmAlgId::Sha256,
+            "sha384" => TpmAlgId::Sha384,
+            "sha512" => TpmAlgId::Sha512,
+            "null" => TpmAlgId::Null,
+            "sm3_256" => TpmAlgId::Sm3_256,
+            "sm4" => TpmAlgId::Sm4,
+            "ecc" => TpmAlgId::Ecc,
+            _ => return Err(KeyError::InvalidAlgorithm(s.to_string())),
+        };
+        Ok(Self(alg_id))
+    }
+}
 
 impl std::fmt::Display for Tpm2shAlgId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
