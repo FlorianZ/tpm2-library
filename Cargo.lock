@@ -1292,7 +1292,6 @@ dependencies = [
  "hmac",
  "log",
  "nix 0.29.0",
- "nom",
  "num-bigint",
  "num-traits",
  "p256",

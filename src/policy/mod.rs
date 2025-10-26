@@ -14,21 +14,13 @@ use crate::{
     auth::{Auth, AuthClass},
     crypto::CryptoError,
     device::{Device, DeviceError},
-    handle::{Handle, HandleClass},
+    handle::{Handle, HandleClass, HandleError},
     pcr::{self, PcrError, PcrSelection},
     vtpm::VtpmError,
 };
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_while1},
-    character::complete::{char, hex_digit1, space0},
-    combinator::{all_consuming, map, map_res, opt},
-    error::{Error as NomError, ErrorKind, ParseError},
-    multi::separated_list1,
-    sequence::{delimited, preceded, terminated, tuple},
-    Err as NomErr, IResult,
+use std::{
+    collections::HashMap, fmt, iter::Peekable, num::ParseIntError, slice::Iter, str::FromStr,
 };
-use std::{collections::HashMap, fmt, num::ParseIntError, path::PathBuf, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
@@ -49,8 +41,12 @@ pub enum PolicyError {
     NoValidPolicyOrBranch,
     #[error("PCR value for selection '{0}' not provided")]
     PcrValueMissing(String),
-    #[error("trailing data")]
-    TrailingData,
+    #[error("unexpected end of expression")]
+    UnexpectedEndOfExpression,
+    #[error("unexpected token: {0}")]
+    UnexpectedToken(String),
+    #[error("unmatched parenthesis")]
+    UnmatchedParenthesis,
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
@@ -67,6 +63,8 @@ pub enum PolicyError {
     IntDecode(#[from] ParseIntError),
     #[error("protocol: {0}")]
     TpmProtocol(TpmError),
+    #[error("handle: {0}")]
+    Handle(#[from] HandleError),
 }
 
 impl From<TpmError> for PolicyError {
@@ -146,7 +144,6 @@ pub enum Expression {
     And(Vec<Expression>),
     Or(Vec<Expression>),
     Handle(Handle),
-    Path(PathBuf),
 }
 
 impl fmt::Display for Expression {
@@ -188,14 +185,13 @@ impl fmt::Display for Expression {
             }
             Expression::And(expressions) => {
                 let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
-                write!(f, "{}", s.join(" and "))
+                write!(f, "({})", s.join(" and "))
             }
             Expression::Or(expressions) => {
                 let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
-                write!(f, "{}", s.join(" or "))
+                write!(f, "({})", s.join(" or "))
             }
             Expression::Handle(handle) => write!(f, "{handle}"),
-            Expression::Path(path) => write!(f, "{}", path.to_string_lossy()),
         }
     }
 }
@@ -219,136 +215,274 @@ impl Expression {
     }
 }
 
-fn ws<'a, F, O, E: ParseError<&'a str>>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O, E>
-where
-    F: FnMut(&'a str) -> IResult<&'a str, O, E>,
-{
-    delimited(space0, inner, space0)
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Token<'a> {
+    And,
+    Or,
+    LParen,
+    RParen,
+    Comma,
+    Ident(&'a str),
 }
 
-fn comma_sep<'a, F, O>(f: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
-where
-    F: FnMut(&'a str) -> IResult<&'a str, O>,
-{
-    preceded(terminated(char(','), space0), f)
-}
-
-fn secret_expression(input: &str) -> IResult<&str, Expression> {
-    map(
-        tuple((
-            parse_expression,
-            opt(comma_sep(parse_expression)),
-            opt(comma_sep(map(hex_digit1, |s: &str| s.to_string()))),
-        )),
-        |(uri_expr, password_expr, cp_hash_str)| Expression::Secret {
-            auth_handle: Box::new(uri_expr),
-            password: password_expr.map(Box::new),
-            cp_hash: cp_hash_str,
-        },
-    )(input)
-}
-
-fn call<'a, F, O>(name: &'static str, f: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
-where
-    F: FnMut(&'a str) -> IResult<&'a str, O>,
-{
-    delimited(
-        terminated(tag(name), char('(')),
-        delimited(space0, f, space0),
-        char(')'),
-    )
-}
-
-fn auth_expression(input: &str) -> IResult<&str, Expression> {
-    map_res(
-        take_while1(|c: char| !matches!(c, ',' | ')' | ' ' | '(' | '&' | '|')),
-        |s: &str| Auth::from_str(s).map(Expression::Auth),
-    )(input)
-}
-
-fn handle_expression(input: &str) -> IResult<&str, Expression> {
-    map_res(
-        take_while1(|c: char| !matches!(c, ',' | ')' | ' ' | '(' | '&' | '|')),
-        |s: &str| Handle::from_str(s).map(Expression::Handle),
-    )(input)
-}
-
-fn path_expression(input: &str) -> IResult<&str, Expression> {
-    map(
-        take_while1(|c: char| !matches!(c, ',' | ')' | ' ' | '(' | '&' | '|')),
-        |s: &str| Expression::Path(PathBuf::from(s.strip_prefix("file:").unwrap_or(s))),
-    )(input)
-}
-
-fn pcr_policy_expression(input: &str) -> IResult<&str, Expression> {
-    let (remainder, pcr_substring) = take_while1(|c: char| !matches!(c, '(' | ')' | ','))(input)?;
-
-    let (selection_part, digest_part) = if let Some((selection, digest)) =
-        pcr_substring.rsplit_once(':')
-    {
-        let is_digest = !digest.is_empty()
-            && digest.len() >= crate::crypto::crypto_hash_size(TpmAlgId::Sha1).unwrap_or(20) * 2
-            && digest.chars().all(|c| c.is_ascii_hexdigit());
-
-        if is_digest {
-            (selection, Some(digest.to_string()))
-        } else {
-            (pcr_substring, None)
+impl fmt::Display for Token<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::And => write!(f, "'and'"),
+            Token::Or => write!(f, "'or'"),
+            Token::LParen => write!(f, "'('"),
+            Token::RParen => write!(f, "')'"),
+            Token::Comma => write!(f, "','"),
+            Token::Ident(s) => write!(f, "'{s}'"),
         }
-    } else {
-        (pcr_substring, None)
-    };
+    }
+}
 
-    match all_consuming(pcr::parse_pcr_selections)(selection_part) {
-        Ok((_, selections)) => {
-            let expr = Expression::Pcr {
+fn tokenize(input: &str) -> Vec<Token<'_>> {
+    let mut tokens = Vec::new();
+    let mut current_index = 0;
+    let bytes = input.as_bytes();
+
+    while current_index < bytes.len() {
+        let ch = bytes[current_index] as char;
+
+        match ch {
+            '(' => {
+                tokens.push(Token::LParen);
+                current_index += 1;
+            }
+            ')' => {
+                tokens.push(Token::RParen);
+                current_index += 1;
+            }
+            ',' => {
+                tokens.push(Token::Comma);
+                current_index += 1;
+            }
+            c if c.is_whitespace() => {
+                let char_len = input[current_index..].chars().next().unwrap().len_utf8();
+                current_index += char_len;
+            }
+            _ => {
+                let start_index = current_index;
+                let mut end_index = start_index;
+                while end_index < bytes.len() {
+                    let current_char = input[end_index..].chars().next().unwrap();
+                    if current_char.is_whitespace() || "(),".contains(current_char) {
+                        break;
+                    }
+                    end_index += current_char.len_utf8();
+                }
+
+                let ident_slice = &input[start_index..end_index];
+
+                match ident_slice {
+                    "and" => tokens.push(Token::And),
+                    "or" => tokens.push(Token::Or),
+                    _ => tokens.push(Token::Ident(ident_slice)),
+                }
+                current_index = end_index;
+            }
+        }
+    }
+    tokens
+}
+
+struct Parser<'a, 'b> {
+    tokens: &'a mut Peekable<Iter<'b, Token<'b>>>,
+}
+
+impl Parser<'_, '_> {
+    fn parse_or(&mut self) -> Result<Expression, PolicyError> {
+        let mut node = self.parse_and()?;
+        while let Some(Token::Or) = self.tokens.peek() {
+            self.tokens.next();
+            let rhs = self.parse_and()?;
+            node = match node {
+                Expression::Or(mut terms) => {
+                    terms.push(rhs);
+                    Expression::Or(terms)
+                }
+                lhs => Expression::Or(vec![lhs, rhs]),
+            };
+        }
+        Ok(node)
+    }
+
+    fn parse_and(&mut self) -> Result<Expression, PolicyError> {
+        let mut node = self.parse_primary()?;
+        while let Some(Token::And) = self.tokens.peek() {
+            self.tokens.next();
+            let rhs = self.parse_primary()?;
+            node = match node {
+                Expression::And(mut factors) => {
+                    factors.push(rhs);
+                    Expression::And(factors)
+                }
+                lhs => Expression::And(vec![lhs, rhs]),
+            };
+        }
+        Ok(node)
+    }
+
+    fn parse_primary(&mut self) -> Result<Expression, PolicyError> {
+        let token = self
+            .tokens
+            .next()
+            .ok_or(PolicyError::UnexpectedEndOfExpression)?;
+
+        match token {
+            Token::LParen => {
+                let expr = self.parse_or()?;
+                if self.tokens.next() != Some(&Token::RParen) {
+                    return Err(PolicyError::UnmatchedParenthesis);
+                }
+                Ok(expr)
+            }
+            Token::Ident(name) => match *name {
+                "pcr" => self.parse_pcr_call(),
+                "secret" => self.parse_secret_call(),
+                _ => Self::parse_literal(name),
+            },
+            _ => Err(PolicyError::UnexpectedToken(token.to_string())),
+        }
+    }
+
+    fn parse_literal(s: &str) -> Result<Expression, PolicyError> {
+        if let Ok(auth) = Auth::from_str(s) {
+            Ok(Expression::Auth(auth))
+        } else if let Ok(handle) = Handle::from_str(s) {
+            Ok(Expression::Handle(handle))
+        } else {
+            Err(PolicyError::InvalidExpression(format!(
+                "unrecognized literal: {s}"
+            )))
+        }
+    }
+
+    fn parse_call_args(&mut self) -> Result<Vec<Expression>, PolicyError> {
+        match self.tokens.peek() {
+            Some(&&Token::LParen) => {
+                self.tokens.next();
+            }
+            Some(actual_token) => {
+                return Err(PolicyError::UnexpectedToken(format!(
+                    "Expected '(' to start argument list, found {actual_token}"
+                )));
+            }
+            None => {
+                return Err(PolicyError::UnexpectedEndOfExpression);
+            }
+        }
+
+        let mut args = Vec::new();
+        if self.tokens.peek() == Some(&&Token::RParen) {
+            self.tokens.next();
+            return Ok(args);
+        }
+
+        loop {
+            if let Some(Token::Ident(ident)) = self.tokens.peek() {
+                if let Ok(selections) = pcr::pcr_selection_vec_from_str(ident) {
+                    self.tokens.next();
+                    args.push(Expression::Pcr {
+                        selections,
+                        digest: None,
+                        count: None,
+                    });
+                } else {
+                    args.push(self.parse_or()?);
+                }
+            } else {
+                args.push(self.parse_or()?);
+            }
+
+            match self.tokens.peek() {
+                Some(&&Token::RParen) => {
+                    self.tokens.next();
+                    break;
+                }
+                Some(&&Token::Comma) => {
+                    self.tokens.next();
+                }
+                Some(actual_token) => {
+                    return Err(PolicyError::UnexpectedToken(format!(
+                        "Expected ',' or ')' in argument list, found {actual_token}"
+                    )));
+                }
+                None => return Err(PolicyError::UnmatchedParenthesis),
+            }
+        }
+        Ok(args)
+    }
+
+    fn parse_pcr_call(&mut self) -> Result<Expression, PolicyError> {
+        let mut args = self.parse_call_args()?;
+        if args.len() != 1 {
+            return Err(PolicyError::InvalidExpression(
+                "pcr() expects one argument ".to_string(),
+            ));
+        }
+
+        let arg = args.remove(0);
+        if let Expression::Pcr {
+            selections,
+            digest,
+            count,
+        } = arg
+        {
+            Ok(Expression::Pcr {
+                selections,
+                digest,
+                count,
+            })
+        } else if let Expression::Auth(_) | Expression::Handle(_) = arg {
+            let pcr_content = arg.to_string();
+            let (selection_part, digest_part) =
+                if let Some((selection, digest)) = pcr_content.rsplit_once(':') {
+                    if digest.chars().all(|c| c.is_ascii_hexdigit())
+                        && digest.len()
+                            >= crate::crypto::crypto_hash_size(TpmAlgId::Sha1).unwrap_or(20) * 2
+                    {
+                        (selection.to_string(), Some(digest.to_string()))
+                    } else {
+                        (pcr_content, None)
+                    }
+                } else {
+                    (pcr_content, None)
+                };
+
+            let selections = pcr::pcr_selection_vec_from_str(&selection_part)?;
+            Ok(Expression::Pcr {
                 selections,
                 digest: digest_part,
                 count: None,
-            };
-            Ok((remainder, expr))
+            })
+        } else {
+            Err(PolicyError::InvalidExpression(
+                "pcr() argument is not a valid PCR selection ".to_string(),
+            ))
         }
-        Err(_) => Err(NomErr::Error(nom::error::Error::new(
-            input,
-            ErrorKind::Verify,
-        ))),
-    }
-}
-
-fn parse_factor(input: &str) -> IResult<&str, Expression> {
-    alt((
-        call("pcr", pcr_policy_expression),
-        call("secret", secret_expression),
-        delimited(ws(char('(')), parse_expression, ws(char(')'))),
-        auth_expression,
-        handle_expression,
-        path_expression,
-    ))(input)
-}
-
-fn parse_term(input: &str) -> IResult<&str, Expression> {
-    let (input, mut factors) = separated_list1(ws(tag("and")), parse_factor)(input)?;
-    if factors.len() == 1 {
-        Ok((input, factors.remove(0)))
-    } else {
-        Ok((input, Expression::And(factors)))
-    }
-}
-
-fn parse_expression(input: &str) -> IResult<&str, Expression> {
-    let (input, mut terms) = separated_list1(ws(tag("or")), parse_term)(input)?;
-
-    if terms.len() > 8 {
-        return Err(NomErr::Failure(NomError::from_error_kind(
-            input,
-            ErrorKind::TooLarge,
-        )));
     }
 
-    if terms.len() == 1 {
-        Ok((input, terms.remove(0)))
-    } else {
-        Ok((input, Expression::Or(terms)))
+    fn parse_secret_call(&mut self) -> Result<Expression, PolicyError> {
+        let args = self.parse_call_args()?;
+        if args.is_empty() || args.len() > 3 {
+            return Err(PolicyError::InvalidExpression(
+                "secret() expects 1 to 3 arguments ".to_string(),
+            ));
+        }
+
+        let mut arg_iter = args.into_iter();
+        let auth_handle = Box::new(arg_iter.next().unwrap());
+        let password = arg_iter.next().map(Box::new);
+        let cp_hash = arg_iter.next().map(|expr| expr.to_string());
+
+        Ok(Expression::Secret {
+            auth_handle,
+            password,
+            cp_hash,
+        })
     }
 }
 
@@ -357,14 +491,18 @@ fn parse_expression(input: &str) -> IResult<&str, Expression> {
 /// # Errors
 ///
 /// Returns a `PolicyError::InvalidExpression` if expression parsing fails.
-/// Returns a `PolicyError::TrailingData` if there is trailing data after the
+/// Returns a `PolicyError::UnexpectedToken` if there is trailing data after the
 /// expression.
 pub fn parse(input: &str) -> Result<Expression, PolicyError> {
-    let (remaining, expr) =
-        parse_expression(input).map_err(|_| PolicyError::InvalidExpression(input.to_string()))?;
+    let tokens = tokenize(input);
+    let mut iter = tokens.iter().peekable();
+    let mut parser = Parser { tokens: &mut iter };
+    let expr = parser.parse_or()?;
 
-    if !remaining.is_empty() {
-        return Err(PolicyError::TrailingData);
+    if parser.tokens.peek().is_some() {
+        return Err(PolicyError::UnexpectedToken(
+            "Trailing data after expression ".to_string(),
+        ));
     }
 
     Ok(expr)
@@ -401,22 +539,23 @@ pub fn execute_policy(
             password,
             cp_hash,
         } => {
-            let handle_val = match &**auth_handle {
-                Expression::Handle(handle) if handle.class() == HandleClass::Tpm => {
-                    let h_val = handle.value();
-                    if (h_val >> 24) as u8 != TpmHt::Persistent as u8 {
-                        return Err(PolicyError::InvalidExpression(
-                            "secret() must contain persistent 'tpm:<handle>'".to_string(),
-                        ));
+            let handle_val =
+                match &**auth_handle {
+                    Expression::Handle(handle) if handle.class() == HandleClass::Tpm => {
+                        let h_val = handle.value();
+                        if (h_val >> 24) as u8 != TpmHt::Persistent as u8 {
+                            return Err(PolicyError::InvalidExpression(
+                                "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
+                                    .to_string(),
+                            ));
+                        }
+                        h_val
                     }
-                    h_val
-                }
-                _ => {
-                    return Err(PolicyError::InvalidExpression(
-                        "secret() must contain persistent 'tpm:<handle>'".to_string(),
-                    ))
-                }
-            };
+                    _ => return Err(PolicyError::InvalidExpression(
+                        "secret() first argument must be a persistent TPM handle ('tpm:81xxxxxx')"
+                            .to_string(),
+                    )),
+                };
             let handle = TpmHandle(handle_val);
 
             let (_, name) = session.device().read_public(handle)?;
@@ -478,9 +617,6 @@ pub fn execute_policy(
             session.get_digest()
         }
         Expression::Handle(handle) => Err(PolicyError::InvalidExpression(handle.to_string())),
-        Expression::Path(path) => Err(PolicyError::InvalidExpression(
-            path.to_string_lossy().to_string(),
-        )),
     }
 }
 
@@ -526,7 +662,34 @@ pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
                 populate_pcr_digests(pwd_expr, pcr_map)?;
             }
         }
-        Expression::Auth(_) | Expression::Handle(_) | Expression::Path(_) => {}
+        Expression::Auth(_) | Expression::Handle(_) => {}
+    }
+    Ok(())
+}
+
+/// Traverses the AST, applying a fallible visitor closure to each `Pcr` expression.
+///
+/// # Errors
+///
+/// Returns a `PolicyError` if the provided visitor closure returns an error.
+pub fn visit_pcr_expressions_mut<F>(
+    ast: &mut Expression,
+    visitor: &mut F,
+) -> Result<(), PolicyError>
+where
+    F: FnMut(&mut Expression) -> Result<(), PolicyError>,
+{
+    match ast {
+        Expression::Pcr { .. } => visitor(ast)?,
+        Expression::And(branches) | Expression::Or(branches) => {
+            for branch in branches.iter_mut() {
+                visit_pcr_expressions_mut(branch, visitor)?;
+            }
+        }
+        Expression::Secret { auth_handle, .. } => {
+            visit_pcr_expressions_mut(auth_handle, visitor)?;
+        }
+        Expression::Auth(_) | Expression::Handle(_) => {}
     }
     Ok(())
 }

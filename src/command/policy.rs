@@ -9,7 +9,8 @@ use crate::{
     job::Job,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
     policy::{
-        execute_policy, parse, Expression, PolicyError, SoftwarePolicySession, TpmPolicySession,
+        execute_policy, parse, visit_pcr_expressions_mut, Expression, PolicyError,
+        SoftwarePolicySession, TpmPolicySession,
     },
     vtpm::VtpmSession,
 };
@@ -51,7 +52,7 @@ fn resolve_pcr_digests(
     session_hash_alg: TpmAlgId,
 ) -> Result<(), CommandError> {
     let mut required_selections = HashSet::new();
-    try_visit_pcr_expressions_mut(ast, &mut |expr| {
+    visit_pcr_expressions_mut(ast, &mut |expr| -> Result<(), PolicyError> {
         if let Expression::Pcr {
             selections,
             digest: None,
@@ -71,7 +72,7 @@ fn resolve_pcr_digests(
         let tpml_selection = crate::pcr::pcr_selection_vec_to_tpml(&selections, &banks)?;
         let (pcr_values, _) = pcr_read(device, &tpml_selection)?;
 
-        let mut populator = |expr: &mut Expression| -> Result<(), CommandError> {
+        let mut populator = |expr: &mut Expression| -> Result<(), PolicyError> {
             if let Expression::Pcr {
                 selections, digest, ..
             } = expr
@@ -93,30 +94,7 @@ fn resolve_pcr_digests(
             }
             Ok(())
         };
-        try_visit_pcr_expressions_mut(ast, &mut populator)?;
-    }
-    Ok(())
-}
-
-/// Traverses the AST, applying a fallible visitor closure to each `Pcr` expression.
-fn try_visit_pcr_expressions_mut<F>(
-    ast: &mut Expression,
-    visitor: &mut F,
-) -> Result<(), CommandError>
-where
-    F: FnMut(&mut Expression) -> Result<(), CommandError>,
-{
-    match ast {
-        Expression::Pcr { .. } => visitor(ast)?,
-        Expression::And(branches) | Expression::Or(branches) => {
-            for branch in branches.iter_mut() {
-                try_visit_pcr_expressions_mut(branch, visitor)?;
-            }
-        }
-        Expression::Secret { auth_handle, .. } => {
-            try_visit_pcr_expressions_mut(auth_handle, visitor)?;
-        }
-        Expression::Auth(_) | Expression::Handle(_) | Expression::Path(_) => {}
+        visit_pcr_expressions_mut(ast, &mut populator)?;
     }
     Ok(())
 }
@@ -126,7 +104,7 @@ impl SubCommand for Policy {
         with_device(job.device.clone(), |device| {
             let mut ast = parse(&self.expression)?;
             match ast {
-                Expression::Auth(_) | Expression::Handle(_) | Expression::Path(_) => {
+                Expression::Auth(_) | Expression::Handle(_) => {
                     return Err(CommandError::InvalidInput(
                         "not a valid policy expression".to_string(),
                     ));
@@ -154,7 +132,8 @@ impl SubCommand for Policy {
                             TpmPolicySession::new(device, session_handle, session_hash_alg);
                         execute_policy(&ast, &mut session)?
                     };
-                    device.flush_context(session_handle)?;
+                    let flush_result = device.flush_context(session_handle);
+                    flush_result?;
                     writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Session => {
@@ -165,13 +144,20 @@ impl SubCommand for Policy {
                     )?;
                     let mut tpm_policy_session =
                         TpmPolicySession::new(device, resp.session_handle, session_hash_alg);
-                    execute_policy(&ast, &mut tpm_policy_session)?;
-                    let mut session_data =
-                        VtpmSession::new(session_hash_alg, nonce_caller, &resp, &[])?;
-                    session_data.context = device.save_context(resp.session_handle.0)?;
-                    let vhandle = job.cache.add_session(session_data);
-                    job.cache.save()?;
-                    writeln!(job.writer, "vtpm:{vhandle:08x}")?;
+                    match execute_policy(&ast, &mut tpm_policy_session) {
+                        Ok(_) => {
+                            let mut session_data =
+                                VtpmSession::new(session_hash_alg, nonce_caller, &resp, &[])?;
+                            session_data.context = device.save_context(resp.session_handle.0)?;
+                            let vhandle = job.cache.add_session(session_data);
+                            job.cache.save()?;
+                            writeln!(job.writer, "vtpm:{vhandle:08x}")?;
+                        }
+                        Err(e) => {
+                            let _ = device.flush_context(resp.session_handle);
+                            return Err(e.into());
+                        }
+                    }
                 }
             }
             Ok(())
