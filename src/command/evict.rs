@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::CommandError,
+    command::{deny_too_many_auths, CommandError},
     device::with_device,
     handle::{Handle, HandleClass, HandleError},
     job::Job,
@@ -24,6 +24,8 @@ pub struct Evict {
 
 impl SubCommand for Evict {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_too_many_auths(job.auth_list, 1)?;
+
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
             let persistent_handle_val = match self.output.class() {
                 HandleClass::Tpm => Ok(self.output.value()),

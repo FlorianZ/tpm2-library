@@ -2,7 +2,11 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::SubCommand, command::CommandError, device::with_device, handle::Handle, job::Job,
+    cli::SubCommand,
+    command::{deny_too_many_auths, CommandError},
+    device::with_device,
+    handle::Handle,
+    job::Job,
 };
 use clap::Args;
 use std::io::IsTerminal;
@@ -22,6 +26,8 @@ pub struct Unseal {
 
 impl SubCommand for Unseal {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_too_many_auths(job.auth_list, 1)?;
+
         with_device(job.device.clone(), |device| {
             let item_handle = job.load_context(device, &self.input)?;
             let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];

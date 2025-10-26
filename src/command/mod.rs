@@ -39,7 +39,7 @@ pub use return_code::*;
 pub use unseal::*;
 
 use crate::{
-    auth::AuthError,
+    auth::{Auth, AuthError},
     crypto::CryptoError,
     device::DeviceError,
     handle::{HandleError, HandlePatternError},
@@ -128,10 +128,25 @@ where
 ///
 /// # Errors
 ///
-/// Returns `CommandError::UnsupportedKeyAlgorithm` if the algorithm is keyedhash.
+/// Returns [`UnsupportedKeyAlgorithm`](crate::command::CommandError::UnsupportedKeyAlgorithm)
+/// if the algorithm is keyedhash.
 pub fn deny_keyedhash(algorithm: &crate::key::Alg) -> Result<(), CommandError> {
     if algorithm.params == AlgInfo::KeyedHash {
         Err(CommandError::UnsupportedKeyAlgorithm(algorithm.clone()))
+    } else {
+        Ok(())
+    }
+}
+
+/// Returns an error if the number of authorizations exceeds the maximum allowed.
+///
+/// # Errors
+///
+/// Returns [`TooManyAuths`](crate::command::CommandError::TooManyAuths) when
+/// `auth_list.len()` > `max_auths`.
+pub fn deny_too_many_auths(auth_list: &[Auth], max_auths: usize) -> Result<(), CommandError> {
+    if auth_list.len() > max_auths {
+        Err(CommandError::TooManyAuths)
     } else {
         Ok(())
     }
@@ -159,6 +174,8 @@ pub enum CommandError {
     SensitiveDataDenied,
     #[error("sensitive data missing")]
     SensitiveDataMissing,
+    #[error("too many authorizations provided")]
+    TooManyAuths,
     #[error("unknown parent")]
     UnknownParent,
     #[error("unsupported key algorithm: '{0}'")]

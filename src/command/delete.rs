@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::CommandError,
+    command::{deny_too_many_auths, CommandError},
     device::{with_device, Device},
     handle::HandlePattern,
     job::Job,
@@ -72,6 +72,8 @@ impl SubCommand for Delete {
 
 /// Deletes TPM objects matching a pattern across sessions, transient, and persistent handles.
 fn delete_tpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandError> {
+    deny_too_many_auths(job.auth_list, 1)?;
+
     with_device(job.device.clone(), |dev| {
         let pattern = HandlePattern::new(pattern_str)?;
 
