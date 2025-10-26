@@ -2,14 +2,6 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use nom::{
-    branch::alt,
-    bytes::complete::tag,
-    character::{complete::char, complete::hex_digit1},
-    combinator::{all_consuming, map_res},
-    sequence::tuple,
-    IResult,
-};
 use std::{convert::TryFrom, str::FromStr};
 use thiserror::Error;
 use tpm2_protocol::data::TpmHt;
@@ -30,25 +22,6 @@ pub enum HandleClass {
 /// TPM and vTPM handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Handle(pub (HandleClass, u32));
-
-/// Nom parser for the Handle struct.
-fn parse_handle(input: &str) -> IResult<&str, Handle> {
-    map_res(
-        tuple((
-            alt((tag("tpm"), tag("vtpm"))),
-            char(':'),
-            map_res(hex_digit1, |s: &str| u32::from_str_radix(s, 16)),
-        )),
-        |(scheme, _, value)| -> Result<Handle, HandleError> {
-            let class = match scheme {
-                "tpm" => HandleClass::Tpm,
-                "vtpm" => HandleClass::Vtpm,
-                _ => unreachable!(),
-            };
-            Ok(Handle((class, value)))
-        },
-    )(input)
-}
 
 impl Handle {
     /// Returns class of the handle.
@@ -78,10 +51,17 @@ impl FromStr for Handle {
     type Err = HandleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match all_consuming(parse_handle)(s) {
-            Ok((_, handle)) => Ok(handle),
-            Err(_) => Err(HandleError::InvalidHandle),
-        }
+        let (scheme_str, value_str) = s.split_once(':').ok_or(HandleError::InvalidHandle)?;
+
+        let class = match scheme_str {
+            "tpm" => HandleClass::Tpm,
+            "vtpm" => HandleClass::Vtpm,
+            _ => return Err(HandleError::InvalidHandle),
+        };
+
+        let value = u32::from_str_radix(value_str, 16).map_err(|_| HandleError::InvalidHandle)?;
+
+        Ok(Handle((class, value)))
     }
 }
 
@@ -91,7 +71,7 @@ impl TryFrom<Handle> for TpmHt {
     fn try_from(handle: Handle) -> Result<Self, Self::Error> {
         let raw_handle = handle.value();
         let ht_byte = (raw_handle >> 24) as u8;
-        TpmHt::try_from(ht_byte).map_err(|()| HandleError::InvalidHandle)
+        TpmHt::try_from(ht_byte).map_err(|_| HandleError::InvalidHandle)
     }
 }
 

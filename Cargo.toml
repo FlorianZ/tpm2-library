@@ -31,7 +31,6 @@ hex = "0.4"
 hmac = "0.12"
 log = "0.4"
 nix = { version = "0.29", features = ["fs"] }
-nom = "7.1"
 num-bigint = "0.4"
 num-traits = "0.2"
 p256 = { version = "0.13", features = ["ecdh"] }
