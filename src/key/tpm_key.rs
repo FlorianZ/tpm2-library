@@ -4,13 +4,9 @@
 
 #![allow(clippy::no_effect_underscore_binding)]
 
-use super::{Alg, ExternalKey, KeyError, Tpm2shAlgId};
+use super::{Alg, KeyError};
 use crate::{
     auth::Auth,
-    crypto::{
-        crypto_hash_size, crypto_hmac, crypto_kdfa, crypto_make_name, derive_seed_with_ecc,
-        protect_seed_with_rsa, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
-    },
     device::{Device, DeviceError},
     job::{Job, JobError},
     template,
@@ -18,27 +14,20 @@ use crate::{
     write_object,
 };
 
-use aes::Aes128;
-use cfb_mode::Encryptor;
-use cipher::{AsyncStreamCipher, KeyIvInit};
 use pem::Pem;
-use rand::{CryptoRng, RngCore};
 use rasn::{
     prelude::ObjectIdentifier,
     types::{OctetString, Utf8String},
     AsnType, Decode, Decoder, Encode, Encoder,
 };
-use tpm2_protocol::data::{TpmAlgId, TpmRcBase, TpmtPublic};
+use tpm2_protocol::data::TpmRcBase;
 use tpm2_protocol::{
-    constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
-        Tpm2bPrivate, Tpm2bPrivateKeyRsa, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveCreate,
-        Tpm2bSensitiveData, Tpm2bSymKey, TpmCc, TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
-        TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
+        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitiveCreate,
+        Tpm2bSensitiveData, TpmCc, TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
     },
-    message::{TpmCreateCommand, TpmImportCommand},
-    TpmBuild, TpmError, TpmHandle, TpmParse, TpmWriter,
+    message::TpmCreateCommand,
+    TpmError, TpmHandle, TpmParse,
 };
 
 pub const OID_LOADABLE_KEY: ObjectIdentifier =
@@ -211,98 +200,6 @@ impl TpmKey {
         })
     }
 
-    /// Imports an external key under a TPM parent, creating a new `TpmKey`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the TPM import operation fails.
-    ///
-    /// # Remarks on `symmetricAlg`
-    ///
-    /// In `TPM2_Import` the `symmetricAlg` parameter defines the cipher for the
-    /// inner wrapper of the `duplicate` blob.
-    ///
-    /// The key import process differences for ECC and RSA parents:
-    ///
-    /// - **ECC**: the import uses ECDH with AES-CFB as the symmetric algorithm.
-    /// - **RSA**: the import uses RSA-OAEP to encrypt a seed, which passed in
-    ///   the `inSymSeed` command parameter, `encryptionKey` is zero-length
-    ///   vector and `symmetricAlg` must be set to `TPM_ALG_NULL`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn from_external_key(
-        job: &mut Job,
-        device: &mut Device,
-        parent_handle: TpmHandle,
-        external_key: &ExternalKey,
-        rng: &mut (impl RngCore + CryptoRng),
-        handles: &[u32],
-    ) -> Result<Self, KeyError> {
-        let (parent_public, parent_name) = match device.read_public(parent_handle) {
-            Ok(result) => result,
-            Err(DeviceError::Io(e)) if e.kind() == std::io::ErrorKind::InvalidInput => {
-                return Err(KeyError::InvalidParent(parent_handle.0));
-            }
-            Err(e) => return Err(e.into()),
-        };
-        let parent_name_alg = parent_public.name_alg;
-
-        let public = external_key.to_public(parent_name_alg)?;
-        let object_name = crypto_make_name(&public)?;
-        let sensitive_blob = external_key.sensitive_blob();
-
-        let (duplicate, in_sym_seed, encryption_key) = create_import_blob(
-            &parent_public,
-            &public,
-            &sensitive_blob,
-            &parent_name,
-            &object_name,
-            rng,
-        )?;
-
-        let import_cmd = TpmImportCommand {
-            parent_handle: parent_handle.0.into(),
-            encryption_key,
-            object_public: Tpm2bPublic {
-                inner: public.clone(),
-            },
-            duplicate,
-            in_sym_seed,
-            symmetric_alg: TpmtSymDefObject::default(),
-        };
-
-        let (resp, _) = job
-            .execute(device, &import_cmd, handles, job.auth_list)
-            .map_err(|e| match e {
-                JobError::Device(d) => KeyError::Device(d),
-                JobError::Vtpm(
-                    VtpmError::Auth(_)
-                    | VtpmError::HandleNotFound(_, _)
-                    | VtpmError::TrailingAuthorizations,
-                ) => KeyError::Device(DeviceError::TpmProtocol(TpmError::MalformedData)),
-                _ => KeyError::ValueConversionFailed(e.to_string()),
-            })?;
-
-        let import_resp = resp
-            .Import()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Import))?;
-        let out_private = import_resp.out_private;
-
-        let parent_public_2b = Tpm2bPublic {
-            inner: parent_public,
-        };
-        let tpm_key = Self::from_creation_data(
-            true,
-            parent_handle,
-            &Tpm2bPublic { inner: public },
-            &out_private,
-            &Tpm2bDigest::default(),
-            OID_IMPORTABLE_KEY,
-            &parent_public_2b,
-        )?;
-
-        Ok(tpm_key)
-    }
-
     /// Parses and returns the public area of the key.
     ///
     /// # Errors
@@ -353,122 +250,4 @@ impl TpmKey {
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, KeyError> {
         rasn::der::decode(der_bytes).map_err(Into::into)
     }
-}
-
-/// Create import blob. As per the TCG TPM 2.0 specification, the duplication
-/// blob for import requires a zero IV for its symmetric encryption in CFB mode.
-///
-/// # Errors
-///
-/// Returns a `CryptoError` if any underlying cryptographic operations fail, if
-/// the provided parent key type is unsupported for import, or if TPM data
-/// structures cannot be serialized.
-#[allow(clippy::too_many_arguments)]
-fn create_import_blob(
-    parent_public: &TpmtPublic,
-    object_public: &TpmtPublic,
-    private_bytes: &[u8],
-    _parent_name: &Tpm2bName,
-    object_name: &Tpm2bName,
-    rng: &mut (impl RngCore + CryptoRng),
-) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData), KeyError> {
-    let parent_name_alg = parent_public.name_alg;
-    let parent_key_type = parent_public.object_type;
-
-    let (seed, in_sym_seed) = match parent_key_type {
-        TpmAlgId::Rsa => {
-            let seed_size = crypto_hash_size(parent_name_alg).ok_or(
-                KeyError::UnsupportedNameAlgorithm(Tpm2shAlgId(parent_name_alg)),
-            )? as usize;
-            let mut seed = vec![0u8; seed_size];
-            rng.fill_bytes(&mut seed);
-            let encrypted_seed = protect_seed_with_rsa(parent_public, &seed, rng)?;
-            (seed, encrypted_seed)
-        }
-        TpmAlgId::Ecc => {
-            let (derived_seed, ephemeral_point) = derive_seed_with_ecc(parent_public, rng)?;
-            let point_bytes = write_object(&ephemeral_point)?;
-            let secret = Tpm2bEncryptedSecret::try_from(point_bytes.as_slice())?;
-            (derived_seed, secret)
-        }
-        _ => {
-            return Err(KeyError::UnsupportedKeyAlgorithm(Tpm2shAlgId(
-                parent_key_type,
-            )))
-        }
-    };
-
-    let sym_key = crypto_kdfa(
-        parent_name_alg,
-        &seed,
-        KDF_LABEL_STORAGE,
-        object_name.as_ref(),
-        &[],
-        128,
-    )?;
-
-    let key_bits = crypto_hash_size(parent_name_alg).ok_or(KeyError::UnsupportedNameAlgorithm(
-        Tpm2shAlgId(parent_name_alg),
-    ))? * 8;
-    let key_bits =
-        u16::try_from(key_bits).map_err(|_| KeyError::InvalidRsaKeyBits(key_bits.to_string()))?;
-
-    let hmac_key = crypto_kdfa(
-        parent_name_alg,
-        &seed,
-        KDF_LABEL_INTEGRITY,
-        &[],
-        &[],
-        key_bits,
-    )?;
-
-    let object_key_type = object_public.object_type;
-    let sensitive_composite = match object_key_type {
-        TpmAlgId::Rsa => TpmuSensitiveComposite::Rsa(Tpm2bPrivateKeyRsa::try_from(private_bytes)?),
-        TpmAlgId::Ecc => TpmuSensitiveComposite::Ecc(Tpm2bEccParameter::try_from(private_bytes)?),
-        TpmAlgId::KeyedHash => {
-            TpmuSensitiveComposite::Bits(Tpm2bSensitiveData::try_from(private_bytes)?)
-        }
-        TpmAlgId::SymCipher => TpmuSensitiveComposite::Sym(Tpm2bSymKey::try_from(private_bytes)?),
-        _ => {
-            return Err(KeyError::UnsupportedKeyAlgorithm(Tpm2shAlgId(
-                object_key_type,
-            )))
-        }
-    };
-    let sensitive = TpmtSensitive {
-        sensitive_type: object_key_type,
-        auth_value: Tpm2bAuth::default(),
-        seed_value: Tpm2bDigest::default(),
-        sensitive: sensitive_composite,
-    };
-    let sensitive_tpm2b = Tpm2bSensitive::from(sensitive);
-    let mut enc_data = write_object(&sensitive_tpm2b)?;
-
-    let iv = [0u8; 16];
-    let cipher = Encryptor::<Aes128>::new(sym_key.as_slice().into(), &iv.into());
-    cipher.encrypt(&mut enc_data);
-
-    let final_mac = crypto_hmac(
-        parent_name_alg,
-        &hmac_key,
-        &[&enc_data, object_name.as_ref()],
-    )?;
-
-    let duplicate_blob = {
-        let mut duplicate_blob_buf = [0u8; TPM_MAX_COMMAND_SIZE];
-        let len = {
-            let mut writer = TpmWriter::new(&mut duplicate_blob_buf);
-            Tpm2bDigest::try_from(final_mac.as_slice())?.build(&mut writer)?;
-            writer.write_bytes(&enc_data)?;
-            writer.len()
-        };
-        duplicate_blob_buf[..len].to_vec()
-    };
-
-    Ok((
-        Tpm2bPrivate::try_from(duplicate_blob.as_slice())?,
-        in_sym_seed,
-        Tpm2bData::default(),
-    ))
 }

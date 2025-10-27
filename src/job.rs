@@ -7,7 +7,7 @@ use crate::{
     crypto::{crypto_hash_size, crypto_make_name, CryptoError},
     device::{with_device, Device, DeviceError, TpmCommandObject},
     handle::{Handle, HandleClass},
-    key::{AnyKey, KeyError, TpmKey},
+    key::KeyError,
     vtpm::{build_password_session, create_auth, VtpmCache, VtpmContext, VtpmError},
     write_object,
 };
@@ -400,39 +400,6 @@ impl<'a> Job<'a> {
                 .map_err(|_| JobError::ResponseMismatch(TpmCc::EvictControl))?;
             Ok(())
         })
-    }
-
-    /// Imports an external key under a TPM parent, creating a new `TpmKey`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidFormat`](crate::job::JobError::InvalidFormat) when the
-    /// input bytes represent a TPM key, not an external key.
-    /// Returns [`Key`](crate::job::JobError::Key) when converting the external
-    /// key or building the TPM key fails.
-    /// Returns [`JobError`] from the underlying `TpmKey::from_external_key` call
-    /// on failure.
-    pub fn import_key(
-        &mut self,
-        device: &mut Device,
-        parent_handle: TpmHandle,
-        input_bytes: &[u8],
-    ) -> Result<TpmKey, JobError> {
-        let external_key = match AnyKey::try_from(input_bytes)? {
-            AnyKey::Tpm(_) => {
-                return Err(JobError::InvalidFormat);
-            }
-            AnyKey::External(key) => key,
-        };
-        let mut rng = rand::thread_rng();
-        Ok(TpmKey::from_external_key(
-            self,
-            device,
-            parent_handle,
-            &external_key,
-            &mut rng,
-            &[parent_handle.0],
-        )?)
     }
 
     /// Reads a certificate from a given NV index.
