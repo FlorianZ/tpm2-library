@@ -4,9 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{
-        deny_keyedhash, deny_parent, deny_too_many_auths, CommandError, CreationArgs, HierarchyArgs,
-    },
+    command::{deny_keyedhash, deny_too_many_auths, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
     job::Job,
     key::Alg,
@@ -37,7 +35,6 @@ pub struct CreatePrimary {
 
 impl SubCommand for CreatePrimary {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
-        deny_parent(job.parent)?;
         deny_too_many_auths(job.auth_list, 1)?;
 
         with_device(job.device.clone(), |device| {

@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 use crate::{
     cli::SubCommand,
-    command::{deny_parent, deny_too_many_auths, print_table, CommandError, Tabled},
+    command::{deny_too_many_auths, print_table, CommandError, Tabled},
     crypto::crypto_hash_size,
     device::{test_rsa_parms, with_device, Device, DeviceError},
     job::Job,
@@ -130,7 +130,6 @@ impl Algorithm {
 
 impl SubCommand for Algorithm {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
-        deny_parent(job.parent)?;
         deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {
             let mut results: Vec<(String, AlgorithmType)> = Vec::new();

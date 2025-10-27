@@ -8,6 +8,7 @@ use crate::{
     cli::SubCommand,
     command::{deny_too_many_auths, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device},
+    handle::Handle,
     io::write_key_data,
     job::Job,
     key::{Alg, AlgInfo, KeyError, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY, OID_SEALED_DATA},
@@ -19,6 +20,9 @@ use tpm2_protocol::data::Tpm2bSensitiveData;
 #[derive(Args, Debug, Clone)]
 #[command(about = "Creates a secondary key or a sealed data object.")]
 pub struct Create {
+    /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
+    pub parent: Handle,
+
     /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256'.
     #[arg(value_parser = clap::value_parser!(Alg))]
     pub algorithm: Alg,
@@ -46,7 +50,7 @@ impl SubCommand for Create {
 
 impl Create {
     fn create_object(&self, job: &mut Job, device: &mut Device) -> Result<(), CommandError> {
-        let parent_handle_arg = job.parent.ok_or(CommandError::ParentMissing)?;
+        let parent_handle_arg = self.parent;
         let parent_handle = job.load_context(device, &parent_handle_arg)?;
 
         let (object_attributes, user_auth, auth_policy) =

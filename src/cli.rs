@@ -10,7 +10,6 @@ use crate::{
         Algorithm, Cache, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Evict,
         Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal,
     },
-    handle::Handle,
     job::Job,
 };
 use clap::{
@@ -66,10 +65,6 @@ pub struct TopLevel {
     /// List of 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>' entries.
     #[arg(short = 'A', long = "auth", value_delimiter = ',')]
     pub auth: Vec<Auth>,
-
-    /// Either 'tpm:<handle>' or 'vtpm:<handle>'
-    #[arg(short = 'P', long)]
-    pub parent: Option<Handle>,
 
     #[command(subcommand)]
     pub command: Command,

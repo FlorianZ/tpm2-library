@@ -42,7 +42,7 @@ use crate::{
     auth::{Auth, AuthError},
     crypto::CryptoError,
     device::DeviceError,
-    handle::{Handle, HandleError, HandlePatternError},
+    handle::{HandleError, HandlePatternError},
     job::JobError,
     key::{AlgInfo, KeyError},
     pcr::PcrError,
@@ -159,20 +159,6 @@ pub fn deny_too_many_auths(auth_list: &[Auth], max_auths: usize) -> Result<(), C
     }
 }
 
-/// Returns an error if the optional parent argument is provided.
-///
-/// # Errors
-///
-/// Returns [`ParentDenied`](crate::command::CommandError::ParentDenied) when
-/// `parent.is_some()`.
-pub fn deny_parent(parent: Option<Handle>) -> Result<(), CommandError> {
-    if parent.is_some() {
-        Err(CommandError::ParentDenied)
-    } else {
-        Ok(())
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum CommandError {
     #[error("authentication denied")]
@@ -187,10 +173,6 @@ pub enum CommandError {
     InvalidOutput(String),
     #[error("invalid parent: {0}{1:08x}")]
     InvalidParent(&'static str, u32),
-    #[error("parent missing")]
-    ParentMissing,
-    #[error("parent option denied")]
-    ParentDenied,
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
     #[error("sensitive data denied")]
@@ -237,7 +219,6 @@ impl From<JobError> for CommandError {
     fn from(err: JobError) -> Self {
         match err {
             JobError::InvalidParent(prefix, handle) => Self::InvalidParent(prefix, handle),
-            JobError::ParentMissing => Self::ParentMissing,
             JobError::Device(dev_err) => Self::from(dev_err),
             _ => Self::Job(err),
         }

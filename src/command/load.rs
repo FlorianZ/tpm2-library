@@ -5,7 +5,7 @@
 use crate::{
     auth::Auth,
     cli::SubCommand,
-    command::{deny_parent, deny_too_many_auths, CommandError, InputArgs},
+    command::{deny_too_many_auths, CommandError, InputArgs},
     device::{with_device, Device},
     handle::{Handle, HandleClass},
     io::read_file_input,
@@ -29,7 +29,6 @@ pub struct Load {
 
 impl SubCommand for Load {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
-        deny_parent(job.parent)?;
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
@@ -42,7 +41,7 @@ impl SubCommand for Load {
             let parent_pub_key_bytes = tpm_key
                 .parent_pub_key
                 .as_ref()
-                .ok_or(CommandError::ParentMissing)?;
+                .ok_or(CommandError::InvalidInput("parent missing".to_string()))?;
             let (parent_public, _) =
                 Tpm2bPublic::parse(parent_pub_key_bytes).map_err(KeyError::from)?;
 

@@ -37,8 +37,6 @@ pub enum JobError {
     InvalidParent(&'static str, u32),
     #[error("malformed data")]
     MalformedData,
-    #[error("parent missing")]
-    ParentMissing,
     #[error("parent not found")]
     ParentNotFound,
     #[error("response mismatch: {0}")]
@@ -72,7 +70,6 @@ pub struct Job<'a> {
     pub cache: &'a mut VtpmCache<'a>,
     pub auth_list: &'a [Auth],
     pub writer: &'a mut dyn Write,
-    pub parent: Option<Handle>,
 }
 
 impl<'a> Job<'a> {
@@ -83,14 +80,12 @@ impl<'a> Job<'a> {
         cache: &'a mut VtpmCache<'a>,
         auth_list: &'a [Auth],
         writer: &'a mut dyn Write,
-        parent: Option<Handle>,
     ) -> Self {
         Self {
             device,
             cache,
             auth_list,
             writer,
-            parent,
         }
     }
 

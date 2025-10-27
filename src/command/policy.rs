@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_parent, deny_too_many_auths, CommandError},
+    command::{deny_too_many_auths, CommandError},
     device::with_device,
     job::Job,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
@@ -101,7 +101,6 @@ fn resolve_pcr_digests(
 
 impl SubCommand for Policy {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
-        deny_parent(job.parent)?;
         deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {
             let mut ast = parse(&self.expression)?;

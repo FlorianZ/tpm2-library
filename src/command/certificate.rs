@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_parent, deny_too_many_auths, CommandError},
+    command::{deny_too_many_auths, CommandError},
     device::with_device,
     handle::Handle,
     job::Job,
@@ -22,7 +22,6 @@ pub struct Certificate {
 
 impl SubCommand for Certificate {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
-        deny_parent(job.parent)?;
         deny_too_many_auths(job.auth_list, 1)?;
 
         with_device(job.device.clone(), |device| {

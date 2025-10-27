@@ -10,7 +10,7 @@ use crate::{
         protect_seed_with_rsa, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
     },
     device::{with_device, Device, DeviceError},
-    handle::HandleClass,
+    handle::{Handle, HandleClass},
     io::{read_file_input, write_key_data},
     job::Job,
     key::{AnyKey, ExternalKey, KeyError, Tpm2shAlgId, TpmKey, OID_IMPORTABLE_KEY},
@@ -35,6 +35,9 @@ use tpm2_protocol::{
 /// Convert external keys to TPM keys.
 #[derive(Args, Debug)]
 pub struct Convert {
+    /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
+    pub parent: Handle,
+
     #[clap(flatten)]
     pub input_args: InputArgs,
 
@@ -149,7 +152,7 @@ impl SubCommand for Convert {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {
-            let parent_handle_arg = job.parent.ok_or(CommandError::ParentMissing)?;
+            let parent_handle_arg = self.parent;
             let parent_handle = match parent_handle_arg.class() {
                 HandleClass::Tpm => Ok(TpmHandle(parent_handle_arg.value())),
                 HandleClass::Vtpm => job.load_context(device, &parent_handle_arg),

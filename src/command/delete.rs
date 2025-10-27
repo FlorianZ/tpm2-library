@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_parent, deny_too_many_auths, CommandError},
+    command::{deny_too_many_auths, CommandError},
     device::{with_device, Device},
     handle::HandlePattern,
     job::Job,
@@ -58,7 +58,6 @@ impl Delete {
 
 impl SubCommand for Delete {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
-        deny_parent(job.parent)?;
         if let Some(pattern) = self.input.strip_prefix("tpm:") {
             delete_tpm_handles(job, pattern)
         } else if let Some(pattern) = self.input.strip_prefix("vtpm:") {
