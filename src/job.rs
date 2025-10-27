@@ -5,7 +5,7 @@
 use crate::{
     auth::{Auth, AuthClass, AuthError},
     crypto::{crypto_hash_size, crypto_make_name, CryptoError},
-    device::{with_device, Device, DeviceError, TpmCommandObject},
+    device::{Device, DeviceError, TpmCommandObject},
     handle::{Handle, HandleClass},
     key::KeyError,
     vtpm::{build_password_session, create_auth, VtpmCache, VtpmContext, VtpmError, VtpmSession},
@@ -400,29 +400,28 @@ impl<'a> Job<'a> {
     /// the TPM command returns an unexpected response type.
     pub fn evict_control(
         &mut self,
+        device: &mut Device,
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
     ) -> Result<(), JobError> {
-        with_device(self.device.clone(), |device| {
-            let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
-                (TpmRh::Owner as u32).into()
-            } else {
-                (TpmRh::Platform as u32).into()
-            };
+        let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
+            (TpmRh::Owner as u32).into()
+        } else {
+            (TpmRh::Platform as u32).into()
+        };
 
-            let cmd = TpmEvictControlCommand {
-                auth: auth_handle,
-                object_handle: object_to_evict.0.into(),
-                persistent_handle,
-            };
-            let handles_for_session = [auth_handle.0];
+        let cmd = TpmEvictControlCommand {
+            auth: auth_handle,
+            object_handle: object_to_evict.0.into(),
+            persistent_handle,
+        };
+        let handles_for_session = [auth_handle.0];
 
-            let (resp, _) = self.execute(device, &cmd, &handles_for_session, self.auth_list)?;
+        let (resp, _) = self.execute(device, &cmd, &handles_for_session, self.auth_list)?;
 
-            resp.EvictControl()
-                .map_err(|_| JobError::ResponseMismatch(TpmCc::EvictControl))?;
-            Ok(())
-        })
+        resp.EvictControl()
+            .map_err(|_| JobError::ResponseMismatch(TpmCc::EvictControl))?;
+        Ok(())
     }
 }
 

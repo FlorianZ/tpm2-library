@@ -92,7 +92,7 @@ fn delete_tpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandErr
                     }
                     TpmHt::Persistent => {
                         let persistent_handle = TpmHandle(handle.value());
-                        job.evict_control(persistent_handle, persistent_handle)?;
+                        job.evict_control(dev, persistent_handle, persistent_handle)?;
                     }
                     _ => {}
                 }

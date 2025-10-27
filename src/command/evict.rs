@@ -35,7 +35,7 @@ impl SubCommand for Evict {
 
             let transient_handle = job.load_context(dev, &self.input)?;
 
-            job.evict_control(transient_handle, persistent_handle)?;
+            job.evict_control(dev, transient_handle, persistent_handle)?;
 
             let vhandle = match self.input.class() {
                 HandleClass::Vtpm => Ok(self.input.value()),
