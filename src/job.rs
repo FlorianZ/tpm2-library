@@ -15,13 +15,8 @@ use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc};
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{
-        Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaNv, TpmaSession, TpmsAuthCommand,
-    },
-    message::{
-        TpmAuthResponses, TpmEvictControlCommand, TpmNvReadCommand, TpmNvReadPublicCommand,
-        TpmResponseBody,
-    },
+    data::{Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaSession, TpmsAuthCommand},
+    message::{TpmAuthResponses, TpmEvictControlCommand, TpmResponseBody},
     TpmError, TpmHandle,
 };
 
@@ -428,76 +423,6 @@ impl<'a> Job<'a> {
                 .map_err(|_| JobError::ResponseMismatch(TpmCc::EvictControl))?;
             Ok(())
         })
-    }
-
-    /// Reads a certificate from a given NV index.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ResponseMismatch`](crate::job::JobError::ResponseMismatch) when
-    /// TPM commands return unexpected response types.
-    /// Returns [`IntDecode`](crate::job::JobError::IntDecode) when converting
-    /// chunk size or offset fails.
-    /// Returns [`JobError`] from the underlying `execute` calls on failure.
-    pub fn read_certificate(
-        &mut self,
-        device: &mut Device,
-        auths: &[Auth],
-        handle: u32,
-        max_read_size: usize,
-    ) -> Result<Option<Vec<u8>>, JobError> {
-        let nv_read_public_cmd = TpmNvReadPublicCommand {
-            nv_index: handle.into(),
-        };
-        let (resp, _) = self.execute(device, &nv_read_public_cmd, &[], &[])?;
-        let read_public_resp = resp
-            .NvReadPublic()
-            .map_err(|_| JobError::ResponseMismatch(TpmCc::NvReadPublic))?;
-        let nv_public = read_public_resp.nv_public;
-        let data_size = nv_public.data_size as usize;
-
-        if data_size == 0 {
-            return Ok(None);
-        }
-
-        let auth_handle_val = if nv_public.attributes.contains(TpmaNv::AUTHREAD) {
-            handle
-        } else if nv_public.attributes.contains(TpmaNv::PPREAD) {
-            TpmRh::Platform as u32
-        } else if nv_public.attributes.contains(TpmaNv::OWNERREAD) {
-            TpmRh::Owner as u32
-        } else {
-            handle
-        };
-
-        let mut cert_bytes = Vec::with_capacity(data_size);
-        let mut offset = 0;
-        while offset < data_size {
-            let chunk_size = std::cmp::min(max_read_size, data_size - offset);
-
-            let nv_read_cmd = TpmNvReadCommand {
-                auth_handle: auth_handle_val.into(),
-                nv_index: handle.into(),
-                size: u16::try_from(chunk_size)?,
-                offset: u16::try_from(offset)?,
-            };
-
-            let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
-            let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
-
-            let effective_auths: &[Auth] = if needs_auth { auths } else { &[] };
-
-            let (resp, _) =
-                self.execute(device, &nv_read_cmd, &[auth_handle_val], effective_auths)?;
-
-            let read_resp = resp
-                .NvRead()
-                .map_err(|_| JobError::ResponseMismatch(TpmCc::NvRead))?;
-            cert_bytes.extend_from_slice(read_resp.data.as_ref());
-            offset += chunk_size;
-        }
-
-        Ok(Some(cert_bytes))
     }
 }
 

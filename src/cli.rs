@@ -7,8 +7,8 @@
 use crate::{
     auth::Auth,
     command::{
-        Algorithm, Cache, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Evict,
-        Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal,
+        Algorithm, Cache, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load,
+        Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal,
     },
     job::Job,
 };
@@ -74,7 +74,6 @@ pub struct TopLevel {
 pub enum Command {
     Algorithm(Algorithm),
     Cache(Cache),
-    Certificate(Certificate),
     Convert(Convert),
     Create(Create),
     CreatePrimary(CreatePrimary),
@@ -94,7 +93,6 @@ impl Command {
         match self {
             Self::Algorithm(cmd) => cmd,
             Self::Cache(cmd) => cmd,
-            Self::Certificate(cmd) => cmd,
             Self::Convert(cmd) => cmd,
             Self::Create(cmd) => cmd,
             Self::CreatePrimary(cmd) => cmd,

@@ -6,7 +6,6 @@
 
 pub mod algorithm;
 pub mod cache;
-pub mod certificate;
 pub mod common;
 pub mod convert;
 pub mod create;
@@ -23,7 +22,6 @@ pub mod unseal;
 
 pub use algorithm::*;
 pub use cache::*;
-pub use certificate::*;
 pub use common::*;
 pub use convert::*;
 pub use create::*;
@@ -181,6 +179,8 @@ pub enum CommandError {
     SensitiveDataMissing,
     #[error("too many authorizations provided")]
     TooManyAuths,
+    #[error("unknown handle: {0}")]
+    UnknownHandle(String),
     #[error("unknown parent")]
     UnknownParent,
     #[error("unsupported key algorithm: '{0}'")]
