@@ -64,11 +64,11 @@ pub struct TopLevel {
     pub log_format: LogFormat,
 
     /// List of 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>' entries.
-    #[arg(short = 'A', long = "auth", global = true, value_delimiter = ',')]
+    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
     pub auth: Vec<Auth>,
 
     /// Either 'tpm:<handle>' or 'vtpm:<handle>'
-    #[arg(short = 'P', long, global = true)]
+    #[arg(short = 'P', long)]
     pub parent: Option<Handle>,
 
     #[command(subcommand)]
