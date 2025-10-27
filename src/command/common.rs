@@ -62,25 +62,23 @@ impl CreationArgs {
     ///
     /// Returns a `CommandError` if parsing fails.
     pub fn parse(&self, alg: &Alg) -> Result<(TpmaObject, Tpm2bAuth, Tpm2bDigest), CommandError> {
-        let mut attributes: TpmaObject = alg.clone().into();
+        let user_auth = match &self.password {
+            Some(hex_str) => Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())?,
+            None => Tpm2bAuth::default(),
+        };
 
-        if self.password.is_none() && self.policy.is_none() {
+        let auth_policy = match &self.policy {
+            Some(hex_str) => Tpm2bDigest::try_from(hex::decode(hex_str)?.as_slice())?,
+            None => Tpm2bDigest::default(),
+        };
+
+        let mut attributes: TpmaObject = alg.clone().into();
+        if !user_auth.is_empty() || auth_policy.is_empty() {
             attributes |= TpmaObject::USER_WITH_AUTH;
         }
-
-        let user_auth = if let Some(hex_str) = &self.password {
-            attributes |= TpmaObject::USER_WITH_AUTH;
-            Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())?
-        } else {
-            Tpm2bAuth::default()
-        };
-
-        let auth_policy = if let Some(hex_str) = &self.policy {
+        if !auth_policy.is_empty() {
             attributes |= TpmaObject::ADMIN_WITH_POLICY;
-            Tpm2bDigest::try_from(hex::decode(hex_str)?.as_slice())?
-        } else {
-            Tpm2bDigest::default()
-        };
+        }
 
         Ok((attributes, user_auth, auth_policy))
     }
