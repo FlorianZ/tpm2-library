@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::Hierarchy, command::CommandError, handle::Handle, key::Alg};
+use crate::{cli::Hierarchy, command::CommandError, key::Alg};
 use clap::{Args, ValueEnum};
 use std::path::PathBuf;
 use strum::{Display, EnumString};
@@ -35,20 +35,6 @@ pub struct OutputEncodingArgs {
     /// Output encoding: pem or der
     #[arg(long = "output-encoding", value_enum, default_value_t = OutputEncoding::default())]
     pub output_encoding: OutputEncoding,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct ParenBindArgs {
-    /// Parent key: 'tpm:<handle>', or 'vtpm:<handle>'
-    #[arg(short = 'P', long)]
-    pub parent: Handle,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct ParenLoadArgs {
-    /// Parent key: 'tpm:<handle>', or 'vtpm:<handle>'
-    #[arg(short = 'P', long)]
-    pub parent: Option<Handle>,
 }
 
 #[derive(Args, Debug, Clone)]

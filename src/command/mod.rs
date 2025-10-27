@@ -42,7 +42,7 @@ use crate::{
     auth::{Auth, AuthError},
     crypto::CryptoError,
     device::DeviceError,
-    handle::{HandleError, HandlePatternError},
+    handle::{Handle, HandleError, HandlePatternError},
     job::JobError,
     key::{AlgInfo, KeyError},
     pcr::PcrError,
@@ -145,8 +145,29 @@ pub fn deny_keyedhash(algorithm: &crate::key::Alg) -> Result<(), CommandError> {
 /// Returns [`TooManyAuths`](crate::command::CommandError::TooManyAuths) when
 /// `auth_list.len()` > `max_auths`.
 pub fn deny_too_many_auths(auth_list: &[Auth], max_auths: usize) -> Result<(), CommandError> {
-    if auth_list.len() > max_auths {
+    let effective_auth_count =
+        if auth_list.len() == 1 && auth_list[0] == Auth::default() && max_auths == 0 {
+            0
+        } else {
+            auth_list.len()
+        };
+
+    if effective_auth_count > max_auths {
         Err(CommandError::TooManyAuths)
+    } else {
+        Ok(())
+    }
+}
+
+/// Returns an error if the optional parent argument is provided.
+///
+/// # Errors
+///
+/// Returns [`ParentDenied`](crate::command::CommandError::ParentDenied) when
+/// `parent.is_some()`.
+pub fn deny_parent(parent: Option<Handle>) -> Result<(), CommandError> {
+    if parent.is_some() {
+        Err(CommandError::ParentDenied)
     } else {
         Ok(())
     }
@@ -168,6 +189,8 @@ pub enum CommandError {
     InvalidParent(&'static str, u32),
     #[error("parent missing")]
     ParentMissing,
+    #[error("parent option denied")]
+    ParentDenied,
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
     #[error("sensitive data denied")]
@@ -214,6 +237,7 @@ impl From<JobError> for CommandError {
     fn from(err: JobError) -> Self {
         match err {
             JobError::InvalidParent(prefix, handle) => Self::InvalidParent(prefix, handle),
+            JobError::ParentMissing => Self::ParentMissing,
             JobError::Device(dev_err) => Self::from(dev_err),
             _ => Self::Job(err),
         }

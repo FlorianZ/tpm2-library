@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_too_many_auths, CommandError},
+    command::{deny_parent, deny_too_many_auths, CommandError},
     device::with_device,
     handle::Handle,
     job::Job,
@@ -22,14 +22,15 @@ pub struct Certificate {
 
 impl SubCommand for Certificate {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_parent(job.parent)?;
         deny_too_many_auths(job.auth_list, 1)?;
 
         with_device(job.device.clone(), |device| {
             let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)? as usize;
             let handle = self.nv_index.value();
-            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
+            let auths = job.auth_list;
 
-            if let Some(cert_bytes) = job.read_certificate(device, &auths, handle, max_read_size)? {
+            if let Some(cert_bytes) = job.read_certificate(device, auths, handle, max_read_size)? {
                 let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
                 writeln!(job.writer, "{pem_cert}")?;
             } else {

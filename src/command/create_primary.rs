@@ -4,7 +4,9 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_keyedhash, deny_too_many_auths, CommandError, CreationArgs, HierarchyArgs},
+    command::{
+        deny_keyedhash, deny_parent, deny_too_many_auths, CommandError, CreationArgs, HierarchyArgs,
+    },
     device::with_device,
     job::Job,
     key::Alg,
@@ -35,13 +37,13 @@ pub struct CreatePrimary {
 
 impl SubCommand for CreatePrimary {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_parent(job.parent)?;
         deny_too_many_auths(job.auth_list, 1)?;
 
         with_device(job.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
 
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
-            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
             let handles = [primary_handle as u32];
 
             let (object_attributes, user_auth, auth_policy) =
@@ -63,7 +65,7 @@ impl SubCommand for CreatePrimary {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let (resp, _) = job.execute(device, &cmd, &handles, &auths)?;
+            let (resp, _) = job.execute(device, &cmd, &handles, job.auth_list)?;
 
             let resp = resp
                 .CreatePrimary()

@@ -10,6 +10,7 @@ use crate::{
         Algorithm, Cache, Certificate, CommandError, Convert, Create, CreatePrimary, Delete, Evict,
         Load, Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal,
     },
+    handle::Handle,
     job::Job,
 };
 use clap::{
@@ -54,17 +55,21 @@ pub enum LogFormat {
 #[derive(Parser, Debug)]
 #[command(version, about, styles = STYLES)]
 pub struct TopLevel {
-    /// Device path
+    /// Device file
     #[arg(short = 'd', long, default_value = "/dev/tpmrm0")]
     pub device: PathBuf,
 
-    /// Log format: 'plain' or 'pretty'
+    /// Either 'plain' or 'pretty'
     #[arg(long, value_enum, default_value_t = LogFormat::default())]
     pub log_format: LogFormat,
 
-    /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
+    /// List of 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>' entries.
     #[arg(short = 'A', long = "auth", global = true, value_delimiter = ',')]
     pub auth: Vec<Auth>,
+
+    /// Either 'tpm:<handle>' or 'vtpm:<handle>'
+    #[arg(short = 'P', long, global = true)]
+    pub parent: Option<Handle>,
 
     #[command(subcommand)]
     pub command: Command,

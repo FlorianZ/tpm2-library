@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{CommandError, InputArgs, OutputArgs, OutputEncodingArgs, ParenBindArgs},
+    command::{deny_too_many_auths, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     crypto::{
         crypto_hash_size, crypto_hmac, crypto_kdfa, crypto_make_name, derive_seed_with_ecc,
         protect_seed_with_rsa, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
@@ -35,9 +35,6 @@ use tpm2_protocol::{
 /// Convert external keys to TPM keys.
 #[derive(Args, Debug)]
 pub struct Convert {
-    #[clap(flatten)]
-    pub parent_args: ParenBindArgs,
-
     #[clap(flatten)]
     pub input_args: InputArgs,
 
@@ -150,10 +147,12 @@ impl Convert {
 
 impl SubCommand for Convert {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {
-            let parent_handle = match self.parent_args.parent.class() {
-                HandleClass::Tpm => Ok(TpmHandle(self.parent_args.parent.value())),
-                HandleClass::Vtpm => job.load_context(device, &self.parent_args.parent),
+            let parent_handle_arg = job.parent.ok_or(CommandError::ParentMissing)?;
+            let parent_handle = match parent_handle_arg.class() {
+                HandleClass::Tpm => Ok(TpmHandle(parent_handle_arg.value())),
+                HandleClass::Vtpm => job.load_context(device, &parent_handle_arg),
             }?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;

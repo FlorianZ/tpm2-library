@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{print_table, CommandError, Tabled},
+    command::{deny_parent, deny_too_many_auths, print_table, CommandError, Tabled},
     device::with_device,
     job::Job,
     vtpm::{RefreshAction, VtpmSession},
@@ -100,6 +100,8 @@ impl Cache {
 
 impl SubCommand for Cache {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_parent(job.parent)?;
+        deny_too_many_auths(job.auth_list, 0)?;
         Self::refresh_cache(job)?;
 
         let mut rows: Vec<CacheRow> = job

@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_too_many_auths, CommandError},
+    command::{deny_parent, deny_too_many_auths, CommandError},
     device::{with_device, Device},
     handle::HandlePattern,
     job::Job,
@@ -60,6 +60,7 @@ impl Delete {
 
 impl SubCommand for Delete {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_parent(job.parent)?;
         if let Some(pattern) = self.input.strip_prefix("tpm:") {
             delete_tpm_handles(job, pattern)
         } else if let Some(pattern) = self.input.strip_prefix("vtpm:") {
@@ -145,22 +146,18 @@ fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandEr
             if let Some(public_key) = maybe_public {
                 Delete::delete_vtpm_children(job, dev, &public_key, &mut deleted_vhandles)?;
 
-                let deleted_children: Vec<u32> = deleted_vhandles
-                    .iter()
-                    .filter(|&&h| {
-                        let vhandle_pos = deleted_vhandles.iter().position(|&x| x == vhandle);
-                        let h_pos = deleted_vhandles.iter().position(|&x| x == h);
-                        if let (Some(vp), Some(hp)) = (vhandle_pos, h_pos) {
-                            hp > vp
-                        } else {
-                            false
-                        }
-                    })
-                    .copied()
-                    .collect();
+                let vhandle_pos_opt = deleted_vhandles.iter().position(|&x| x == vhandle);
+                if let Some(vhandle_pos) = vhandle_pos_opt {
+                    let deleted_children: Vec<u32> = deleted_vhandles
+                        .iter()
+                        .enumerate()
+                        .filter(|(idx, _)| *idx > vhandle_pos)
+                        .map(|(_, &h)| h)
+                        .collect();
 
-                for child_vhandle in deleted_children {
-                    writeln!(job.writer, "vtpm:{child_vhandle:08x}")?;
+                    for child_vhandle in deleted_children {
+                        writeln!(job.writer, "vtpm:{child_vhandle:08x}")?;
+                    }
                 }
             }
         }

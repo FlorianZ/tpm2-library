@@ -5,7 +5,7 @@
 use crate::{
     auth::Auth,
     cli::SubCommand,
-    command::{CommandError, InputArgs},
+    command::{deny_parent, deny_too_many_auths, CommandError, InputArgs},
     device::{with_device, Device},
     handle::{Handle, HandleClass},
     io::read_file_input,
@@ -29,6 +29,8 @@ pub struct Load {
 
 impl SubCommand for Load {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_parent(job.parent)?;
+        deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
 

@@ -89,12 +89,18 @@ fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
     let mut cache = VtpmCache::new(cache_dir)?;
 
     let auth_list = if cli.auth.is_empty() {
-        &[Auth::default(); 1]
+        &[Auth::default()]
     } else {
         cli.auth.as_slice()
     };
 
-    let mut job = Job::new(shared_device, &mut cache, auth_list, &mut stdout);
+    let mut job = Job::new(
+        shared_device,
+        &mut cache,
+        auth_list,
+        &mut stdout,
+        cli.parent,
+    );
     cli.command.run(&mut job)
 }
 

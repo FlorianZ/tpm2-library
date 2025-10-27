@@ -2,8 +2,14 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::SubCommand, command::CommandError, device::with_device, io::read_file_input, job::Job,
-    key::Tpm2shAlgId, parse_hex_u32, pcr::pcr_get_bank_list,
+    cli::SubCommand,
+    command::{deny_parent, deny_too_many_auths, CommandError},
+    device::with_device,
+    io::read_file_input,
+    job::Job,
+    key::Tpm2shAlgId,
+    parse_hex_u32,
+    pcr::pcr_get_bank_list,
 };
 use clap::Args;
 use tpm2_protocol::{
@@ -29,11 +35,11 @@ pub struct PcrEvent {
 
 impl SubCommand for PcrEvent {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_parent(job.parent)?;
+        deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
-
-            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
 
             let data_bytes = read_file_input(None)?;
 
@@ -43,7 +49,7 @@ impl SubCommand for PcrEvent {
                 event_data,
             };
 
-            let (resp, _) = job.execute(device, &command, &handles, &auths)?;
+            let (resp, _) = job.execute(device, &command, &handles, job.auth_list)?;
 
             let pcr_resp = resp
                 .PcrEvent()

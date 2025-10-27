@@ -4,7 +4,7 @@
 
 use crate::{
     cli::SubCommand,
-    command::{deny_too_many_auths, CommandError},
+    command::{deny_parent, deny_too_many_auths, CommandError},
     device::with_device,
     job::Job,
 };
@@ -20,15 +20,15 @@ pub struct ResetLock {}
 
 impl SubCommand for ResetLock {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+        deny_parent(job.parent)?;
         deny_too_many_auths(job.auth_list, 1)?;
 
         with_device(job.device.clone(), |device| {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand { lock_handle };
             let handles = [TpmRh::Lockout as u32];
-            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
 
-            let (resp, _) = job.execute(device, &command, &handles, &auths)?;
+            let (resp, _) = job.execute(device, &command, &handles, job.auth_list)?;
 
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;
