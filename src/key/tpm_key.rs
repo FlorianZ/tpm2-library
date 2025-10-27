@@ -230,13 +230,12 @@ impl TpmKey {
     ///   vector and `symmetricAlg` must be set to `TPM_ALG_NULL`.
     #[allow(clippy::too_many_arguments)]
     pub fn from_external_key(
-        device: &mut Device,
         job: &mut Job,
+        device: &mut Device,
         parent_handle: TpmHandle,
         external_key: &ExternalKey,
         rng: &mut (impl RngCore + CryptoRng),
         handles: &[u32],
-        auth_list: &[Auth],
     ) -> Result<Self, KeyError> {
         let (parent_public, parent_name) = match device.read_public(parent_handle) {
             Ok(result) => result,
@@ -272,7 +271,7 @@ impl TpmKey {
         };
 
         let (resp, _) = job
-            .execute(device, &import_cmd, handles, auth_list)
+            .execute(device, &import_cmd, handles, job.auth_list)
             .map_err(|e| match e {
                 JobError::Device(d) => KeyError::Device(d),
                 JobError::Vtpm(

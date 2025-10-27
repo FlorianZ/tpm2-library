@@ -417,7 +417,6 @@ impl<'a> Job<'a> {
         device: &mut Device,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
-        auths: &[Auth],
     ) -> Result<TpmKey, JobError> {
         let external_key = match AnyKey::try_from(input_bytes)? {
             AnyKey::Tpm(_) => {
@@ -427,13 +426,12 @@ impl<'a> Job<'a> {
         };
         let mut rng = rand::thread_rng();
         Ok(TpmKey::from_external_key(
-            device,
             self,
+            device,
             parent_handle,
             &external_key,
             &mut rng,
             &[parent_handle.0],
-            auths,
         )?)
     }
 

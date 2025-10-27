@@ -33,7 +33,7 @@ impl SubCommand for Convert {
             let parent_handle = job.load_context(device, &self.parent_args.parent)?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
-            let tpm_key = job.import_key(device, parent_handle, &input_bytes, job.auth_list)?;
+            let tpm_key = job.import_key(device, parent_handle, &input_bytes)?;
             write_key_data(
                 &mut job.writer,
                 &tpm_key,
