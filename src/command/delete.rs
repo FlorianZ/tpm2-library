@@ -30,10 +30,10 @@ impl Delete {
         job: &mut Job,
         dev: &mut Device,
         first_public: &TpmtPublic,
-        deleted: &mut Vec<u32>,
-    ) -> Result<(), CommandError> {
+    ) -> Result<Vec<u32>, CommandError> {
         let mut ancestor_list = VecDeque::new();
         ancestor_list.push_back(first_public.clone());
+        let mut deleted_children = Vec::new();
 
         while let Some(parent_public) = ancestor_list.pop_front() {
             let children_to_process: Vec<(u32, TpmtPublic)> = job
@@ -44,17 +44,15 @@ impl Delete {
                 .collect();
 
             for (child_vhandle, child_public) in children_to_process {
-                if deleted.contains(&child_vhandle)
-                    || !job.cache.contexts.contains_key(&child_vhandle)
-                {
+                if !job.cache.contexts.contains_key(&child_vhandle) {
                     continue;
                 }
                 job.cache.remove(dev, child_vhandle)?;
-                deleted.push(child_vhandle);
+                deleted_children.push(child_vhandle);
                 ancestor_list.push_back(child_public);
             }
         }
-        Ok(())
+        Ok(deleted_children)
     }
 }
 
@@ -123,10 +121,8 @@ fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandEr
     }
 
     with_device(job.device.clone(), |dev| {
-        let mut deleted_vhandles = Vec::new();
-
         for vhandle in matched_handles {
-            if deleted_vhandles.contains(&vhandle) || !job.cache.contexts.contains_key(&vhandle) {
+            if !job.cache.contexts.contains_key(&vhandle) {
                 continue;
             }
 
@@ -141,23 +137,11 @@ fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandEr
 
             job.cache.remove(dev, vhandle)?;
             writeln!(job.writer, "vtpm:{vhandle:08x}")?;
-            deleted_vhandles.push(vhandle);
 
             if let Some(public_key) = maybe_public {
-                Delete::delete_vtpm_children(job, dev, &public_key, &mut deleted_vhandles)?;
-
-                let vhandle_pos_opt = deleted_vhandles.iter().position(|&x| x == vhandle);
-                if let Some(vhandle_pos) = vhandle_pos_opt {
-                    let deleted_children: Vec<u32> = deleted_vhandles
-                        .iter()
-                        .enumerate()
-                        .filter(|(idx, _)| *idx > vhandle_pos)
-                        .map(|(_, &h)| h)
-                        .collect();
-
-                    for child_vhandle in deleted_children {
-                        writeln!(job.writer, "vtpm:{child_vhandle:08x}")?;
-                    }
+                let deleted_children = Delete::delete_vtpm_children(job, dev, &public_key)?;
+                for child_vhandle in deleted_children {
+                    writeln!(job.writer, "vtpm:{child_vhandle:08x}")?;
                 }
             }
         }
