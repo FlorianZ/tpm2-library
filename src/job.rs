@@ -381,12 +381,16 @@ impl<'a> Job<'a> {
     /// Returns [`JobError`] from the underlying `execute` call on failure.
     pub fn evict_control(
         &mut self,
-        auth_handle: TpmHandle,
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
-        auths: &[Auth],
     ) -> Result<(), JobError> {
         with_device(self.device.clone(), |device| {
+            let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
+                (TpmRh::Owner as u32).into()
+            } else {
+                (TpmRh::Platform as u32).into()
+            };
+
             let cmd = TpmEvictControlCommand {
                 auth: auth_handle,
                 object_handle: object_to_evict.0.into(),
@@ -394,7 +398,7 @@ impl<'a> Job<'a> {
             };
             let handles_for_session = [auth_handle.0];
 
-            let (resp, _) = self.execute(device, &cmd, &handles_for_session, auths)?;
+            let (resp, _) = self.execute(device, &cmd, &handles_for_session, self.auth_list)?;
 
             resp.EvictControl()
                 .map_err(|_| JobError::ResponseMismatch(TpmCc::EvictControl))?;

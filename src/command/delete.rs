@@ -13,7 +13,7 @@ use crate::{
 use clap::Args;
 use std::collections::VecDeque;
 use tpm2_protocol::{
-    data::{TpmHt, TpmRh, TpmtPublic},
+    data::{TpmHt, TpmtPublic},
     TpmHandle,
 };
 
@@ -94,19 +94,7 @@ fn delete_tpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandErr
                     }
                     TpmHt::Persistent => {
                         let persistent_handle = TpmHandle(handle.value());
-                        let auth_handle: TpmHandle =
-                            if (handle.value() & 0x00FF_FFFF) <= 0x007F_FFFF {
-                                (TpmRh::Owner as u32).into()
-                            } else {
-                                (TpmRh::Platform as u32).into()
-                            };
-                        let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
-                        job.evict_control(
-                            auth_handle,
-                            persistent_handle,
-                            persistent_handle,
-                            &auths,
-                        )?;
+                        job.evict_control(persistent_handle, persistent_handle)?;
                     }
                     _ => {}
                 }

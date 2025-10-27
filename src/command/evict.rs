@@ -10,7 +10,7 @@ use crate::{
     job::Job,
 };
 use clap::Args;
-use tpm2_protocol::{data::TpmRh, TpmHandle};
+use tpm2_protocol::TpmHandle;
 
 /// Create persistent object from transient object.
 #[derive(Args, Debug)]
@@ -32,18 +32,8 @@ impl SubCommand for Evict {
                 HandleClass::Vtpm => Err(CommandError::Handle(HandleError::InvalidHandle)),
             }?;
             let persistent_handle = TpmHandle(persistent_handle_val);
-
-            let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
-                (TpmRh::Owner as u32).into()
-            } else {
-                (TpmRh::Platform as u32).into()
-            };
-
             let transient_handle = job.load_context(dev, &self.input)?;
-
-            let auths = vec![job.auth_list.first().cloned().unwrap_or_default()];
-
-            job.evict_control(auth_handle, transient_handle, persistent_handle, &auths)?;
+            job.evict_control(transient_handle, persistent_handle)?;
 
             let vhandle = match self.input.class() {
                 HandleClass::Vtpm => Ok(self.input.value()),
