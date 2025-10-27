@@ -11,22 +11,17 @@ use tpm2_protocol::{data::TpmHt, TpmBuild, TpmError, TpmHandle, TpmParse, TpmSiz
 /// Maximum size for password or policy authorization data.
 const MAX_AUTH_SIZE: usize = 64;
 
-/// Errors related to parsing or using authorization data.
+/// Authorization errors.
 #[derive(Debug, Error)]
 pub enum AuthError {
-    /// The provided authorization string is invalid or malformed.
     #[error("invalid auth string")]
     InvalidAuth,
-    /// The structure or format of the authorization data is incorrect.
     #[error("malformed auth value")]
     MalformedAuth,
-    /// The provided authorization value (password or policy) exceeds `MAX_AUTH_SIZE`.
     #[error("auth value too large")]
     ValueTooLarge,
-    /// Failed to decode a hexadecimal string.
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
-    /// Failed to parse a hexadecimal string as a handle (u32).
     #[error("handle decode: {0}")]
     IntDecode(#[from] ParseIntError),
 }
@@ -37,98 +32,98 @@ impl From<TpmError> for AuthError {
     }
 }
 
-/// Specifies the type or method of authorization.
+/// Authorization type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthClass {
-    /// Authorization using a password (or empty password represented by `Auth::default()`).
     Password,
-    /// Authorization based on a policy digest.
     Policy,
-    /// Authorization using a session handle (HMAC or policy session).
     Session,
 }
 
-/// Represents authorization data, holding the class and the actual value.
-///
-/// It uses a fixed-size array internally for efficiency and predictability,
-/// tracking the actual length of the data used.
+/// Authorization data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Auth {
-    /// The class (type) of authorization.
     pub class: AuthClass,
-    /// Fixed-size buffer holding the authorization data (password, policy digest, or handle bytes).
-    pub data: [u8; MAX_AUTH_SIZE],
-    /// The actual number of bytes used in the `data` buffer.
-    pub len: usize,
+    pub data: Vec<u8>,
 }
 
-/// Helper function to build a handle byte array from a u32 value.
-/// Serializes a `TpmHandle` into a byte array suitable for the `Auth::data` field.
+/// Serializes a handle into a byte vector.
 ///
 /// # Errors
 ///
-/// Returns a `TpmError` if serialization fails.
-fn build_handle_array(handle_val: u32) -> Result<([u8; MAX_AUTH_SIZE], usize), TpmError> {
+/// Returns [`MalformedAuth`](crate::auth::AuthError::MalformedAuth) when
+/// serialization fails.
+fn build_handle_vec(handle_val: u32) -> Result<Vec<u8>, TpmError> {
     let handle = TpmHandle(handle_val);
-    let mut array = [0u8; MAX_AUTH_SIZE];
-    let mut writer = TpmWriter::new(&mut array[0..TpmHandle::SIZE]);
+    let mut vec = vec![0u8; TpmHandle::SIZE];
+    let mut writer = TpmWriter::new(&mut vec);
     handle.build(&mut writer)?;
-    Ok((array, TpmHandle::SIZE))
+    Ok(vec)
 }
 
-/// Helper function to parse hex string, validate size, and copy to fixed array.
-///
-/// Decodes a hexadecimal string, checks if it exceeds `MAX_AUTH_SIZE`, and
-/// copies the resulting bytes into the fixed-size array format used by `Auth`.
+/// Decodes a hexadecimal string.
 ///
 /// # Errors
 ///
-/// Returns `AuthError::HexDecode` if the string is not valid hex.
-/// Returns `AuthError::ValueTooLarge` if the decoded bytes exceed `MAX_AUTH_SIZE`.
-fn parse_auth_hex(s: &str) -> Result<([u8; MAX_AUTH_SIZE], usize), AuthError> {
+/// Returns [`HexDecode`](crate::auth::AuthError::HexDecode) when the decoding
+/// fails.
+/// Returns [`ValueTooLarge`](crate::auth::AuthError::ValueTooLarge) when the
+/// size exceeds [`MAX_AUTH_SIZE`](crate::auth::MAX_AUTH_SIZE).
+fn parse_auth_hex(s: &str) -> Result<Vec<u8>, AuthError> {
     let bytes = hex::decode(s)?;
     if bytes.len() > MAX_AUTH_SIZE {
         return Err(AuthError::ValueTooLarge);
     }
-    let mut array = [0u8; MAX_AUTH_SIZE];
-    array[..bytes.len()].copy_from_slice(&bytes);
-    Ok((array, bytes.len()))
+    Ok(bytes)
 }
 
 impl Auth {
-    /// Returns the authorization class (`Password`, `Policy`, or `Session`).
+    /// Returns the authorization class.
     #[must_use]
     pub fn class(&self) -> AuthClass {
         self.class
     }
 
     /// Returns the raw authorization value as a byte slice.
-    ///
-    /// The length of the slice depends on the `AuthClass`:
-    /// * `Password`, `Policy`: Length determined by parsed hex data (`self.len`).
-    /// * `Session`: Fixed length equal to `TpmHandle::SIZE`.
     #[must_use]
     pub fn value(&self) -> &[u8] {
-        &self.data[0..self.len]
+        &self.data
     }
 
-    /// Extracts the session handle (u32) if the class is `Session`.
+    /// Extracts the session handle.
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidAuth`](AuthError::InvalidAuth) if the class is not
-    /// `AuthClass::Session`.
-    /// Returns [`MalformedAuth`](AuthError::MalformedAuth) if the stored bytes
-    /// are not a valid `TpmHandle`.
+    /// Returns [`InvalidAuth`](crate::auth::AuthError::InvalidAuth) when the
+    /// authorization class is not [`Session`](crate::auth::AuthClass::Session).
+    /// Returns [`MalformedAuth`](crate::auth::AuthError::MalformedAuth) when
+    /// the input data is malformed.
     pub fn session(&self) -> Result<u32, AuthError> {
         if self.class() != AuthClass::Session {
             return Err(AuthError::InvalidAuth);
         }
-        let (handle, remainder) = TpmHandle::parse(&self.data[0..TpmHandle::SIZE])?;
+        if self.data.len() != TpmHandle::SIZE {
+            return Err(AuthError::MalformedAuth);
+        }
+        let (handle, remainder) = TpmHandle::parse(&self.data)?;
         if !remainder.is_empty() {
             return Err(AuthError::MalformedAuth);
         }
         Ok(handle.0)
+    }
+
+    /// Creates a new [`Auth`](crate::auth::Auth) instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MalformedAuth`](crate::auth::AuthError::MalformedAuth) when
+    /// the output data is malformed.
+    pub fn new_session(vhandle: u32) -> Result<Self, AuthError> {
+        let data = build_handle_vec(vhandle).map_err(|_| AuthError::MalformedAuth)?;
+        Ok(Auth {
+            class: AuthClass::Session,
+            data,
+        })
     }
 }
 
@@ -137,8 +132,7 @@ impl Default for Auth {
     fn default() -> Self {
         Self {
             class: AuthClass::Password,
-            data: [0u8; MAX_AUTH_SIZE],
-            len: 0,
+            data: Vec::new(),
         }
     }
 }
@@ -165,17 +159,10 @@ impl FromStr for Auth {
 
     /// Parses an authorization string into an `Auth` structure.
     ///
-    /// Valid formats:
-    ///
-    /// * `empty` - Represents an empty password.
-    /// * `password:<hex>` - Password specified as a hex string.
-    /// * `policy:<hex>` - Policy digest specified as a hex string.
-    /// * `vtpm:<hex>` - Session handle specified as a hex string.
-    ///
     /// # Errors
     ///
     /// Returns [`InvalidAuth`](AuthError::InvalidAuth) when the string does not
-    /// match any valid format.
+    /// match any valid format, or if a `vtpm:` handle represents an HMAC session.
     /// Returns [`ValueTooLarge`](AuthError::ValueTooLarge) when the password or
     /// policy hex data exceeds `MAX_AUTH_SIZE`.
     fn from_str(auth_str: &str) -> Result<Self, Self::Err> {
@@ -187,35 +174,34 @@ impl FromStr for Auth {
 
         match prefix {
             "password" => {
-                let (data, len) = parse_auth_hex(value)?;
+                let data = parse_auth_hex(value)?;
                 Ok(Auth {
                     class: AuthClass::Password,
                     data,
-                    len,
                 })
             }
             "policy" => {
-                let (data, len) = parse_auth_hex(value)?;
+                let data = parse_auth_hex(value)?;
                 Ok(Auth {
                     class: AuthClass::Policy,
                     data,
-                    len,
                 })
             }
             "vtpm" => {
                 let handle_val = u32::from_str_radix(value, 16)?;
-                let ht = (handle_val >> 24) as u8;
+                let ht_byte = (handle_val >> 24) as u8;
+                let ht = TpmHt::try_from(ht_byte).map_err(|()| AuthError::InvalidAuth)?;
 
-                if ht == TpmHt::PolicySession as u8 || ht == TpmHt::HmacSession as u8 {
-                    let (data, len) =
-                        build_handle_array(handle_val).map_err(|_| AuthError::MalformedAuth)?;
-                    Ok(Auth {
-                        class: AuthClass::Session,
-                        data,
-                        len,
-                    })
-                } else {
-                    Err(AuthError::InvalidAuth)
+                match ht {
+                    TpmHt::PolicySession => {
+                        let data =
+                            build_handle_vec(handle_val).map_err(|_| AuthError::MalformedAuth)?;
+                        Ok(Auth {
+                            class: AuthClass::Session,
+                            data,
+                        })
+                    }
+                    _ => Err(AuthError::InvalidAuth),
                 }
             }
             _ => Err(AuthError::InvalidAuth),

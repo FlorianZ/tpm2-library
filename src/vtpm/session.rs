@@ -17,7 +17,7 @@ use tpm2_protocol::{
         TpmsAuthCommand, TpmsContext,
     },
     message::TpmStartAuthSessionResponse,
-    TpmBuild, TpmError, TpmParse, TpmSized, TpmWriter,
+    TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
 
 /// Manages the state of an active authorization session.
@@ -231,7 +231,17 @@ pub fn create_auth(
 ) -> Result<TpmsAuthCommand, VtpmError> {
     let handle_names: Vec<Tpm2bName> = handles
         .iter()
-        .map(|&handle| device.read_public(handle.into()).map(|(_, name)| name))
+        .map(|&handle| {
+            if (handle >> 24) as u8 == TpmHt::Permanent as u8 {
+                let mut buf = [0u8; TpmHandle::SIZE];
+                let mut writer = TpmWriter::new(&mut buf);
+                TpmHandle(handle).build(&mut writer)?;
+                let len = writer.len();
+                Tpm2bName::try_from(&buf[..len]).map_err(DeviceError::from)
+            } else {
+                device.read_public(handle.into()).map(|(_, name)| name)
+            }
+        })
         .collect::<Result<_, DeviceError>>()?;
 
     let command_code_bytes = (command_code as u32).to_be_bytes();
@@ -247,6 +257,14 @@ pub fn create_auth(
 
     let hmac_bytes = if (session.context.saved_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
         let hmac_key = [session.hmac_key.as_ref(), auth_value].concat();
+        if hmac_key.is_empty() {
+            return Ok(TpmsAuthCommand {
+                session_handle: session.context.saved_handle,
+                nonce: *nonce_caller,
+                session_attributes: session.attributes,
+                hmac: Tpm2bAuth::default(),
+            });
+        }
 
         let mut hmac_payload: Vec<&[u8]> = Vec::with_capacity(8);
         hmac_payload.push(&cp_hash);
