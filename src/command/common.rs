@@ -3,12 +3,12 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{cli::Hierarchy, command::CommandError, handle::Handle, key::Alg};
-use clap::Args;
+use clap::{Args, ValueEnum};
 use std::path::PathBuf;
 use strum::{Display, EnumString};
 use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum OutputEncoding {
     #[default]
@@ -33,7 +33,7 @@ pub struct OutputArgs {
 #[derive(Args, Debug, Clone)]
 pub struct OutputEncodingArgs {
     /// Output encoding: pem or der
-    #[arg(long = "output-encoding", default_value_t = OutputEncoding::default(), value_parser = clap::value_parser!(OutputEncoding))]
+    #[arg(long = "output-encoding", value_enum, default_value_t = OutputEncoding::default())]
     pub output_encoding: OutputEncoding,
 }
 
@@ -54,7 +54,7 @@ pub struct ParenLoadArgs {
 #[derive(Args, Debug, Clone)]
 pub struct HierarchyArgs {
     /// Hierarchy: owner (default), platform or endorsement
-    #[arg(short = 'H', long, default_value_t = Hierarchy::default(), value_parser = clap::value_parser!(Hierarchy))]
+    #[arg(short = 'H', long, value_enum, default_value_t = Hierarchy::default())]
     pub hierarchy: Hierarchy,
 }
 

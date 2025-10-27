@@ -9,14 +9,14 @@ use crate::{
     job::Job,
     key::{Tpm2shAlgId, Tpm2shEccCurve},
 };
-use clap::Args;
+use clap::{Args, ValueEnum};
 use strum::{Display, EnumString};
 use tpm2_protocol::{
     constant::MAX_HANDLES,
     data::{TpmAlgId, TpmCap, TpmRcBase, TpmuCapabilities},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum AlgorithmType {
     Key,
@@ -42,7 +42,7 @@ impl Tabled for AlgorithmRow {
 #[derive(Args, Debug)]
 pub struct Algorithm {
     /// Algorithm type: 'key' or 'name'
-    #[arg(short = 't', long = "type")]
+    #[arg(short = 't', long = "type", value_enum)]
     pub algorithm_type: Option<AlgorithmType>,
 }
 

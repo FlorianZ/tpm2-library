@@ -12,16 +12,19 @@ use crate::{
     },
     job::Job,
 };
-use clap::{builder::styling::Styles, Parser, Subcommand};
+use clap::{
+    builder::styling::{Style, Styles},
+    Parser, Subcommand, ValueEnum,
+};
 use std::path::PathBuf;
 use strum::{Display, EnumString};
 use tpm2_protocol::data::TpmRh;
 
 const STYLES: Styles = Styles::styled()
-    .header(clap::builder::styling::Style::new().bold())
-    .usage(clap::builder::styling::Style::new().bold())
-    .literal(clap::builder::styling::Style::new())
-    .placeholder(clap::builder::styling::Style::new());
+    .header(Style::new().bold())
+    .usage(Style::new().bold())
+    .literal(Style::new())
+    .placeholder(Style::new());
 
 /// A subcommand of the main CLI application.
 pub trait SubCommand {
@@ -39,7 +42,7 @@ pub trait SubCommand {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Display, EnumString)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Display, EnumString, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum LogFormat {
     #[default]
@@ -56,7 +59,7 @@ pub struct TopLevel {
     pub device: PathBuf,
 
     /// Log format: 'plain' or 'pretty'
-    #[arg(long, default_value_t = LogFormat::default(), value_parser = clap::value_parser!(LogFormat))]
+    #[arg(long, value_enum, default_value_t = LogFormat::default())]
     pub log_format: LogFormat,
 
     /// Authentication: 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>'
@@ -118,7 +121,7 @@ impl SubCommand for Command {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Display, EnumString)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Display, EnumString, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Hierarchy {
     #[default]

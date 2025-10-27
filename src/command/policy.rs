@@ -14,7 +14,7 @@ use crate::{
     },
     vtpm::VtpmSession,
 };
-use clap::Args;
+use clap::{Args, ValueEnum};
 use std::collections::HashSet;
 use strum::{Display, EnumString};
 use tpm2_protocol::{
@@ -23,7 +23,7 @@ use tpm2_protocol::{
 };
 
 /// The execution mode for a policy command.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum PolicyMode {
     #[default]
@@ -38,7 +38,7 @@ pub enum PolicyMode {
 #[command()]
 pub struct Policy {
     /// Execution mode: 'resolve' (default), 'software', 'tpm', or 'session'.
-    #[arg(short = 'm', long = "mode", default_value_t = PolicyMode::default(), value_parser = clap::value_parser!(PolicyMode))]
+    #[arg(short = 'm', long = "mode", value_enum, default_value_t = PolicyMode::default())]
     pub mode: PolicyMode,
 
     /// Policy expression
