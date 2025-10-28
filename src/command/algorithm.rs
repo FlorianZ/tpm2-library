@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 use crate::{
     cli::SubCommand,
-    command::{deny_too_many_auths, print_table, CommandError, Tabled},
+    command::{deny_too_many_auths, CommandError},
     crypto::crypto_hash_size,
     device::{test_rsa_parms, with_device, Device, DeviceError},
     job::Job,
@@ -23,21 +23,6 @@ pub enum AlgorithmType {
     Name,
 }
 
-struct AlgorithmRow {
-    algorithm: String,
-    algorithm_type: String,
-}
-
-impl Tabled for AlgorithmRow {
-    fn headers() -> Vec<String> {
-        vec!["ALGORITHM".to_string(), "TYPE".to_string()]
-    }
-
-    fn row(&self) -> Vec<String> {
-        vec![self.algorithm.clone(), self.algorithm_type.clone()]
-    }
-}
-
 /// Lists available algorithms supported by the chip.
 #[derive(Args, Debug)]
 pub struct Algorithm {
@@ -47,19 +32,8 @@ pub struct Algorithm {
 }
 
 impl Algorithm {
-    fn fetch_hash_algorithms(device: &mut Device) -> Result<Vec<String>, CommandError> {
-        let all_algs = device.fetch_algorithm_properties()?;
-        let hashes: Vec<String> = all_algs
-            .iter()
-            .map(|prop| prop.alg)
-            .filter(|p| crypto_hash_size(*p).is_ok())
-            .map(|p| Tpm2shAlgId(p).to_string())
-            .collect();
-        Ok(hashes)
-    }
-
-    fn fetch_algorithms(device: &mut Device) -> Result<Vec<(String, AlgorithmType)>, CommandError> {
-        let mut results: Vec<(String, AlgorithmType)> = Vec::new();
+    fn fetch_key_algorithms(device: &mut Device) -> Result<Vec<String>, CommandError> {
+        let mut results: Vec<String> = Vec::new();
         let all_alg_props = device.fetch_algorithm_properties()?;
         let all_algs: std::collections::HashSet<TpmAlgId> =
             all_alg_props.into_iter().map(|p| p.alg).collect();
@@ -75,10 +49,7 @@ impl Algorithm {
                 match test_rsa_parms(device, key_bits) {
                     Ok(()) => {
                         for &name_alg in &name_algs {
-                            results.push((
-                                format!("rsa-{}:{}", key_bits, Tpm2shAlgId(name_alg)),
-                                AlgorithmType::Key,
-                            ));
+                            results.push(format!("rsa-{}:{}", key_bits, Tpm2shAlgId(name_alg)));
                         }
                     }
                     Err(DeviceError::TpmRc(rc)) => {
@@ -104,13 +75,10 @@ impl Algorithm {
             )?;
             for curve_id in supported_curves {
                 for &name_alg in &name_algs {
-                    results.push((
-                        format!(
-                            "ecc-{}:{}",
-                            Tpm2shEccCurve::from(curve_id),
-                            Tpm2shAlgId(name_alg)
-                        ),
-                        AlgorithmType::Key,
+                    results.push(format!(
+                        "ecc-{}:{}",
+                        Tpm2shEccCurve::from(curve_id),
+                        Tpm2shAlgId(name_alg)
                     ));
                 }
             }
@@ -118,10 +86,7 @@ impl Algorithm {
 
         if all_algs.contains(&TpmAlgId::KeyedHash) {
             for &name_alg in &name_algs {
-                results.push((
-                    format!("keyedhash:{}", Tpm2shAlgId(name_alg)),
-                    AlgorithmType::Key,
-                ));
+                results.push(format!("keyedhash:{}", Tpm2shAlgId(name_alg)));
             }
         }
         Ok(results)
@@ -132,7 +97,7 @@ impl SubCommand for Algorithm {
     fn run(&self, job: &mut Job) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {
-            let mut results: Vec<(String, AlgorithmType)> = Vec::new();
+            let mut results: Vec<String> = Vec::new();
 
             let fetch_keys =
                 self.algorithm_type.is_none() || self.algorithm_type == Some(AlgorithmType::Key);
@@ -140,26 +105,26 @@ impl SubCommand for Algorithm {
                 self.algorithm_type.is_none() || self.algorithm_type == Some(AlgorithmType::Name);
 
             if fetch_keys {
-                results.extend(Algorithm::fetch_algorithms(device)?);
+                results.extend(Algorithm::fetch_key_algorithms(device)?);
             }
 
             if fetch_names {
-                let hashes = Self::fetch_hash_algorithms(device)?
-                    .into_iter()
-                    .map(|name| (name, AlgorithmType::Name));
+                let all_algs = device.fetch_algorithm_properties()?;
+                let hashes: Vec<String> = all_algs
+                    .iter()
+                    .map(|prop| prop.alg)
+                    .filter(|p| crypto_hash_size(*p).is_ok())
+                    .map(|p| Tpm2shAlgId(p).to_string())
+                    .collect();
                 results.extend(hashes);
             }
 
-            results.sort_by(|a, b| a.0.cmp(&b.0));
+            results.sort();
 
-            let rows: Vec<AlgorithmRow> = results
-                .into_iter()
-                .map(|(algorithm, algorithm_type)| AlgorithmRow {
-                    algorithm,
-                    algorithm_type: algorithm_type.to_string(),
-                })
-                .collect();
-            print_table(&mut job.writer, &rows)?;
+            for alg in results {
+                writeln!(job.writer, "{alg}")?;
+            }
+
             Ok(())
         })
     }
