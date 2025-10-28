@@ -6,7 +6,7 @@ use crate::{
     cli::SubCommand,
     command::{deny_too_many_auths, CommandError},
     device::with_device,
-    job::Job,
+    session::Session,
 };
 use clap::Args;
 use tpm2_protocol::{
@@ -19,7 +19,7 @@ use tpm2_protocol::{
 pub struct ResetLock {}
 
 impl SubCommand for ResetLock {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
 
         with_device(job.device.clone(), |device| {

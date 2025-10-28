@@ -12,8 +12,8 @@ use crate::{
     device::{with_device, Device, DeviceError},
     handle::{Handle, HandleClass},
     io::{read_file_input, write_key_data},
-    job::Job,
     key::{AnyKey, ExternalKey, TpmKey, OID_IMPORTABLE_KEY},
+    session::Session,
     write_object,
 };
 use aes::Aes128;
@@ -386,7 +386,7 @@ impl Convert {
     }
 
     fn create_external_key(
-        job: &mut Job,
+        job: &mut Session,
         device: &mut Device,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
@@ -483,7 +483,7 @@ impl Convert {
 }
 
 impl SubCommand for Convert {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {
             let parent_handle_arg = self.parent;

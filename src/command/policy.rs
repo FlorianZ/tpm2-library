@@ -6,12 +6,12 @@ use crate::{
     cli::SubCommand,
     command::{deny_too_many_auths, CommandError},
     device::with_device,
-    job::Job,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
     policy::{
         execute_policy, parse, visit_pcr_expressions_mut, Expression, PolicyError,
         SoftwarePolicySession, TpmPolicySession,
     },
+    session::Session,
     vtpm::VtpmSession,
 };
 use clap::{Args, ValueEnum};
@@ -97,7 +97,7 @@ fn resolve_pcr_digests(
 }
 
 impl SubCommand for Policy {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {
             let mut ast = parse(&self.expression)?;
@@ -123,7 +123,7 @@ impl SubCommand for Policy {
                     writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Tpm => {
-                    let (resp, _) = Job::start_session(
+                    let (resp, _) = Session::start_session(
                         device,
                         TpmSe::Trial,
                         session_hash_alg,
@@ -140,7 +140,7 @@ impl SubCommand for Policy {
                     writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Session => {
-                    let (resp, nonce_caller) = Job::start_session(
+                    let (resp, nonce_caller) = Session::start_session(
                         device,
                         TpmSe::Policy,
                         session_hash_alg,

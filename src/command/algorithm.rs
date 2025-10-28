@@ -6,8 +6,8 @@ use crate::{
     command::{deny_too_many_auths, CommandError},
     crypto::crypto_hash_size,
     device::{test_rsa_parms, with_device, Device, DeviceError},
-    job::Job,
     key::{Tpm2shAlgId, Tpm2shEccCurve},
+    session::Session,
 };
 use clap::{Args, ValueEnum};
 use strum::{Display, EnumString};
@@ -94,7 +94,7 @@ impl Algorithm {
 }
 
 impl SubCommand for Algorithm {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {
             let mut results: Vec<String> = Vec::new();

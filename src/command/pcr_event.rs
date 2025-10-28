@@ -6,10 +6,10 @@ use crate::{
     command::{deny_too_many_auths, CommandError},
     device::with_device,
     io::read_file_input,
-    job::Job,
     key::Tpm2shAlgId,
     parse_hex_u32,
     pcr::pcr_get_bank_list,
+    session::Session,
 };
 use clap::Args;
 use tpm2_protocol::{
@@ -34,7 +34,7 @@ pub struct PcrEvent {
 }
 
 impl SubCommand for PcrEvent {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;

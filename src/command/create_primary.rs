@@ -6,8 +6,8 @@ use crate::{
     cli::SubCommand,
     command::{deny_keyedhash, deny_too_many_auths, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
-    job::Job,
     key::Alg,
+    session::Session,
     template::build_public,
 };
 use clap::Args;
@@ -34,7 +34,7 @@ pub struct CreatePrimary {
 }
 
 impl SubCommand for CreatePrimary {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
 
         with_device(job.device.clone(), |device| {

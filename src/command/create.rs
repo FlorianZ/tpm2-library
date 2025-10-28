@@ -10,8 +10,8 @@ use crate::{
     device::{with_device, Device, DeviceError},
     handle::Handle,
     io::write_key_data,
-    job::{Job, JobError},
     key::{Alg, AlgInfo, TpmKey, TpmPolicy, OID_LOADABLE_KEY, OID_SEALED_DATA},
+    session::{Session, SessionError},
     template, write_object,
 };
 use clap::Args;
@@ -58,7 +58,7 @@ pub struct Create {
 }
 
 impl SubCommand for Create {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| self.create_object(job, device))
     }
@@ -66,7 +66,7 @@ impl SubCommand for Create {
 
 impl Create {
     #[allow(clippy::too_many_lines)]
-    fn create_object(&self, job: &mut Job, device: &mut Device) -> Result<(), CommandError> {
+    fn create_object(&self, job: &mut Session, device: &mut Device) -> Result<(), CommandError> {
         let parent_handle_arg = self.parent;
         let parent_handle = job.load_context(device, &parent_handle_arg)?;
 
@@ -120,7 +120,7 @@ impl Create {
             let (resp, _) = job
                 .execute(device, &create_cmd, &handles, job.auth_list)
                 .map_err(|e| {
-                    if let JobError::Device(DeviceError::TpmRc(rc)) = &e {
+                    if let SessionError::Device(DeviceError::TpmRc(rc)) = &e {
                         if rc.base() == TpmRcBase::Type {
                             if let Ok(key) = job.cache.find_by_phandle(device, parent_handle.0) {
                                 return CommandError::InvalidParent(
@@ -132,21 +132,21 @@ impl Create {
                         }
                     }
                     match e {
-                        JobError::Device(d) => CommandError::Device(d),
-                        JobError::Vtpm(
+                        SessionError::Device(d) => CommandError::Device(d),
+                        SessionError::Vtpm(
                             crate::vtpm::VtpmError::Auth(_)
                             | crate::vtpm::VtpmError::HandleNotFound(_, _)
                             | crate::vtpm::VtpmError::TrailingAuthorizations,
                         ) => CommandError::TpmProtocol(TpmError::Malformed),
-                        JobError::Key(k) => CommandError::Key(k),
-                        JobError::Auth(a) => CommandError::Auth(a),
-                        JobError::Crypto(c) => CommandError::Crypto(c),
-                        JobError::IntDecode(i) => CommandError::IntDecode(i),
-                        JobError::Io(io_err) => CommandError::Io(io_err),
-                        JobError::InvalidParent(prefix, val) => {
+                        SessionError::Key(k) => CommandError::Key(k),
+                        SessionError::Auth(a) => CommandError::Auth(a),
+                        SessionError::Crypto(c) => CommandError::Crypto(c),
+                        SessionError::IntDecode(i) => CommandError::IntDecode(i),
+                        SessionError::Io(io_err) => CommandError::Io(io_err),
+                        SessionError::InvalidParent(prefix, val) => {
                             CommandError::InvalidParent(prefix, val)
                         }
-                        _ => CommandError::Job(e),
+                        _ => CommandError::Session(e),
                     }
                 })?;
 

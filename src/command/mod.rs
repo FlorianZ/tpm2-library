@@ -41,10 +41,10 @@ use crate::{
     crypto::CryptoError,
     device::DeviceError,
     handle::{HandleError, HandlePatternError},
-    job::JobError,
     key::{AlgInfo, KeyError},
     pcr::PcrError,
     policy::PolicyError,
+    session::SessionError,
     vtpm::VtpmError,
 };
 use clap::builder::styling::Style as AnsiStyle;
@@ -194,7 +194,7 @@ pub enum CommandError {
     #[error("cache: {0}")]
     Cache(VtpmError),
     #[error("job: {0}")]
-    Job(JobError),
+    Session(SessionError),
     #[error("device: {0}")]
     Device(DeviceError),
     #[error("crypto: {0}")]
@@ -219,12 +219,12 @@ pub enum CommandError {
     TpmProtocol(TpmError),
 }
 
-impl From<JobError> for CommandError {
-    fn from(err: JobError) -> Self {
+impl From<SessionError> for CommandError {
+    fn from(err: SessionError) -> Self {
         match err {
-            JobError::InvalidParent(prefix, handle) => Self::InvalidParent(prefix, handle),
-            JobError::Device(dev_err) => Self::from(dev_err),
-            _ => Self::Job(err),
+            SessionError::InvalidParent(prefix, handle) => Self::InvalidParent(prefix, handle),
+            SessionError::Device(dev_err) => Self::from(dev_err),
+            _ => Self::Session(err),
         }
     }
 }

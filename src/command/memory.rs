@@ -8,13 +8,13 @@ use crate::{
     command::{print_table, CommandError, Tabled},
     device::{self, Device, DeviceError},
     handle::Handle,
-    job::Job,
     key::{
         Alg, AlgInfo, Tpm2shAlgId, OID_ECDSA_WITH_SHA256, OID_ECDSA_WITH_SHA384,
         OID_ECDSA_WITH_SHA512, OID_EC_PUBLIC_KEY, OID_RSA_ENCRYPTION, OID_SHA1_WITH_RSA_ENCRYPTION,
         OID_SHA256_WITH_RSA_ENCRYPTION, OID_SHA384_WITH_RSA_ENCRYPTION,
         OID_SHA512_WITH_RSA_ENCRYPTION, SECP_256_R_1, SECP_384_R_1, SECP_521_R_1,
     },
+    session::Session,
     vtpm::build_password_session,
 };
 use clap::Args;
@@ -72,7 +72,7 @@ pub struct Memory {
 }
 
 impl SubCommand for Memory {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
             Self::inspect_handle(job, handle)
         } else {
@@ -137,7 +137,7 @@ struct Certificate {
 }
 
 impl Memory {
-    fn inspect_handle(job: &mut Job, handle: Handle) -> Result<(), CommandError> {
+    fn inspect_handle(job: &mut Session, handle: Handle) -> Result<(), CommandError> {
         device::with_device(job.device.clone(), |device| {
             let handle_val = handle.value();
             if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
@@ -157,7 +157,7 @@ impl Memory {
         })
     }
 
-    fn list_all_memory(job: &mut Job) -> Result<(), CommandError> {
+    fn list_all_memory(job: &mut Session) -> Result<(), CommandError> {
         device::with_device(job.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
             Self::fetch_rows(
@@ -235,7 +235,7 @@ impl Memory {
     }
 
     fn read_nv_index(
-        job: &mut Job,
+        job: &mut Session,
         device: &mut Device,
         handle: u32,
     ) -> Result<Vec<u8>, CommandError> {
@@ -306,7 +306,7 @@ impl Memory {
     }
 
     fn fetch_certificate(
-        job: &mut Job,
+        job: &mut Session,
         device: &mut Device,
         handle: u32,
     ) -> Result<(), CommandError> {
@@ -324,7 +324,7 @@ impl Memory {
     }
 
     fn fetch_rows<F>(
-        job: &mut Job,
+        job: &mut Session,
         device: &mut Device,
         rows: &mut Vec<MemoryRow>,
         class: TpmHt,
@@ -332,7 +332,7 @@ impl Memory {
         mut get_details: F,
     ) -> Result<(), CommandError>
     where
-        F: FnMut(&mut Job, &mut Device, Handle) -> Result<Option<String>, CommandError>,
+        F: FnMut(&mut Session, &mut Device, Handle) -> Result<Option<String>, CommandError>,
     {
         for handle in device.fetch_handles((class as u32) << 24)? {
             match get_details(job, device, handle) {

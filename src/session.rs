@@ -27,7 +27,7 @@ use tpm2_protocol::{
 };
 
 #[derive(Debug, Error)]
-pub enum JobError {
+pub enum SessionError {
     #[error("handle not found: {0}{1:08x}")]
     HandleNotFound(&'static str, u32),
     #[error("invalid auth")]
@@ -60,21 +60,21 @@ pub enum JobError {
     IntDecode(#[from] TryFromIntError),
 }
 
-impl From<TpmError> for JobError {
+impl From<TpmError> for SessionError {
     fn from(err: TpmError) -> Self {
         Self::Device(DeviceError::from(err))
     }
 }
 
-pub struct Job<'a> {
+pub struct Session<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
     pub cache: &'a mut VtpmCache<'a>,
     pub auth_list: &'a [Auth],
     pub writer: &'a mut dyn Write,
 }
 
-impl<'a> Job<'a> {
-    /// Creates a new `Job`.
+impl<'a> Session<'a> {
+    /// Creates a new `Session`.
     #[must_use]
     pub fn new(
         device: Option<Rc<RefCell<Device>>>,
@@ -95,21 +95,21 @@ impl<'a> Job<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::job::JobError::Device) when the transmission
+    /// Returns [`Device`](crate::session::SessionError::Device) when the transmission
     /// fails.
-    /// Returns [`HandleNotFound`](crate::job::JobError::HandleNotFound) when the
+    /// Returns [`HandleNotFound`](crate::session::SessionError::HandleNotFound) when the
     /// target handle or any parent handle cannot be found, or if the chain is empty.
-    /// Returns [`ParentNotFound`](crate::job::JobError::ParentNotFound) when a
+    /// Returns [`ParentNotFound`](crate::session::SessionError::ParentNotFound) when a
     /// necessary parent handle isn't found in cache or persistent storage.
-    /// Returns [`Vtpm`](crate::job::JobError::Vtpm) when tracking the loaded
+    /// Returns [`Vtpm`](crate::session::SessionError::Vtpm) when tracking the loaded
     /// handle fails.
-    /// Returns [`InvalidParent`](crate::job::JobError::InvalidParent) when
+    /// Returns [`InvalidParent`](crate::session::SessionError::InvalidParent) when
     /// loaded key's parent does not match the expected parent in the chain.
     pub fn load_context(
         &mut self,
         device: &mut Device,
         target: &Handle,
-    ) -> Result<TpmHandle, JobError> {
+    ) -> Result<TpmHandle, SessionError> {
         if target.class() == HandleClass::Tpm {
             return Ok(TpmHandle(target.value()));
         }
@@ -118,7 +118,7 @@ impl<'a> Job<'a> {
         let chain = self.cache.fetch_ancestor_chain(target_vhandle, device)?;
 
         if chain.is_empty() {
-            return Err(JobError::HandleNotFound("vtpm:", target_vhandle));
+            return Err(SessionError::HandleNotFound("vtpm:", target_vhandle));
         }
 
         let mut phandle: Option<TpmHandle> = None;
@@ -142,35 +142,35 @@ impl<'a> Job<'a> {
             let vhandle = handle.value();
             let key = self.cache.find_by_vhandle(vhandle)?;
 
-            let parent_phandle = phandle.ok_or(JobError::ParentNotFound)?;
+            let parent_phandle = phandle.ok_or(SessionError::ParentNotFound)?;
             let loaded_phandle = device.load_context(key.context.clone())?;
 
             if device.read_public(parent_phandle)?.1 != crypto_make_name(&key.parent.inner)? {
                 self.cache.untrack(loaded_phandle.0);
                 device.flush_context(loaded_phandle)?;
-                return Err(JobError::InvalidParent("vtpm:", vhandle));
+                return Err(SessionError::InvalidParent("vtpm:", vhandle));
             }
 
             self.cache.track(loaded_phandle)?;
             phandle = Some(loaded_phandle);
         }
 
-        phandle.ok_or(JobError::HandleNotFound("vtpm:", target_vhandle))
+        phandle.ok_or(SessionError::HandleNotFound("vtpm:", target_vhandle))
     }
 
     /// Builds the authorization area for a command.
     ///
     /// # Errors
     ///
-    /// Returns [`Auth`](crate::job::JobError::Auth) when extracting a session
+    /// Returns [`Auth`](crate::session::SessionError::Auth) when extracting a session
     /// handle fails.
-    /// Returns [`HandleNotFound`](crate::job::JobError::HandleNotFound) when a
+    /// Returns [`HandleNotFound`](crate::session::SessionError::HandleNotFound) when a
     /// session handle in `auth_list` is not found.
-    /// Returns [`InvalidAuth`](crate::job::JobError::InvalidAuth) when a `Policy`
+    /// Returns [`InvalidAuth`](crate::session::SessionError::InvalidAuth) when a `Policy`
     /// auth class is encountered.
-    /// Returns [`MalformedData`](crate::job::JobError::MalformedData) when the
+    /// Returns [`MalformedData`](crate::session::SessionError::MalformedData) when the
     /// session's hash algorithm is unsupported.
-    /// Returns [`TrailingAuthorizations`](crate::job::JobError::TrailingAuthorizations)
+    /// Returns [`TrailingAuthorizations`](crate::session::SessionError::TrailingAuthorizations)
     /// when more auth values are provided than handles requiring authorization.
     fn build_auth_area<C: TpmCommandObject>(
         &self,
@@ -178,9 +178,9 @@ impl<'a> Job<'a> {
         command: &C,
         handles: &[u32],
         auth_list: &[Auth],
-    ) -> Result<Vec<TpmsAuthCommand>, JobError> {
+    ) -> Result<Vec<TpmsAuthCommand>, SessionError> {
         let mut built_auths = Vec::new();
-        let params = write_object(command).map_err(|_| JobError::MalformedData)?;
+        let params = write_object(command).map_err(|_| SessionError::MalformedData)?;
 
         let mut nonce_decrypt: Option<Tpm2bNonce> = None;
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
@@ -203,7 +203,7 @@ impl<'a> Job<'a> {
         }
 
         for (i, auth) in auth_list.iter().enumerate() {
-            let handle_param = handles.get(i).ok_or(JobError::TrailingAuthorizations)?;
+            let handle_param = handles.get(i).ok_or(SessionError::TrailingAuthorizations)?;
 
             match auth.class() {
                 AuthClass::Password => {
@@ -214,7 +214,7 @@ impl<'a> Job<'a> {
                     let session = self
                         .cache
                         .get_session(vhandle)
-                        .ok_or(JobError::HandleNotFound("vtpm:", vhandle))?;
+                        .ok_or(SessionError::HandleNotFound("vtpm:", vhandle))?;
                     let nonce_size = crypto_hash_size(session.auth_hash)?;
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
@@ -239,7 +239,7 @@ impl<'a> Job<'a> {
                     )?;
                     built_auths.push(result);
                 }
-                AuthClass::Policy => return Err(JobError::InvalidAuth),
+                AuthClass::Policy => return Err(SessionError::InvalidAuth),
             }
         }
         Ok(built_auths)
@@ -249,9 +249,9 @@ impl<'a> Job<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Auth`](crate::job::JobError::Auth) when extracting a session
+    /// Returns [`Auth`](crate::session::SessionError::Auth) when extracting a session
     /// handle fails.
-    /// Returns [`Device`](crate::job::JobError::Device) when the transmission
+    /// Returns [`Device`](crate::session::SessionError::Device) when the transmission
     /// fails.
     pub fn execute<C: TpmCommandObject>(
         &mut self,
@@ -259,14 +259,14 @@ impl<'a> Job<'a> {
         command: &C,
         handles: &[u32],
         auth_list: &[Auth],
-    ) -> Result<(TpmResponseBody, TpmAuthResponses), JobError> {
+    ) -> Result<(TpmResponseBody, TpmAuthResponses), SessionError> {
         let mut effective_auth_list: Vec<Auth> = Vec::with_capacity(auth_list.len());
         let mut vhandles: Vec<u32> = Vec::new();
         let mut phandles: Vec<TpmHandle> = Vec::new();
 
         for auth in auth_list {
             if *auth == Auth::default() {
-                let (resp, nonce_caller) = Job::start_session(
+                let (resp, nonce_caller) = Session::start_session(
                     device,
                     TpmSe::Hmac,
                     TpmAlgId::Sha256,
@@ -304,9 +304,9 @@ impl<'a> Job<'a> {
                         }
                     }
                 }
-                return Err(JobError::Device(DeviceError::TpmRc(rc)));
+                return Err(SessionError::Device(DeviceError::TpmRc(rc)));
             }
-            Err(err) => return Err(JobError::Device(err)),
+            Err(err) => return Err(SessionError::Device(err)),
         };
 
         let mut used_auth_list = HashSet::new();
@@ -331,20 +331,20 @@ impl<'a> Job<'a> {
         Ok((resp, auth_responses))
     }
 
-    /// Evicts a persistent object or makes a transient object persistent using `Job::execute`.
+    /// Evicts a persistent object or makes a transient object persistent using `Session::execute`.
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::job::JobError::Device) when the transmission
+    /// Returns [`Device`](crate::session::SessionError::Device) when the transmission
     /// fails.
-    /// Returns [`ResponseMismatch`](crate::job::JobError::ResponseMismatch) when
+    /// Returns [`ResponseMismatch`](crate::session::SessionError::ResponseMismatch) when
     /// the TPM command returns an unexpected response type.
     pub fn evict_control(
         &mut self,
         device: &mut Device,
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
-    ) -> Result<(), JobError> {
+    ) -> Result<(), SessionError> {
         let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
         } else {
@@ -361,7 +361,7 @@ impl<'a> Job<'a> {
         let (resp, _) = self.execute(device, &cmd, &handles_for_session, self.auth_list)?;
 
         resp.EvictControl()
-            .map_err(|_| JobError::ResponseMismatch(TpmCc::EvictControl))?;
+            .map_err(|_| SessionError::ResponseMismatch(TpmCc::EvictControl))?;
         Ok(())
     }
 
@@ -369,16 +369,16 @@ impl<'a> Job<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::job::JobError::Device) when the transmission
+    /// Returns [`Device`](crate::session::SessionError::Device) when the transmission
     /// fails.
-    /// Returns [`ResponseMismatch`](crate::job::JobError::ResponseMismatch) when
+    /// Returns [`ResponseMismatch`](crate::session::SessionError::ResponseMismatch) when
     /// the TPM command returns an unexpected response type.
     pub fn start_session(
         device: &mut Device,
         session_type: TpmSe,
         auth_hash: TpmAlgId,
         bind: TpmHandle,
-    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), JobError> {
+    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), SessionError> {
         let digest_len = crypto_hash_size(auth_hash)?;
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
@@ -399,13 +399,13 @@ impl<'a> Job<'a> {
 
         let resp = response_body
             .StartAuthSession()
-            .map_err(|_| JobError::ResponseMismatch(TpmCc::StartAuthSession))?;
+            .map_err(|_| SessionError::ResponseMismatch(TpmCc::StartAuthSession))?;
 
         Ok((resp, nonce_caller))
     }
 }
 
-impl Drop for Job<'_> {
+impl Drop for Session<'_> {
     fn drop(&mut self) {
         self.cache.teardown(self.device.clone());
     }

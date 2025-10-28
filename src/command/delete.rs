@@ -7,7 +7,7 @@ use crate::{
     command::{deny_too_many_auths, CommandError},
     device::{with_device, Device},
     handle::HandlePattern,
-    job::Job,
+    session::Session,
     vtpm::VtpmKey,
 };
 use clap::Args;
@@ -27,7 +27,7 @@ pub struct Delete {
 impl Delete {
     /// Iteratively finds and removes child keys from the cache using BFS.
     fn delete_vtpm_children(
-        job: &mut Job,
+        job: &mut Session,
         dev: &mut Device,
         first_public: &TpmtPublic,
     ) -> Result<Vec<u32>, CommandError> {
@@ -57,7 +57,7 @@ impl Delete {
 }
 
 impl SubCommand for Delete {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         if let Some(pattern) = self.input.strip_prefix("tpm:") {
             delete_tpm_handles(job, pattern)
         } else if let Some(pattern) = self.input.strip_prefix("vtpm:") {
@@ -69,7 +69,7 @@ impl SubCommand for Delete {
 }
 
 /// Deletes TPM objects matching a pattern across sessions, transient, and persistent handles.
-fn delete_tpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandError> {
+fn delete_tpm_handles(job: &mut Session, pattern_str: &str) -> Result<(), CommandError> {
     deny_too_many_auths(job.auth_list, 1)?;
 
     with_device(job.device.clone(), |dev| {
@@ -104,7 +104,7 @@ fn delete_tpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandErr
 }
 
 /// Deletes vTPM objects (keys and sessions) matching the pattern.
-fn delete_vtpm_handles(job: &mut Job, pattern_str: &str) -> Result<(), CommandError> {
+fn delete_vtpm_handles(job: &mut Session, pattern_str: &str) -> Result<(), CommandError> {
     let pattern = HandlePattern::new(pattern_str)?;
 
     let matched_handles: Vec<u32> = job

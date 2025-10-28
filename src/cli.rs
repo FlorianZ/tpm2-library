@@ -10,7 +10,7 @@ use crate::{
         Algorithm, Cache, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load,
         Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal,
     },
-    job::Job,
+    session::Session,
 };
 use clap::{
     builder::styling::{Style, Styles},
@@ -33,7 +33,7 @@ pub trait SubCommand {
     /// # Errors
     ///
     /// Returns an error if the execution fails.
-    fn run(&self, job: &mut Job) -> Result<(), CommandError>;
+    fn run(&self, job: &mut Session) -> Result<(), CommandError>;
 
     /// Returns `true` if the command can be run without a TPM device.
     #[must_use]
@@ -110,7 +110,7 @@ impl Command {
 }
 
 impl SubCommand for Command {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         self.as_subcommand().run(job)
     }
 

@@ -9,7 +9,7 @@ use cli::{
     cli::{SubCommand, TopLevel},
     command::CommandError,
     device::{Device, DeviceError},
-    job::Job,
+    session::Session,
     vtpm::VtpmCache,
 };
 use std::{
@@ -94,7 +94,7 @@ fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
         cli.auth.as_slice()
     };
 
-    let mut job = Job::new(shared_device, &mut cache, auth_list, &mut stdout);
+    let mut job = Session::new(shared_device, &mut cache, auth_list, &mut stdout);
     cli.command.run(&mut job)
 }
 

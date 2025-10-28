@@ -2,7 +2,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::SubCommand, command::CommandError, job::Job, parse_hex_u32};
+use crate::{cli::SubCommand, command::CommandError, parse_hex_u32, session::Session};
 use clap::Args;
 use tpm2_protocol::data::TpmRc;
 
@@ -20,7 +20,7 @@ pub struct ReturnCode {
 }
 
 impl SubCommand for ReturnCode {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         writeln!(job.writer, "{}", self.rc)?;
         Ok(())
     }

@@ -9,8 +9,8 @@ use crate::{
     device::{with_device, Device},
     handle::{Handle, HandleClass},
     io::read_file_input,
-    job::Job,
     key::{AnyKey, KeyError, TpmKey},
+    session::Session,
 };
 use clap::Args;
 use tpm2_protocol::{
@@ -28,7 +28,7 @@ pub struct Load {
 }
 
 impl SubCommand for Load {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
@@ -61,7 +61,7 @@ impl SubCommand for Load {
 
 impl Load {
     fn fetch_parent(
-        job: &mut Job,
+        job: &mut Session,
         device: &mut Device,
         parent_public: &Tpm2bPublic,
     ) -> Result<TpmHandle, CommandError> {
@@ -83,7 +83,7 @@ impl Load {
     }
 
     fn run_load(
-        job: &mut Job,
+        job: &mut Session,
         device: &mut Device,
         parent_handle: TpmHandle,
         tpm_key: &TpmKey,

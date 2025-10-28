@@ -6,7 +6,7 @@ use crate::{
     cli::SubCommand,
     command::{deny_too_many_auths, print_table, CommandError, Tabled},
     device::with_device,
-    job::Job,
+    session::Session,
     vtpm::{RefreshAction, VtpmSession},
 };
 use clap::Args;
@@ -41,7 +41,7 @@ impl Tabled for CacheRow {
 pub struct Cache {}
 
 impl Cache {
-    fn refresh_cache(job: &mut Job) -> Result<(), CommandError> {
+    fn refresh_cache(job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| {
             let vhandles: Vec<u32> = job.cache.contexts.keys().copied().collect();
             let mut handles_to_remove = Vec::new();
@@ -99,7 +99,7 @@ impl Cache {
 }
 
 impl SubCommand for Cache {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 0)?;
         Self::refresh_cache(job)?;
 

@@ -6,7 +6,7 @@ use crate::{
     command::{deny_too_many_auths, CommandError},
     device::with_device,
     handle::Handle,
-    job::Job,
+    session::Session,
 };
 use clap::Args;
 use std::io::IsTerminal;
@@ -25,7 +25,7 @@ pub struct Unseal {
 }
 
 impl SubCommand for Unseal {
-    fn run(&self, job: &mut Job) -> Result<(), CommandError> {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
 
         with_device(job.device.clone(), |device| {
