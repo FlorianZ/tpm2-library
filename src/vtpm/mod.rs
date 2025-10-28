@@ -350,12 +350,56 @@ impl<'a> VtpmCache<'a> {
     ///
     /// Returns [`VtpmError::Device`] when flushing the context from TPM fails.
     /// Returns [`VtpmError::Io`] when removing the cache file fails.
-    pub fn remove(&mut self, device: &mut Device, vhandle: u32) -> Result<(), VtpmError> {
-        if let Some(context) = self.contexts.remove(&vhandle) {
+    pub fn remove(&mut self, device: &mut Device, vhandle: u32) -> Result<Vec<u32>, VtpmError> {
+        let mut deleted_handles = Vec::new();
+
+        let maybe_public = if let Some(context) = self.contexts.remove(&vhandle) {
+            deleted_handles.push(vhandle);
             context.delete(device, self.cache_dir(), vhandle)?;
+            self.dirty.remove(&vhandle);
+
+            context
+                .as_any()
+                .downcast_ref::<VtpmKey>()
+                .map(|key| key.public.inner.clone())
+        } else {
+            return Ok(deleted_handles);
+        };
+
+        if let Some(public_key) = maybe_public {
+            let deleted_children = self.remove_subtree(device, &public_key)?;
+            deleted_handles.extend(deleted_children);
         }
-        self.dirty.remove(&vhandle);
-        Ok(())
+
+        Ok(deleted_handles)
+    }
+
+    fn remove_subtree(
+        &mut self,
+        dev: &mut Device,
+        first_public: &TpmtPublic,
+    ) -> Result<Vec<u32>, VtpmError> {
+        let mut ancestor_list = VecDeque::new();
+        ancestor_list.push_back(first_public.clone());
+        let mut deleted_children = Vec::new();
+
+        while let Some(parent_public) = ancestor_list.pop_front() {
+            let children_to_process: Vec<(u32, TpmtPublic)> = self
+                .key_iter()
+                .filter(|(_, key)| key.parent.inner == parent_public)
+                .map(|(vhandle, key)| (*vhandle, key.public.inner.clone()))
+                .collect();
+
+            for (child_vhandle, child_public) in children_to_process {
+                if let Some(context) = self.contexts.remove(&child_vhandle) {
+                    context.delete(dev, self.cache_dir(), child_vhandle)?;
+                    self.dirty.remove(&child_vhandle);
+                    deleted_children.push(child_vhandle);
+                    ancestor_list.push_back(child_public);
+                }
+            }
+        }
+        Ok(deleted_children)
     }
 
     /// Tracks a transient handle for automatic cleanup.
