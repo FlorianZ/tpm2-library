@@ -135,7 +135,7 @@ impl TpmKey {
                         VtpmError::Auth(_)
                         | VtpmError::HandleNotFound(_, _)
                         | VtpmError::TrailingAuthorizations,
-                    ) => KeyError::Device(DeviceError::TpmProtocol(TpmError::MalformedData)),
+                    ) => KeyError::Device(DeviceError::TpmProtocol(TpmError::Malformed)),
                     _ => KeyError::ValueConversionFailed(e.to_string()),
                 }
             })?;
