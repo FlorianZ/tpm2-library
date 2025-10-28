@@ -195,7 +195,7 @@ impl Device {
                 let _ = self.poller.delete(&self.file);
                 break Err(DeviceError::Interrupted);
             }
-            if start_time.elapsed() > Duration::from_secs(60) {
+            if start_time.elapsed() > Duration::from_secs(120) {
                 spinner.finish();
                 let _ = self.poller.delete(&self.file);
                 break Err(DeviceError::Timeout);
