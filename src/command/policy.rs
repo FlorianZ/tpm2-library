@@ -17,10 +17,7 @@ use crate::{
 use clap::{Args, ValueEnum};
 use std::collections::HashSet;
 use strum::{Display, EnumString};
-use tpm2_protocol::{
-    data::{TpmAlgId, TpmRh, TpmSe},
-    TpmHandle,
-};
+use tpm2_protocol::data::{TpmAlgId, TpmRh, TpmSe};
 
 /// The execution mode for a policy command.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString, ValueEnum)]
@@ -126,8 +123,13 @@ impl SubCommand for Policy {
                     writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Tpm => {
-                    let session_handle =
-                        start_trial_session(device, TpmSe::Trial, session_hash_alg)?;
+                    let (resp, _) = Job::start_session(
+                        device,
+                        TpmSe::Trial,
+                        session_hash_alg,
+                        (TpmRh::Null as u32).into(),
+                    )?;
+                    let session_handle = resp.session_handle;
                     let final_digest = {
                         let mut session =
                             TpmPolicySession::new(device, session_handle, session_hash_alg);
@@ -138,7 +140,8 @@ impl SubCommand for Policy {
                     writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Session => {
-                    let (resp, nonce_caller) = device.start_session(
+                    let (resp, nonce_caller) = Job::start_session(
+                        device,
                         TpmSe::Policy,
                         session_hash_alg,
                         (TpmRh::Null as u32).into(),
@@ -164,18 +167,4 @@ impl SubCommand for Policy {
             Ok(())
         })
     }
-}
-
-/// Starts a trial session.
-///
-/// # Errors
-///
-/// Returns `PolicyError` on failure.
-pub fn start_trial_session(
-    device: &mut crate::device::Device,
-    session_type: tpm2_protocol::data::TpmSe,
-    hash_alg: TpmAlgId,
-) -> Result<TpmHandle, PolicyError> {
-    let (resp, _) = device.start_session(session_type, hash_alg, (TpmRh::Null as u32).into())?;
-    Ok(resp.session_handle)
 }

@@ -6,7 +6,6 @@ use super::{RefreshAction, VtpmContext, VtpmError};
 use crate::{
     crypto::{crypto_digest, crypto_hash_size, crypto_hmac, crypto_kdfa},
     device::{Device, DeviceError},
-    key::Tpm2shAlgId,
     write_object,
 };
 use std::{any::Any, fs, path::Path};
@@ -42,9 +41,7 @@ impl VtpmSession {
         resp: &TpmStartAuthSessionResponse,
         auth_value: &[u8],
     ) -> Result<Self, VtpmError> {
-        let digest_len = crypto_hash_size(auth_hash)
-            .ok_or(VtpmError::UnsupportedNameAlgorithm(Tpm2shAlgId(auth_hash)))?;
-
+        let digest_len = crypto_hash_size(auth_hash)?;
         let hmac_key_bytes = if (resp.session_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
             if auth_value.is_empty() {
                 Vec::new()

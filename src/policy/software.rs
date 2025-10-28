@@ -51,8 +51,7 @@ impl<'a> SoftwarePolicySession<'a> {
     ///
     /// Returns `PolicyError::InvalidAlgorithm` if the hash algorithm is not supported.
     pub fn new(hash_alg: TpmAlgId, device: &'a mut Device) -> Result<Self, PolicyError> {
-        let digest_size =
-            crypto_hash_size(hash_alg).ok_or(PolicyError::InvalidAlgorithm(hash_alg))?;
+        let digest_size = crypto_hash_size(hash_alg)?;
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())?;
         Ok(Self {
             digest,

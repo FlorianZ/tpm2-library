@@ -15,8 +15,14 @@ use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc};
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaSession, TpmsAuthCommand},
-    message::{TpmAuthResponses, TpmEvictControlCommand, TpmResponseBody},
+    data::{
+        Tpm2bEncryptedSecret, Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaSession,
+        TpmsAuthCommand, TpmtSymDefObject,
+    },
+    message::{
+        TpmAuthResponses, TpmEvictControlCommand, TpmResponseBody, TpmStartAuthSessionCommand,
+        TpmStartAuthSessionResponse,
+    },
     TpmError, TpmHandle,
 };
 
@@ -274,8 +280,7 @@ impl<'a> Job<'a> {
                         .cache
                         .get_session(vhandle)
                         .ok_or(JobError::HandleNotFound("vtpm:", vhandle))?;
-                    let nonce_size =
-                        crypto_hash_size(session.auth_hash).ok_or(JobError::MalformedData)?;
+                    let nonce_size = crypto_hash_size(session.auth_hash)?;
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
@@ -326,7 +331,8 @@ impl<'a> Job<'a> {
 
         for auth in auth_list {
             if *auth == Auth::default() {
-                let (resp, nonce_caller) = device.start_session(
+                let (resp, nonce_caller) = Job::start_session(
+                    device,
                     TpmSe::Hmac,
                     TpmAlgId::Sha256,
                     (TpmRh::Null as u32).into(),
@@ -422,6 +428,45 @@ impl<'a> Job<'a> {
         resp.EvictControl()
             .map_err(|_| JobError::ResponseMismatch(TpmCc::EvictControl))?;
         Ok(())
+    }
+
+    /// Starts a new authorization session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Device`](crate::job::JobError::Device) when the transmission
+    /// fails.
+    /// Returns [`ResponseMismatch`](crate::job::JobError::ResponseMismatch) when
+    /// the TPM command returns an unexpected response type.
+    pub fn start_session(
+        device: &mut Device,
+        session_type: TpmSe,
+        auth_hash: TpmAlgId,
+        bind: TpmHandle,
+    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), JobError> {
+        let digest_len = crypto_hash_size(auth_hash)?;
+        let mut nonce_bytes = vec![0; digest_len];
+        thread_rng().fill_bytes(&mut nonce_bytes);
+        let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())?;
+
+        let cmd = TpmStartAuthSessionCommand {
+            tpm_key: (TpmRh::Null as u32).into(),
+            bind,
+            nonce_caller,
+            encrypted_salt: Tpm2bEncryptedSecret::default(),
+            session_type,
+            symmetric: TpmtSymDefObject::default(),
+            auth_hash,
+        };
+        let sessions = vec![];
+
+        let (response_body, _) = device.execute(&cmd, &sessions)?;
+
+        let resp = response_body
+            .StartAuthSession()
+            .map_err(|_| JobError::ResponseMismatch(TpmCc::StartAuthSession))?;
+
+        Ok((resp, nonce_caller))
     }
 }
 

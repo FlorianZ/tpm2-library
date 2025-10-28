@@ -4,7 +4,6 @@
 
 use crate::{
     cli::LogFormat,
-    crypto::crypto_hash_size,
     handle::{Handle, HandleClass},
     print::TpmPrint,
     spinner::Spinner,
@@ -12,7 +11,6 @@ use crate::{
 };
 use log::trace;
 use polling::{Event, Events, Poller};
-use rand::{thread_rng, RngCore};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -27,17 +25,15 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
-        Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCap, TpmCc, TpmHt, TpmPt, TpmRc,
-        TpmRcBase, TpmRh, TpmSe, TpmSt, TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData,
-        TpmsContext, TpmsRsaParms, TpmtPublic, TpmtPublicParms, TpmtSymDefObject, TpmuCapabilities,
-        TpmuPublicParms,
+        Tpm2bName, TpmAlgId, TpmCap, TpmCc, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt, TpmsAlgProperty,
+        TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsRsaParms, TpmtPublic,
+        TpmtPublicParms, TpmuCapabilities, TpmuPublicParms,
     },
     message::{
         tpm_build_command, tpm_parse_response, TpmAuthResponses, TpmBodyBuild,
         TpmContextLoadCommand, TpmContextSaveCommand, TpmEvictControlCommand,
         TpmFlushContextCommand, TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmHeader,
-        TpmReadPublicCommand, TpmResponseBody, TpmStartAuthSessionCommand,
-        TpmStartAuthSessionResponse, TpmTestParmsCommand,
+        TpmReadPublicCommand, TpmResponseBody, TpmTestParmsCommand,
     },
     TpmError, TpmHandle, TpmWriter,
 };
@@ -525,47 +521,6 @@ impl Device {
             }
             Err(e) => Err(e),
         }
-    }
-
-    /// Starts a new authorization session.
-    ///
-    /// This function sends a `TPM2_StartAuthSession` command to the TPM and
-    /// returns the raw response, which can be used to construct a higher-level
-    /// session object.
-    ///
-    /// # Errors
-    ///
-    /// Returns `DeviceError` on TPM command failure.
-    pub fn start_session(
-        &mut self,
-        session_type: TpmSe,
-        auth_hash: TpmAlgId,
-        bind: TpmHandle,
-    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), DeviceError> {
-        let digest_len =
-            crypto_hash_size(auth_hash).ok_or(DeviceError::TpmProtocol(TpmError::MalformedData))?;
-        let mut nonce_bytes = vec![0; digest_len];
-        thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())?;
-
-        let cmd = TpmStartAuthSessionCommand {
-            tpm_key: (TpmRh::Null as u32).into(),
-            bind,
-            nonce_caller,
-            encrypted_salt: Tpm2bEncryptedSecret::default(),
-            session_type,
-            symmetric: TpmtSymDefObject::default(),
-            auth_hash,
-        };
-        let sessions = vec![];
-
-        let (response_body, _) = self.execute(&cmd, &sessions)?;
-
-        let resp = response_body
-            .StartAuthSession()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::StartAuthSession))?;
-
-        Ok((resp, nonce_caller))
     }
 
     /// Evicts a persistent object or makes a transient object persistent.

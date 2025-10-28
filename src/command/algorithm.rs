@@ -52,7 +52,7 @@ impl Algorithm {
         let hashes: Vec<String> = all_algs
             .iter()
             .map(|prop| prop.alg)
-            .filter(|p| crypto_hash_size(*p).is_some())
+            .filter(|p| crypto_hash_size(*p).is_ok())
             .map(|p| Tpm2shAlgId(p).to_string())
             .collect();
         Ok(hashes)

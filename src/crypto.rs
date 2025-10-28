@@ -6,18 +6,11 @@
 
 use crate::write_object;
 use hmac::{Hmac, Mac};
-use num_traits::FromPrimitive;
-use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
-use rand::{CryptoRng, RngCore};
-use rsa::Oaep;
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha384, Sha512};
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{
-        Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmEccCurve, TpmsEccPoint,
-        TpmtPublic, TpmuPublicId, TpmuPublicParms,
-    },
+    data::{Tpm2bName, TpmAlgId, TpmtPublic},
     TpmError,
 };
 
@@ -29,12 +22,8 @@ pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 
 #[derive(Debug, Error)]
 pub enum CryptoError {
-    #[error("DER encoding failed: {0}")]
-    EncodingDerFailed(String),
     #[error("invalid ECC point")]
     InvalidEccPoint,
-    #[error("unsupported or invalid hash algorithm")]
-    InvalidHashAlgorithm,
     #[error("invalid HMAC")]
     InvalidHmac,
     #[error("invalid cryptographic key")]
@@ -47,6 +36,8 @@ pub enum CryptoError {
     RsaOaepEncryptFailed(String),
     #[error("unsupported elliptic curve")]
     UnsupportedEccCurve,
+    #[error("unsupported hash algorithm")]
+    UnsupportedHashAlgorithm,
     #[error("TPM: {0}")]
     Tpm(TpmError),
 }
@@ -58,14 +49,18 @@ impl From<TpmError> for CryptoError {
 }
 
 /// Returns the size of the digest for a given hash algorithm.
-#[must_use]
-pub fn crypto_hash_size(alg: TpmAlgId) -> Option<usize> {
+///
+/// # Errors
+///
+/// Returns a [`InvalidHashAlgorihm`](crate::crypto::CryptoError) when the hash
+/// algorithm is not supported.
+pub fn crypto_hash_size(alg: TpmAlgId) -> Result<usize, CryptoError> {
     match alg {
-        TpmAlgId::Sha1 => Some(20),
-        TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => Some(32),
-        TpmAlgId::Sha384 => Some(48),
-        TpmAlgId::Sha512 => Some(64),
-        _ => None,
+        TpmAlgId::Sha1 => Ok(20),
+        TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => Ok(32),
+        TpmAlgId::Sha384 => Ok(48),
+        TpmAlgId::Sha512 => Ok(64),
+        _ => Err(CryptoError::UnsupportedHashAlgorithm),
     }
 }
 
@@ -90,7 +85,7 @@ pub fn crypto_digest(alg: TpmAlgId, data_chunks: &[&[u8]]) -> Result<Vec<u8>, Cr
         TpmAlgId::Sha256 => digest!(Sha256),
         TpmAlgId::Sha384 => digest!(Sha384),
         TpmAlgId::Sha512 => digest!(Sha512),
-        _ => Err(CryptoError::InvalidHashAlgorithm),
+        _ => Err(CryptoError::UnsupportedHashAlgorithm),
     }
 }
 
@@ -119,7 +114,7 @@ pub fn crypto_hmac(
         TpmAlgId::Sha256 => hmac!(Sha256),
         TpmAlgId::Sha384 => hmac!(Sha384),
         TpmAlgId::Sha512 => hmac!(Sha512),
-        _ => Err(CryptoError::InvalidHashAlgorithm),
+        _ => Err(CryptoError::UnsupportedHashAlgorithm),
     }
 }
 
@@ -151,7 +146,7 @@ pub fn crypto_hmac_verify(
         TpmAlgId::Sha256 => verify_hmac!(Sha256),
         TpmAlgId::Sha384 => verify_hmac!(Sha384),
         TpmAlgId::Sha512 => verify_hmac!(Sha512),
-        _ => Err(CryptoError::InvalidHashAlgorithm),
+        _ => Err(CryptoError::UnsupportedHashAlgorithm),
     }
 }
 
@@ -168,10 +163,6 @@ pub fn crypto_kdfa(
     context_b: &[u8],
     key_bits: u16,
 ) -> Result<Vec<u8>, CryptoError> {
-    if crypto_hash_size(auth_hash).is_none() {
-        return Err(CryptoError::InvalidHashAlgorithm);
-    }
-
     let mut key_stream = Vec::new();
     let key_bytes = (key_bits as usize).div_ceil(8);
     let label_bytes = {
@@ -216,10 +207,6 @@ pub fn crypto_kdfe(
     context_v: &[u8],
     key_bits: u16,
 ) -> Result<Vec<u8>, CryptoError> {
-    if crypto_hash_size(hash_alg).is_none() {
-        return Err(CryptoError::InvalidHashAlgorithm);
-    }
-
     let mut key_stream = Vec::new();
     let key_bytes = (key_bits as usize).div_ceil(8);
     let mut label_bytes = label.as_bytes().to_vec();
@@ -245,167 +232,6 @@ pub fn crypto_kdfe(
     Ok(key_stream)
 }
 
-/// Dispatches RSA OAEP encryption based on the `TpmAlgId`.
-fn dispatch_rsa_oaep_encrypt(
-    key: &rsa::RsaPublicKey,
-    rng: &mut (impl CryptoRng + RngCore),
-    name_alg: TpmAlgId,
-    label: &str,
-    data: &[u8],
-) -> Result<Vec<u8>, CryptoError> {
-    let result = match name_alg {
-        TpmAlgId::Sha1 => key.encrypt(rng, Oaep::new_with_label::<Sha1, _>(label), data),
-        TpmAlgId::Sha256 => key.encrypt(rng, Oaep::new_with_label::<Sha256, _>(label), data),
-        TpmAlgId::Sha384 => key.encrypt(rng, Oaep::new_with_label::<Sha384, _>(label), data),
-        TpmAlgId::Sha512 => key.encrypt(rng, Oaep::new_with_label::<Sha512, _>(label), data),
-        _ => return Err(CryptoError::InvalidScheme),
-    };
-    result.map_err(|e| CryptoError::RsaOaepEncryptFailed(e.to_string()))
-}
-
-/// Encrypts a seed using the parent's RSA public key for duplication.
-///
-/// See Table 27 in TCG TPM 2.0 Architectures specification for more information.
-///
-/// # Errors
-///
-/// Returns a `CryptoError` on failure.
-pub fn protect_seed_with_rsa(
-    parent_public: &TpmtPublic,
-    seed: &[u8],
-    rng: &mut (impl RngCore + CryptoRng),
-) -> Result<Tpm2bEncryptedSecret, CryptoError> {
-    let n = match &parent_public.unique {
-        TpmuPublicId::Rsa(data) => Ok(data.as_ref()),
-        _ => Err(CryptoError::InvalidKey),
-    }?;
-    let e_raw = match &parent_public.parameters {
-        TpmuPublicParms::Rsa(params) => Ok(params.exponent),
-        _ => Err(CryptoError::InvalidKey),
-    }?;
-    let e = if e_raw == 0 { 65537 } else { e_raw };
-    let rsa_pub_key = rsa::RsaPublicKey::new(
-        rsa::BigUint::from_bytes_be(n),
-        rsa::BigUint::from_u32(e).ok_or(CryptoError::InvalidRsaExponent)?,
-    )
-    .map_err(|e| CryptoError::RsaOaepEncryptFailed(e.to_string()))?;
-
-    let label = "DUPLICATE\0";
-
-    let encrypted_seed =
-        dispatch_rsa_oaep_encrypt(&rsa_pub_key, rng, parent_public.name_alg, label, seed)?;
-
-    Tpm2bEncryptedSecret::try_from(encrypted_seed.as_slice())
-        .map_err(|_| CryptoError::InvalidRsaExponent)
-}
-
-/// Derives a `seed` and an ephemeral public key using ECDH with the parent's ECC public key.
-///
-/// # Errors
-///
-/// Returns a `CryptoError` on failure.
-pub fn derive_seed_with_ecc(
-    parent_public: &TpmtPublic,
-    rng: &mut (impl RngCore + CryptoRng),
-) -> Result<(Vec<u8>, TpmsEccPoint), CryptoError> {
-    let (parent_point, curve_id) = match (&parent_public.unique, &parent_public.parameters) {
-        (TpmuPublicId::Ecc(point), TpmuPublicParms::Ecc(params)) => Ok((point, params.curve_id)),
-        _ => Err(CryptoError::InvalidKey),
-    }?;
-
-    match curve_id {
-        TpmEccCurve::NistP256 => crypto_ecdh_p256(parent_point, parent_public.name_alg, rng),
-        TpmEccCurve::NistP384 => crypto_ecdh_p384(parent_point, parent_public.name_alg, rng),
-        TpmEccCurve::NistP521 => crypto_ecdh_p521(parent_point, parent_public.name_alg, rng),
-        _ => Err(CryptoError::UnsupportedEccCurve),
-    }
-}
-
-macro_rules! ecdh {
-    (
-        $vis:vis $fn_name:ident,
-        $pk_ty:ty, $sk_ty:ty, $affine_ty:ty, $dh_fn:path, $encoded_point_ty:ty
-    ) => {
-        #[allow(clippy::similar_names, clippy::missing_errors_doc)]
-        $vis fn $fn_name(
-            parent_point: &TpmsEccPoint,
-            name_alg: TpmAlgId,
-            rng: &mut (impl RngCore + CryptoRng),
-        ) -> Result<(Vec<u8>, TpmsEccPoint), CryptoError> {
-            let encoded_point = <$encoded_point_ty>::from_affine_coordinates(
-                parent_point.x.as_ref().into(),
-                parent_point.y.as_ref().into(),
-                false,
-            );
-            let affine_point_opt: Option<$affine_ty> =
-                <$affine_ty>::from_encoded_point(&encoded_point).into();
-            let affine_point = affine_point_opt.ok_or(CryptoError::InvalidEccPoint)?;
-
-            if affine_point.is_identity().into() {
-                return Err(CryptoError::InvalidEccPoint);
-            }
-
-            let parent_pk =
-                <$pk_ty>::from_affine(affine_point).map_err(|_| CryptoError::InvalidEccPoint)?;
-
-            let ephemeral_sk = <$sk_ty>::random(rng);
-            let ephemeral_pk_bytes_encoded = ephemeral_sk.public_key().to_encoded_point(false);
-            let ephemeral_pk_bytes = ephemeral_pk_bytes_encoded.as_bytes();
-            if ephemeral_pk_bytes.is_empty() || ephemeral_pk_bytes[0] != UNCOMPRESSED_POINT_TAG {
-                return Err(CryptoError::InvalidEccPoint);
-            }
-            let coord_len = (ephemeral_pk_bytes.len() - 1) / 2;
-            let x = &ephemeral_pk_bytes[1..=coord_len];
-            let y = &ephemeral_pk_bytes[1 + coord_len..];
-
-            let context_u = x;
-            let context_v = parent_point.x.as_ref();
-
-            let shared_secret = $dh_fn(ephemeral_sk.to_nonzero_scalar(), parent_pk.as_affine());
-            let z = shared_secret.raw_secret_bytes();
-            let seed_bits =
-                u16::try_from(crypto_hash_size(name_alg).ok_or(CryptoError::InvalidHashAlgorithm)? * 8)
-                    .map_err(|_| CryptoError::InvalidKey)?;
-            let seed =
-                crypto_kdfe(name_alg, &z, KDF_LABEL_DUPLICATE, context_u, context_v, seed_bits)?;
-
-            let ephemeral_point = TpmsEccPoint {
-                x: Tpm2bEccParameter::try_from(x)?,
-                y: Tpm2bEccParameter::try_from(y)?
-            };
-
-            Ok((seed, ephemeral_point))
-        }
-    };
-}
-
-ecdh!(
-    pub crypto_ecdh_p256,
-    p256::PublicKey,
-    p256::SecretKey,
-    p256::AffinePoint,
-    p256::ecdh::diffie_hellman,
-    p256::EncodedPoint
-);
-
-ecdh!(
-    pub crypto_ecdh_p384,
-    p384::PublicKey,
-    p384::SecretKey,
-    p384::AffinePoint,
-    p384::ecdh::diffie_hellman,
-    p384::EncodedPoint
-);
-
-ecdh!(
-    pub crypto_ecdh_p521,
-    p521::PublicKey,
-    p521::SecretKey,
-    p521::AffinePoint,
-    p521::ecdh::diffie_hellman,
-    p521::EncodedPoint
-);
-
 /// Calculates the TPM name of a public object.
 ///
 /// # Errors
@@ -415,7 +241,7 @@ pub fn crypto_make_name(public: &TpmtPublic) -> Result<Tpm2bName, CryptoError> {
     let mut name_buf = Vec::new();
     let name_alg = public.name_alg;
     name_buf.extend_from_slice(&(name_alg as u16).to_be_bytes());
-    let public_area_bytes = write_object(public).map_err(|_| CryptoError::InvalidRsaExponent)?;
+    let public_area_bytes = write_object(public)?;
     let digest = crypto_digest(name_alg, &[&public_area_bytes])?;
     name_buf.extend_from_slice(&digest);
     Tpm2bName::try_from(name_buf.as_slice()).map_err(Into::into)
