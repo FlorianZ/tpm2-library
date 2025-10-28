@@ -448,7 +448,6 @@ impl Convert {
             inner: parent_public,
         };
 
-        let policy_digest = Tpm2bDigest::default();
         let key_type = match external_key.as_ref() {
             ExternalKey::Rsa2048(_)
             | ExternalKey::Rsa3072(_)
@@ -461,13 +460,7 @@ impl Convert {
         let tpm_key = TpmKey {
             key_type,
             empty_auth: Some(true),
-            policy: if policy_digest.is_empty() {
-                None
-            } else {
-                return Err(CommandError::InvalidInput(
-                    "Policy digest not supported for imported keys".to_string(),
-                ));
-            },
+            policy: None,
             secret: None,
             auth_policy: None,
             description: None,
