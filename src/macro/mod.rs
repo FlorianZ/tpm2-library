@@ -315,7 +315,7 @@ macro_rules! tpm2b_struct {
                 let size = size as usize;
 
                 if buf_after_size.len() < size {
-                    return Err($crate::TpmError::TruncatedData);
+                    return Err($crate::TpmError::Truncated);
                 }
                 let (inner_bytes, rest) = buf_after_size.split_at(size);
 

@@ -99,8 +99,8 @@ fn parse_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static
 #[allow(dead_code)]
 pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
     match s {
-        "MalformedData" => return Ok(TpmError::MalformedData),
-        "TruncatedData" => return Ok(TpmError::TruncatedData),
+        "Malformed" => return Ok(TpmError::Malformed),
+        "Truncated" => return Ok(TpmError::Truncated),
         "TrailingData" => return Ok(TpmError::TrailingData),
         _ => {}
     }

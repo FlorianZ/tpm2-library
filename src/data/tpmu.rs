@@ -131,11 +131,11 @@ impl TpmParseTagged for TpmuHa {
             TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => 32,
             TpmAlgId::Sha384 => 48,
             TpmAlgId::Sha512 => 64,
-            _ => return Err(TpmError::MalformedData),
+            _ => return Err(TpmError::Malformed),
         };
 
         if buf.len() < digest_size {
-            return Err(TpmError::TruncatedData);
+            return Err(TpmError::Truncated);
         }
 
         let (digest_bytes, buf) = buf.split_at(digest_size);
@@ -273,7 +273,7 @@ impl TpmParseTagged for TpmuPublicParms {
                 Ok((Self::Ecc(details), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::MalformedData),
+            _ => Err(TpmError::Malformed),
         }
     }
 }
@@ -458,7 +458,7 @@ impl TpmParseTagged for TpmuSignature {
                 Ok((Self::Hmac(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::MalformedData),
+            _ => Err(TpmError::Malformed),
         }
     }
 }
@@ -553,7 +553,7 @@ impl TpmParseTagged for TpmuKeyedhashScheme {
                 Ok((Self::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::MalformedData),
+            _ => Err(TpmError::Malformed),
         }
     }
 }
@@ -654,7 +654,7 @@ impl TpmParseTagged for TpmuNvPublic2 {
                 let (val, buf) = TpmsNvPublic::parse(buf)?;
                 Ok((Self::PermanentNv(val), buf))
             }
-            _ => Err(TpmError::MalformedData),
+            _ => Err(TpmError::Malformed),
         }
     }
 }
