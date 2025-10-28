@@ -13,7 +13,8 @@ use crate::{
     handle::{Handle, HandleClass},
     io::{read_file_input, write_key_data},
     key::{AnyKey, ExternalKey, TpmKey, OID_IMPORTABLE_KEY},
-    session::Session,
+    session::{Session, SessionError},
+    vtpm::VtpmError,
     write_object,
 };
 use aes::Aes128;
@@ -487,12 +488,22 @@ impl Task for Convert {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {
             let parent_handle_arg = self.parent;
-            let parent_handle = match parent_handle_arg.class() {
+            let parent_handle_res = match parent_handle_arg.class() {
                 HandleClass::Tpm => Ok(TpmHandle(parent_handle_arg.value())),
                 HandleClass::Vtpm => job.load_context(device, &parent_handle_arg),
-            }?;
+            };
+            let parent_handle = parent_handle_res.map_err(|e| {
+                if let SessionError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) = e {
+                    CommandError::InvalidParent(prefix, handle)
+                } else {
+                    CommandError::from(e)
+                }
+            })?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
+            if input_bytes.is_empty() {
+                return Ok(());
+            }
             let tpm_key = Convert::create_external_key(job, device, parent_handle, &input_bytes)?;
 
             write_key_data(

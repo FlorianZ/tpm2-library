@@ -12,7 +12,9 @@ use crate::{
     io::write_key_data,
     key::{Alg, AlgInfo, TpmKey, TpmPolicy, OID_LOADABLE_KEY, OID_SEALED_DATA},
     session::{Session, SessionError},
-    template, write_object,
+    template,
+    vtpm::VtpmError,
+    write_object,
 };
 use clap::Args;
 use rasn::types::OctetString;
@@ -68,7 +70,13 @@ impl Create {
     #[allow(clippy::too_many_lines)]
     fn create_object(&self, job: &mut Session, device: &mut Device) -> Result<(), CommandError> {
         let parent_handle_arg = self.parent;
-        let parent_handle = job.load_context(device, &parent_handle_arg)?;
+        let parent_handle = job.load_context(device, &parent_handle_arg).map_err(|e| {
+            if let SessionError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) = e {
+                CommandError::InvalidParent(prefix, handle)
+            } else {
+                e.into()
+            }
+        })?;
 
         let (object_attributes, user_auth, auth_policy) =
             self.creation_args.parse(&self.algorithm)?;

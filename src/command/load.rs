@@ -32,6 +32,9 @@ impl Task for Load {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
+            if input_bytes.is_empty() {
+                return Ok(());
+            }
 
             let tpm_key = match AnyKey::try_from(input_bytes.as_slice())? {
                 AnyKey::Tpm(key) => key,
