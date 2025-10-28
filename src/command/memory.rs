@@ -10,11 +10,10 @@ use crate::{
     handle::Handle,
     job::Job,
     key::{
-        format_alg_from_public, KeyError, Tpm2shAlgId, OID_ECDSA_WITH_SHA256,
-        OID_ECDSA_WITH_SHA384, OID_ECDSA_WITH_SHA512, OID_RSA_ENCRYPTION,
-        OID_SHA1_WITH_RSA_ENCRYPTION, OID_SHA256_WITH_RSA_ENCRYPTION,
-        OID_SHA384_WITH_RSA_ENCRYPTION, OID_SHA512_WITH_RSA_ENCRYPTION, SECP_256_R_1, SECP_384_R_1,
-        SECP_521_R_1,
+        Alg, AlgInfo, Tpm2shAlgId, OID_ECDSA_WITH_SHA256, OID_ECDSA_WITH_SHA384,
+        OID_ECDSA_WITH_SHA512, OID_EC_PUBLIC_KEY, OID_RSA_ENCRYPTION, OID_SHA1_WITH_RSA_ENCRYPTION,
+        OID_SHA256_WITH_RSA_ENCRYPTION, OID_SHA384_WITH_RSA_ENCRYPTION,
+        OID_SHA512_WITH_RSA_ENCRYPTION, SECP_256_R_1, SECP_384_R_1, SECP_521_R_1,
     },
     vtpm::build_password_session,
 };
@@ -354,7 +353,17 @@ impl Memory {
     fn fetch_details(device: &mut Device, handle: Handle) -> Result<String, CommandError> {
         let tpm_handle = TpmHandle(handle.value());
         let (public, _) = device.read_public(tpm_handle)?;
-        Ok(format_alg_from_public(&public))
+        Ok(crate::key::format_alg_from_public(&public))
+    }
+
+    /// Creates a placeholder Alg struct for error reporting.
+    fn oid_to_placeholder_alg(oid: &ObjectIdentifier) -> Alg {
+        Alg {
+            name: oid.to_string(),
+            object_type: TpmAlgId::Null,
+            name_alg: TpmAlgId::Null,
+            params: AlgInfo::KeyedHash,
+        }
     }
 
     fn fetch_hash_alg(oid: &ObjectIdentifier) -> Result<TpmAlgId, CommandError> {
@@ -367,13 +376,16 @@ impl Memory {
         } else if oid == &OID_SHA512_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA512 {
             Ok(TpmAlgId::Sha512)
         } else {
-            Err(KeyError::UnsupportedOid(oid.to_string()).into())
+            Err(CommandError::UnsupportedSignatureAlgorithm(
+                Self::oid_to_placeholder_alg(oid),
+            ))
         }
     }
 
     fn fetch_alg_name(cert_der: &[u8]) -> Result<String, CommandError> {
-        let cert: Certificate =
-            rasn::der::decode(cert_der).map_err(|e| CommandError::Key(e.into()))?;
+        let cert: Certificate = rasn::der::decode(cert_der).map_err(|e| {
+            CommandError::InvalidInput(format!("DER certificate decode failed: {e}"))
+        })?;
         let tbs = cert.tbs_cert;
         let spki = tbs.subject_public_key_info;
         let sig_alg = Self::fetch_hash_alg(&tbs.signature.algorithm)?;
@@ -382,15 +394,19 @@ impl Memory {
         let key_oid = &spki.algorithm.algorithm;
         if key_oid == &OID_RSA_ENCRYPTION {
             let key: RsaPublicKey = rasn::der::decode(spki.subject_public_key.as_raw_slice())
-                .map_err(|e| CommandError::Key(e.into()))?;
-            let modulus = key
-                .modulus
-                .to_bigint()
-                .ok_or_else(|| KeyError::InvalidRsaModulus(key.modulus.to_string()))?;
-            let key_bits = u16::try_from(modulus.bits())
-                .map_err(|_| KeyError::InvalidRsaModulus(modulus.to_string()))?;
+                .map_err(|e| {
+                    CommandError::InvalidInput(format!("DER RSA public key decode failed: {e}"))
+                })?;
+            let modulus = key.modulus.to_bigint().ok_or_else(|| {
+                CommandError::InvalidInput(format!("Invalid RSA modulus value: {}", key.modulus))
+            })?;
+            let key_bits = u16::try_from(modulus.bits()).map_err(|_| {
+                CommandError::InvalidInput(format!(
+                    "RSA modulus bit size calculation failed for: {modulus}"
+                ))
+            })?;
             Ok(format!("rsa-{key_bits}:{sig_alg_str}"))
-        } else if key_oid == &crate::key::OID_EC_PUBLIC_KEY {
+        } else if key_oid == &OID_EC_PUBLIC_KEY {
             let curve_param_oid = spki
                 .algorithm
                 .parameters
@@ -403,13 +419,17 @@ impl Memory {
             } else if curve_param_oid.as_ref() == Some(&SECP_521_R_1) {
                 "nist-p521"
             } else if let Some(oid) = curve_param_oid.as_ref() {
-                return Err(KeyError::UnsupportedOid(oid.to_string()).into());
+                return Err(CommandError::UnsupportedKeyAlgorithm(
+                    Self::oid_to_placeholder_alg(oid),
+                ));
             } else {
-                return Err(KeyError::InvalidOid.into());
+                return Err(CommandError::MissingEccCurveParameters);
             };
             Ok(format!("ecc-{curve_str}:{sig_alg_str}"))
         } else {
-            Err(KeyError::UnsupportedOid(key_oid.to_string()).into())
+            Err(CommandError::UnsupportedKeyAlgorithm(
+                Self::oid_to_placeholder_alg(key_oid),
+            ))
         }
     }
 }

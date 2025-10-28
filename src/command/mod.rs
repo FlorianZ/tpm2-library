@@ -185,6 +185,10 @@ pub enum CommandError {
     UnknownParent,
     #[error("unsupported key algorithm: '{0}'")]
     UnsupportedKeyAlgorithm(crate::key::Alg),
+    #[error("unsupported signature algorithm: {0}")]
+    UnsupportedSignatureAlgorithm(crate::key::Alg),
+    #[error("missing ECC curve parameters")]
+    MissingEccCurveParameters,
     #[error("auth: {0}")]
     Auth(#[from] AuthError),
     #[error("cache: {0}")]
