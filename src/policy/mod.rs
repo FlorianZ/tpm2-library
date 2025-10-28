@@ -4,9 +4,11 @@
 
 //! This module contains the parser and executor for the unified policy language.
 
-pub mod software;
-pub mod tpm;
+mod parser;
+mod software;
+mod tpm;
 
+pub use parser::*;
 pub use software::*;
 pub use tpm::*;
 
@@ -18,9 +20,7 @@ use crate::{
     pcr::{self, PcrError, PcrSelection},
     vtpm::VtpmError,
 };
-use std::{
-    collections::HashMap, fmt, iter::Peekable, num::ParseIntError, slice::Iter, str::FromStr,
-};
+use std::{collections::HashMap, fmt, num::ParseIntError};
 use thiserror::Error;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
@@ -197,6 +197,27 @@ impl fmt::Display for Expression {
 }
 
 impl Expression {
+    /// Parses a policy expression string into an `Expression` AST.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolicyError::InvalidExpression` if expression parsing fails.
+    /// Returns a `PolicyError::UnexpectedToken` if there is trailing data after the
+    /// expression.
+    pub fn new(input: &str) -> Result<Expression, PolicyError> {
+        let tokens = parser::tokenize(input);
+        let mut iter = tokens.iter().peekable();
+        let expr = parser::parse_expression(&mut iter)?;
+
+        if iter.peek().is_some() {
+            return Err(PolicyError::UnexpectedToken(
+                "Trailing data after expression ".to_string(),
+            ));
+        }
+
+        Ok(expr)
+    }
+
     /// Resolves a password expression into bytes.
     ///
     /// # Errors
@@ -211,299 +232,6 @@ impl Expression {
             ))),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Token<'a> {
-    And,
-    Or,
-    LParen,
-    RParen,
-    Comma,
-    Ident(&'a str),
-}
-
-impl fmt::Display for Token<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Token::And => write!(f, "'and'"),
-            Token::Or => write!(f, "'or'"),
-            Token::LParen => write!(f, "'('"),
-            Token::RParen => write!(f, "')'"),
-            Token::Comma => write!(f, "','"),
-            Token::Ident(s) => write!(f, "'{s}'"),
-        }
-    }
-}
-
-fn tokenize(input: &str) -> Vec<Token<'_>> {
-    let mut tokens = Vec::new();
-    let mut current_index = 0;
-    let bytes = input.as_bytes();
-
-    while current_index < bytes.len() {
-        let ch = bytes[current_index] as char;
-
-        match ch {
-            '(' => {
-                tokens.push(Token::LParen);
-                current_index += 1;
-            }
-            ')' => {
-                tokens.push(Token::RParen);
-                current_index += 1;
-            }
-            ',' => {
-                tokens.push(Token::Comma);
-                current_index += 1;
-            }
-            c if c.is_whitespace() => {
-                let char_len = input[current_index..].chars().next().unwrap().len_utf8();
-                current_index += char_len;
-            }
-            _ => {
-                let start_index = current_index;
-                let mut end_index = start_index;
-                while end_index < bytes.len() {
-                    let current_char = input[end_index..].chars().next().unwrap();
-                    if current_char.is_whitespace() || "(),".contains(current_char) {
-                        break;
-                    }
-                    end_index += current_char.len_utf8();
-                }
-
-                let ident_slice = &input[start_index..end_index];
-
-                match ident_slice {
-                    "and" => tokens.push(Token::And),
-                    "or" => tokens.push(Token::Or),
-                    _ => tokens.push(Token::Ident(ident_slice)),
-                }
-                current_index = end_index;
-            }
-        }
-    }
-    tokens
-}
-
-struct Parser<'a, 'b> {
-    tokens: &'a mut Peekable<Iter<'b, Token<'b>>>,
-}
-
-impl Parser<'_, '_> {
-    fn parse_or(&mut self) -> Result<Expression, PolicyError> {
-        let mut node = self.parse_and()?;
-        while let Some(Token::Or) = self.tokens.peek() {
-            self.tokens.next();
-            let rhs = self.parse_and()?;
-            node = match node {
-                Expression::Or(mut terms) => {
-                    terms.push(rhs);
-                    Expression::Or(terms)
-                }
-                lhs => Expression::Or(vec![lhs, rhs]),
-            };
-        }
-        Ok(node)
-    }
-
-    fn parse_and(&mut self) -> Result<Expression, PolicyError> {
-        let mut node = self.parse_primary()?;
-        while let Some(Token::And) = self.tokens.peek() {
-            self.tokens.next();
-            let rhs = self.parse_primary()?;
-            node = match node {
-                Expression::And(mut factors) => {
-                    factors.push(rhs);
-                    Expression::And(factors)
-                }
-                lhs => Expression::And(vec![lhs, rhs]),
-            };
-        }
-        Ok(node)
-    }
-
-    fn parse_primary(&mut self) -> Result<Expression, PolicyError> {
-        let token = self
-            .tokens
-            .next()
-            .ok_or(PolicyError::UnexpectedEndOfExpression)?;
-
-        match token {
-            Token::LParen => {
-                let expr = self.parse_or()?;
-                if self.tokens.next() != Some(&Token::RParen) {
-                    return Err(PolicyError::UnmatchedParenthesis);
-                }
-                Ok(expr)
-            }
-            Token::Ident(name) => match *name {
-                "pcr" => self.parse_pcr_call(),
-                "secret" => self.parse_secret_call(),
-                _ => Self::parse_literal(name),
-            },
-            _ => Err(PolicyError::UnexpectedToken(token.to_string())),
-        }
-    }
-
-    fn parse_literal(s: &str) -> Result<Expression, PolicyError> {
-        if let Ok(auth) = Auth::from_str(s) {
-            Ok(Expression::Auth(auth))
-        } else if let Ok(handle) = Handle::from_str(s) {
-            Ok(Expression::Handle(handle))
-        } else {
-            Err(PolicyError::InvalidExpression(format!(
-                "unrecognized literal: {s}"
-            )))
-        }
-    }
-
-    fn parse_call_args(&mut self) -> Result<Vec<Expression>, PolicyError> {
-        match self.tokens.peek() {
-            Some(&&Token::LParen) => {
-                self.tokens.next();
-            }
-            Some(actual_token) => {
-                return Err(PolicyError::UnexpectedToken(format!(
-                    "Expected '(' to start argument list, found {actual_token}"
-                )));
-            }
-            None => {
-                return Err(PolicyError::UnexpectedEndOfExpression);
-            }
-        }
-
-        let mut args = Vec::new();
-        if self.tokens.peek() == Some(&&Token::RParen) {
-            self.tokens.next();
-            return Ok(args);
-        }
-
-        loop {
-            if let Some(Token::Ident(ident)) = self.tokens.peek() {
-                if let Ok(selections) = pcr::pcr_selection_vec_from_str(ident) {
-                    self.tokens.next();
-                    args.push(Expression::Pcr {
-                        selections,
-                        digest: None,
-                        count: None,
-                    });
-                } else {
-                    args.push(self.parse_or()?);
-                }
-            } else {
-                args.push(self.parse_or()?);
-            }
-
-            match self.tokens.peek() {
-                Some(&&Token::RParen) => {
-                    self.tokens.next();
-                    break;
-                }
-                Some(&&Token::Comma) => {
-                    self.tokens.next();
-                }
-                Some(actual_token) => {
-                    return Err(PolicyError::UnexpectedToken(format!(
-                        "Expected ',' or ')' in argument list, found {actual_token}"
-                    )));
-                }
-                None => return Err(PolicyError::UnmatchedParenthesis),
-            }
-        }
-        Ok(args)
-    }
-
-    fn parse_pcr_call(&mut self) -> Result<Expression, PolicyError> {
-        let mut args = self.parse_call_args()?;
-        if args.len() != 1 {
-            return Err(PolicyError::InvalidExpression(
-                "pcr() expects one argument ".to_string(),
-            ));
-        }
-
-        let arg = args.remove(0);
-        if let Expression::Pcr {
-            selections,
-            digest,
-            count,
-        } = arg
-        {
-            Ok(Expression::Pcr {
-                selections,
-                digest,
-                count,
-            })
-        } else if let Expression::Auth(_) | Expression::Handle(_) = arg {
-            let pcr_content = arg.to_string();
-            let (selection_part, digest_part) =
-                if let Some((selection, digest)) = pcr_content.rsplit_once(':') {
-                    if digest.chars().all(|c| c.is_ascii_hexdigit())
-                        && digest.len()
-                            >= crate::crypto::crypto_hash_size(TpmAlgId::Sha1).unwrap_or(20) * 2
-                    {
-                        (selection.to_string(), Some(digest.to_string()))
-                    } else {
-                        (pcr_content, None)
-                    }
-                } else {
-                    (pcr_content, None)
-                };
-
-            let selections = pcr::pcr_selection_vec_from_str(&selection_part)?;
-            Ok(Expression::Pcr {
-                selections,
-                digest: digest_part,
-                count: None,
-            })
-        } else {
-            Err(PolicyError::InvalidExpression(
-                "pcr() argument is not a valid PCR selection ".to_string(),
-            ))
-        }
-    }
-
-    fn parse_secret_call(&mut self) -> Result<Expression, PolicyError> {
-        let args = self.parse_call_args()?;
-        if args.is_empty() || args.len() > 3 {
-            return Err(PolicyError::InvalidExpression(
-                "secret() expects 1 to 3 arguments ".to_string(),
-            ));
-        }
-
-        let mut arg_iter = args.into_iter();
-        let auth_handle = Box::new(arg_iter.next().unwrap());
-        let password = arg_iter.next().map(Box::new);
-        let cp_hash = arg_iter.next().map(|expr| expr.to_string());
-
-        Ok(Expression::Secret {
-            auth_handle,
-            password,
-            cp_hash,
-        })
-    }
-}
-
-/// Parses a policy expression string.
-///
-/// # Errors
-///
-/// Returns a `PolicyError::InvalidExpression` if expression parsing fails.
-/// Returns a `PolicyError::UnexpectedToken` if there is trailing data after the
-/// expression.
-pub fn parse(input: &str) -> Result<Expression, PolicyError> {
-    let tokens = tokenize(input);
-    let mut iter = tokens.iter().peekable();
-    let mut parser = Parser { tokens: &mut iter };
-    let expr = parser.parse_or()?;
-
-    if parser.tokens.peek().is_some() {
-        return Err(PolicyError::UnexpectedToken(
-            "Trailing data after expression ".to_string(),
-        ));
-    }
-
-    Ok(expr)
 }
 
 /// Traverses a policy AST and applies the commands to a session object.

@@ -8,8 +8,8 @@ use crate::{
     device::with_device,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
     policy::{
-        execute_policy, parse, visit_pcr_expressions_mut, Expression, PolicyError,
-        SoftwarePolicySession, TpmPolicySession,
+        execute_policy, visit_pcr_expressions_mut, Expression, PolicyError, SoftwarePolicySession,
+        TpmPolicySession,
     },
     session::Session,
     vtpm::VtpmSession,
@@ -100,7 +100,7 @@ impl Task for Policy {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {
-            let mut ast = parse(&self.expression)?;
+            let mut ast = Expression::new(&self.expression)?;
             match ast {
                 Expression::Auth(_) | Expression::Handle(_) => {
                     return Err(CommandError::InvalidInput(
