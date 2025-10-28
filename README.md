@@ -19,8 +19,7 @@
 Inline comments (`//`) are not allowed. Take advantage of either `///` or `//!`
 when something needs to be documented to the source code.
 
-Errors are documented with a convention stolen from
-[Project Mu](https://microsoft.github.io/mu/CodeDevelopment/rust_documentation_conventions/#errors)::::
+Errors are documented with this convention:
 
 ```
 /// # Errors
