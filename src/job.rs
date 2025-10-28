@@ -8,7 +8,7 @@ use crate::{
     device::{Device, DeviceError, TpmCommandObject},
     handle::{Handle, HandleClass},
     key::KeyError,
-    vtpm::{build_password_session, create_auth, VtpmCache, VtpmContext, VtpmError, VtpmSession},
+    vtpm::{build_password_session, create_auth, VtpmCache, VtpmError, VtpmSession},
     write_object,
 };
 use rand::{thread_rng, RngCore};
@@ -90,71 +90,6 @@ impl<'a> Job<'a> {
         }
     }
 
-    /// Finds the ancestor chain for a given VTPM handle.
-    ///
-    /// Traverses up the parent hierarchy from the target `vhandle`, checking
-    /// both the cache and persistent TPM handles, until it finds the root. The
-    /// root can be a persistent physical handle or a non-persistent primary key
-    /// stored in the VTPM cache.
-    ///
-    /// Returns a list of `(Handle, Auth)` pairs representing the path from the
-    /// root *down* to the target, ready for loading. The first handle in the
-    /// vector indicates the root type (`HandleClass::Tpm` or `HandleClass::Vtpm`).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::job::JobError::Device) when the transmission
-    /// fails.
-    /// Returns [`HandleNotFound`](crate::job::JobError::HandleNotFound) when the
-    /// `target_vhandle` doesn't exist in the cache.
-    /// Returns [`ParentNotFound`](crate::job::JobError::ParentNotFound) when an
-    /// intermediate parent cannot be found in the cache or as a persistent
-    /// handle.
-    fn fetch_ancestor_chain(
-        &self,
-        target_vhandle: u32,
-        device: &mut Device,
-    ) -> Result<Vec<Handle>, JobError> {
-        let mut current_vhandle = target_vhandle;
-        let mut vtp_chain: Vec<Handle> = Vec::new();
-        let mut physical_primary: Option<Handle> = None;
-
-        loop {
-            let key = self.cache.find_by_vhandle(current_vhandle)?;
-
-            if key.parent.inner.object_type == TpmAlgId::Null {
-                break;
-            }
-
-            if let Some(parent_key) = self.cache.find_by_public(&key.parent.inner) {
-                let parent_vhandle = parent_key.handle();
-                vtp_chain.push(Handle((HandleClass::Vtpm, current_vhandle)));
-                current_vhandle = parent_vhandle;
-            } else {
-                match device.find_persistent(&key.parent.inner)? {
-                    Some((phandle, _)) => {
-                        physical_primary = Some(Handle((HandleClass::Tpm, phandle.0)));
-                        break;
-                    }
-                    None => {
-                        return Err(JobError::ParentNotFound);
-                    }
-                }
-            }
-        }
-
-        vtp_chain.push(Handle((HandleClass::Vtpm, current_vhandle)));
-        vtp_chain.reverse();
-
-        if let Some(root_handle) = physical_primary {
-            let mut final_chain = vec![root_handle];
-            final_chain.extend(vtp_chain);
-            Ok(final_chain)
-        } else {
-            Ok(vtp_chain)
-        }
-    }
-
     /// Loads a TPM context from a handle, recursively loading its ancestors
     /// first.
     ///
@@ -180,7 +115,7 @@ impl<'a> Job<'a> {
         }
 
         let target_vhandle = target.value();
-        let chain = self.fetch_ancestor_chain(target_vhandle, device)?;
+        let chain = self.cache.fetch_ancestor_chain(target_vhandle, device)?;
 
         if chain.is_empty() {
             return Err(JobError::HandleNotFound("vtpm:", target_vhandle));

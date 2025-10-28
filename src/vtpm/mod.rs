@@ -8,12 +8,12 @@ use crate::{
     auth::{Auth, AuthClass, AuthError},
     crypto::CryptoError,
     device::{Device, DeviceError},
-    handle::HandleError,
+    handle::{Handle, HandleClass, HandleError},
     key::Tpm2shAlgId,
 };
 use std::{
     any::Any,
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fs, io,
     num::TryFromIntError,
     path::Path,
@@ -21,7 +21,7 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{Tpm2bPublic, TpmHt, TpmRc, TpmsContext, TpmtPublic},
+    data::{Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
     message::TpmAuthResponses,
     TpmError, TpmHandle,
 };
@@ -46,6 +46,8 @@ pub enum VtpmError {
     InvalidParent(u32),
     #[error("no handles")]
     NoHandles,
+    #[error("parent not found")]
+    ParentNotFound,
     #[error("parent not loaded")]
     ParentNotLoaded,
     #[error("trailing authorizations")]
@@ -88,7 +90,7 @@ pub enum RefreshAction {
     Keep,
     /// The context is no longer valid.
     Stale,
-    /// A new [`TpmsContext`](tpm2_protocol::data::VtpmsContext) substituting
+    /// A new [`TpmsContext`](tpm2_protocol::data::TpmsContext) substituting
     /// the old one.
     Updated(Box<TpmsContext>),
 }
@@ -114,7 +116,8 @@ pub trait VtpmContext: 'static {
     ///
     /// # Errors
     ///
-    /// Returns a [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation
+    /// Returns [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation fails.
+    /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when writing the object
     /// fails.
     fn save(&self, path: &Path) -> Result<(), VtpmError>;
 
@@ -122,20 +125,17 @@ pub trait VtpmContext: 'static {
     ///
     /// # Errors
     ///
-    /// Returns a [`Device`](crate::vtpm::VtpmError::Device) when the TPM
+    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when the TPM
     /// transmission fails.
-    /// Returns a [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation
-    /// fails.
+    /// Returns [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation fails.
     fn delete(&self, device: &mut Device, cache_dir: &Path, vhandle: u32) -> Result<(), VtpmError>;
 
     /// Refreshes a context.
     ///
     /// # Errors
     ///
-    /// Returns a [`Device`](crate::vtpm::VtpmError::Device) when the TPM
+    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when the TPM
     /// transmission fails.
-    /// Returns a [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation
-    /// fails.
     fn refresh(&mut self, device: &mut Device) -> Result<RefreshAction, VtpmError>;
 }
 
@@ -151,7 +151,10 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError`] if loading contexts from the cache directory fails.
+    /// Returns [`Io`](crate::vtpm::VtpmError::Io) when reading the cache
+    /// directory fails.
+    /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when parsing loaded context
+    /// data fails.
     pub fn new(cache_dir: &'a Path) -> Result<Self, VtpmError> {
         let mut cache = Self {
             contexts: HashMap::new(),
@@ -167,7 +170,7 @@ impl<'a> VtpmCache<'a> {
         self.cache_dir
     }
 
-    /// Finds a VTPM key corresponding to a `TpmtPublic`,
+    /// Finds a VTPM key corresponding to a `TpmtPublic`.
     #[must_use]
     pub fn find_by_public(&self, public: &TpmtPublic) -> Option<&VtpmKey> {
         self.key_iter()
@@ -183,10 +186,10 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`ContextNotFound`](crate::vtpm::VtpmError::ContextNotFound)
-    /// when context is not found.
-    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when
-    /// `TPM2_ReadPublic` fails.
+    /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) when
+    /// a key with the corresponding public area is not found in the cache.
+    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when `TPM2_ReadPublic`
+    /// fails.
     pub fn find_by_phandle(
         &self,
         device: &mut Device,
@@ -199,19 +202,78 @@ impl<'a> VtpmCache<'a> {
 
     /// Finds a VTPM key corresponding to a virtual handle.
     ///
-    /// Reads the public area of a physical TPM handle and searches the cache
-    /// for a loaded key with a matching public area. If found, it returns the
-    /// corresponding virtual handle.
+    /// # Errors
+    ///
+    /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) when
+    /// context with the given `vhandle` is not found or is not a key.
+    pub fn find_by_vhandle(&self, vhandle: u32) -> Result<&VtpmKey, VtpmError> {
+        self.contexts
+            .get(&vhandle)
+            .and_then(|ctx| ctx.as_any().downcast_ref::<VtpmKey>())
+            .ok_or(VtpmError::HandleNotFound("vtpm:", vhandle))
+    }
+
+    /// Finds the ancestor chain for a given VTPM handle.
+    ///
+    /// Traverses up the parent hierarchy from the target `vhandle`, checking
+    /// both the cache and persistent TPM handles, until it finds the root. The
+    /// root can be a persistent physical handle or a non-persistent primary key
+    /// stored in the VTPM cache.
+    ///
+    /// Returns a list of `Handle`s representing the path from the
+    /// root *down* to the target, ready for loading.
     ///
     /// # Errors
     ///
-    /// Returns [`ContextNotFound`](crate::vtpm::VtpmError::ContextNotFound)
-    /// when context is not found.
-    pub fn find_by_vhandle(&self, vhandle: u32) -> Result<&VtpmKey, VtpmError> {
-        self.key_iter()
-            .find(|(h, _)| **h == vhandle)
-            .map(|(_, key)| key)
-            .ok_or(VtpmError::HandleNotFound("vtpm:", vhandle))
+    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when an underlying TPM
+    /// command fails.
+    /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) when the
+    /// `target_vhandle` doesn't exist in the cache or is not a key.
+    /// Returns [`ParentNotFound`](crate::vtpm::VtpmError::ParentNotFound) when an
+    /// intermediate parent cannot be found in the cache or as a persistent
+    /// handle.
+    pub fn fetch_ancestor_chain(
+        &self,
+        target_vhandle: u32,
+        device: &mut Device,
+    ) -> Result<Vec<Handle>, VtpmError> {
+        let mut current_vhandle = target_vhandle;
+        let mut vtp_chain: VecDeque<Handle> = VecDeque::new();
+        let mut physical_primary: Option<Handle> = None;
+
+        loop {
+            let key = self.find_by_vhandle(current_vhandle)?;
+
+            if key.parent.inner.object_type == TpmAlgId::Null {
+                break;
+            }
+
+            if let Some(parent_key) = self.find_by_public(&key.parent.inner) {
+                let parent_vhandle = parent_key.handle();
+                vtp_chain.push_front(Handle((HandleClass::Vtpm, current_vhandle)));
+                current_vhandle = parent_vhandle;
+            } else {
+                match device.find_persistent(&key.parent.inner)? {
+                    Some((phandle, _)) => {
+                        physical_primary = Some(Handle((HandleClass::Tpm, phandle.0)));
+                        break;
+                    }
+                    None => {
+                        return Err(VtpmError::ParentNotFound);
+                    }
+                }
+            }
+        }
+
+        vtp_chain.push_front(Handle((HandleClass::Vtpm, current_vhandle)));
+
+        let mut final_chain: Vec<Handle> = vtp_chain.into();
+
+        if let Some(root_handle) = physical_primary {
+            final_chain.insert(0, root_handle);
+        }
+
+        Ok(final_chain)
     }
 
     /// Loads all contexts from the cache directory.
@@ -231,18 +293,36 @@ impl<'a> VtpmCache<'a> {
                 continue;
             };
             let Ok(vhandle) = u32::from_str_radix(stem, 16) else {
+                log::warn!("Skipping cache file with non-hex name: {}", path.display());
                 continue;
             };
 
             let ht = (vhandle >> 24) as u8;
-            let context: Box<dyn VtpmContext> = if ht == TpmHt::Transient as u8 {
-                Box::new(VtpmKey::load_from_path(&path)?)
-            } else if ht == TpmHt::HmacSession as u8 || ht == TpmHt::PolicySession as u8 {
-                Box::new(VtpmSession::load_from_path(&path)?)
-            } else {
-                continue;
-            };
-            self.contexts.insert(vhandle, context);
+            let context_result: Result<Box<dyn VtpmContext>, VtpmError> =
+                if ht == TpmHt::Transient as u8 {
+                    VtpmKey::load_from_path(&path).map(|k| Box::new(k) as Box<dyn VtpmContext>)
+                } else if ht == TpmHt::HmacSession as u8 || ht == TpmHt::PolicySession as u8 {
+                    VtpmSession::load_from_path(&path).map(|s| Box::new(s) as Box<dyn VtpmContext>)
+                } else {
+                    log::warn!(
+                        "Skipping cache file with unknown type prefix: {}",
+                        path.display()
+                    );
+                    continue;
+                };
+
+            match context_result {
+                Ok(context) => {
+                    self.contexts.insert(vhandle, context);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to load context from {}: {}. Skipping.",
+                        path.display(),
+                        e
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -251,7 +331,8 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError`] if saving any of the dirty contexts fails.
+    /// Returns [`VtpmError::Io`] when saving any of the dirty contexts fails.
+    /// Returns [`VtpmError::Tpm`] when serializing context data fails.
     pub fn save(&mut self) -> Result<(), VtpmError> {
         let vhandles_to_save: Vec<u32> = self.dirty.drain().collect();
         for vhandle in vhandles_to_save {
@@ -267,7 +348,8 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError`] if deleting the context fails.
+    /// Returns [`VtpmError::Device`] when flushing the context from TPM fails.
+    /// Returns [`VtpmError::Io`] when removing the cache file fails.
     pub fn remove(&mut self, device: &mut Device, vhandle: u32) -> Result<(), VtpmError> {
         if let Some(context) = self.contexts.remove(&vhandle) {
             context.delete(device, self.cache_dir(), vhandle)?;
@@ -280,7 +362,8 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError::AlreadyTracked`] if the handle is already being tracked.
+    /// Returns [`VtpmError::AlreadyTracked`] if the handle is already being
+    /// tracked.
     pub fn track(&mut self, handle: TpmHandle) -> Result<(), VtpmError> {
         if self.handles.contains_key(&handle.0) {
             return Err(VtpmError::AlreadyTracked(handle));
@@ -320,8 +403,10 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError`] if saving the context to the TPM or writing the
-    /// cache file fails.
+    /// Returns [`VtpmError::Device`] when saving the context to the TPM fails.
+    /// Returns [`VtpmError::NoHandles`] when no free VTPM handle slot is found.
+    /// Returns [`VtpmError::Io`] when writing the cache file fails.
+    /// Returns [`VtpmError::Tpm`] when serializing context data fails.
     pub fn save_context(
         &mut self,
         device: &mut Device,
