@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError},
+    command::{AuthArgs, CommandError},
     device::with_device,
     session::Session,
 };
@@ -16,18 +16,19 @@ use tpm2_protocol::{
 
 /// Resets the dictionary attack lockout counter.
 #[derive(Args, Debug)]
-pub struct ResetLock {}
+pub struct ResetLock {
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
+}
 
 impl Task for ResetLock {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 1)?;
-
         with_device(job.device.clone(), |device| {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand { lock_handle };
             let handles = [TpmRh::Lockout as u32];
 
-            let (resp, _) = job.execute(device, &command, &handles, job.auth_list)?;
+            let (resp, _) = job.execute(device, &command, &handles, &self.auth_args.auths())?;
 
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;

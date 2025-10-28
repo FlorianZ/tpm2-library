@@ -5,7 +5,6 @@
 #![allow(clippy::doc_markdown)]
 
 use crate::{
-    auth::Auth,
     command::{
         Algorithm, Cache, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load,
         Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal,
@@ -61,10 +60,6 @@ pub struct TopLevel {
     /// Either 'plain' or 'pretty'
     #[arg(long, value_enum, default_value_t = LogFormat::default())]
     pub log_format: LogFormat,
-
-    /// List of 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>' entries.
-    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
-    pub auth: Vec<Auth>,
 
     #[command(subcommand)]
     pub command: Command,

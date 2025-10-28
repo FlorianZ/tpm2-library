@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_keyedhash, deny_too_many_auths, CommandError, CreationArgs, HierarchyArgs},
+    command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
     key::Alg,
     session::Session,
@@ -30,13 +30,14 @@ pub struct CreatePrimary {
     pub algorithm: Alg,
 
     #[clap(flatten)]
+    pub auth_args: AuthArgs,
+
+    #[clap(flatten)]
     pub creation_args: CreationArgs,
 }
 
 impl Task for CreatePrimary {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 1)?;
-
         with_device(job.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
 
@@ -62,7 +63,7 @@ impl Task for CreatePrimary {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let (resp, _) = job.execute(device, &cmd, &handles, job.auth_list)?;
+            let (resp, _) = job.execute(device, &cmd, &handles, &self.auth_args.auths())?;
 
             let resp = resp
                 .CreatePrimary()

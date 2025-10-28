@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError},
+    command::{AuthArgs, CommandError},
     device::with_device,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
     policy::{
@@ -40,6 +40,9 @@ pub struct Policy {
 
     /// Policy expression
     pub expression: String,
+
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 }
 
 /// Populates the AST with PCR digests by reading current values from the TPM.
@@ -98,7 +101,9 @@ fn resolve_pcr_digests(
 
 impl Task for Policy {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 0)?;
+        if !self.auth_args.auth.is_empty() {
+            return Err(CommandError::TooManyAuths);
+        }
         with_device(job.device.clone(), |device| {
             let mut ast = Expression::new(&self.expression)?;
             match ast {

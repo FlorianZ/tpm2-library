@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError},
+    command::{AuthArgs, CommandError},
     device::with_device,
     handle::{Handle, HandleClass, HandleError},
     session::Session,
@@ -20,12 +20,13 @@ pub struct Evict {
 
     /// Persistent handle: 'tpm:<handle>'
     pub output: Handle,
+
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 }
 
 impl Task for Evict {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 1)?;
-
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
             let persistent_handle_val = match self.output.class() {
                 HandleClass::Tpm => Ok(self.output.value()),
@@ -35,7 +36,12 @@ impl Task for Evict {
 
             let transient_handle = job.load_context(dev, &self.input)?;
 
-            job.evict_control(dev, transient_handle, persistent_handle)?;
+            job.evict_control(
+                dev,
+                transient_handle,
+                persistent_handle,
+                &self.auth_args.auths(),
+            )?;
 
             let vhandle = match self.input.class() {
                 HandleClass::Vtpm => Ok(self.input.value()),

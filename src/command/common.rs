@@ -2,11 +2,34 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::Hierarchy, command::CommandError, key::Alg};
+use crate::{auth::Auth, cli::Hierarchy, command::CommandError, key::Alg};
 use clap::{Args, ValueEnum};
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 use strum::{Display, EnumString};
 use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct AuthArgs {
+    /// List of 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>' entries.
+    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
+    pub auth: Vec<Auth>,
+}
+
+impl AuthArgs {
+    /// Returns a slice of authorizations.
+    ///
+    /// If no authorizations were provided on the command line, this returns
+    /// a default slice representing a single empty password, which is the
+    /// required behavior for most authorized commands.
+    #[must_use]
+    pub fn auths(&self) -> Cow<'_, [Auth]> {
+        if self.auth.is_empty() {
+            Cow::Owned(vec![Auth::default()])
+        } else {
+            Cow::Borrowed(self.auth.as_slice())
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]

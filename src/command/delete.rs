@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError},
+    command::{AuthArgs, CommandError},
     device::with_device,
     handle::HandlePattern,
     session::Session,
@@ -17,12 +17,15 @@ use tpm2_protocol::{data::TpmHt, TpmHandle};
 pub struct Delete {
     /// Input: 'tpm:<handle pattern>', or 'vtpm:<handle pattern>'
     pub input: String,
+
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 }
 
 impl Task for Delete {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         if let Some(pattern) = self.input.strip_prefix("tpm:") {
-            delete_tpm_handles(job, pattern)
+            delete_tpm_handles(job, pattern, &self.auth_args)
         } else if let Some(pattern) = self.input.strip_prefix("vtpm:") {
             delete_vtpm_handles(job, pattern)
         } else {
@@ -32,9 +35,11 @@ impl Task for Delete {
 }
 
 /// Deletes TPM objects matching a pattern across sessions, transient, and persistent handles.
-fn delete_tpm_handles(job: &mut Session, pattern_str: &str) -> Result<(), CommandError> {
-    deny_too_many_auths(job.auth_list, 1)?;
-
+fn delete_tpm_handles(
+    job: &mut Session,
+    pattern_str: &str,
+    auth_args: &AuthArgs,
+) -> Result<(), CommandError> {
     with_device(job.device.clone(), |dev| {
         let pattern = HandlePattern::new(pattern_str)?;
 
@@ -55,7 +60,12 @@ fn delete_tpm_handles(job: &mut Session, pattern_str: &str) -> Result<(), Comman
                     }
                     TpmHt::Persistent => {
                         let persistent_handle = TpmHandle(handle.value());
-                        job.evict_control(dev, persistent_handle, persistent_handle)?;
+                        job.evict_control(
+                            dev,
+                            persistent_handle,
+                            persistent_handle,
+                            auth_args.auths().as_ref(),
+                        )?;
                     }
                     _ => {}
                 }

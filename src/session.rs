@@ -69,7 +69,6 @@ impl From<TpmError> for SessionError {
 pub struct Session<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
     pub cache: &'a mut VtpmCache<'a>,
-    pub auth_list: &'a [Auth],
     pub writer: &'a mut dyn Write,
 }
 
@@ -79,13 +78,11 @@ impl<'a> Session<'a> {
     pub fn new(
         device: Option<Rc<RefCell<Device>>>,
         cache: &'a mut VtpmCache<'a>,
-        auth_list: &'a [Auth],
         writer: &'a mut dyn Write,
     ) -> Self {
         Self {
             device,
             cache,
-            auth_list,
             writer,
         }
     }
@@ -340,6 +337,7 @@ impl<'a> Session<'a> {
         device: &mut Device,
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
+        auth_list: &[Auth],
     ) -> Result<(), SessionError> {
         let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
@@ -354,7 +352,7 @@ impl<'a> Session<'a> {
         };
         let handles_for_session = [auth_handle.0];
 
-        let (resp, _) = self.execute(device, &cmd, &handles_for_session, self.auth_list)?;
+        let (resp, _) = self.execute(device, &cmd, &handles_for_session, auth_list)?;
 
         resp.EvictControl()
             .map_err(|_| SessionError::ResponseMismatch(TpmCc::EvictControl))?;

@@ -3,7 +3,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError},
+    command::{AuthArgs, CommandError},
     device::with_device,
     io::read_file_input,
     key::Tpm2shAlgId,
@@ -31,11 +31,13 @@ pub struct PcrEvent {
     /// PCR index
     #[arg(value_name = "pcr-index", value_parser = parse_pcr_index)]
     pub pcr_index: TpmHandle,
+
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 }
 
 impl Task for PcrEvent {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
@@ -48,7 +50,7 @@ impl Task for PcrEvent {
                 event_data,
             };
 
-            let (resp, _) = job.execute(device, &command, &handles, job.auth_list)?;
+            let (resp, _) = job.execute(device, &command, &handles, &self.auth_args.auths())?;
 
             let pcr_resp = resp
                 .PcrEvent()

@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
+    command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     crypto::{
         crypto_hash_size, crypto_hmac, crypto_kdfa, crypto_kdfe, crypto_make_name,
         KDF_LABEL_DUPLICATE, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE, UNCOMPRESSED_POINT_TAG,
@@ -43,6 +43,9 @@ use tpm2_protocol::{
 pub struct Convert {
     /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
     pub parent: Handle,
+
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 
     #[clap(flatten)]
     pub input_args: InputArgs,
@@ -390,6 +393,7 @@ impl Convert {
         device: &mut Device,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
+        auth_args: &AuthArgs,
     ) -> Result<TpmKey, CommandError> {
         let external_key = match AnyKey::try_from(input_bytes)? {
             AnyKey::Tpm(_) => {
@@ -433,7 +437,7 @@ impl Convert {
         };
 
         let handles = [parent_handle.0];
-        let (resp, _) = job.execute(device, &import_cmd, &handles, job.auth_list)?;
+        let (resp, _) = job.execute(device, &import_cmd, &handles, &auth_args.auths())?;
 
         let import_resp = resp
             .Import()
@@ -484,7 +488,6 @@ impl Convert {
 
 impl Task for Convert {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {
             let parent_handle_arg = self.parent;
             let parent_handle = match parent_handle_arg.class() {
@@ -496,7 +499,13 @@ impl Task for Convert {
             if input_bytes.is_empty() {
                 return Ok(());
             }
-            let tpm_key = Convert::create_external_key(job, device, parent_handle, &input_bytes)?;
+            let tpm_key = Convert::create_external_key(
+                job,
+                device,
+                parent_handle,
+                &input_bytes,
+                &self.auth_args,
+            )?;
 
             write_key_data(
                 &mut job.writer,

@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, print_table, CommandError, Tabled},
+    command::{print_table, CommandError, Tabled},
     device::with_device,
     session::Session,
     vtpm::{RefreshAction, VtpmSession},
@@ -100,7 +100,6 @@ impl Cache {
 
 impl Task for Cache {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 0)?;
         Self::refresh_cache(job)?;
 
         let mut rows: Vec<CacheRow> = job

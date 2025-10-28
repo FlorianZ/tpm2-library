@@ -3,7 +3,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError},
+    command::{AuthArgs, CommandError},
     device::with_device,
     handle::Handle,
     session::Session,
@@ -22,12 +22,13 @@ pub struct Unseal {
     /// Force hex output when redirecting to a file or pipe
     #[arg(long)]
     pub hex: bool,
+
+    #[clap(flatten)]
+    pub auth_args: AuthArgs,
 }
 
 impl Task for Unseal {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 1)?;
-
         with_device(job.device.clone(), |device| {
             let item_handle = job.load_context(device, &self.input)?;
 
@@ -36,7 +37,12 @@ impl Task for Unseal {
             };
             let unseal_handles = [item_handle.0];
 
-            let (resp, _) = job.execute(device, &unseal_cmd, &unseal_handles, job.auth_list)?;
+            let (resp, _) = job.execute(
+                device,
+                &unseal_cmd,
+                &unseal_handles,
+                &self.auth_args.auths(),
+            )?;
 
             let out_data = resp
                 .Unseal()

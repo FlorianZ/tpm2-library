@@ -6,7 +6,7 @@
 
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
+    command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     handle::Handle,
     io::write_key_data,
@@ -47,6 +47,9 @@ pub struct Create {
     pub data: Option<String>,
 
     #[clap(flatten)]
+    pub auth_args: AuthArgs,
+
+    #[clap(flatten)]
     pub output_args: OutputArgs,
 
     #[clap(flatten)]
@@ -58,7 +61,6 @@ pub struct Create {
 
 impl Task for Create {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| self.create_object(job, device))
     }
 }
@@ -117,7 +119,7 @@ impl Create {
 
             let handles = [parent_handle.0];
             let (resp, _) = job
-                .execute(device, &create_cmd, &handles, job.auth_list)
+                .execute(device, &create_cmd, &handles, &self.auth_args.auths())
                 .map_err(|e| {
                     if let SessionError::Device(DeviceError::TpmRc(rc)) = &e {
                         if rc.base() == TpmRcBase::Type {

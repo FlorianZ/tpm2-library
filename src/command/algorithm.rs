@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 use crate::{
     cli::Task,
-    command::{deny_too_many_auths, CommandError},
+    command::CommandError,
     device::{with_device, Device, DeviceError},
     key::{Tpm2shAlgId, Tpm2shEccCurve},
     session::Session,
@@ -109,7 +109,6 @@ impl Algorithm {
 
 impl Task for Algorithm {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {
             let mut results: Vec<String> = Vec::new();
             results.extend(Algorithm::fetch_key_algorithms(device)?);

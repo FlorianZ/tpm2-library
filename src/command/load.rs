@@ -5,7 +5,7 @@
 use crate::{
     auth::Auth,
     cli::Task,
-    command::{deny_too_many_auths, CommandError, InputArgs},
+    command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
     handle::{Handle, HandleClass},
     io::read_file_input,
@@ -24,12 +24,14 @@ use tpm2_protocol::{
 #[command(verbatim_doc_comment)]
 pub struct Load {
     #[clap(flatten)]
+    pub auth_args: AuthArgs,
+
+    #[clap(flatten)]
     pub input_args: InputArgs,
 }
 
 impl Task for Load {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
             if input_bytes.is_empty() {
@@ -50,8 +52,13 @@ impl Task for Load {
 
             let parent_handle = Self::fetch_parent(job, device, &parent_public)?;
 
-            let (object_handle, _, loaded_public) =
-                Self::run_load(job, device, parent_handle, &tpm_key, job.auth_list)?;
+            let (object_handle, _, loaded_public) = Self::run_load(
+                job,
+                device,
+                parent_handle,
+                &tpm_key,
+                self.auth_args.auths().as_ref(),
+            )?;
 
             let vhandle =
                 job.cache

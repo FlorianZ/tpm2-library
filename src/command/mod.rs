@@ -37,7 +37,7 @@ pub use return_code::*;
 pub use unseal::*;
 
 use crate::{
-    auth::{Auth, AuthError},
+    auth::AuthError,
     crypto::CryptoError,
     device::DeviceError,
     handle::{HandleError, HandlePatternError},
@@ -131,27 +131,6 @@ where
 pub fn deny_keyedhash(algorithm: &crate::key::Alg) -> Result<(), CommandError> {
     if algorithm.params == AlgInfo::KeyedHash {
         Err(CommandError::UnsupportedKeyAlgorithm(algorithm.clone()))
-    } else {
-        Ok(())
-    }
-}
-
-/// Returns an error if the number of authorizations exceeds the maximum allowed.
-///
-/// # Errors
-///
-/// Returns [`TooManyAuths`](crate::command::CommandError::TooManyAuths) when
-/// `auth_list.len()` > `max_auths`.
-pub fn deny_too_many_auths(auth_list: &[Auth], max_auths: usize) -> Result<(), CommandError> {
-    let effective_auth_count =
-        if auth_list.len() == 1 && auth_list[0] == Auth::default() && max_auths == 0 {
-            0
-        } else {
-            auth_list.len()
-        };
-
-    if effective_auth_count > max_auths {
-        Err(CommandError::TooManyAuths)
     } else {
         Ok(())
     }

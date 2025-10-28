@@ -5,7 +5,6 @@
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use cli::{
-    auth::Auth,
     cli::{Task, TopLevel},
     command::CommandError,
     device::{Device, DeviceError},
@@ -88,13 +87,7 @@ fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
     let mut stdout = std::io::stdout();
     let mut cache = VtpmCache::new(cache_dir)?;
 
-    let auth_list = if cli.auth.is_empty() {
-        &[Auth::default()]
-    } else {
-        cli.auth.as_slice()
-    };
-
-    let mut job = Session::new(shared_device, &mut cache, auth_list, &mut stdout);
+    let mut job = Session::new(shared_device, &mut cache, &mut stdout);
     cli.command.run(&mut job)
 }
 
