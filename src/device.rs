@@ -25,15 +25,14 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
-        Tpm2bName, TpmAlgId, TpmCap, TpmCc, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt, TpmsAlgProperty,
-        TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsRsaParms, TpmtPublic,
-        TpmtPublicParms, TpmuCapabilities, TpmuPublicParms,
+        Tpm2bName, TpmCap, TpmCc, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt, TpmsAlgProperty,
+        TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmtPublic, TpmuCapabilities,
     },
     message::{
         tpm_build_command, tpm_parse_response, TpmAuthResponses, TpmBodyBuild,
         TpmContextLoadCommand, TpmContextSaveCommand, TpmEvictControlCommand,
         TpmFlushContextCommand, TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmHeader,
-        TpmReadPublicCommand, TpmResponseBody, TpmTestParmsCommand,
+        TpmReadPublicCommand, TpmResponseBody,
     },
     TpmError, TpmHandle, TpmWriter,
 };
@@ -109,21 +108,6 @@ pub struct Device {
     poller: Poller,
     log_format: LogFormat,
     name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
-}
-
-/// Checks if the TPM supports a given set of RSA parameters.
-pub(crate) fn test_rsa_parms(device: &mut Device, key_bits: u16) -> Result<(), DeviceError> {
-    let cmd = TpmTestParmsCommand {
-        parameters: TpmtPublicParms {
-            object_type: TpmAlgId::Rsa,
-            parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
-                key_bits,
-                ..Default::default()
-            }),
-        },
-    };
-    let sessions = vec![];
-    device.execute(&cmd, &sessions).map(|(_, _)| ())
 }
 
 impl Device {
