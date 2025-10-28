@@ -4,15 +4,7 @@
 
 #![allow(clippy::no_effect_underscore_binding)]
 
-use super::{Alg, KeyError};
-use crate::{
-    auth::Auth,
-    device::{Device, DeviceError},
-    job::{Job, JobError},
-    template,
-    vtpm::VtpmError,
-    write_object,
-};
+use super::KeyError;
 
 use pem::Pem;
 use rasn::{
@@ -20,15 +12,7 @@ use rasn::{
     types::{OctetString, Utf8String},
     AsnType, Decode, Decoder, Encode, Encoder,
 };
-use tpm2_protocol::data::TpmRcBase;
-use tpm2_protocol::{
-    data::{
-        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitiveCreate,
-        Tpm2bSensitiveData, TpmCc, TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
-    },
-    message::TpmCreateCommand,
-    TpmError, TpmHandle, TpmParse,
-};
+use tpm2_protocol::{data::Tpm2bPublic, TpmParse};
 
 pub const OID_LOADABLE_KEY: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 3]));
@@ -36,13 +20,6 @@ pub const OID_IMPORTABLE_KEY: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 4]));
 pub const OID_SEALED_DATA: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 5]));
-
-/// A template for creating a new TPM key object.
-pub struct TpmKeyTemplate<'a> {
-    pub alg_desc: &'a Alg,
-    pub sensitive_data: Tpm2bSensitiveData,
-    pub key_type_oid: ObjectIdentifier,
-}
 
 /// A TPM policy struct that is directly compatible with ASN.1 DER encoding.
 #[derive(AsnType, Decode, Encode, Clone, Debug, Eq, PartialEq)]
@@ -86,127 +63,13 @@ pub struct TpmKey {
 }
 
 impl TpmKey {
-    /// Creates a new `TpmKey` by executing a `TPM2_Create` command.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `KeyError` if any of the TPM structures cannot be serialized or the command fails.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        job: &mut Job,
-        device: &mut Device,
-        auth_list: &[Auth],
-        user_auth: Tpm2bAuth,
-        auth_policy: Tpm2bDigest,
-        object_attributes: TpmaObject,
-        parent_handle: TpmHandle,
-        template: &TpmKeyTemplate,
-    ) -> Result<Self, KeyError> {
-        let public_template =
-            template::build_public(template.alg_desc, auth_policy, object_attributes);
-
-        let create_cmd = TpmCreateCommand {
-            parent_handle: parent_handle.0.into(),
-            in_sensitive: Tpm2bSensitiveCreate {
-                inner: TpmsSensitiveCreate {
-                    user_auth,
-                    data: template.sensitive_data,
-                },
-            },
-            in_public: Tpm2bPublic {
-                inner: public_template,
-            },
-            outside_info: Tpm2bData::default(),
-            creation_pcr: TpmlPcrSelection::default(),
-        };
-
-        let handles = [parent_handle.0];
-        let (resp, _) = job
-            .execute(device, &create_cmd, &handles, auth_list)
-            .map_err(|e| {
-                if let JobError::Device(DeviceError::TpmRc(rc)) = &e {
-                    if rc.base() == TpmRcBase::Type {
-                        return KeyError::InvalidParent(parent_handle.0);
-                    }
-                }
-                match e {
-                    JobError::Device(d) => KeyError::Device(d),
-                    JobError::Vtpm(
-                        VtpmError::Auth(_)
-                        | VtpmError::HandleNotFound(_, _)
-                        | VtpmError::TrailingAuthorizations,
-                    ) => KeyError::Device(DeviceError::TpmProtocol(TpmError::Malformed)),
-                    _ => KeyError::ValueConversionFailed(e.to_string()),
-                }
-            })?;
-
-        let create_resp = resp
-            .Create()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::Create))?;
-
-        let (parent_public, _) = device.read_public(parent_handle)?;
-        let parent_public_2b = Tpm2bPublic {
-            inner: parent_public,
-        };
-
-        Self::from_creation_data(
-            user_auth.is_empty(),
-            parent_handle,
-            &create_resp.out_public,
-            &create_resp.out_private,
-            &auth_policy,
-            template.key_type_oid.clone(),
-            &parent_public_2b,
-        )
-    }
-
-    /// Creates a new `TpmKey` from the raw TPM creation response data.
-    #[allow(clippy::too_many_arguments)]
-    fn from_creation_data(
-        empty_auth: bool,
-        parent_handle: TpmHandle,
-        out_public: &Tpm2bPublic,
-        out_private: &Tpm2bPrivate,
-        policy_digest: &Tpm2bDigest,
-        key_type: ObjectIdentifier,
-        parent_public: &Tpm2bPublic,
-    ) -> Result<Self, KeyError> {
-        let policy = if policy_digest.is_empty() {
-            None
-        } else {
-            Some(vec![TpmPolicy {
-                command_code: 0,
-                command_policy: OctetString::copy_from_slice(policy_digest.as_ref()),
-            }])
-        };
-        Ok(Self {
-            key_type,
-            empty_auth: empty_auth.then_some(true),
-            policy,
-            secret: None,
-            auth_policy: None,
-            description: None,
-            rsa_parent: None,
-            parent_pub_key: Some(OctetString::copy_from_slice(
-                &write_object(parent_public).map_err(DeviceError::TpmProtocol)?,
-            )),
-            parent: parent_handle.0,
-            pub_key: OctetString::copy_from_slice(
-                &write_object(out_public).map_err(DeviceError::TpmProtocol)?,
-            ),
-            priv_key: OctetString::copy_from_slice(
-                &write_object(out_private).map_err(DeviceError::TpmProtocol)?,
-            ),
-        })
-    }
-
     /// Parses and returns the public area of the key.
     ///
     /// # Errors
     ///
     /// Returns a `KeyError` if the public key bytes cannot be parsed.
     pub fn public(&self) -> Result<Tpm2bPublic, KeyError> {
-        let (public, _) = Tpm2bPublic::parse(&self.pub_key).map_err(DeviceError::TpmProtocol)?;
+        let (public, _) = Tpm2bPublic::parse(&self.pub_key)?;
         Ok(public)
     }
 

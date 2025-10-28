@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
 #![allow(clippy::no_effect_underscore_binding)]
@@ -122,10 +122,8 @@ pub fn ecc_to_public(
             kdf: TpmtKdfScheme::default(),
         }),
         unique: TpmuPublicId::Ecc(TpmsEccPoint {
-            x: Tpm2bEccParameter::try_from(x)
-                .map_err(|e| KeyError::ValueConversionFailed(e.to_string()))?,
-            y: Tpm2bEccParameter::try_from(y)
-                .map_err(|e| KeyError::ValueConversionFailed(e.to_string()))?,
+            x: Tpm2bEccParameter::try_from(x)?,
+            y: Tpm2bEccParameter::try_from(y)?,
         }),
     })
 }

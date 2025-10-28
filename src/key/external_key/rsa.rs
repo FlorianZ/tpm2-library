@@ -158,9 +158,8 @@ pub fn rsa_to_public(
             key_bits,
             exponent: 0,
         }),
-        unique: TpmuPublicId::Rsa(
-            Tpm2bPublicKeyRsa::try_from(key.n().to_bytes_be().as_slice())
-                .map_err(|_| KeyError::InvalidRsaExponent)?,
-        ),
+        unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::try_from(
+            key.n().to_bytes_be().as_slice(),
+        )?),
     })
 }

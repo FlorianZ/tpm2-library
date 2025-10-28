@@ -13,7 +13,7 @@ use crate::{
     handle::{Handle, HandleClass},
     io::{read_file_input, write_key_data},
     job::Job,
-    key::{AnyKey, ExternalKey, KeyError, TpmKey, OID_IMPORTABLE_KEY},
+    key::{AnyKey, ExternalKey, TpmKey, OID_IMPORTABLE_KEY},
     write_object,
 };
 use aes::Aes128;
@@ -402,7 +402,7 @@ impl Convert {
         let (parent_public, _) = match device.read_public(parent_handle) {
             Ok(result) => result,
             Err(DeviceError::Io(e)) if e.kind() == std::io::ErrorKind::InvalidInput => {
-                return Err(KeyError::InvalidParent(parent_handle.0).into());
+                return Err(CommandError::InvalidParent("tpm:", parent_handle.0));
             }
             Err(e) => return Err(e.into()),
         };

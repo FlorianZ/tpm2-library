@@ -10,7 +10,6 @@ mod tpm_key;
 pub use external_key::*;
 pub use tpm_key::*;
 
-use crate::{crypto::CryptoError, device::DeviceError};
 use rasn::{
     types::{Integer, ObjectIdentifier},
     AsnType, Decode, Decoder, Encode,
@@ -38,30 +37,18 @@ pub enum KeyError {
     InvalidRsaExponent,
     #[error("invalid RSA key bits: {0}")]
     InvalidRsaKeyBits(String),
-    #[error("invalid RSA modulus: {0}")]
-    InvalidRsaModulus(String),
-    #[error("invalid OID")]
-    InvalidOid,
-    #[error("invalid parent: {0:08x}")]
-    InvalidParent(u32),
     #[error("pem: {0}")]
     Pem(#[from] pem::PemError),
     #[error("unsupported file format")]
     UnsupportedFileFormat,
-    #[error("unsupported key algorithm: {0}")]
-    UnsupportedKeyAlgorithm(Tpm2shAlgId),
-    #[error("unsupported name algorithm: {0}")]
-    UnsupportedNameAlgorithm(Tpm2shAlgId),
     #[error("unsupported OID: {0}")]
     UnsupportedOid(String),
-    #[error("invalid PEM tag: {0}")]
+    #[error("unsupported PEM tag: {0}")]
     UnsupportedPemTag(String),
     #[error("value conversion failed: {0}")]
     ValueConversionFailed(String),
-    #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
-    #[error("device: {0}")]
-    Device(#[from] DeviceError),
+    #[error("protocol: {0}")]
+    TpmProtocol(TpmError),
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
     #[error("rasn decode: {0}")]
@@ -72,7 +59,7 @@ pub enum KeyError {
 
 impl From<TpmError> for KeyError {
     fn from(err: TpmError) -> Self {
-        Self::Device(DeviceError::TpmProtocol(err))
+        Self::TpmProtocol(err)
     }
 }
 

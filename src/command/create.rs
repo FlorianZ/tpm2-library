@@ -7,14 +7,30 @@
 use crate::{
     cli::SubCommand,
     command::{deny_too_many_auths, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
-    device::{with_device, Device},
+    device::{with_device, Device, DeviceError},
     handle::Handle,
     io::write_key_data,
-    job::Job,
-    key::{Alg, AlgInfo, KeyError, TpmKey, TpmKeyTemplate, OID_LOADABLE_KEY, OID_SEALED_DATA},
+    job::{Job, JobError},
+    key::{Alg, AlgInfo, TpmKey, TpmPolicy, OID_LOADABLE_KEY, OID_SEALED_DATA},
+    template, write_object,
 };
 use clap::Args;
-use tpm2_protocol::data::Tpm2bSensitiveData;
+use rasn::types::OctetString;
+use tpm2_protocol::{
+    data::{
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRcBase,
+        TpmlPcrSelection, TpmsSensitiveCreate,
+    },
+    message::TpmCreateCommand,
+    TpmError,
+};
+
+/// A template for creating a new TPM key object.
+pub struct TpmKeyTemplate<'a> {
+    pub alg_desc: &'a Alg,
+    pub sensitive_data: Tpm2bSensitiveData,
+    pub key_type_oid: rasn::prelude::ObjectIdentifier,
+}
 
 /// Creates secondary keys or sealed data objects.
 #[derive(Args, Debug, Clone)]
@@ -49,6 +65,7 @@ impl SubCommand for Create {
 }
 
 impl Create {
+    #[allow(clippy::too_many_lines)]
     fn create_object(&self, job: &mut Job, device: &mut Device) -> Result<(), CommandError> {
         let parent_handle_arg = self.parent;
         let parent_handle = job.load_context(device, &parent_handle_arg)?;
@@ -80,25 +97,100 @@ impl Create {
             key_type_oid,
         };
 
-        let tpm_key = TpmKey::new(
-            job,
-            device,
-            job.auth_list,
-            user_auth,
-            auth_policy,
-            object_attributes,
-            parent_handle,
-            &template,
-        )
-        .map_err(|e| {
-            if let KeyError::InvalidParent(phandle) = e {
-                if let Ok(key) = job.cache.find_by_phandle(device, phandle) {
-                    return CommandError::InvalidParent("vtpm:", key.context.saved_handle.0);
-                }
-                return CommandError::InvalidParent("tpm:", phandle);
+        let tpm_key = {
+            let public_template =
+                template::build_public(template.alg_desc, auth_policy, object_attributes);
+
+            let create_cmd = TpmCreateCommand {
+                parent_handle: parent_handle.0.into(),
+                in_sensitive: Tpm2bSensitiveCreate {
+                    inner: TpmsSensitiveCreate {
+                        user_auth,
+                        data: template.sensitive_data,
+                    },
+                },
+                in_public: Tpm2bPublic {
+                    inner: public_template,
+                },
+                outside_info: Tpm2bData::default(),
+                creation_pcr: TpmlPcrSelection::default(),
+            };
+
+            let handles = [parent_handle.0];
+            let (resp, _) = job
+                .execute(device, &create_cmd, &handles, job.auth_list)
+                .map_err(|e| {
+                    if let JobError::Device(DeviceError::TpmRc(rc)) = &e {
+                        if rc.base() == TpmRcBase::Type {
+                            if let Ok(key) = job.cache.find_by_phandle(device, parent_handle.0) {
+                                return CommandError::InvalidParent(
+                                    "vtpm:",
+                                    key.context.saved_handle.0,
+                                );
+                            }
+                            return CommandError::InvalidParent("tpm:", parent_handle.0);
+                        }
+                    }
+                    match e {
+                        JobError::Device(d) => CommandError::Device(d),
+                        JobError::Vtpm(
+                            crate::vtpm::VtpmError::Auth(_)
+                            | crate::vtpm::VtpmError::HandleNotFound(_, _)
+                            | crate::vtpm::VtpmError::TrailingAuthorizations,
+                        ) => CommandError::TpmProtocol(TpmError::Malformed),
+                        JobError::Key(k) => CommandError::Key(k),
+                        JobError::Auth(a) => CommandError::Auth(a),
+                        JobError::Crypto(c) => CommandError::Crypto(c),
+                        JobError::IntDecode(i) => CommandError::IntDecode(i),
+                        JobError::Io(io_err) => CommandError::Io(io_err),
+                        JobError::InvalidParent(prefix, val) => {
+                            CommandError::InvalidParent(prefix, val)
+                        }
+                        _ => CommandError::Job(e),
+                    }
+                })?;
+
+            let create_resp = resp
+                .Create()
+                .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
+
+            let (parent_public_data, _) = device.read_public(parent_handle)?;
+            let parent_public_2b = Tpm2bPublic {
+                inner: parent_public_data,
+            };
+
+            let empty_auth_flag = user_auth.is_empty();
+            let key_type = template.key_type_oid.clone();
+
+            let policy = if auth_policy.is_empty() {
+                None
+            } else {
+                Some(vec![TpmPolicy {
+                    command_code: 0,
+                    command_policy: OctetString::copy_from_slice(auth_policy.as_ref()),
+                }])
+            };
+
+            TpmKey {
+                key_type,
+                empty_auth: empty_auth_flag.then_some(true),
+                policy,
+                secret: None,
+                auth_policy: None,
+                description: None,
+                rsa_parent: None,
+                parent_pub_key: Some(OctetString::copy_from_slice(
+                    &write_object(&parent_public_2b).map_err(DeviceError::TpmProtocol)?,
+                )),
+                parent: parent_handle.0,
+                pub_key: OctetString::copy_from_slice(
+                    &write_object(&create_resp.out_public).map_err(DeviceError::TpmProtocol)?,
+                ),
+                priv_key: OctetString::copy_from_slice(
+                    &write_object(&create_resp.out_private).map_err(DeviceError::TpmProtocol)?,
+                ),
             }
-            CommandError::Key(e)
-        })?;
+        };
 
         write_key_data(
             &mut job.writer,
