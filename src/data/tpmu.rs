@@ -135,7 +135,7 @@ impl TpmParseTagged for TpmuHa {
         };
 
         if buf.len() < digest_size {
-            return Err(TpmError::DataTruncated);
+            return Err(TpmError::TruncatedData);
         }
 
         let (digest_bytes, buf) = buf.split_at(digest_size);

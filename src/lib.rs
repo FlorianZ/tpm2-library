@@ -106,12 +106,12 @@ impl core::fmt::LowerHex for TpmDiscriminant {
 pub enum TpmError {
     /// A specification capacity has been exceeded,
     CapacityExceeded,
-    /// Not enough bytes to parse the full data structure.
-    DataTruncated,
     /// The buffer contains malformed data.
     MalformedData,
     /// Trailing left data after parsing
     TrailingData,
+    /// Not enough bytes to parse the full data structure.
+    TruncatedData,
     /// Unknown discriminant.
     UnknownDiscriminant(&'static str, TpmDiscriminant),
 }
@@ -120,9 +120,9 @@ impl core::fmt::Display for TpmError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::CapacityExceeded => write!(f, "capacity exceeded"),
-            Self::DataTruncated => write!(f, "data truncated"),
             Self::MalformedData => write!(f, "malformed data"),
             Self::TrailingData => write!(f, "trailing data"),
+            Self::TruncatedData => write!(f, "truncated data"),
             Self::UnknownDiscriminant(type_name, value) => {
                 write!(f, "unknown discriminant: {type_name}:  0x{value:x}")
             }
@@ -231,7 +231,7 @@ pub trait TpmParseTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmParse` implementation,
-    /// such as a `TpmError::DataTruncated` if the buffer is too small or an
+    /// such as a `TpmError::TruncatedData` if the buffer is too small or an
     /// `TpmError::MalformedData` if the data is malformed.
     fn parse_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where

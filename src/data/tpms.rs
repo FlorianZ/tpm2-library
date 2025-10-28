@@ -103,7 +103,7 @@ impl TpmParse for TpmsPcrSelect {
             return Err(TpmError::CapacityExceeded);
         }
         if remainder.len() < size_usize {
-            return Err(TpmError::DataTruncated);
+            return Err(TpmError::TruncatedData);
         }
 
         let (pcr_bytes, final_remainder) = remainder.split_at(size_usize);
