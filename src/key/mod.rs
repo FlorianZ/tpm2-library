@@ -118,7 +118,10 @@ impl TryFrom<&[u8]> for AnyKey {
             }
         }
 
-        match rasn::der::decode::<KeyPeek>(bytes)?.first {
+        match rasn::der::decode::<KeyPeek>(bytes)
+            .map_err(|_| KeyError::InvalidFormat)?
+            .first
+        {
             FirstElement::Oid(..) => TpmKey::from_der(bytes).map(|k| AnyKey::Tpm(Box::new(k))),
             FirstElement::Int(..) => {
                 ExternalKey::from_der(bytes).map(|k| AnyKey::External(Box::new(k)))
