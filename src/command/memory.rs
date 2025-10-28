@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::{Auth, AuthClass},
+    auth::Auth,
     cli::Task,
     command::{print_table, CommandError, Tabled},
     device::{self, Device, DeviceError},
@@ -285,8 +285,8 @@ impl Memory {
 
             let mut sessions: Vec<TpmsAuthCommand> = Vec::new();
             for auth in effective_auths {
-                if auth.class() == AuthClass::Password {
-                    sessions.push(build_password_session(auth.value())?);
+                if let Auth::Password(value) = auth {
+                    sessions.push(build_password_session(value)?);
                 } else {
                     return Err(CommandError::InvalidInput(
                         "Session-based auth for NV read not supported directly in memory command"

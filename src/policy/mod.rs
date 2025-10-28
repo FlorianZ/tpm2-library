@@ -11,7 +11,7 @@ pub use software::*;
 pub use tpm::*;
 
 use crate::{
-    auth::{Auth, AuthClass},
+    auth::Auth,
     crypto::CryptoError,
     device::{Device, DeviceError},
     handle::{Handle, HandleClass, HandleError},
@@ -205,9 +205,7 @@ impl Expression {
     /// cannot be read.
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
         match self {
-            Self::Auth(auth_instance) if auth_instance.class() == AuthClass::Password => {
-                Ok(auth_instance.value().to_vec())
-            }
+            Self::Auth(Auth::Password(value)) => Ok(value.clone()),
             _ => Err(PolicyError::InvalidSecret(format!(
                 "{self:?}: expected 'password:<hex>'"
             ))),
@@ -539,23 +537,28 @@ pub fn execute_policy(
             password,
             cp_hash,
         } => {
-            let handle_val =
-                match &**auth_handle {
-                    Expression::Handle(handle) if handle.class() == HandleClass::Tpm => {
-                        let h_val = handle.value();
-                        if (h_val >> 24) as u8 != TpmHt::Persistent as u8 {
-                            return Err(PolicyError::InvalidExpression(
-                                "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
-                                    .to_string(),
-                            ));
-                        }
-                        h_val
+            let handle_val = if let Expression::Handle(handle) = &**auth_handle {
+                if handle.class() == HandleClass::Tpm {
+                    let h_val = handle.value();
+                    if (h_val >> 24) as u8 != TpmHt::Persistent as u8 {
+                        return Err(PolicyError::InvalidExpression(
+                            "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
+                                .to_string(),
+                        ));
                     }
-                    _ => return Err(PolicyError::InvalidExpression(
+                    h_val
+                } else {
+                    return Err(PolicyError::InvalidExpression(
                         "secret() first argument must be a persistent TPM handle ('tpm:81xxxxxx')"
                             .to_string(),
-                    )),
-                };
+                    ));
+                }
+            } else {
+                return Err(PolicyError::InvalidExpression(
+                    "secret() first argument must be a persistent TPM handle ('tpm:81xxxxxx')"
+                        .to_string(),
+                ));
+            };
             let handle = TpmHandle(handle_val);
 
             let (_, name) = session.device().read_public(handle)?;

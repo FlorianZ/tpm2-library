@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::{Auth, AuthClass, AuthError},
+    auth::{Auth, AuthError},
     crypto::{crypto_hash_size, crypto_make_name, CryptoError},
     device::{Device, DeviceError, TpmCommandObject},
     handle::{Handle, HandleClass},
@@ -186,9 +186,8 @@ impl<'a> Session<'a> {
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if auth.class() == AuthClass::Session {
-                let vhandle = auth.session()?;
-                if let Some(session) = self.cache.get_session(vhandle) {
+            if let Auth::Session(vhandle) = auth {
+                if let Some(session) = self.cache.get_session(*vhandle) {
                     if session.attributes.contains(TpmaSession::DECRYPT) {
                         nonce_decrypt = Some(session.nonce_tpm);
                     }
@@ -205,16 +204,15 @@ impl<'a> Session<'a> {
         for (i, auth) in auth_list.iter().enumerate() {
             let handle_param = handles.get(i).ok_or(SessionError::TrailingAuthorizations)?;
 
-            match auth.class() {
-                AuthClass::Password => {
-                    built_auths.push(build_password_session(auth.value())?);
+            match auth {
+                Auth::Password(value) => {
+                    built_auths.push(build_password_session(value)?);
                 }
-                AuthClass::Session => {
-                    let vhandle = auth.session()?;
+                Auth::Session(vhandle) => {
                     let session = self
                         .cache
-                        .get_session(vhandle)
-                        .ok_or(SessionError::HandleNotFound("vtpm:", vhandle))?;
+                        .get_session(*vhandle)
+                        .ok_or(SessionError::HandleNotFound("vtpm:", *vhandle))?;
                     let nonce_size = crypto_hash_size(session.auth_hash)?;
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
@@ -239,7 +237,7 @@ impl<'a> Session<'a> {
                     )?;
                     built_auths.push(result);
                 }
-                AuthClass::Policy => return Err(SessionError::InvalidAuth),
+                Auth::Policy(_) => return Err(SessionError::InvalidAuth),
             }
         }
         Ok(built_auths)
@@ -277,7 +275,7 @@ impl<'a> Session<'a> {
 
                 vhandles.push(vhandle);
                 phandles.push(resp.session_handle);
-                effective_auth_list.push(Auth::new_session(vhandle)?);
+                effective_auth_list.push(Auth::new_session(vhandle));
             } else {
                 effective_auth_list.push(auth.clone());
             }
@@ -297,10 +295,9 @@ impl<'a> Session<'a> {
             Err(DeviceError::TpmRc(rc)) => {
                 if rc.base() == TpmRcBase::PolicyFail {
                     for auth in auth_list {
-                        if auth.class() == AuthClass::Session {
-                            let vhandle = auth.session()?;
+                        if let Auth::Session(vhandle) = auth {
                             log::debug!("vtpm:{vhandle:08x} is stale");
-                            self.cache.remove(device, vhandle)?;
+                            self.cache.remove(device, *vhandle)?;
                         }
                     }
                 }
@@ -311,9 +308,8 @@ impl<'a> Session<'a> {
 
         let mut used_auth_list = HashSet::new();
         for auth in &effective_auth_list {
-            if auth.class() == AuthClass::Session {
-                let handle = auth.session()?;
-                used_auth_list.insert(handle);
+            if let Auth::Session(handle) = auth {
+                used_auth_list.insert(*handle);
             }
         }
 

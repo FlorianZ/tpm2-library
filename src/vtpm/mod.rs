@@ -5,7 +5,7 @@
 //! Manages caching for TPM keys and sessions.
 
 use crate::{
-    auth::{Auth, AuthClass, AuthError},
+    auth::{Auth, AuthError},
     crypto::CryptoError,
     device::{Device, DeviceError},
     handle::{Handle, HandleClass, HandleError},
@@ -479,11 +479,10 @@ impl<'a> VtpmCache<'a> {
     ) -> Result<Vec<TpmHandle>, VtpmError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if auth.class() == AuthClass::Session {
-                let vhandle = auth.session()?;
+            if let Auth::Session(vhandle) = auth {
                 let session = self
-                    .get_session(vhandle)
-                    .ok_or(VtpmError::HandleNotFound("vtpm:", vhandle))?;
+                    .get_session(*vhandle)
+                    .ok_or(VtpmError::HandleNotFound("vtpm:", *vhandle))?;
                 activated_handles.push(device.load_context(session.context.clone())?);
             }
         }
