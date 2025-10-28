@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError},
     device::with_device,
     io::read_file_input,
@@ -33,7 +33,7 @@ pub struct PcrEvent {
     pub pcr_index: TpmHandle,
 }
 
-impl SubCommand for PcrEvent {
+impl Task for PcrEvent {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {

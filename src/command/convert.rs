@@ -3,7 +3,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     crypto::{
         crypto_hash_size, crypto_hmac, crypto_kdfa, crypto_kdfe, crypto_make_name,
@@ -482,7 +482,7 @@ impl Convert {
     }
 }
 
-impl SubCommand for Convert {
+impl Task for Convert {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| {

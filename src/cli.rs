@@ -27,7 +27,7 @@ const STYLES: Styles = Styles::styled()
     .placeholder(Style::new());
 
 /// A subcommand of the main CLI application.
-pub trait SubCommand {
+pub trait Task {
     /// Runs a command.
     ///
     /// # Errors
@@ -89,7 +89,7 @@ pub enum Command {
 }
 
 impl Command {
-    fn as_subcommand(&self) -> &dyn SubCommand {
+    fn as_task(&self) -> &dyn Task {
         match self {
             Self::Algorithm(cmd) => cmd,
             Self::Cache(cmd) => cmd,
@@ -109,13 +109,13 @@ impl Command {
     }
 }
 
-impl SubCommand for Command {
+impl Task for Command {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        self.as_subcommand().run(job)
+        self.as_task().run(job)
     }
 
     fn is_local(&self) -> bool {
-        self.as_subcommand().is_local()
+        self.as_task().is_local()
     }
 }
 

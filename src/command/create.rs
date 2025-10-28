@@ -5,7 +5,7 @@
 //! Handles the `create` command, which creates secondary keys or sealed objects.
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     handle::Handle,
@@ -57,7 +57,7 @@ pub struct Create {
     pub creation_args: CreationArgs,
 }
 
-impl SubCommand for Create {
+impl Task for Create {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| self.create_object(job, device))

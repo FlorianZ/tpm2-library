@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError},
     device::with_device,
     handle::{Handle, HandleClass, HandleError},
@@ -22,7 +22,7 @@ pub struct Evict {
     pub output: Handle,
 }
 
-impl SubCommand for Evict {
+impl Task for Evict {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
 

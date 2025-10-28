@@ -4,7 +4,7 @@
 
 use crate::{
     auth::Auth,
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError, InputArgs},
     device::{with_device, Device},
     handle::{Handle, HandleClass},
@@ -27,7 +27,7 @@ pub struct Load {
     pub input_args: InputArgs,
 }
 
-impl SubCommand for Load {
+impl Task for Load {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {

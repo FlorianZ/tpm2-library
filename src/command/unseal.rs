@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError},
     device::with_device,
     handle::Handle,
@@ -24,7 +24,7 @@ pub struct Unseal {
     pub hex: bool,
 }
 
-impl SubCommand for Unseal {
+impl Task for Unseal {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
 

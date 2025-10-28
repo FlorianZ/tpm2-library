@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError},
     crypto::crypto_hash_size,
     device::{test_rsa_parms, with_device, Device, DeviceError},
@@ -93,7 +93,7 @@ impl Algorithm {
     }
 }
 
-impl SubCommand for Algorithm {
+impl Task for Algorithm {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {

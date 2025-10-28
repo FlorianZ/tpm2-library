@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_keyedhash, deny_too_many_auths, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
     key::Alg,
@@ -33,7 +33,7 @@ pub struct CreatePrimary {
     pub creation_args: CreationArgs,
 }
 
-impl SubCommand for CreatePrimary {
+impl Task for CreatePrimary {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 1)?;
 

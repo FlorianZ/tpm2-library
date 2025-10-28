@@ -6,7 +6,7 @@ use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use cli::{
     auth::Auth,
-    cli::{SubCommand, TopLevel},
+    cli::{Task, TopLevel},
     command::CommandError,
     device::{Device, DeviceError},
     session::Session,

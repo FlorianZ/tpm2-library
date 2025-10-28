@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError},
     device::with_device,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
@@ -96,7 +96,7 @@ fn resolve_pcr_digests(
     Ok(())
 }
 
-impl SubCommand for Policy {
+impl Task for Policy {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 0)?;
         with_device(job.device.clone(), |device| {

@@ -3,7 +3,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, CommandError},
     device::{with_device, Device},
     handle::HandlePattern,
@@ -56,7 +56,7 @@ impl Delete {
     }
 }
 
-impl SubCommand for Delete {
+impl Task for Delete {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         if let Some(pattern) = self.input.strip_prefix("tpm:") {
             delete_tpm_handles(job, pattern)

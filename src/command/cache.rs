@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::SubCommand,
+    cli::Task,
     command::{deny_too_many_auths, print_table, CommandError, Tabled},
     device::with_device,
     session::Session,
@@ -98,7 +98,7 @@ impl Cache {
     }
 }
 
-impl SubCommand for Cache {
+impl Task for Cache {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         deny_too_many_auths(job.auth_list, 0)?;
         Self::refresh_cache(job)?;
