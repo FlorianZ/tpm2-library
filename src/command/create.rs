@@ -12,9 +12,7 @@ use crate::{
     io::write_key_data,
     key::{Alg, AlgInfo, TpmKey, TpmPolicy, OID_LOADABLE_KEY, OID_SEALED_DATA},
     session::{Session, SessionError},
-    template,
-    vtpm::VtpmError,
-    write_object,
+    template, write_object,
 };
 use clap::Args;
 use rasn::types::OctetString;
@@ -24,7 +22,6 @@ use tpm2_protocol::{
         TpmlPcrSelection, TpmsSensitiveCreate,
     },
     message::TpmCreateCommand,
-    TpmError,
 };
 
 /// A template for creating a new TPM key object.
@@ -70,13 +67,7 @@ impl Create {
     #[allow(clippy::too_many_lines)]
     fn create_object(&self, job: &mut Session, device: &mut Device) -> Result<(), CommandError> {
         let parent_handle_arg = self.parent;
-        let parent_handle = job.load_context(device, &parent_handle_arg).map_err(|e| {
-            if let SessionError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) = e {
-                CommandError::InvalidParent(prefix, handle)
-            } else {
-                e.into()
-            }
-        })?;
+        let parent_handle = job.load_context(device, &parent_handle_arg)?;
 
         let (object_attributes, user_auth, auth_policy) =
             self.creation_args.parse(&self.algorithm)?;
@@ -139,23 +130,7 @@ impl Create {
                             return CommandError::InvalidParent("tpm:", parent_handle.0);
                         }
                     }
-                    match e {
-                        SessionError::Device(d) => CommandError::Device(d),
-                        SessionError::Vtpm(
-                            crate::vtpm::VtpmError::Auth(_)
-                            | crate::vtpm::VtpmError::HandleNotFound(_, _)
-                            | crate::vtpm::VtpmError::TrailingAuthorizations,
-                        ) => CommandError::TpmProtocol(TpmError::Malformed),
-                        SessionError::Key(k) => CommandError::Key(k),
-                        SessionError::Auth(a) => CommandError::Auth(a),
-                        SessionError::Crypto(c) => CommandError::Crypto(c),
-                        SessionError::IntDecode(i) => CommandError::IntDecode(i),
-                        SessionError::Io(io_err) => CommandError::Io(io_err),
-                        SessionError::InvalidParent(prefix, val) => {
-                            CommandError::InvalidParent(prefix, val)
-                        }
-                        _ => CommandError::Session(e),
-                    }
+                    e.into()
                 })?;
 
             let create_resp = resp

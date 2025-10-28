@@ -224,6 +224,15 @@ impl From<SessionError> for CommandError {
         match err {
             SessionError::InvalidParent(prefix, handle) => Self::InvalidParent(prefix, handle),
             SessionError::Device(dev_err) => Self::from(dev_err),
+            SessionError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) => {
+                Self::InvalidParent(prefix, handle)
+            }
+            SessionError::Vtpm(e) => Self::Cache(e),
+            SessionError::Key(e) => Self::Key(e),
+            SessionError::Auth(e) => Self::Auth(e),
+            SessionError::Crypto(e) => Self::Crypto(e),
+            SessionError::Io(e) => Self::Io(e),
+            SessionError::IntDecode(e) => Self::IntDecode(e),
             _ => Self::Session(err),
         }
     }
