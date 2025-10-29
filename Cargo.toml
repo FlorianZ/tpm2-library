@@ -1,0 +1,23 @@
+[package]
+authors = ["Jarkko Sakkinen <jarkko.sakkinen@opinsys.com>"]
+description = "TPM 2.0 cryptographic routines" 
+edition = "2021"
+license = "MIT OR Apache-2.0"
+name = "tpm2-crypto"
+readme = "README.md"
+repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-crypto.git"
+rust-version = "1.78"
+version = "0.1.0"
+
+[dependencies]
+elliptic-curve = { version = "0.13", features = ["ecdh"] }
+generic-array = "0.14"
+hmac = "0.12"
+p256 = { version = "0.13", features = ["ecdh"] }
+p384 = { version = "0.13", features = ["ecdh"] }
+p521 = { version = "0.13", features = ["ecdh"] }
+rand = "0.8"
+sha1 = "0.10"
+sha2 = "0.10"
+thiserror = "1.0"
+tpm2-protocol = "0.11"
