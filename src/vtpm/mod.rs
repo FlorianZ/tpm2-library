@@ -293,7 +293,7 @@ impl<'a> VtpmCache<'a> {
                 continue;
             };
             let Ok(vhandle) = u32::from_str_radix(stem, 16) else {
-                log::warn!("Skipping cache file with non-hex name: {}", path.display());
+                log::warn!("invalid vtpm handle: {}", path.display());
                 continue;
             };
 
@@ -304,10 +304,7 @@ impl<'a> VtpmCache<'a> {
                 } else if ht == TpmHt::HmacSession as u8 || ht == TpmHt::PolicySession as u8 {
                     VtpmSession::load_from_path(&path).map(|s| Box::new(s) as Box<dyn VtpmContext>)
                 } else {
-                    log::warn!(
-                        "Skipping cache file with unknown type prefix: {}",
-                        path.display()
-                    );
+                    log::warn!("invalid type prefix: {}", path.display());
                     continue;
                 };
 
@@ -316,11 +313,7 @@ impl<'a> VtpmCache<'a> {
                     self.contexts.insert(vhandle, context);
                 }
                 Err(e) => {
-                    log::warn!(
-                        "Failed to load context from {}: {}. Skipping.",
-                        path.display(),
-                        e
-                    );
+                    log::warn!("{}: {}", path.display(), e);
                 }
             }
         }
