@@ -6,7 +6,6 @@
 
 use crate::{
     auth::{Auth, AuthError},
-    crypto::CryptoError,
     device::{Device, DeviceError},
     handle::{Handle, HandleClass, HandleError},
     key::Tpm2shAlgId,
@@ -20,6 +19,7 @@ use std::{
     rc::Rc,
 };
 use thiserror::Error;
+use tpm2_crypto::CryptoError;
 use tpm2_protocol::{
     data::{Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
     message::TpmAuthResponses,

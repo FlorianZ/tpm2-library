@@ -4,11 +4,14 @@
 
 use super::{RefreshAction, VtpmContext, VtpmError};
 use crate::{
-    crypto::{crypto_digest, crypto_hash_size, crypto_hmac, crypto_kdfa},
     device::{Device, DeviceError},
     write_object,
 };
 use std::{any::Any, fs, path::Path};
+use tpm2_crypto::{
+    digest as crypto_digest, hash_size as crypto_hash_size, hmac as crypto_hmac,
+    kdfa as crypto_kdfa,
+};
 use tpm2_protocol::{
     basic::TpmBuffer,
     data::{

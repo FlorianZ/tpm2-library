@@ -1271,6 +1271,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpm2-crypto"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4314b1d90f8c8fc34f7b92d09d3292bc04dd4e6b28d4ae9cb2bf1aa905aaf20"
+dependencies = [
+ "elliptic-curve",
+ "generic-array",
+ "hmac",
+ "p256",
+ "p384",
+ "p521",
+ "rand",
+ "sha1",
+ "sha2",
+ "thiserror",
+ "tpm2-protocol",
+]
+
+[[package]]
 name = "tpm2-protocol"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1287,7 +1306,9 @@ dependencies = [
  "clap",
  "ctrlc",
  "directories",
+ "elliptic-curve",
  "env_logger",
+ "generic-array",
  "hex",
  "hmac",
  "log",
@@ -1307,6 +1328,7 @@ dependencies = [
  "sha2",
  "strum",
  "thiserror",
+ "tpm2-crypto",
  "tpm2-protocol",
 ]
 

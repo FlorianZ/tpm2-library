@@ -3,10 +3,7 @@
 
 #![allow(clippy::no_effect_underscore_binding)]
 
-use crate::{
-    crypto::UNCOMPRESSED_POINT_TAG,
-    key::{external_key::ExternalKey, KeyError},
-};
+use crate::key::{external_key::ExternalKey, KeyError};
 
 use std::borrow::Cow;
 
@@ -16,6 +13,7 @@ use rasn::{
     AsnType, Decode, Decoder, Encode, Encoder,
 };
 use rsa::traits::PrivateKeyParts;
+use tpm2_crypto::UNCOMPRESSED_POINT_TAG;
 use tpm2_protocol::data::{
     Tpm2bDigest, Tpm2bEccParameter, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms, TpmsEccPoint,
     TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId,

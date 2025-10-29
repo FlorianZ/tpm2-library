@@ -38,7 +38,6 @@ pub use unseal::*;
 
 use crate::{
     auth::AuthError,
-    crypto::CryptoError,
     device::DeviceError,
     handle::{HandleError, HandlePatternError},
     key::{AlgInfo, KeyError},
@@ -53,6 +52,7 @@ use std::{
     num::TryFromIntError,
 };
 use thiserror::Error;
+use tpm2_crypto::CryptoError;
 use tpm2_protocol::{
     data::{TpmCc, TpmRcBase},
     TpmError,

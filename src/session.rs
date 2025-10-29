@@ -4,7 +4,6 @@
 
 use crate::{
     auth::{Auth, AuthError},
-    crypto::{crypto_hash_size, crypto_make_name, CryptoError},
     device::{Device, DeviceError, TpmCommandObject},
     handle::{Handle, HandleClass},
     key::KeyError,
@@ -14,6 +13,7 @@ use crate::{
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc};
 use thiserror::Error;
+use tpm2_crypto::{hash_size as crypto_hash_size, make_name as crypto_make_name, CryptoError};
 use tpm2_protocol::{
     data::{
         Tpm2bEncryptedSecret, Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaSession,

@@ -26,7 +26,9 @@ cipher = "0.4"
 clap = { version = "4.5", features = ["derive"] }
 ctrlc = "3.4"
 directories = "5.0"
+elliptic-curve = { version = "0.13", features = ["ecdh"] }
 env_logger = "0.11"
+generic-array = "0.14"
 hex = "0.4"
 hmac = "0.12"
 log = "0.4"
@@ -46,4 +48,5 @@ sha1 = "0.10"
 sha2 = "0.10"
 strum = { version = "0.26", features = ["derive"] }
 thiserror = "1.0"
+tpm2-crypto = "0.1"
 tpm2-protocol = "0.11"

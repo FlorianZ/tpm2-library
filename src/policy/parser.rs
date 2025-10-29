@@ -5,8 +5,9 @@
 //! A stateless, recursive-descent parser for the policy language.
 
 use super::{Auth, Expression, Handle, PolicyError};
-use crate::{crypto::crypto_hash_size, pcr::pcr_selection_vec_from_str};
+use crate::pcr::pcr_selection_vec_from_str;
 use std::{fmt, iter::Peekable, slice::Iter, str::FromStr};
+use tpm2_crypto::hash_size as crypto_hash_size;
 use tpm2_protocol::data::TpmAlgId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

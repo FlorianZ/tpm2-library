@@ -14,7 +14,6 @@ pub use tpm::*;
 
 use crate::{
     auth::Auth,
-    crypto::CryptoError,
     device::{Device, DeviceError},
     handle::{Handle, HandleClass, HandleError},
     pcr::{self, PcrError, PcrSelection},
@@ -22,6 +21,7 @@ use crate::{
 };
 use std::{collections::HashMap, fmt, num::ParseIntError};
 use thiserror::Error;
+use tpm2_crypto::CryptoError;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
     TpmError, TpmHandle,

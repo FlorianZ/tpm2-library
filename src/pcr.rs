@@ -5,12 +5,12 @@
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
 use crate::{
-    crypto::{crypto_digest, CryptoError},
     device::{Device, DeviceError},
     key::Tpm2shAlgId,
 };
 use std::{convert::TryFrom, fmt};
 use thiserror::Error;
+use tpm2_crypto::{digest as crypto_digest, CryptoError};
 use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
     data::{

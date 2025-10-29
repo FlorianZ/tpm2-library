@@ -4,11 +4,8 @@
 //! A pure software implementation of a policy session for dry-run calculations.
 
 use super::{PolicyError, PolicySession};
-use crate::{
-    crypto::{crypto_digest, crypto_hash_size},
-    device::Device,
-    write_object,
-};
+use crate::{device::Device, write_object};
+use tpm2_crypto::{digest as crypto_digest, hash_size as crypto_hash_size};
 use tpm2_protocol::data::{
     Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection,
 };
