@@ -4,7 +4,7 @@
 
 use crate::{
     auth::Auth,
-    cli::Task,
+    cli::Job,
     command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
     handle::{Handle, HandleClass},
@@ -30,7 +30,7 @@ pub struct Load {
     pub input_args: InputArgs,
 }
 
-impl Task for Load {
+impl Job for Load {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;

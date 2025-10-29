@@ -5,7 +5,7 @@
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use cli::{
-    cli::{Task, TopLevel},
+    cli::{Job, TopLevel},
     command::CommandError,
     device::{Device, DeviceError},
     session::Session,

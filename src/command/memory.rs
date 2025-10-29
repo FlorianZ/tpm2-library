@@ -4,7 +4,7 @@
 
 use crate::{
     auth::Auth,
-    cli::Task,
+    cli::Job,
     command::{print_table, AuthArgs, CommandError, Tabled},
     device::{self, Device, DeviceError},
     handle::Handle,
@@ -74,7 +74,7 @@ pub struct Memory {
     pub auth_args: AuthArgs,
 }
 
-impl Task for Memory {
+impl Job for Memory {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
             Self::inspect_handle(job, handle, &self.auth_args)

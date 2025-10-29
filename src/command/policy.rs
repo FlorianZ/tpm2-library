@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::Task,
+    cli::Job,
     command::{AuthArgs, CommandError},
     device::with_device,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
@@ -99,7 +99,7 @@ fn resolve_pcr_digests(
     Ok(())
 }
 
-impl Task for Policy {
+impl Job for Policy {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         if !self.auth_args.auth.is_empty() {
             return Err(CommandError::TooManyAuths);

@@ -5,7 +5,7 @@
 //! Handles the `create` command, which creates secondary keys or sealed objects.
 
 use crate::{
-    cli::Task,
+    cli::Job,
     command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     handle::Handle,
@@ -59,7 +59,7 @@ pub struct Create {
     pub creation_args: CreationArgs,
 }
 
-impl Task for Create {
+impl Job for Create {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| self.create_object(job, device))
     }

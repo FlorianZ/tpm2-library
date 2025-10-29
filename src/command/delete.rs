@@ -3,7 +3,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::Task,
+    cli::Job,
     command::{AuthArgs, CommandError},
     device::with_device,
     handle::HandlePattern,
@@ -22,7 +22,7 @@ pub struct Delete {
     pub auth_args: AuthArgs,
 }
 
-impl Task for Delete {
+impl Job for Delete {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         if let Some(pattern) = self.input.strip_prefix("tpm:") {
             delete_tpm_handles(job, pattern, &self.auth_args)

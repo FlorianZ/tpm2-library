@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::Task,
+    cli::Job,
     command::{print_table, CommandError, Tabled},
     device::with_device,
     session::Session,
@@ -98,7 +98,7 @@ impl Cache {
     }
 }
 
-impl Task for Cache {
+impl Job for Cache {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         Self::refresh_cache(job)?;
 

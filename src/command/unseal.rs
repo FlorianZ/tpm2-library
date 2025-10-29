@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::Task,
+    cli::Job,
     command::{AuthArgs, CommandError},
     device::with_device,
     handle::Handle,
@@ -27,7 +27,7 @@ pub struct Unseal {
     pub auth_args: AuthArgs,
 }
 
-impl Task for Unseal {
+impl Job for Unseal {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let item_handle = job.load_context(device, &self.input)?;

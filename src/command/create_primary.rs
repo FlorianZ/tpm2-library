@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::Task,
+    cli::Job,
     command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
     key::Alg,
@@ -36,7 +36,7 @@ pub struct CreatePrimary {
     pub creation_args: CreationArgs,
 }
 
-impl Task for CreatePrimary {
+impl Job for CreatePrimary {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;

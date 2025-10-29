@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::Task,
+    cli::Job,
     command::{AuthArgs, CommandError},
     device::with_device,
     handle::{Handle, HandleClass, HandleError},
@@ -25,7 +25,7 @@ pub struct Evict {
     pub auth_args: AuthArgs,
 }
 
-impl Task for Evict {
+impl Job for Evict {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
             let persistent_handle_val = match self.output.class() {

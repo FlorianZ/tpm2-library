@@ -3,7 +3,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::Task,
+    cli::Job,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     crypto::{
         crypto_hash_size, crypto_hmac, crypto_kdfa, crypto_kdfe, crypto_make_name,
@@ -479,7 +479,7 @@ impl Convert {
     }
 }
 
-impl Task for Convert {
+impl Job for Convert {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let parent_handle_arg = self.parent;
