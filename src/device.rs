@@ -149,8 +149,8 @@ impl Device {
 
         let raw = self.file.as_raw_fd();
         let borrowed = unsafe { BorrowedFd::borrow_raw(raw) };
-        #[allow(unused_mut)]
-        let mut poll_fd = PollFd::new(borrowed, PollFlags::POLLIN);
+
+        let mut fds = [PollFd::new(borrowed, PollFlags::POLLIN)];
 
         let start_time = Instant::now();
         let mut resp_buf = Vec::with_capacity(TPM_MAX_COMMAND_SIZE);
@@ -167,7 +167,7 @@ impl Device {
 
             spinner.tick();
 
-            let num_events = match poll(&mut [poll_fd], 100u16) {
+            let num_events = match poll(&mut fds, 100u16) {
                 Ok(num) => num,
                 Err(nix::Error::EINTR) => continue,
                 Err(e) => break Err(e.into()),
@@ -177,27 +177,37 @@ impl Device {
                 continue;
             }
 
-            let revents = poll_fd.revents().unwrap_or(PollFlags::empty());
+            let revents = fds[0].revents().unwrap_or(PollFlags::empty());
 
-            if !revents.contains(PollFlags::POLLIN) {
-                if revents.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL | PollFlags::POLLHUP)
-                {
-                    break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
-                }
-                continue;
+            if revents.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
+                break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
             }
 
-            loop {
+            if revents.contains(PollFlags::POLLIN) {
                 match self.file.read(&mut temp_buf) {
                     Ok(0) => {
+                        if let Some(size) = total_size {
+                            if resp_buf.len() == size {
+                                break Ok(resp_buf);
+                            }
+                        }
                         break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
                     }
-                    Ok(n) => resp_buf.extend_from_slice(&temp_buf[..n]),
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break Ok(()),
+                    Ok(n) => {
+                        resp_buf.extend_from_slice(&temp_buf[..n]);
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => (),
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => (),
                     Err(e) => break Err(e.into()),
                 }
-            }?;
+            } else if revents.contains(PollFlags::POLLHUP) {
+                if let Some(size) = total_size {
+                    if resp_buf.len() == size {
+                        break Ok(resp_buf);
+                    }
+                }
+                break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
+            }
 
             if total_size.is_none() && resp_buf.len() >= 10 {
                 let Ok(size_bytes): Result<[u8; 4], _> = resp_buf[2..6].try_into() else {
