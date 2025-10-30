@@ -1,5 +1,5 @@
 [package]
-authors = ["Jarkko Sakkinen <jarkko.sakkinen@opinsys.com>"]
+authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
 description = "TPM 2.0 cryptographic routines"
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -7,7 +7,7 @@ name = "tpm2-crypto"
 readme = "README.md"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-crypto.git"
 rust-version = "1.78"
-version = "0.1.0"
+version = "0.2.0"
 
 [dependencies]
 num-bigint = { version = "0.4", features = ["rand"] }
