@@ -12,7 +12,6 @@ use openssl::{
     bn::{BigNum, BigNumContext},
     derive::Deriver,
     ec::{EcGroup, EcKey, EcPoint, PointConversionForm},
-    error::ErrorStack,
     hash::{Hasher, MessageDigest},
     memcmp,
     nid::Nid,
@@ -24,7 +23,7 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bEccParameter, Tpm2bName, TpmAlgId, TpmEccCurve, TpmsEccPoint, TpmtPublic},
-    TpmBuild, TpmError, TpmWriter,
+    TpmBuild, TpmWriter,
 };
 
 pub const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
@@ -35,18 +34,18 @@ pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 
 #[derive(Debug, Error)]
 pub enum CryptoError {
-    #[error("OpenSSL error: {0}")]
-    OpenSslError(#[from] ErrorStack),
     #[error("big number conversion failed")]
     BigNumConversion,
     #[error("invalid ECC point")]
-    InvalidEccPoint,
-    #[error("unsupported ECC curve")]
-    UnsupportedEccCurve,
-    #[error("invalid hash algorithm")]
-    InvalidHashAlgorithm,
-    #[error("HMAC mismatch")]
     HmacMismatch,
+    #[error("invalid hash algorithm")]
+    InvalidEccPoint,
+    #[error("HMAC mismatch")]
+    InvalidHashAlgorithm,
+    #[error("invalid data chunk")]
+    InvalidChunk,
+    #[error("HMAC mismatch")]
+    InvalidParent,
     #[error("invalid public area")]
     InvalidPublicArea,
     #[error("malformed ECC parameter")]
@@ -57,12 +56,8 @@ pub enum CryptoError {
     MalformedHmacKey,
     #[error("malformed name")]
     MalformedName,
-}
-
-impl From<TpmError> for CryptoError {
-    fn from(_: TpmError) -> Self {
-        CryptoError::MalformedEccParameter
-    }
+    #[error("unsupported ECC curve")]
+    UnsupportedEccCurve,
 }
 
 /// Maps a TPM algorithm ID to an OpenSSL message digest.
@@ -108,12 +103,17 @@ pub fn hash_size(alg: TpmAlgId) -> Result<usize, CryptoError> {
 /// Returns [`InvalidHashAlgorithm`](crate::CryptoError::InvalidHashAlgorithm)
 /// when the hash algorithm is not recognized.
 pub fn digest(alg: TpmAlgId, data_chunks: &[&[u8]]) -> Result<Vec<u8>, CryptoError> {
-    let md = map_tpm_alg_to_md(alg)?;
-    let mut hasher = Hasher::new(md)?;
+    let md = map_tpm_alg_to_md(alg).map_err(|_| CryptoError::InvalidHashAlgorithm)?;
+    let mut hasher = Hasher::new(md).map_err(|_| CryptoError::InvalidChunk)?;
     for chunk in data_chunks {
-        hasher.update(chunk)?;
+        hasher
+            .update(chunk)
+            .map_err(|_| CryptoError::InvalidChunk)?;
     }
-    Ok(hasher.finish()?.to_vec())
+    Ok(hasher
+        .finish()
+        .map_err(|_| CryptoError::InvalidChunk)?
+        .to_vec())
 }
 
 /// Computes an HMAC digest over a series of data chunks.
@@ -128,13 +128,17 @@ pub fn hmac(alg: TpmAlgId, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>,
     if key.is_empty() {
         return Err(CryptoError::MalformedHmacKey);
     }
-    let md = map_tpm_alg_to_md(alg)?;
-    let public_key = PKey::hmac(key)?;
-    let mut signer = Signer::new(md, &public_key)?;
+    let md = map_tpm_alg_to_md(alg).map_err(|_| CryptoError::InvalidHashAlgorithm)?;
+    let public_key = PKey::hmac(key).map_err(|_| CryptoError::MalformedHmacKey)?;
+    let mut signer = Signer::new(md, &public_key).map_err(|_| CryptoError::MalformedHmacKey)?;
     for chunk in data_chunks {
-        signer.update(chunk)?;
+        signer
+            .update(chunk)
+            .map_err(|_| CryptoError::MalformedHmacKey)?;
     }
-    Ok(signer.sign_to_vec()?)
+    Ok(signer
+        .sign_to_vec()
+        .map_err(|_| CryptoError::MalformedHmacKey)?)
 }
 
 /// Verifies an HMAC signature over a series of data chunks.
@@ -295,42 +299,58 @@ pub fn make_name(public: &TpmtPublic) -> Result<Tpm2bName, CryptoError> {
 /// when the resulting ECC parameters are malformed.
 /// Returns [`UnsupportedEccCurve`](crate::CryptoError::UnsupportedEccCurve)
 /// when the curve is not supported.
-/// Returns [`OpenSslError`](crate::CryptoError::OpenSslError)
-/// on OpenSSL API failures.
 pub fn ecdh(
     curve_id: TpmEccCurve,
     parent_point: &TpmsEccPoint,
     name_alg: TpmAlgId,
     rng: &mut (impl RngCore + CryptoRng),
 ) -> Result<(Vec<u8>, TpmsEccPoint), CryptoError> {
-    let nid = map_ecc_curve_to_nid(curve_id)?;
-    let group = EcGroup::from_curve_name(nid)?;
-    let mut ctx = BigNumContext::new()?;
+    let nid = map_ecc_curve_to_nid(curve_id).map_err(|_| CryptoError::UnsupportedEccCurve)?;
+    let group = EcGroup::from_curve_name(nid).map_err(|_| CryptoError::UnsupportedEccCurve)?;
+    let mut ctx = BigNumContext::new().map_err(|_| CryptoError::MalformedEccParameter)?;
 
-    let parent_x = tpm_ecc_param_to_bignum(&parent_point.x)?;
-    let parent_y = tpm_ecc_param_to_bignum(&parent_point.y)?;
-    let parent_key = EcKey::from_public_key_affine_coordinates(&group, &parent_x, &parent_y)?;
-    let parent_public_key = PKey::from_ec_key(parent_key)?;
+    let parent_x =
+        tpm_ecc_param_to_bignum(&parent_point.x).map_err(|_| CryptoError::InvalidParent)?;
+    let parent_y =
+        tpm_ecc_param_to_bignum(&parent_point.y).map_err(|_| CryptoError::InvalidParent)?;
+    let parent_key = EcKey::from_public_key_affine_coordinates(&group, &parent_x, &parent_y)
+        .map_err(|_| CryptoError::InvalidParent)?;
+    let parent_public_key =
+        PKey::from_ec_key(parent_key).map_err(|_| CryptoError::InvalidParent)?;
 
-    let mut order = BigNum::new()?;
-    group.order(&mut order, &mut ctx)?;
+    let mut order = BigNum::new().map_err(|_| CryptoError::MalformedEccParameter)?;
+    group
+        .order(&mut order, &mut ctx)
+        .map_err(|_| CryptoError::MalformedEccParameter)?;
     let order_uint = BigUint::from_bytes_be(&order.to_vec());
     let one = BigUint::from(1u8);
 
     let priv_uint = rng.gen_biguint_range(&one, &order_uint);
-    let priv_bn = BigNum::from_slice(&priv_uint.to_bytes_be())?;
+    let priv_bn = BigNum::from_slice(&priv_uint.to_bytes_be())
+        .map_err(|_| CryptoError::MalformedEccParameter)?;
 
-    let mut ephemeral_pub_point = EcPoint::new(&group)?;
-    ephemeral_pub_point.mul_generator(&group, &priv_bn, &ctx)?;
-    let ephemeral_key = EcKey::from_private_components(&group, &priv_bn, &ephemeral_pub_point)?;
+    let mut ephemeral_pub_point =
+        EcPoint::new(&group).map_err(|_| CryptoError::MalformedEccParameter)?;
+    ephemeral_pub_point
+        .mul_generator(&group, &priv_bn, &ctx)
+        .map_err(|_| CryptoError::MalformedEccParameter)?;
+    let ephemeral_key = EcKey::from_private_components(&group, &priv_bn, &ephemeral_pub_point)
+        .map_err(|_| CryptoError::MalformedEccParameter)?;
 
-    let ephemeral_public_key = PKey::from_ec_key(ephemeral_key)?;
-    let mut deriver = Deriver::new(&ephemeral_public_key)?;
-    deriver.set_peer(&parent_public_key)?;
-    let z = deriver.derive_to_vec()?;
+    let ephemeral_public_key =
+        PKey::from_ec_key(ephemeral_key).map_err(|_| CryptoError::MalformedEccParameter)?;
+    let mut deriver =
+        Deriver::new(&ephemeral_public_key).map_err(|_| CryptoError::MalformedEcdhSeed)?;
+    deriver
+        .set_peer(&parent_public_key)
+        .map_err(|_| CryptoError::MalformedEcdhSeed)?;
+    let z = deriver
+        .derive_to_vec()
+        .map_err(|_| CryptoError::MalformedEcdhSeed)?;
 
-    let ephemeral_pub_bytes =
-        ephemeral_pub_point.to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)?;
+    let ephemeral_pub_bytes = ephemeral_pub_point
+        .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
+        .map_err(|_| CryptoError::MalformedEccParameter)?;
 
     if ephemeral_pub_bytes.is_empty() || ephemeral_pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
         return Err(CryptoError::InvalidEccPoint);
@@ -356,8 +376,10 @@ pub fn ecdh(
     )?;
 
     let ephemeral_point_tpm = TpmsEccPoint {
-        x: Tpm2bEccParameter::try_from(ephemeral_x)?,
-        y: Tpm2bEccParameter::try_from(ephemeral_y)?,
+        x: Tpm2bEccParameter::try_from(ephemeral_x)
+            .map_err(|_| CryptoError::MalformedEccParameter)?,
+        y: Tpm2bEccParameter::try_from(ephemeral_y)
+            .map_err(|_| CryptoError::MalformedEccParameter)?,
     };
 
     Ok((seed, ephemeral_point_tpm))
