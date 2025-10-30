@@ -21,6 +21,12 @@ pub enum ParseError {
     InvalidAuthString(String),
     #[error("invalid handle string: '{0}'")]
     InvalidHandleString(String),
+    #[error("handle has less than eight characters")]
+    HandleTooFewDigits,
+    #[error("handle has more than one '*'")]
+    HandleTooManyAsterisks,
+    #[error("handle has more than eight characters")]
+    HandleTooManyDigits,
     #[error("invalid handle type: 0x{0:02x}")]
     InvalidHandleType(u8),
     #[error("invalid hex string: '{0}'")]
@@ -116,31 +122,48 @@ pub enum HandleClass {
     Vtpm,
 }
 
-/// TPM and vTPM handles.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Handle(pub (HandleClass, u32));
+/// TPM and vTPM handles, with support for pattern matching.
+///
+/// A `Handle` can represent either a single, specific handle (e.g., `tpm:81000001`)
+/// or a pattern for matching multiple handles (e.g., `tpm:81*`, `vtpm:????????`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Handle {
+    raw: String,
+    class: HandleClass,
+    mask: u32,
+    value: u32,
+}
 
 impl Handle {
-    /// Returns class of the handle.
+    /// Returns the class of the handle (`Tpm` or `Vtpm`).
     #[must_use]
     pub fn class(&self) -> HandleClass {
-        self.0 .0
+        self.class
     }
 
-    /// Returns value of the handle.
+    /// Returns the value of the handle if it represents a single handle.
+    ///
+    /// Returns `Some(value)` if the handle was created without wildcards.
+    /// Returns `None` if the handle is a pattern.
     #[must_use]
-    pub fn value(&self) -> u32 {
-        self.0 .1
+    pub fn value(&self) -> Option<u32> {
+        if self.mask == 0xFFFF_FFFF {
+            Some(self.value)
+        } else {
+            None
+        }
+    }
+
+    /// Checks if a given handle value matches the handle's pattern.
+    #[must_use]
+    pub fn matches(&self, handle: u32) -> bool {
+        (handle & self.mask) == self.value
     }
 }
 
 impl std::fmt::Display for Handle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let value = self.value();
-        match self.class() {
-            HandleClass::Tpm => write!(f, "tpm:{value:08x}"),
-            HandleClass::Vtpm => write!(f, "vtpm:{value:08x}"),
-        }
+        write!(f, "{}", self.raw)
     }
 }
 
@@ -158,10 +181,66 @@ impl FromStr for Handle {
             _ => return Err(ParseError::InvalidHandleString(s.to_string())),
         };
 
-        let value = u32::from_str_radix(value_str, 16)
-            .map_err(|_| ParseError::InvalidHandleString(s.to_string()))?;
+        if value_str == "*" {
+            return Ok(Self {
+                raw: s.to_string(),
+                class,
+                mask: 0,
+                value: 0,
+            });
+        }
 
-        Ok(Handle((class, value)))
+        let mut mask: u32 = 0;
+        let mut value: u32 = 0;
+
+        let (prefix_str, suffix_str) = if let Some((p, suffix)) = value_str.split_once('*') {
+            if suffix.contains('*') {
+                return Err(ParseError::HandleTooManyAsterisks);
+            }
+            if p.len() + suffix.len() > 8 {
+                return Err(ParseError::HandleTooManyDigits);
+            }
+            (p, suffix)
+        } else {
+            if value_str.len() < 8 {
+                return Err(ParseError::HandleTooFewDigits);
+            }
+            if value_str.len() > 8 {
+                return Err(ParseError::HandleTooManyDigits);
+            }
+            (value_str, "")
+        };
+
+        for (i, c) in prefix_str.chars().enumerate() {
+            let shift = (7 - i) * 4;
+            match c.to_digit(16) {
+                Some(v) => {
+                    mask |= 0xF << shift;
+                    value |= v << shift;
+                }
+                None if c == '?' => {}
+                None => return Err(ParseError::InvalidHandleString(value_str.to_string())),
+            }
+        }
+
+        for (i, c) in suffix_str.chars().rev().enumerate() {
+            let shift = i * 4;
+            match c.to_digit(16) {
+                Some(v) => {
+                    mask |= 0xF << shift;
+                    value |= v << shift;
+                }
+                None if c == '?' => {}
+                None => return Err(ParseError::InvalidHandleString(value_str.to_string())),
+            }
+        }
+
+        Ok(Self {
+            raw: s.to_string(),
+            class,
+            mask,
+            value,
+        })
     }
 }
 
@@ -169,7 +248,9 @@ impl TryFrom<Handle> for TpmHt {
     type Error = ParseError;
 
     fn try_from(handle: Handle) -> Result<Self, Self::Error> {
-        let raw_handle = handle.value();
+        let raw_handle = handle
+            .value()
+            .ok_or_else(|| ParseError::InvalidHandleString(handle.to_string()))?;
         let ht_byte = (raw_handle >> 24) as u8;
         TpmHt::try_from(ht_byte).map_err(|()| ParseError::InvalidHandleType(ht_byte))
     }
@@ -623,10 +704,9 @@ mod tests {
                     count: None,
                 },
                 Expression::Secret {
-                    auth_handle: Box::new(Expression::Handle(Handle((
-                        HandleClass::Tpm,
-                        0x8100_0001,
-                    )))),
+                    auth_handle: Box::new(Expression::Handle(
+                        "tpm:81000001".parse::<Handle>().unwrap(),
+                    )),
                     password: None,
                     cp_hash: None,
                 },
