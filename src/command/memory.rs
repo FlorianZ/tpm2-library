@@ -401,69 +401,83 @@ impl Memory {
     }
 
     fn fetch_hash_alg(oid: &ObjectIdentifier) -> Result<TpmAlgId, CommandError> {
-        if oid == &OID_SHA1_WITH_RSA_ENCRYPTION {
-            Ok(TpmAlgId::Sha1)
-        } else if oid == &OID_SHA256_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA256 {
-            Ok(TpmAlgId::Sha256)
-        } else if oid == &OID_SHA384_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA384 {
-            Ok(TpmAlgId::Sha384)
-        } else if oid == &OID_SHA512_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA512 {
-            Ok(TpmAlgId::Sha512)
-        } else {
-            Err(CommandError::UnsupportedSignatureAlgorithm(
+        match oid {
+            oid if oid == &OID_SHA1_WITH_RSA_ENCRYPTION => Ok(TpmAlgId::Sha1),
+            oid if oid == &OID_SHA256_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA256 => {
+                Ok(TpmAlgId::Sha256)
+            }
+            oid if oid == &OID_SHA384_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA384 => {
+                Ok(TpmAlgId::Sha384)
+            }
+            oid if oid == &OID_SHA512_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA512 => {
+                Ok(TpmAlgId::Sha512)
+            }
+            _ => Err(CommandError::UnsupportedSignatureAlgorithm(
                 Self::oid_to_placeholder_alg(oid),
-            ))
+            )),
         }
+    }
+
+    fn parse_rsa_details(
+        spki: &SubjectPublicKeyInfo,
+        sig_alg_str: &str,
+    ) -> Result<String, CommandError> {
+        let key: RsaPublicKey =
+            rasn::der::decode(spki.subject_public_key.as_raw_slice()).map_err(|e| {
+                CommandError::InvalidInput(format!("DER RSA public key decode failed: {e}"))
+            })?;
+        let modulus = key.modulus.to_bigint().ok_or_else(|| {
+            CommandError::InvalidInput(format!("Invalid RSA modulus value: {}", key.modulus))
+        })?;
+        let key_bits = u16::try_from(modulus.bits()).map_err(|_| {
+            CommandError::InvalidInput(format!(
+                "RSA modulus bit size calculation failed for: {modulus}"
+            ))
+        })?;
+        Ok(format!("rsa-{key_bits}:{sig_alg_str}"))
+    }
+
+    fn parse_ecc_details(
+        spki: &SubjectPublicKeyInfo,
+        sig_alg_str: &str,
+    ) -> Result<String, CommandError> {
+        let curve_param_oid = spki
+            .algorithm
+            .parameters
+            .as_ref()
+            .and_then(|any| rasn::der::decode::<ObjectIdentifier>(any.as_ref()).ok());
+
+        let curve_str = match curve_param_oid.as_ref() {
+            Some(oid) if oid == &SECP_256_R_1 => "nist-p256",
+            Some(oid) if oid == &SECP_384_R_1 => "nist-p384",
+            Some(oid) if oid == &SECP_521_R_1 => "nist-p521",
+            Some(oid) => {
+                return Err(CommandError::UnsupportedKeyAlgorithm(
+                    Self::oid_to_placeholder_alg(oid),
+                ));
+            }
+            None => return Err(CommandError::MissingEccCurveParameters),
+        };
+        Ok(format!("ecc-{curve_str}:{sig_alg_str}"))
     }
 
     fn fetch_alg_name(cert_der: &[u8]) -> Result<String, CommandError> {
         let cert: Certificate = rasn::der::decode(cert_der).map_err(|e| {
             CommandError::InvalidInput(format!("DER certificate decode failed: {e}"))
         })?;
+
         let tbs = cert.tbs_cert;
         let spki = tbs.subject_public_key_info;
         let sig_alg = Self::fetch_hash_alg(&tbs.signature.algorithm)?;
         let sig_alg_str = Tpm2shAlgId(sig_alg).to_string();
 
         let key_oid = &spki.algorithm.algorithm;
-        if key_oid == &OID_RSA_ENCRYPTION {
-            let key: RsaPublicKey = rasn::der::decode(spki.subject_public_key.as_raw_slice())
-                .map_err(|e| {
-                    CommandError::InvalidInput(format!("DER RSA public key decode failed: {e}"))
-                })?;
-            let modulus = key.modulus.to_bigint().ok_or_else(|| {
-                CommandError::InvalidInput(format!("Invalid RSA modulus value: {}", key.modulus))
-            })?;
-            let key_bits = u16::try_from(modulus.bits()).map_err(|_| {
-                CommandError::InvalidInput(format!(
-                    "RSA modulus bit size calculation failed for: {modulus}"
-                ))
-            })?;
-            Ok(format!("rsa-{key_bits}:{sig_alg_str}"))
-        } else if key_oid == &OID_EC_PUBLIC_KEY {
-            let curve_param_oid = spki
-                .algorithm
-                .parameters
-                .as_ref()
-                .and_then(|any| rasn::der::decode::<ObjectIdentifier>(any.as_ref()).ok());
-            let curve_str = if curve_param_oid.as_ref() == Some(&SECP_256_R_1) {
-                "nist-p256"
-            } else if curve_param_oid.as_ref() == Some(&SECP_384_R_1) {
-                "nist-p384"
-            } else if curve_param_oid.as_ref() == Some(&SECP_521_R_1) {
-                "nist-p521"
-            } else if let Some(oid) = curve_param_oid.as_ref() {
-                return Err(CommandError::UnsupportedKeyAlgorithm(
-                    Self::oid_to_placeholder_alg(oid),
-                ));
-            } else {
-                return Err(CommandError::MissingEccCurveParameters);
-            };
-            Ok(format!("ecc-{curve_str}:{sig_alg_str}"))
-        } else {
-            Err(CommandError::UnsupportedKeyAlgorithm(
+        match key_oid {
+            oid if oid == &OID_RSA_ENCRYPTION => Self::parse_rsa_details(&spki, &sig_alg_str),
+            oid if oid == &OID_EC_PUBLIC_KEY => Self::parse_ecc_details(&spki, &sig_alg_str),
+            _ => Err(CommandError::UnsupportedKeyAlgorithm(
                 Self::oid_to_placeholder_alg(key_oid),
-            ))
+            )),
         }
     }
 }

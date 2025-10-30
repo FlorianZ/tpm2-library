@@ -44,37 +44,43 @@ impl Cache {
     fn refresh_cache(job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| {
             let vhandles: Vec<u32> = job.cache.contexts.keys().copied().collect();
-            let mut handles_to_remove = Vec::new();
-            let mut encountered_error: Option<CommandError> = None;
+            let mut actions = Vec::with_capacity(vhandles.len());
+            let mut first_error: Option<CommandError> = None;
 
-            for vhandle in vhandles {
+            for &vhandle in &vhandles {
                 if let Some(context) = job.cache.contexts.get_mut(&vhandle) {
-                    match context.refresh(dev) {
-                        Ok(RefreshAction::Keep) => {}
-                        Ok(RefreshAction::Stale) => {
-                            log::debug!("vtpm:{vhandle:08x} is stale");
-                            handles_to_remove.push(vhandle);
-                        }
-                        Ok(RefreshAction::Updated(context)) => {
-                            if let Some(session) = job
-                                .cache
-                                .contexts
-                                .get_mut(&vhandle)
-                                .and_then(|ctx| ctx.as_any_mut().downcast_mut::<VtpmSession>())
-                            {
-                                session.context = *context;
-                                job.cache.mark_dirty(vhandle);
-                            } else {
-                                log::error!("vtpm:{vhandle:08x}: context type mismatch");
-                                handles_to_remove.push(vhandle);
-                            }
-                        }
+                    let result = context.refresh(dev);
+                    match result {
+                        Ok(action) => actions.push((vhandle, action)),
                         Err(e) => {
                             log::warn!("vtpm:{vhandle:08x}: {e}");
-                            handles_to_remove.push(vhandle);
-                            if encountered_error.is_none() {
-                                encountered_error = Some(CommandError::from(e));
+                            if first_error.is_none() {
+                                first_error = Some(e.into());
                             }
+                            actions.push((vhandle, RefreshAction::Stale));
+                        }
+                    }
+                }
+            }
+
+            let mut handles_to_remove = Vec::new();
+
+            for (vhandle, action) in actions {
+                match action {
+                    RefreshAction::Keep => {}
+                    RefreshAction::Stale => handles_to_remove.push(vhandle),
+                    RefreshAction::Updated(new_context) => {
+                        if let Some(session) = job
+                            .cache
+                            .contexts
+                            .get_mut(&vhandle)
+                            .and_then(|ctx| ctx.as_any_mut().downcast_mut::<VtpmSession>())
+                        {
+                            session.context = *new_context;
+                            job.cache.mark_dirty(vhandle);
+                        } else {
+                            log::error!("vtpm:{vhandle:08x}: context type mismatch on update");
+                            handles_to_remove.push(vhandle);
                         }
                     }
                 }
@@ -83,13 +89,13 @@ impl Cache {
             for vhandle in handles_to_remove {
                 if let Err(e) = job.cache.remove(dev, vhandle) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
-                    if encountered_error.is_none() {
-                        encountered_error = Some(CommandError::from(e));
+                    if first_error.is_none() {
+                        first_error = Some(e.into());
                     }
                 }
             }
 
-            if let Some(err) = encountered_error {
+            if let Some(err) = first_error {
                 Err(err)
             } else {
                 Ok(())
