@@ -27,7 +27,6 @@ pub enum PolicyMode {
     #[default]
     Resolve,
     Software,
-    Tpm,
     Session,
 }
 
@@ -35,7 +34,7 @@ pub enum PolicyMode {
 #[derive(Args, Debug, Default)]
 #[command()]
 pub struct Policy {
-    /// Execution mode: 'resolve' (default), 'software', 'tpm', or 'session'.
+    /// Execution mode: 'resolve' (default), 'software', or 'session'.
     #[arg(short = 'm', long = "mode", value_enum, default_value_t = PolicyMode::default())]
     pub mode: PolicyMode,
 
@@ -126,23 +125,6 @@ impl Job for Policy {
                 PolicyMode::Software => {
                     let mut session = SoftwarePolicySession::new(session_hash_alg, device)?;
                     let final_digest = execute_policy(&ast, &mut session)?;
-                    writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
-                }
-                PolicyMode::Tpm => {
-                    let (resp, _) = Session::start_session(
-                        device,
-                        TpmSe::Trial,
-                        session_hash_alg,
-                        (TpmRh::Null as u32).into(),
-                    )?;
-                    let session_handle = resp.session_handle;
-                    let final_digest = {
-                        let mut session =
-                            TpmPolicySession::new(device, session_handle, session_hash_alg);
-                        execute_policy(&ast, &mut session)?
-                    };
-                    let flush_result = device.flush_context(session_handle);
-                    flush_result?;
                     writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Session => {

@@ -224,25 +224,6 @@ pub fn execute_policy(
                     .map_err(|e| PolicyError::InvalidExpression(e.to_string()))?;
             }
 
-            let mut last_error: Option<PolicyError> = None;
-            let mut branch_succeeded = false;
-            for branch in branches {
-                session.policy_restart()?;
-                match execute_policy(branch, session) {
-                    Ok(_) => {
-                        branch_succeeded = true;
-                        break;
-                    }
-                    Err(e) => {
-                        last_error = Some(e);
-                    }
-                }
-            }
-
-            if !branch_succeeded {
-                return Err(last_error.unwrap_or(PolicyError::NoValidPolicyOrBranch));
-            }
-
             session.policy_or(&branch_digests)?;
             session.get_digest()
         }
