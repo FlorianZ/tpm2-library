@@ -83,34 +83,30 @@ fn main() {
 }
 
 fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
-    let shared_device = init_device(cli)?;
+    let shared_device = if cli.command.is_local() {
+        None
+    } else {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&cli.device)
+            .map_err(CommandError::Io)?;
+
+        let fd = file.as_raw_fd();
+        let flags = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFL)
+            .map_err(|e| CommandError::from(DeviceError::from(e)))?;
+        let mut oflags = nix::fcntl::OFlag::from_bits_truncate(flags);
+        oflags.insert(nix::fcntl::OFlag::O_NONBLOCK);
+        nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFL(oflags))
+            .map_err(|e| CommandError::from(DeviceError::from(e)))?;
+
+        let device = Device::new(file, cli.log_format)?;
+        Some(Rc::new(RefCell::new(device)))
+    };
+
     let mut stdout = std::io::stdout();
     let mut cache = VtpmCache::new(cache_dir)?;
 
     let mut job = Session::new(shared_device, &mut cache, &mut stdout);
     cli.command.run(&mut job)
-}
-
-fn init_device(cli: &TopLevel) -> Result<Option<Rc<RefCell<Device>>>, CommandError> {
-    if cli.command.is_local() {
-        return Ok(None);
-    }
-
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&cli.device)
-        .map_err(CommandError::Io)?;
-
-    let fd = file.as_raw_fd();
-    let flags = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFL)
-        .map_err(|e| CommandError::from(DeviceError::from(e)))?;
-    let mut oflags = nix::fcntl::OFlag::from_bits_truncate(flags);
-    oflags.insert(nix::fcntl::OFlag::O_NONBLOCK);
-    nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFL(oflags))
-        .map_err(|e| CommandError::from(DeviceError::from(e)))?;
-
-    let device = Device::new(file, cli.log_format)?;
-
-    Ok(Some(Rc::new(RefCell::new(device))))
 }
