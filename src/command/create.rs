@@ -92,7 +92,8 @@ impl Create {
             (None, AlgInfo::Rsa { .. } | AlgInfo::Ecc { .. }) => {
                 Ok((Tpm2bSensitiveData::default(), OID_LOADABLE_KEY))
             }
-            (Some(_), _) | (None, AlgInfo::KeyedHash) => Err(CommandError::SensitiveDataDenied),
+            (Some(_), _) => Err(CommandError::SensitiveDataDenied),
+            (None, AlgInfo::KeyedHash) => Err(CommandError::SensitiveDataMissing),
         }?;
 
         let template = TpmKeyTemplate {
