@@ -37,10 +37,6 @@ impl<'a> TpmPolicySession<'a> {
 }
 
 impl PolicySession for TpmPolicySession<'_> {
-    fn device(&mut self) -> &mut Device {
-        self.device
-    }
-
     fn policy_pcr(
         &mut self,
         pcr_digest: &Tpm2bDigest,

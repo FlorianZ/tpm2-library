@@ -12,16 +12,18 @@ pub use tpm::*;
 use tpm2_policy_language::{Auth, Expression, HandleClass, ParseError as PolicyParseError};
 
 use crate::{
-    device::{Device, DeviceError},
+    device::DeviceError,
     pcr::{self, PcrError},
     vtpm::VtpmError,
 };
-use std::{collections::HashMap, num::ParseIntError};
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
+use std::num::ParseIntError;
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
 use tpm2_protocol::{
-    data::{Tpm2bDigest, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
-    TpmError, TpmHandle,
+    data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
+    TpmError,
 };
 
 #[derive(Debug, Error)]
@@ -64,11 +66,16 @@ impl From<TpmError> for PolicyError {
     }
 }
 
+/// Pre-resolved data needed for policy execution.
+pub struct PolicyState {
+    /// List of available PCR banks.
+    pub banks: Vec<pcr::PcrBank>,
+    /// Map of persistent handle values to their TPM names.
+    pub names: HashMap<u32, Tpm2bName>,
+}
+
 /// An abstract interface for a session that can have a policy applied to it.
 pub trait PolicySession {
-    /// Returns the device associated with the session.
-    fn device(&mut self) -> &mut Device;
-
     /// Applies a `TPM2_PolicyPCR` action to the session.
     ///
     /// # Errors
@@ -141,6 +148,7 @@ pub fn expression_to_bytes(expression: &Expression) -> Result<Vec<u8>, PolicyErr
 pub fn execute_policy(
     ast: &Expression,
     session: &mut impl PolicySession,
+    context: &PolicyState,
 ) -> Result<Tpm2bDigest, PolicyError> {
     match ast {
         Expression::Auth(auth) => Err(PolicyError::InvalidExpression(auth.to_string())),
@@ -154,8 +162,7 @@ pub fn execute_policy(
                     "expected a hex string for optional digest in pcr()".to_string(),
                 ))?)?;
             let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())?;
-            let banks = pcr::pcr_get_bank_list(session.device())?;
-            let pcrs = pcr::pcr_selection_vec_to_tpml(selections, &banks)?;
+            let pcrs = pcr::pcr_selection_vec_to_tpml(selections, &context.banks)?;
             session.policy_pcr(&pcr_digest, pcrs)?;
             session.get_digest()
         }
@@ -183,13 +190,14 @@ pub fn execute_policy(
                     "secret() first argument must be a handle".to_string(),
                 ));
             };
-            let handle = TpmHandle(h_val);
 
-            let (_, name) = session.device().read_public(handle)?;
+            let name = context.names.get(&h_val).ok_or_else(|| {
+                PolicyError::InvalidExpression(format!("Handle tpm:{h_val:08x} name not found"))
+            })?;
 
             let password_bytes = password
                 .as_ref()
-                .map(|p| expression_to_bytes(p))
+                .map(|expr| expression_to_bytes(expr))
                 .transpose()?;
             let cp_hash_digest = cp_hash
                 .as_ref()
@@ -199,7 +207,7 @@ pub fn execute_policy(
                 })
                 .transpose()?;
 
-            session.policy_secret(h_val, &name, password_bytes.as_deref(), cp_hash_digest)?;
+            session.policy_secret(h_val, name, password_bytes.as_deref(), cp_hash_digest)?;
 
             session.get_digest()
         }
@@ -209,16 +217,15 @@ pub fn execute_policy(
             })?;
 
             for expr in other_exprs {
-                execute_policy(expr, session)?;
+                execute_policy(expr, session, context)?;
             }
-            execute_policy(last_expr, session)
+            execute_policy(last_expr, session, context)
         }
         Expression::Or(branches) => {
             let mut branch_digests = TpmlDigest::new();
             for branch in branches {
-                let mut temp_session =
-                    SoftwarePolicySession::new(session.hash_alg(), session.device())?;
-                let branch_digest = execute_policy(branch, &mut temp_session)?;
+                let mut temp_session = SoftwarePolicySession::new(session.hash_alg())?;
+                let branch_digest = execute_policy(branch, &mut temp_session, context)?;
                 branch_digests
                     .try_push(branch_digest)
                     .map_err(|e| PolicyError::InvalidExpression(e.to_string()))?;
@@ -228,7 +235,7 @@ pub fn execute_policy(
             let mut branch_succeeded = false;
             for branch in branches {
                 session.policy_restart()?;
-                match execute_policy(branch, session) {
+                match execute_policy(branch, session, context) {
                     Ok(_) => {
                         branch_succeeded = true;
                         break;
@@ -257,7 +264,7 @@ pub fn execute_policy(
 ///
 /// Returns a `PolicyError` if a PCR selection is malformed or if its value is
 /// not in the map.
-pub fn populate_pcr_digests<S: std::hash::BuildHasher>(
+pub fn populate_pcr_digests<S: BuildHasher>(
     ast: &mut Expression,
     pcr_map: &HashMap<String, Vec<u8>, S>,
 ) -> Result<(), PolicyError> {
@@ -320,6 +327,48 @@ where
             visit_pcr_expressions_mut(auth_handle, visitor)?;
         }
         Expression::Auth(_) | Expression::Handle(_) => {}
+    }
+    Ok(())
+}
+
+/// Traverses the AST, collecting all persistent handles used in `secret()`
+/// commands.
+///
+/// # Errors
+///
+/// Returns [InvalidExpression](crate::policy::PolicyError::InvalidExpression)
+/// if a secret is not pointing to a persistent handle.
+pub fn visit_secret_handles<S: BuildHasher>(
+    ast: &Expression,
+    handles: &mut HashSet<u32, S>,
+) -> Result<(), PolicyError> {
+    match ast {
+        Expression::Pcr { .. } | Expression::Auth(_) | Expression::Handle(_) => {}
+        Expression::And(branches) | Expression::Or(branches) => {
+            for branch in branches {
+                visit_secret_handles(branch, handles)?;
+            }
+        }
+        Expression::Secret { auth_handle, .. } => {
+            if let Expression::Handle(handle) = &**auth_handle {
+                let val = handle.value().ok_or(PolicyError::InvalidExpression(
+                    "secret() handle cannot be a pattern".to_string(),
+                ))?;
+                if handle.class() != HandleClass::Tpm
+                    || (val >> 24) as u8 != TpmHt::Persistent as u8
+                {
+                    return Err(PolicyError::InvalidExpression(
+                        "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
+                            .to_string(),
+                    ));
+                }
+                handles.insert(val);
+            } else {
+                return Err(PolicyError::InvalidExpression(
+                    "secret() first argument must be a handle".to_string(),
+                ));
+            }
+        }
     }
     Ok(())
 }

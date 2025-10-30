@@ -4,7 +4,7 @@
 //! A pure software implementation of a policy session for dry-run calculations.
 
 use super::{PolicyError, PolicySession};
-use crate::{device::Device, write_object};
+use crate::write_object;
 use tpm2_crypto::{digest as crypto_digest, hash_size as crypto_hash_size};
 use tpm2_protocol::data::{
     Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection,
@@ -34,36 +34,30 @@ pub fn update_policy_digest(
 }
 
 /// A session that simulates TPM policy digest calculations in software.
-pub struct SoftwarePolicySession<'a> {
+pub struct SoftwarePolicySession {
     digest: Tpm2bDigest,
     hash_alg: TpmAlgId,
     digest_size: usize,
-    device: &'a mut Device,
 }
 
-impl<'a> SoftwarePolicySession<'a> {
+impl SoftwarePolicySession {
     /// Creates a new software policy session.
     ///
     /// # Errors
     ///
     /// Returns `PolicyError::InvalidAlgorithm` if the hash algorithm is not supported.
-    pub fn new(hash_alg: TpmAlgId, device: &'a mut Device) -> Result<Self, PolicyError> {
+    pub fn new(hash_alg: TpmAlgId) -> Result<Self, PolicyError> {
         let digest_size = crypto_hash_size(hash_alg)?;
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())?;
         Ok(Self {
             digest,
             hash_alg,
             digest_size,
-            device,
         })
     }
 }
 
-impl PolicySession for SoftwarePolicySession<'_> {
-    fn device(&mut self) -> &mut Device {
-        self.device
-    }
-
+impl PolicySession for SoftwarePolicySession {
     fn policy_pcr(
         &mut self,
         pcr_digest: &Tpm2bDigest,

@@ -8,14 +8,14 @@ use crate::{
     device::with_device,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
     policy::{
-        execute_policy, visit_pcr_expressions_mut, PolicyError, SoftwarePolicySession,
-        TpmPolicySession,
+        execute_policy, visit_pcr_expressions_mut, visit_secret_handles, PolicyError, PolicyState,
+        SoftwarePolicySession, TpmPolicySession,
     },
     session::Session,
     vtpm::VtpmSession,
 };
 use clap::{Args, ValueEnum};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use strum::{Display, EnumString};
 use tpm2_policy_language::Expression;
 use tpm2_protocol::data::{TpmAlgId, TpmRh, TpmSe};
@@ -118,13 +118,25 @@ impl Job for Policy {
 
             resolve_pcr_digests(device, &mut ast, session_hash_alg)?;
 
+            let banks = pcr_get_bank_list(device)?;
+            let mut handles = HashSet::new();
+            visit_secret_handles(&ast, &mut handles)?;
+
+            let mut names = HashMap::new();
+            for &handle in &handles {
+                let (_, name) = device.read_public(handle.into())?;
+                names.insert(handle, name);
+            }
+
+            let exec_context = PolicyState { banks, names };
+
             match self.mode {
                 PolicyMode::Resolve => {
                     writeln!(job.writer, "{ast}")?;
                 }
                 PolicyMode::Software => {
-                    let mut session = SoftwarePolicySession::new(session_hash_alg, device)?;
-                    let final_digest = execute_policy(&ast, &mut session)?;
+                    let mut session = SoftwarePolicySession::new(session_hash_alg)?;
+                    let final_digest = execute_policy(&ast, &mut session, &exec_context)?;
                     writeln!(job.writer, "{}", hex::encode(&*final_digest))?;
                 }
                 PolicyMode::Session => {
@@ -136,7 +148,7 @@ impl Job for Policy {
                     )?;
                     let mut tpm_policy_session =
                         TpmPolicySession::new(device, resp.session_handle, session_hash_alg);
-                    match execute_policy(&ast, &mut tpm_policy_session) {
+                    match execute_policy(&ast, &mut tpm_policy_session, &exec_context) {
                         Ok(_) => {
                             let mut session =
                                 VtpmSession::new(session_hash_alg, nonce_caller, &resp, &[])?;
