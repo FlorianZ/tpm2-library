@@ -233,7 +233,7 @@ pub fn create_auth(
         .iter()
         .map(|&handle| {
             let handle_type = (handle >> 24) as u8;
-            if handle_type == TpmHt::Transient as u8 || handle_type == TpmHt::Permanent as u8 {
+            if handle_type == TpmHt::Transient as u8 || handle_type == TpmHt::Persistent as u8 {
                 device.read_public(handle.into()).map(|(_, name)| name)
             } else {
                 let mut buf = [0u8; TpmHandle::SIZE];
