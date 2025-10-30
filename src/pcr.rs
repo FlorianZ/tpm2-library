@@ -4,7 +4,10 @@
 
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
-use crate::device::{Device, DeviceError};
+use crate::{
+    device::{Device, DeviceError},
+    session::{Session, SessionError},
+};
 use thiserror::Error;
 use tpm2_crypto::{digest as crypto_digest, CryptoError};
 pub use tpm2_policy_language::PcrSelection;
@@ -30,6 +33,8 @@ pub enum PcrError {
     Tpm(TpmError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
+    #[error("session: {0}")]
+    Session(#[from] SessionError),
 }
 
 impl From<TpmError> for PcrError {
@@ -134,13 +139,14 @@ pub fn pcr_selection_vec_to_tpml(
 /// Returns a `PcrError` if the `TPM2_PcrRead` command fails or if the TPM's
 /// response does not contain the expected number of digests for the selection.
 pub fn pcr_read(
+    session: &mut Session,
     device: &mut Device,
     pcr_selection_in: &TpmlPcrSelection,
 ) -> Result<(Vec<Pcr>, u32), PcrError> {
     let cmd = TpmPcrReadCommand {
         pcr_selection_in: *pcr_selection_in,
     };
-    let (resp, _) = device.execute(&cmd, &[])?;
+    let (resp, _) = session.execute(device, &cmd, &[], &[])?;
     let pcr_read_resp = resp
         .PcrRead()
         .map_err(|_| DeviceError::ResponseMismatch(TpmCc::PcrRead))?;

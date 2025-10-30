@@ -47,6 +47,7 @@ pub struct Policy {
 
 /// Populates the AST with PCR digests by reading current values from the TPM.
 fn resolve_pcr_digests(
+    job: &mut Session,
     device: &mut crate::device::Device,
     ast: &mut Expression,
     session_hash_alg: TpmAlgId,
@@ -70,7 +71,7 @@ fn resolve_pcr_digests(
         let banks = pcr_get_bank_list(device)?;
         let selections: Vec<_> = required_selections.into_iter().collect();
         let tpml_selection = crate::pcr::pcr_selection_vec_to_tpml(&selections, &banks)?;
-        let (pcr_values, _) = pcr_read(device, &tpml_selection)?;
+        let (pcr_values, _) = pcr_read(job, device, &tpml_selection)?;
 
         let mut populator = |expr: &mut Expression| -> Result<(), PolicyError> {
             if let Expression::Pcr {
@@ -116,7 +117,7 @@ impl Job for Policy {
             }
             let session_hash_alg = TpmAlgId::Sha256;
 
-            resolve_pcr_digests(device, &mut ast, session_hash_alg)?;
+            resolve_pcr_digests(job, device, &mut ast, session_hash_alg)?;
 
             let banks = pcr_get_bank_list(device)?;
             let mut handles = HashSet::new();
