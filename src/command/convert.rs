@@ -6,7 +6,6 @@ use crate::{
     cli::Job,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
-    handle::{Handle, HandleClass},
     io::{read_file_input, write_key_data},
     key::{AnyKey, ExternalKey, TpmKey, OID_IMPORTABLE_KEY},
     session::Session,
@@ -25,6 +24,7 @@ use tpm2_crypto::{
     ecdh as crypto_ecdh, hash_size as crypto_hash_size, hmac as crypto_hmac, kdfa as crypto_kdfa,
     make_name as crypto_make_name, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
+use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -54,6 +54,44 @@ pub struct Convert {
 
     #[clap(flatten)]
     pub output_encoding_args: OutputEncodingArgs,
+}
+
+impl Job for Convert {
+    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+        self.parent
+            .value()
+            .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
+
+        with_device(job.device.clone(), |device| {
+            let parent_handle = match self.parent.class() {
+                HandleClass::Tpm => self
+                    .parent
+                    .value()
+                    .map(TpmHandle)
+                    .ok_or(CommandError::InvalidHandle),
+                HandleClass::Vtpm => job.load_context(device, &self.parent).map_err(Into::into),
+            }?;
+
+            let input_bytes = read_file_input(self.input_args.input.as_deref())?;
+            if input_bytes.is_empty() {
+                return Ok(());
+            }
+            let tpm_key = Self::create_external_key(
+                job,
+                device,
+                parent_handle,
+                &input_bytes,
+                &self.auth_args,
+            )?;
+
+            write_key_data(
+                &mut job.writer,
+                &tpm_key,
+                self.output_args.output.as_deref(),
+                self.output_encoding_args.output_encoding,
+            )
+        })
+    }
 }
 
 impl Convert {
@@ -157,12 +195,12 @@ impl Convert {
                 let seed_size = crypto_hash_size(parent_name_alg)?;
                 let mut seed = vec![0u8; seed_size];
                 rng.fill_bytes(&mut seed);
-                let encrypted_seed = Convert::create_import_seed_rsa(parent_public, &seed, rng)?;
+                let encrypted_seed = Self::create_import_seed_rsa(parent_public, &seed, rng)?;
                 Ok((seed, encrypted_seed))
             }
             TpmAlgId::Ecc => {
                 let (derived_seed, ephemeral_point) =
-                    Convert::create_import_seed_ecc(parent_public, rng)?;
+                    Self::create_import_seed_ecc(parent_public, rng)?;
                 let point_bytes =
                     write_object(&ephemeral_point).map_err(CommandError::TpmProtocol)?;
                 let secret = Tpm2bEncryptedSecret::try_from(point_bytes.as_slice())
@@ -289,14 +327,14 @@ impl Convert {
     ) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData), CommandError> {
         let parent_name_alg = parent_public.name_alg;
 
-        let (seed, in_sym_seed) = Convert::create_import_seed(parent_public, rng)?;
+        let (seed, in_sym_seed) = Self::create_import_seed(parent_public, rng)?;
 
-        let (sym_key, hmac_key) = Convert::create_import_keys(parent_name_alg, &seed, object_name)?;
+        let (sym_key, hmac_key) = Self::create_import_keys(parent_name_alg, &seed, object_name)?;
 
         let encrypted_sensitive_data =
-            Convert::encrypt_sensitive_data(object_public, private_bytes, &sym_key)?;
+            Self::encrypt_sensitive_data(object_public, private_bytes, &sym_key)?;
 
-        let duplicate = Convert::create_private_blob(
+        let duplicate = Self::create_private_blob(
             parent_name_alg,
             &hmac_key,
             &encrypted_sensitive_data,
@@ -335,7 +373,7 @@ impl Convert {
         let object_name = crypto_make_name(&public).map_err(CommandError::Crypto)?;
         let sensitive_blob = external_key.sensitive_blob();
 
-        let (duplicate, in_sym_seed, encryption_key) = Convert::create_import_blob_internal(
+        let (duplicate, in_sym_seed, encryption_key) = Self::create_import_blob_internal(
             &parent_public,
             &public,
             &sensitive_blob,
@@ -394,36 +432,5 @@ impl Convert {
         };
 
         Ok(tpm_key)
-    }
-}
-
-impl Job for Convert {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        with_device(job.device.clone(), |device| {
-            let parent_handle_arg = self.parent;
-            let parent_handle = match parent_handle_arg.class() {
-                HandleClass::Tpm => Ok(TpmHandle(parent_handle_arg.value())),
-                HandleClass::Vtpm => job.load_context(device, &parent_handle_arg),
-            }?;
-
-            let input_bytes = read_file_input(self.input_args.input.as_deref())?;
-            if input_bytes.is_empty() {
-                return Ok(());
-            }
-            let tpm_key = Convert::create_external_key(
-                job,
-                device,
-                parent_handle,
-                &input_bytes,
-                &self.auth_args,
-            )?;
-
-            write_key_data(
-                &mut job.writer,
-                &tpm_key,
-                self.output_args.output.as_deref(),
-                self.output_encoding_args.output_encoding,
-            )
-        })
     }
 }

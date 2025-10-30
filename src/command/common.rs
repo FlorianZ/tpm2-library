@@ -2,10 +2,11 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{auth::Auth, cli::Hierarchy, command::CommandError, key::Alg};
+use crate::{cli::Hierarchy, command::CommandError, key::Alg};
 use clap::{Args, ValueEnum};
 use std::{borrow::Cow, path::PathBuf};
 use strum::{Display, EnumString};
+use tpm2_policy_language::Auth;
 use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
 
 #[derive(Args, Debug, Clone, Default)]

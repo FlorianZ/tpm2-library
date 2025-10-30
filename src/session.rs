@@ -3,9 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::{Auth, AuthError},
     device::{Device, DeviceError, TpmCommandObject},
-    handle::{Handle, HandleClass},
     key::KeyError,
     vtpm::{build_password_session, create_auth, VtpmCache, VtpmError, VtpmSession},
     write_object,
@@ -14,6 +12,7 @@ use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc};
 use thiserror::Error;
 use tpm2_crypto::{hash_size as crypto_hash_size, make_name as crypto_make_name, CryptoError};
+use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{
         Tpm2bEncryptedSecret, Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaSession,
@@ -53,8 +52,6 @@ pub enum SessionError {
     #[error("device: {0}")]
     Device(#[from] DeviceError),
     #[error("auth error: {0}")]
-    Auth(#[from] AuthError),
-    #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
@@ -107,11 +104,12 @@ impl<'a> Session<'a> {
         device: &mut Device,
         target: &Handle,
     ) -> Result<TpmHandle, SessionError> {
+        let target_vhandle = target.value().ok_or(SessionError::InvalidAuth)?;
+
         if target.class() == HandleClass::Tpm {
-            return Ok(TpmHandle(target.value()));
+            return Ok(TpmHandle(target_vhandle));
         }
 
-        let target_vhandle = target.value();
         let chain = self.cache.fetch_ancestor_chain(target_vhandle, device)?;
 
         if chain.is_empty() {
@@ -122,12 +120,15 @@ impl<'a> Session<'a> {
         let mut chain_iter = chain.into_iter();
 
         if let Some(first_handle) = chain_iter.next() {
+            let first_handle_val = first_handle
+                .value()
+                .ok_or(SessionError::InvalidParent("vtpm:", 0))?;
             match first_handle.class() {
                 HandleClass::Tpm => {
-                    phandle = Some(TpmHandle(first_handle.value()));
+                    phandle = Some(TpmHandle(first_handle_val));
                 }
                 HandleClass::Vtpm => {
-                    let key = self.cache.find_by_vhandle(first_handle.value())?;
+                    let key = self.cache.find_by_vhandle(first_handle_val)?;
                     let loaded_phandle = device.load_context(key.context.clone())?;
                     self.cache.track(loaded_phandle)?;
                     phandle = Some(loaded_phandle);
@@ -136,7 +137,9 @@ impl<'a> Session<'a> {
         }
 
         for handle in chain_iter {
-            let vhandle = handle.value();
+            let vhandle = handle
+                .value()
+                .ok_or(SessionError::InvalidParent("vtpm:", 0))?;
             let key = self.cache.find_by_vhandle(vhandle)?;
 
             let parent_phandle = phandle.ok_or(SessionError::ParentNotFound)?;
@@ -272,7 +275,7 @@ impl<'a> Session<'a> {
 
                 vhandles.push(vhandle);
                 phandles.push(resp.session_handle);
-                effective_auth_list.push(Auth::new_session(vhandle));
+                effective_auth_list.push(Auth::Session(vhandle));
             } else {
                 effective_auth_list.push(auth.clone());
             }

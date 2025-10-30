@@ -37,9 +37,7 @@ pub use return_code::*;
 pub use unseal::*;
 
 use crate::{
-    auth::AuthError,
     device::DeviceError,
-    handle::{HandleError, HandlePatternError},
     key::{AlgInfo, KeyError},
     pcr::PcrError,
     policy::PolicyError,
@@ -53,6 +51,7 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
+use tpm2_policy_language::ParseError as PolicyParseError;
 use tpm2_protocol::{
     data::{TpmCc, TpmRcBase},
     TpmError,
@@ -144,12 +143,16 @@ pub enum CommandError {
     DictionaryAttackLocked,
     #[error("invalid key format")]
     InvalidFormat,
+    #[error("invalid handle")]
+    InvalidHandle,
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("invalid output: {0}")]
     InvalidOutput(String),
     #[error("invalid parent: {0}{1:08x}")]
     InvalidParent(&'static str, u32),
+    #[error("handle pattern not allowed: {0}")]
+    PatternNotAllowed(String),
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
     #[error("sensitive data denied")]
@@ -168,8 +171,6 @@ pub enum CommandError {
     UnsupportedSignatureAlgorithm(crate::key::Alg),
     #[error("missing ECC curve parameters")]
     MissingEccCurveParameters,
-    #[error("auth: {0}")]
-    Auth(#[from] AuthError),
     #[error("cache: {0}")]
     Cache(VtpmError),
     #[error("job: {0}")]
@@ -178,16 +179,14 @@ pub enum CommandError {
     Device(DeviceError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
-    #[error("handle: {0}")]
-    Handle(#[from] HandleError),
-    #[error("handle pattern: {0}")]
-    HandlePattern(#[from] HandlePatternError),
     #[error("key error: {0}")]
     Key(#[from] KeyError),
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
     #[error("policy: {0}")]
     Policy(#[from] PolicyError),
+    #[error("policy parse: {0}")]
+    PolicyParse(#[from] PolicyParseError),
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
     #[error("int decode: {0}")]
@@ -208,7 +207,6 @@ impl From<SessionError> for CommandError {
             }
             SessionError::Vtpm(e) => Self::Cache(e),
             SessionError::Key(e) => Self::Key(e),
-            SessionError::Auth(e) => Self::Auth(e),
             SessionError::Crypto(e) => Self::Crypto(e),
             SessionError::Io(e) => Self::Io(e),
             SessionError::IntDecode(e) => Self::IntDecode(e),

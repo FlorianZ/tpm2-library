@@ -2,13 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    cli::LogFormat,
-    handle::{Handle, HandleClass},
-    print::TpmPrint,
-    spinner::Spinner,
-    TEARDOWN,
-};
+use crate::{cli::LogFormat, print::TpmPrint, spinner::Spinner, TEARDOWN};
 use log::trace;
 use polling::{Event, Events, Poller};
 use std::{
@@ -22,6 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
+use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
@@ -334,7 +329,7 @@ impl Device {
         .map(|handles| {
             handles
                 .into_iter()
-                .map(|h| Handle((HandleClass::Tpm, h)))
+                .map(|h| Handle::new(HandleClass::Tpm, h))
                 .collect()
         })
     }
@@ -431,9 +426,11 @@ impl Device {
     ) -> Result<Option<(TpmHandle, Tpm2bName)>, DeviceError> {
         let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
         for handle in handles {
-            if let Ok((public, name)) = self.read_public(handle.value().into()) {
-                if public == *target {
-                    return Ok(Some((handle.value().into(), name)));
+            if let Some(handle_val) = handle.value() {
+                if let Ok((public, name)) = self.read_public(handle_val.into()) {
+                    if public == *target {
+                        return Ok(Some((handle_val.into(), name)));
+                    }
                 }
             }
         }

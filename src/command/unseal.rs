@@ -5,11 +5,11 @@ use crate::{
     cli::Job,
     command::{AuthArgs, CommandError},
     device::with_device,
-    handle::Handle,
     session::Session,
 };
 use clap::Args;
 use std::io::IsTerminal;
+use tpm2_policy_language::Handle;
 use tpm2_protocol::{data::TpmCc, message::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
@@ -29,6 +29,10 @@ pub struct Unseal {
 
 impl Job for Unseal {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+        self.input
+            .value()
+            .ok_or_else(|| CommandError::PatternNotAllowed(self.input.to_string()))?;
+
         with_device(job.device.clone(), |device| {
             let item_handle = job.load_context(device, &self.input)?;
 

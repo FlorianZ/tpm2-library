@@ -8,7 +8,7 @@ use crate::{
     device::with_device,
     pcr::{pcr_composite_digest, pcr_get_bank_list, pcr_read},
     policy::{
-        execute_policy, visit_pcr_expressions_mut, Expression, PolicyError, SoftwarePolicySession,
+        execute_policy, visit_pcr_expressions_mut, PolicyError, SoftwarePolicySession,
         TpmPolicySession,
     },
     session::Session,
@@ -17,6 +17,7 @@ use crate::{
 use clap::{Args, ValueEnum};
 use std::collections::HashSet;
 use strum::{Display, EnumString};
+use tpm2_policy_language::Expression;
 use tpm2_protocol::data::{TpmAlgId, TpmRh, TpmSe};
 
 /// The execution mode for a policy command.

@@ -2,24 +2,21 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-//! This module contains the parser and executor for the unified policy language.
+//! This module contains the executor for the unified policy language.
 
-mod parser;
 mod software;
 mod tpm;
 
-pub use parser::*;
 pub use software::*;
 pub use tpm::*;
+use tpm2_policy_language::{Auth, Expression, HandleClass, ParseError as PolicyParseError};
 
 use crate::{
-    auth::Auth,
     device::{Device, DeviceError},
-    handle::{Handle, HandleClass, HandleError},
-    pcr::{self, PcrError, PcrSelection},
+    pcr::{self, PcrError},
     vtpm::VtpmError,
 };
-use std::{collections::HashMap, fmt, num::ParseIntError};
+use std::{collections::HashMap, num::ParseIntError};
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
 use tpm2_protocol::{
@@ -41,12 +38,6 @@ pub enum PolicyError {
     NoValidPolicyOrBranch,
     #[error("PCR value for selection '{0}' not provided")]
     PcrValueMissing(String),
-    #[error("unexpected end of expression")]
-    UnexpectedEndOfExpression,
-    #[error("unexpected token: {0}")]
-    UnexpectedToken(String),
-    #[error("unmatched parenthesis")]
-    UnmatchedParenthesis,
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
@@ -59,12 +50,12 @@ pub enum PolicyError {
     Pcr(#[from] PcrError),
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
-    #[error("handle decode: {0}")]
+    #[error("int decode: {0}")]
     IntDecode(#[from] ParseIntError),
     #[error("protocol: {0}")]
     TpmProtocol(TpmError),
-    #[error("handle: {0}")]
-    Handle(#[from] HandleError),
+    #[error("parse: {0}")]
+    Parse(#[from] PolicyParseError),
 }
 
 impl From<TpmError> for PolicyError {
@@ -127,110 +118,18 @@ pub trait PolicySession {
     fn hash_alg(&self) -> TpmAlgId;
 }
 
-/// The Abstract Syntax Tree (AST) for the unified policy language.
-#[derive(Debug, PartialEq, Clone)]
-pub enum Expression {
-    Auth(Auth),
-    Pcr {
-        selections: Vec<PcrSelection>,
-        digest: Option<String>,
-        count: Option<u32>,
-    },
-    Secret {
-        auth_handle: Box<Expression>,
-        password: Option<Box<Expression>>,
-        cp_hash: Option<String>,
-    },
-    And(Vec<Expression>),
-    Or(Vec<Expression>),
-    Handle(Handle),
-}
-
-impl fmt::Display for Expression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Expression::Auth(auth) => write!(f, "{auth}"),
-            Expression::Pcr {
-                selections,
-                digest,
-                count,
-            } => {
-                let selection_str = selections
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("+");
-                write!(f, "pcr({selection_str}")?;
-                if let Some(d) = digest {
-                    write!(f, ":{d}")?;
-                }
-                if let Some(c) = count {
-                    write!(f, ", count={c}")?;
-                }
-                write!(f, ")")
-            }
-            Expression::Secret {
-                auth_handle,
-                password,
-                cp_hash,
-            } => {
-                write!(f, "secret({auth_handle}")?;
-                if let Some(p) = password {
-                    write!(f, ", {p}")?;
-                }
-                if let Some(c) = cp_hash {
-                    write!(f, ", {c}")?;
-                }
-                write!(f, ")")
-            }
-            Expression::And(expressions) => {
-                let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
-                write!(f, "({})", s.join(" and "))
-            }
-            Expression::Or(expressions) => {
-                let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
-                write!(f, "({})", s.join(" or "))
-            }
-            Expression::Handle(handle) => write!(f, "{handle}"),
-        }
-    }
-}
-
-impl Expression {
-    /// Parses a policy expression string into an `Expression` AST.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `PolicyError::InvalidExpression` if expression parsing fails.
-    /// Returns a `PolicyError::UnexpectedToken` if there is trailing data after the
-    /// expression.
-    pub fn new(input: &str) -> Result<Expression, PolicyError> {
-        let tokens = parser::tokenize(input);
-        let mut iter = tokens.iter().peekable();
-        let expr = parser::parse_expression(&mut iter)?;
-
-        if iter.peek().is_some() {
-            return Err(PolicyError::UnexpectedToken(
-                "Trailing data after expression ".to_string(),
-            ));
-        }
-
-        Ok(expr)
-    }
-
-    /// Resolves a password expression into bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `PolicyError` if the expression is not a file path or the file
-    /// cannot be read.
-    pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
-        match self {
-            Self::Auth(Auth::Password(value)) => Ok(value.clone()),
-            _ => Err(PolicyError::InvalidSecret(format!(
-                "{self:?}: expected 'password:<hex>'"
-            ))),
-        }
+/// Resolves a password expression into bytes.
+///
+/// # Errors
+///
+/// Returns a `PolicyError` if the expression is not a file path or the file
+/// cannot be read.
+pub fn expression_to_bytes(expression: &Expression) -> Result<Vec<u8>, PolicyError> {
+    match expression {
+        Expression::Auth(Auth::Password(value)) => Ok(value.clone()),
+        _ => Err(PolicyError::InvalidSecret(format!(
+            "{expression:?}: expected 'password:<hex>'"
+        ))),
     }
 }
 
@@ -265,33 +164,33 @@ pub fn execute_policy(
             password,
             cp_hash,
         } => {
-            let handle_val = if let Expression::Handle(handle) = &**auth_handle {
-                if handle.class() == HandleClass::Tpm {
-                    let h_val = handle.value();
-                    if (h_val >> 24) as u8 != TpmHt::Persistent as u8 {
-                        return Err(PolicyError::InvalidExpression(
-                            "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
-                                .to_string(),
-                        ));
-                    }
-                    h_val
-                } else {
+            let h_val = if let Expression::Handle(handle) = &**auth_handle {
+                let val = handle.value().ok_or(PolicyError::InvalidExpression(
+                    "secret() handle cannot be a pattern".to_string(),
+                ))?;
+
+                if handle.class() != HandleClass::Tpm
+                    || (val >> 24) as u8 != TpmHt::Persistent as u8
+                {
                     return Err(PolicyError::InvalidExpression(
-                        "secret() first argument must be a persistent TPM handle ('tpm:81xxxxxx')"
+                        "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
                             .to_string(),
                     ));
                 }
+                val
             } else {
                 return Err(PolicyError::InvalidExpression(
-                    "secret() first argument must be a persistent TPM handle ('tpm:81xxxxxx')"
-                        .to_string(),
+                    "secret() first argument must be a handle".to_string(),
                 ));
             };
-            let handle = TpmHandle(handle_val);
+            let handle = TpmHandle(h_val);
 
             let (_, name) = session.device().read_public(handle)?;
 
-            let password_bytes = password.as_ref().map(|p| p.to_bytes()).transpose()?;
+            let password_bytes = password
+                .as_ref()
+                .map(|p| expression_to_bytes(p))
+                .transpose()?;
             let cp_hash_digest = cp_hash
                 .as_ref()
                 .map(|hex_str| -> Result<Tpm2bDigest, PolicyError> {
@@ -300,7 +199,7 @@ pub fn execute_policy(
                 })
                 .transpose()?;
 
-            session.policy_secret(handle_val, &name, password_bytes.as_deref(), cp_hash_digest)?;
+            session.policy_secret(h_val, &name, password_bytes.as_deref(), cp_hash_digest)?;
 
             session.get_digest()
         }

@@ -5,9 +5,7 @@
 //! Manages caching for TPM keys and sessions.
 
 use crate::{
-    auth::{Auth, AuthError},
     device::{Device, DeviceError},
-    handle::{Handle, HandleClass, HandleError},
     key::Tpm2shAlgId,
 };
 use std::{
@@ -20,6 +18,7 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
+use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
     message::TpmAuthResponses,
@@ -54,14 +53,12 @@ pub enum VtpmError {
     TrailingAuthorizations,
     #[error("unsupported name algorithm: {0}")]
     UnsupportedNameAlgorithm(Tpm2shAlgId),
-    #[error("auth error: {0}")]
-    Auth(#[from] AuthError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
     #[error("handle: {0}")]
-    Handle(#[from] HandleError),
+    PolicyParseError(#[from] tpm2_policy_language::ParseError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
@@ -250,12 +247,12 @@ impl<'a> VtpmCache<'a> {
 
             if let Some(parent_key) = self.find_by_public(&key.parent.inner) {
                 let parent_vhandle = parent_key.handle();
-                vtp_chain.push_front(Handle((HandleClass::Vtpm, current_vhandle)));
+                vtp_chain.push_front(Handle::new(HandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
                 match device.find_persistent(&key.parent.inner)? {
                     Some((phandle, _)) => {
-                        physical_primary = Some(Handle((HandleClass::Tpm, phandle.0)));
+                        physical_primary = Some(Handle::new(HandleClass::Tpm, phandle.0));
                         break;
                     }
                     None => {
@@ -265,7 +262,7 @@ impl<'a> VtpmCache<'a> {
             }
         }
 
-        vtp_chain.push_front(Handle((HandleClass::Vtpm, current_vhandle)));
+        vtp_chain.push_front(Handle::new(HandleClass::Vtpm, current_vhandle));
 
         let mut final_chain: Vec<Handle> = vtp_chain.into();
 

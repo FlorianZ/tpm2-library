@@ -8,7 +8,6 @@ use crate::{
     cli::Job,
     command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
-    handle::Handle,
     io::write_key_data,
     key::{Alg, AlgInfo, TpmKey, TpmPolicy, OID_LOADABLE_KEY, OID_SEALED_DATA},
     session::{Session, SessionError},
@@ -16,6 +15,7 @@ use crate::{
 };
 use clap::Args;
 use rasn::types::OctetString;
+use tpm2_policy_language::Handle;
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRcBase,
@@ -61,6 +61,10 @@ pub struct Create {
 
 impl Job for Create {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+        self.parent
+            .value()
+            .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
+
         with_device(job.device.clone(), |device| self.create_object(job, device))
     }
 }
@@ -68,8 +72,7 @@ impl Job for Create {
 impl Create {
     #[allow(clippy::too_many_lines)]
     fn create_object(&self, job: &mut Session, device: &mut Device) -> Result<(), CommandError> {
-        let parent_handle_arg = self.parent;
-        let parent_handle = job.load_context(device, &parent_handle_arg)?;
+        let parent_handle = job.load_context(device, &self.parent)?;
 
         let (object_attributes, user_auth, auth_policy) =
             self.creation_args.parse(&self.algorithm)?;

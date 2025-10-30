@@ -5,11 +5,9 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-pub mod auth;
 pub mod cli;
 pub mod command;
 pub mod device;
-pub mod handle;
 pub mod io;
 pub mod key;
 pub mod pcr;

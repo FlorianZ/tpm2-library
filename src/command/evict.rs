@@ -6,10 +6,10 @@ use crate::{
     cli::Job,
     command::{AuthArgs, CommandError},
     device::with_device,
-    handle::{Handle, HandleClass, HandleError},
     session::Session,
 };
 use clap::Args;
+use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::TpmHandle;
 
 /// Create persistent object from transient object.
@@ -27,11 +27,19 @@ pub struct Evict {
 
 impl Job for Evict {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+        let vhandle = self
+            .input
+            .value()
+            .ok_or_else(|| CommandError::PatternNotAllowed(self.input.to_string()))?;
+        let persistent_handle_val = self
+            .output
+            .value()
+            .ok_or_else(|| CommandError::PatternNotAllowed(self.output.to_string()))?;
+
         with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-            let persistent_handle_val = match self.output.class() {
-                HandleClass::Tpm => Ok(self.output.value()),
-                HandleClass::Vtpm => Err(CommandError::Handle(HandleError::InvalidHandle)),
-            }?;
+            if self.output.class() != HandleClass::Tpm {
+                return Err(CommandError::InvalidHandle);
+            }
             let persistent_handle = TpmHandle(persistent_handle_val);
 
             let transient_handle = job.load_context(dev, &self.input)?;
@@ -43,10 +51,6 @@ impl Job for Evict {
                 &self.auth_args.auths(),
             )?;
 
-            let vhandle = match self.input.class() {
-                HandleClass::Vtpm => Ok(self.input.value()),
-                HandleClass::Tpm => Err(CommandError::Handle(HandleError::InvalidHandle)),
-            }?;
             job.cache.remove(dev, vhandle)?;
 
             job.cache.untrack(transient_handle.0);

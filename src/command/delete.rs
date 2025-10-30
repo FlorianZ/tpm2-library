@@ -6,17 +6,17 @@ use crate::{
     cli::Job,
     command::{AuthArgs, CommandError},
     device::with_device,
-    handle::HandlePattern,
     session::Session,
 };
 use clap::Args;
+use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{data::TpmHt, TpmHandle};
 
 /// Deletes active and cached objects.
 #[derive(Args, Debug)]
 pub struct Delete {
     /// Input: 'tpm:<handle pattern>', or 'vtpm:<handle pattern>'
-    pub input: String,
+    pub input: Handle,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -24,12 +24,9 @@ pub struct Delete {
 
 impl Job for Delete {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        if let Some(pattern) = self.input.strip_prefix("tpm:") {
-            delete_tpm_handles(job, pattern, &self.auth_args)
-        } else if let Some(pattern) = self.input.strip_prefix("vtpm:") {
-            delete_vtpm_handles(job, pattern)
-        } else {
-            Err(CommandError::InvalidInput(self.input.to_string()))
+        match self.input.class() {
+            HandleClass::Tpm => delete_tpm_handles(job, &self.input, &self.auth_args),
+            HandleClass::Vtpm => delete_vtpm_handles(job, &self.input),
         }
     }
 }
@@ -37,12 +34,10 @@ impl Job for Delete {
 /// Deletes TPM objects matching a pattern across sessions, transient, and persistent handles.
 fn delete_tpm_handles(
     job: &mut Session,
-    pattern_str: &str,
+    pattern: &Handle,
     auth_args: &AuthArgs,
 ) -> Result<(), CommandError> {
     with_device(job.device.clone(), |dev| {
-        let pattern = HandlePattern::new(pattern_str)?;
-
         for class in [
             TpmHt::HmacSession,
             TpmHt::PolicySession,
@@ -50,26 +45,32 @@ fn delete_tpm_handles(
             TpmHt::Persistent,
         ] {
             let handles = dev.fetch_handles((class as u32) << 24)?;
-            for handle in handles.into_iter().filter(|&h| pattern.matches(h.value())) {
-                match class {
-                    TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
-                        dev.flush_context(TpmHandle(handle.value()))?;
-                        if class == TpmHt::Transient {
-                            job.cache.untrack(handle.value());
+            for handle in handles {
+                if let Some(handle_val) = handle.value() {
+                    if !pattern.matches(handle_val) {
+                        continue;
+                    }
+
+                    match class {
+                        TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
+                            dev.flush_context(TpmHandle(handle_val))?;
+                            if class == TpmHt::Transient {
+                                job.cache.untrack(handle_val);
+                            }
                         }
+                        TpmHt::Persistent => {
+                            let persistent_handle = TpmHandle(handle_val);
+                            job.evict_control(
+                                dev,
+                                persistent_handle,
+                                persistent_handle,
+                                auth_args.auths().as_ref(),
+                            )?;
+                        }
+                        _ => {}
                     }
-                    TpmHt::Persistent => {
-                        let persistent_handle = TpmHandle(handle.value());
-                        job.evict_control(
-                            dev,
-                            persistent_handle,
-                            persistent_handle,
-                            auth_args.auths().as_ref(),
-                        )?;
-                    }
-                    _ => {}
+                    writeln!(job.writer, "{handle}")?;
                 }
-                writeln!(job.writer, "{handle}")?;
             }
         }
         Ok(())
@@ -77,9 +78,7 @@ fn delete_tpm_handles(
 }
 
 /// Deletes vTPM objects (keys and sessions) matching the pattern.
-fn delete_vtpm_handles(job: &mut Session, pattern_str: &str) -> Result<(), CommandError> {
-    let pattern = HandlePattern::new(pattern_str)?;
-
+fn delete_vtpm_handles(job: &mut Session, pattern: &Handle) -> Result<(), CommandError> {
     let matched_handles: Vec<u32> = job
         .cache
         .contexts

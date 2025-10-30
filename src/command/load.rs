@@ -3,16 +3,15 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::Auth,
     cli::Job,
     command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
-    handle::{Handle, HandleClass},
     io::read_file_input,
     key::{AnyKey, KeyError, TpmKey},
     session::Session,
 };
 use clap::Args;
+use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmCc},
     message::TpmLoadCommand,
@@ -86,7 +85,7 @@ impl Load {
             .map(|(vhandle, _)| *vhandle);
 
         if let Some(vhandle) = vhandle_opt {
-            return Ok(job.load_context(device, &Handle((HandleClass::Vtpm, vhandle)))?);
+            return Ok(job.load_context(device, &Handle::new(HandleClass::Vtpm, vhandle))?);
         }
 
         Err(CommandError::UnknownParent)

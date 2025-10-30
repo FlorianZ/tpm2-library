@@ -4,13 +4,10 @@
 
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
-use crate::{
-    device::{Device, DeviceError},
-    key::Tpm2shAlgId,
-};
-use std::{convert::TryFrom, fmt};
+use crate::device::{Device, DeviceError};
 use thiserror::Error;
 use tpm2_crypto::{digest as crypto_digest, CryptoError};
+pub use tpm2_policy_language::PcrSelection;
 use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
     data::{
@@ -56,25 +53,6 @@ pub struct PcrBank {
     pub count: usize,
 }
 
-/// Represents a user's selection of PCR indices for a specific bank.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PcrSelection {
-    pub alg: TpmAlgId,
-    pub indices: Vec<u32>,
-}
-
-impl fmt::Display for PcrSelection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let indices_str = self
-            .indices
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        write!(f, "{}:{}", crate::key::Tpm2shAlgId(self.alg), indices_str)
-    }
-}
-
 /// Discovers the list of available PCR banks and their sizes from the TPM.
 ///
 /// # Errors
@@ -99,38 +77,6 @@ pub fn pcr_get_bank_list(device: &mut Device) -> Result<Vec<PcrBank>, PcrError> 
     }
     banks.sort_by_key(|b| b.alg);
     Ok(banks)
-}
-
-/// Parses a PCR selection string (e.g., "sha256:0,7+sha1:1") into a vector of
-/// `PcrSelection`.
-///
-/// # Errors
-///
-/// Returns a `PcrError` if the selection string is malformed, contains an
-/// invalid algorithm name, or has non-numeric PCR indices.
-pub fn pcr_selection_vec_from_str(selection_str: &str) -> Result<Vec<PcrSelection>, PcrError> {
-    selection_str
-        .split('+')
-        .map(|part| {
-            let (alg_str, indices_str) = part
-                .split_once(':')
-                .ok_or_else(|| PcrError::InvalidPcrSelection(part.to_string()))?;
-
-            let alg = Tpm2shAlgId::try_from(alg_str)
-                .map_err(|e| PcrError::InvalidPcrSelection(e.to_string()))?
-                .0;
-
-            let indices: Vec<u32> = indices_str
-                .split(',')
-                .map(|s| {
-                    s.parse::<u32>()
-                        .map_err(|_| PcrError::InvalidPcrSelection(indices_str.to_string()))
-                })
-                .collect::<Result<_, _>>()?;
-
-            Ok(PcrSelection { alg, indices })
-        })
-        .collect()
 }
 
 /// Converts a vector of `PcrSelection` into the low-level `TpmlPcrSelection`

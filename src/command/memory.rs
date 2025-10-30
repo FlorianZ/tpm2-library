@@ -3,11 +3,9 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    auth::Auth,
     cli::Job,
     command::{print_table, AuthArgs, CommandError, Tabled},
     device::{self, Device, DeviceError},
-    handle::Handle,
     key::{
         Alg, AlgInfo, Tpm2shAlgId, OID_ECDSA_WITH_SHA256, OID_ECDSA_WITH_SHA384,
         OID_ECDSA_WITH_SHA512, OID_EC_PUBLIC_KEY, OID_RSA_ENCRYPTION, OID_SHA1_WITH_RSA_ENCRYPTION,
@@ -24,6 +22,7 @@ use rasn::{
     AsnType, Decode, Decoder,
 };
 use strum::Display;
+use tpm2_policy_language::{Auth, Handle};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsAuthCommand},
     message::{TpmNvReadCommand, TpmNvReadPublicCommand},
@@ -77,6 +76,9 @@ pub struct Memory {
 impl Job for Memory {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
+            handle
+                .value()
+                .ok_or_else(|| CommandError::PatternNotAllowed(handle.to_string()))?;
             Self::inspect_handle(job, handle, &self.auth_args)
         } else {
             Self::list_all_memory(job, &self.auth_args)
@@ -146,20 +148,23 @@ impl Memory {
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
         device::with_device(job.device.clone(), |device| {
-            let handle_val = handle.value();
-            if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
-                Self::fetch_certificate(job, device, handle_val, auth_args)
-            } else {
-                match device.read_public(handle_val.into()) {
-                    Ok(_) => Ok(()),
-                    Err(DeviceError::TpmRc(rc))
-                        if rc.base() == TpmRcBase::Handle
-                            || rc.base() == TpmRcBase::ReferenceH0 =>
-                    {
-                        Err(CommandError::UnknownHandle(handle.to_string()))
+            if let Some(handle_val) = handle.value() {
+                if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
+                    Self::fetch_certificate(job, device, handle_val, auth_args)
+                } else {
+                    match device.read_public(handle_val.into()) {
+                        Ok(_) => Ok(()),
+                        Err(DeviceError::TpmRc(rc))
+                            if rc.base() == TpmRcBase::Handle
+                                || rc.base() == TpmRcBase::ReferenceH0 =>
+                        {
+                            Err(CommandError::UnknownHandle(handle.to_string()))
+                        }
+                        Err(e) => Err(e.into()),
                     }
-                    Err(e) => Err(e.into()),
                 }
+            } else {
+                Err(CommandError::PatternNotAllowed(handle.to_string()))
             }
         })
     }
@@ -193,7 +198,7 @@ impl Memory {
                 MemoryHandleType::Session,
                 auth_args,
                 |_, _, handle, _| {
-                    let ht = TpmHt::try_from(handle)?;
+                    let ht = TpmHt::try_from(*handle).map_err(CommandError::PolicyParse)?;
                     let detail = if ht == TpmHt::HmacSession {
                         "hmac"
                     } else {
@@ -221,23 +226,25 @@ impl Memory {
                 MemoryHandleType::Certificate,
                 auth_args,
                 |_, device, handle, auth_args| {
-                    let handle_val = handle.value();
-                    if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
-                        return Ok(None);
-                    }
-
-                    let cert_bytes = match Self::read_nv_index(device, handle_val, auth_args) {
-                        Ok(bytes) => bytes,
-                        Err(CommandError::Device(DeviceError::TpmRc(_))) => {
+                    if let Some(handle_val) = handle.value() {
+                        if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
                             return Ok(None);
                         }
-                        Err(e) => return Err(e),
-                    };
 
-                    if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
-                        return Ok(None);
+                        let cert_bytes = match Self::read_nv_index(device, handle_val, auth_args) {
+                            Ok(bytes) => bytes,
+                            Err(CommandError::Device(DeviceError::TpmRc(_))) => {
+                                return Ok(None);
+                            }
+                            Err(e) => return Err(e),
+                        };
+
+                        if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
+                            return Ok(None);
+                        }
+                        return Ok(Some(Memory::fetch_alg_name(&cert_bytes)?));
                     }
-                    Ok(Some(Memory::fetch_alg_name(&cert_bytes)?))
+                    Ok(None)
                 },
             )?;
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
@@ -351,30 +358,36 @@ impl Memory {
         F: FnMut(
             &mut Session,
             &mut Device,
-            Handle,
+            &Handle,
             &AuthArgs,
         ) -> Result<Option<String>, CommandError>,
     {
         for handle in device.fetch_handles((class as u32) << 24)? {
-            match get_details(job, device, handle, auth_args) {
-                Ok(Some(details)) => {
-                    rows.push(MemoryRow {
-                        handle: format!("{:08x}", handle.value()),
-                        class: display_type.to_string(),
-                        details,
-                    });
+            if let Some(handle_val) = handle.value() {
+                match get_details(job, device, &handle, auth_args) {
+                    Ok(Some(details)) => {
+                        rows.push(MemoryRow {
+                            handle: format!("{handle_val:08x}"),
+                            class: display_type.to_string(),
+                            details,
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(e) => log::debug!("{handle_val:08x}: {e}"),
                 }
-                Ok(None) => {}
-                Err(e) => log::debug!("{:08x}: {e}", handle.value()),
             }
         }
         Ok(())
     }
 
-    fn fetch_details(device: &mut Device, handle: Handle) -> Result<String, CommandError> {
-        let tpm_handle = TpmHandle(handle.value());
-        let (public, _) = device.read_public(tpm_handle)?;
-        Ok(crate::key::format_alg_from_public(&public))
+    fn fetch_details(device: &mut Device, handle: &Handle) -> Result<String, CommandError> {
+        if let Some(handle_val) = handle.value() {
+            let tpm_handle = TpmHandle(handle_val);
+            let (public, _) = device.read_public(tpm_handle)?;
+            Ok(crate::key::format_alg_from_public(&public))
+        } else {
+            Err(CommandError::PatternNotAllowed(handle.to_string()))
+        }
     }
 
     /// Creates a placeholder Alg struct for error reporting.
