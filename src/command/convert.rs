@@ -30,8 +30,8 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPrivateKeyRsa, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData,
-        Tpm2bSymKey, TpmAlgId, TpmCc, TpmEccCurve, TpmsEccPoint, TpmtPublic, TpmtSensitive,
-        TpmtSymDefObject, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+        Tpm2bSymKey, TpmAlgId, TpmCc, TpmEccCurve, TpmRcBase, TpmsEccPoint, TpmtPublic,
+        TpmtSensitive, TpmtSymDefObject, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
     },
     message::TpmImportCommand,
     TpmBuild, TpmHandle, TpmWriter,
@@ -361,8 +361,15 @@ impl Convert {
 
         let (parent_public, _) = match device.read_public(parent_handle) {
             Ok(result) => result,
-            Err(DeviceError::Io(e)) if e.kind() == std::io::ErrorKind::InvalidInput => {
-                return Err(CommandError::InvalidParent("tpm:", parent_handle.0));
+            Err(DeviceError::TpmRc(rc)) => {
+                let base = rc.base();
+                if base == TpmRcBase::Handle
+                    || base == TpmRcBase::ReferenceH0
+                    || base == TpmRcBase::Type
+                {
+                    return Err(CommandError::InvalidParent("tpm:", parent_handle.0));
+                }
+                return Err(DeviceError::TpmRc(rc).into());
             }
             Err(e) => return Err(e.into()),
         };
