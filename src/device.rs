@@ -4,17 +4,19 @@
 
 use crate::{cli::LogFormat, print::TpmPrint, spinner::Spinner, TEARDOWN};
 use log::trace;
-use polling::{Event, Events, Poller};
+use nix::poll::{poll, PollFd, PollFlags};
 use std::{
     cell::RefCell,
     collections::HashMap,
     fs::File,
     io::{Read, Write},
     num::TryFromIntError,
+    os::fd::{AsRawFd, BorrowedFd},
     rc::Rc,
     sync::atomic::Ordering,
     time::{Duration, Instant},
 };
+
 use thiserror::Error;
 use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
@@ -100,7 +102,6 @@ where
 #[derive(Debug)]
 pub struct Device {
     file: File,
-    poller: Poller,
     log_format: LogFormat,
     name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
 }
@@ -112,29 +113,11 @@ impl Device {
     ///
     /// Returns an error if the system poller cannot be created.
     pub fn new(file: File, log_format: LogFormat) -> Result<Self, DeviceError> {
-        let poller = Poller::new()?;
         Ok(Self {
             file,
-            poller,
             log_format,
             name_cache: HashMap::new(),
         })
-    }
-
-    fn receive_from_stream(&mut self) -> Result<Vec<u8>, DeviceError> {
-        let mut header = [0u8; 10];
-        self.file.read_exact(&mut header)?;
-        let Ok(size_bytes): Result<[u8; 4], _> = header[2..6].try_into() else {
-            return Err(DeviceError::InvalidResponse);
-        };
-        let size = u32::from_be_bytes(size_bytes) as usize;
-        if size < header.len() || size > TPM_MAX_COMMAND_SIZE {
-            return Err(DeviceError::InvalidResponse);
-        }
-        let mut resp_buf = header.to_vec();
-        resp_buf.resize(size, 0);
-        self.file.read_exact(&mut resp_buf[header.len()..])?;
-        Ok(resp_buf)
     }
 
     /// Performs the whole TPM command transmission process.
@@ -164,30 +147,76 @@ impl Device {
         self.file.write_all(&command_vec)?;
         self.file.flush()?;
 
-        let mut events = Events::new();
-        unsafe { self.poller.add(&self.file, Event::readable(0))? };
+        let raw = self.file.as_raw_fd();
+        let borrowed = unsafe { BorrowedFd::borrow_raw(raw) };
+        #[allow(unused_mut)]
+        let mut poll_fd = PollFd::new(borrowed, PollFlags::POLLIN);
 
         let start_time = Instant::now();
+        let mut resp_buf = Vec::with_capacity(TPM_MAX_COMMAND_SIZE);
+        let mut total_size: Option<usize> = None;
+        let mut temp_buf = [0u8; 1024];
+
         let resp_buf = loop {
             if TEARDOWN.load(Ordering::Relaxed) {
-                spinner.finish();
-                let _ = self.poller.delete(&self.file);
                 break Err(DeviceError::Interrupted);
             }
             if start_time.elapsed() > Duration::from_secs(120) {
-                spinner.finish();
-                let _ = self.poller.delete(&self.file);
                 break Err(DeviceError::Timeout);
             }
 
             spinner.tick();
 
-            self.poller
-                .wait(&mut events, Some(Duration::from_millis(100)))?;
+            let num_events = match poll(&mut [poll_fd], 100u16) {
+                Ok(num) => num,
+                Err(nix::Error::EINTR) => continue,
+                Err(e) => break Err(e.into()),
+            };
 
-            if !events.is_empty() {
-                let _ = self.poller.delete(&self.file);
-                break self.receive_from_stream();
+            if num_events == 0 {
+                continue;
+            }
+
+            let revents = poll_fd.revents().unwrap_or(PollFlags::empty());
+
+            if !revents.contains(PollFlags::POLLIN) {
+                if revents.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL | PollFlags::POLLHUP)
+                {
+                    break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
+                }
+                continue;
+            }
+
+            loop {
+                match self.file.read(&mut temp_buf) {
+                    Ok(0) => {
+                        break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
+                    }
+                    Ok(n) => resp_buf.extend_from_slice(&temp_buf[..n]),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break Ok(()),
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => (),
+                    Err(e) => break Err(e.into()),
+                }
+            }?;
+
+            if total_size.is_none() && resp_buf.len() >= 10 {
+                let Ok(size_bytes): Result<[u8; 4], _> = resp_buf[2..6].try_into() else {
+                    break Err(DeviceError::InvalidResponse);
+                };
+                let size = u32::from_be_bytes(size_bytes) as usize;
+                if !(10..=TPM_MAX_COMMAND_SIZE).contains(&size) {
+                    break Err(DeviceError::InvalidResponse);
+                }
+                total_size = Some(size);
+            }
+
+            if let Some(size) = total_size {
+                if resp_buf.len() == size {
+                    break Ok(resp_buf);
+                }
+                if resp_buf.len() > size {
+                    break Err(DeviceError::InvalidResponse);
+                }
             }
         }?;
 
