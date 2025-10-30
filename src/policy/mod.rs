@@ -336,7 +336,7 @@ where
 ///
 /// # Errors
 ///
-/// Returns [InvalidExpression](crate::policy::PolicyError::InvalidExpression)
+/// Returns [`InvalidExpression`](crate::policy::PolicyError::InvalidExpression)
 /// if a secret is not pointing to a persistent handle.
 pub fn visit_secret_handles<S: BuildHasher>(
     ast: &Expression,

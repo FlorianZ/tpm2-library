@@ -232,14 +232,15 @@ pub fn create_auth(
     let handle_names: Vec<Tpm2bName> = handles
         .iter()
         .map(|&handle| {
-            if (handle >> 24) as u8 == TpmHt::Permanent as u8 {
+            let handle_type = (handle >> 24) as u8;
+            if handle_type == TpmHt::Transient as u8 || handle_type == TpmHt::Permanent as u8 {
+                device.read_public(handle.into()).map(|(_, name)| name)
+            } else {
                 let mut buf = [0u8; TpmHandle::SIZE];
                 let mut writer = TpmWriter::new(&mut buf);
                 TpmHandle(handle).build(&mut writer)?;
                 let len = writer.len();
                 Tpm2bName::try_from(&buf[..len]).map_err(DeviceError::from)
-            } else {
-                device.read_public(handle.into()).map(|(_, name)| name)
             }
         })
         .collect::<Result<_, DeviceError>>()?;

@@ -13,7 +13,6 @@ use crate::{
         OID_SHA512_WITH_RSA_ENCRYPTION, SECP_256_R_1, SECP_384_R_1, SECP_521_R_1,
     },
     session::Session,
-    vtpm::build_password_session,
 };
 use clap::Args;
 use num_bigint::ToBigInt;
@@ -24,7 +23,7 @@ use rasn::{
 use strum::Display;
 use tpm2_policy_language::{Auth, Handle};
 use tpm2_protocol::{
-    data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsAuthCommand},
+    data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
     message::{TpmNvReadCommand, TpmNvReadPublicCommand},
     TpmHandle,
 };
@@ -74,14 +73,14 @@ pub struct Memory {
 }
 
 impl Job for Memory {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+    fn run(&self, session: &mut Session) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
             handle
                 .value()
                 .ok_or_else(|| CommandError::PatternNotAllowed(handle.to_string()))?;
-            Self::inspect_handle(job, handle, &self.auth_args)
+            Self::inspect_handle(session, handle, &self.auth_args)
         } else {
-            Self::list_all_memory(job, &self.auth_args)
+            Self::list_all_memory(session, &self.auth_args)
         }
     }
 }
@@ -143,14 +142,14 @@ struct Certificate {
 
 impl Memory {
     fn inspect_handle(
-        job: &mut Session,
+        session: &mut Session,
         handle: Handle,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
-        device::with_device(job.device.clone(), |device| {
+        device::with_device(session.device.clone(), |device| {
             if let Some(handle_val) = handle.value() {
                 if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
-                    Self::fetch_certificate(job, device, handle_val, auth_args)
+                    Self::fetch_certificate(session, device, handle_val, auth_args)
                 } else {
                     match device.read_public(handle_val.into()) {
                         Ok(_) => Ok(()),
@@ -169,11 +168,11 @@ impl Memory {
         })
     }
 
-    fn list_all_memory(job: &mut Session, auth_args: &AuthArgs) -> Result<(), CommandError> {
-        device::with_device(job.device.clone(), |device| {
+    fn list_all_memory(session: &mut Session, auth_args: &AuthArgs) -> Result<(), CommandError> {
+        device::with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
             Self::fetch_rows(
-                job,
+                session,
                 device,
                 &mut rows,
                 TpmHt::Persistent,
@@ -182,7 +181,7 @@ impl Memory {
                 |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
             )?;
             Self::fetch_rows(
-                job,
+                session,
                 device,
                 &mut rows,
                 TpmHt::Transient,
@@ -191,7 +190,7 @@ impl Memory {
                 |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
             )?;
             Self::fetch_rows(
-                job,
+                session,
                 device,
                 &mut rows,
                 TpmHt::LoadedSession,
@@ -209,7 +208,7 @@ impl Memory {
             )?;
 
             Self::fetch_rows(
-                job,
+                session,
                 device,
                 &mut rows,
                 TpmHt::SavedSession,
@@ -219,25 +218,26 @@ impl Memory {
             )?;
 
             Self::fetch_rows(
-                job,
+                session,
                 device,
                 &mut rows,
                 TpmHt::NvIndex,
                 MemoryHandleType::Certificate,
                 auth_args,
-                |_, device, handle, auth_args| {
+                |session, device, handle, auth_args| {
                     if let Some(handle_val) = handle.value() {
                         if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
                             return Ok(None);
                         }
 
-                        let cert_bytes = match Self::read_nv_index(device, handle_val, auth_args) {
-                            Ok(bytes) => bytes,
-                            Err(CommandError::Device(DeviceError::TpmRc(_))) => {
-                                return Ok(None);
-                            }
-                            Err(e) => return Err(e),
-                        };
+                        let cert_bytes =
+                            match Self::read_nv_index(session, device, handle_val, auth_args) {
+                                Ok(bytes) => bytes,
+                                Err(CommandError::Device(DeviceError::TpmRc(_))) => {
+                                    return Ok(None);
+                                }
+                                Err(e) => return Err(e),
+                            };
 
                         if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
                             return Ok(None);
@@ -248,12 +248,13 @@ impl Memory {
                 },
             )?;
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
-            print_table(&mut job.writer, &rows)?;
+            print_table(&mut session.writer, &rows)?;
             Ok(())
         })
     }
 
     fn read_nv_index(
+        session: &mut Session,
         device: &mut Device,
         handle: u32,
         auth_args: &AuthArgs,
@@ -267,7 +268,7 @@ impl Memory {
         let nv_read_public_cmd = TpmNvReadPublicCommand {
             nv_index: handle.into(),
         };
-        let (resp, _) = device.execute(&nv_read_public_cmd, &[])?;
+        let (resp, _) = session.execute(device, &nv_read_public_cmd, &[], &[])?;
         let read_public_resp = resp
             .NvReadPublic()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::NvReadPublic))?;
@@ -290,6 +291,13 @@ impl Memory {
 
         let mut cert_bytes = Vec::with_capacity(data_size);
         let mut offset = 0;
+
+        let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
+        let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
+        let auths_cow = auth_args.auths();
+        let effective_auths: &[Auth] = if needs_auth { auths_cow.as_ref() } else { &[] };
+        let handles = [auth_handle_val];
+
         while offset < data_size {
             let chunk_size = std::cmp::min(max_read_size, data_size - offset);
             let nv_read_cmd = TpmNvReadCommand {
@@ -298,25 +306,9 @@ impl Memory {
                 size: u16::try_from(chunk_size)?,
                 offset: u16::try_from(offset)?,
             };
-            let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
-            let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
 
-            let auths_cow = auth_args.auths();
-            let effective_auths: &[Auth] = if needs_auth { auths_cow.as_ref() } else { &[] };
+            let (resp, _) = session.execute(device, &nv_read_cmd, &handles, effective_auths)?;
 
-            let mut sessions: Vec<TpmsAuthCommand> = Vec::new();
-            for auth in effective_auths {
-                if let Auth::Password(value) = auth {
-                    sessions.push(build_password_session(value)?);
-                } else {
-                    return Err(CommandError::InvalidInput(
-                        "Session-based auth for NV read not supported directly in memory command"
-                            .to_string(),
-                    ));
-                }
-            }
-
-            let (resp, _) = device.execute(&nv_read_cmd, &sessions)?;
             let read_resp = resp
                 .NvRead()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::NvRead))?;
@@ -327,12 +319,12 @@ impl Memory {
     }
 
     fn fetch_certificate(
-        job: &mut Session,
+        session: &mut Session,
         device: &mut Device,
         handle: u32,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
-        let cert_bytes = Self::read_nv_index(device, handle, auth_args)?;
+        let cert_bytes = Self::read_nv_index(session, device, handle, auth_args)?;
 
         if cert_bytes.is_empty() {
             log::warn!("{handle:08x}: no certificate");
@@ -340,13 +332,13 @@ impl Memory {
         }
 
         let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
-        writeln!(job.writer, "{pem_cert}")?;
+        writeln!(session.writer, "{pem_cert}")?;
 
         Ok(())
     }
 
     fn fetch_rows<F>(
-        job: &mut Session,
+        session: &mut Session,
         device: &mut Device,
         rows: &mut Vec<MemoryRow>,
         class: TpmHt,
@@ -364,7 +356,7 @@ impl Memory {
     {
         for handle in device.fetch_handles((class as u32) << 24)? {
             if let Some(handle_val) = handle.value() {
-                match get_details(job, device, &handle, auth_args) {
+                match get_details(session, device, &handle, auth_args) {
                     Ok(Some(details)) => {
                         rows.push(MemoryRow {
                             handle: format!("{handle_val:08x}"),
