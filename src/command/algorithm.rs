@@ -8,8 +8,7 @@ use crate::{
     key::{Tpm2shAlgId, Tpm2shEccCurve},
     session::Session,
 };
-use clap::{Args, ValueEnum};
-use strum::{Display, EnumString};
+use clap::Args;
 use tpm2_protocol::{
     constant::MAX_HANDLES,
     data::{
@@ -18,13 +17,6 @@ use tpm2_protocol::{
     },
     message::TpmTestParmsCommand,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display, ValueEnum)]
-#[strum(serialize_all = "kebab-case")]
-pub enum AlgorithmType {
-    Key,
-    Name,
-}
 
 /// Lists available algorithms supported by the chip.
 #[derive(Args, Debug)]
