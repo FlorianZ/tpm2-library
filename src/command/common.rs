@@ -2,7 +2,11 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::Hierarchy, command::CommandError, key::Alg};
+use crate::{
+    cli::Hierarchy,
+    command::CommandError,
+    key::{Alg, AlgInfo},
+};
 use clap::{Args, ValueEnum};
 use std::{borrow::Cow, path::PathBuf};
 use strum::{Display, EnumString};
@@ -96,7 +100,13 @@ impl CreationArgs {
             None => Tpm2bDigest::default(),
         };
 
-        let mut attributes: TpmaObject = alg.clone().into();
+        let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
+
+        if alg.params != AlgInfo::KeyedHash {
+            attributes |=
+                TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
+        }
+
         if !user_auth.is_empty() || auth_policy.is_empty() {
             attributes |= TpmaObject::USER_WITH_AUTH;
         }

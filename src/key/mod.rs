@@ -17,7 +17,7 @@ use rasn::{
 use strum::{Display, EnumString};
 use thiserror::Error;
 use tpm2_protocol::{
-    data::{TpmAlgId, TpmEccCurve, TpmaObject, TpmtPublic, TpmuPublicParms},
+    data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms},
     TpmError,
 };
 
@@ -130,19 +130,6 @@ pub struct Alg {
     pub object_type: TpmAlgId,
     pub name_alg: TpmAlgId,
     pub params: AlgInfo,
-}
-
-impl From<Alg> for TpmaObject {
-    fn from(alg: Alg) -> TpmaObject {
-        let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
-
-        if alg.object_type != TpmAlgId::KeyedHash {
-            attributes |=
-                TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
-        }
-
-        attributes
-    }
 }
 
 impl Alg {
