@@ -126,15 +126,24 @@ pub enum HandleClass {
 ///
 /// A `Handle` can represent either a single, specific handle (e.g., `tpm:81000001`)
 /// or a pattern for matching multiple handles (e.g., `tpm:81*`, `vtpm:????????`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Handle {
-    raw: String,
     class: HandleClass,
     mask: u32,
     value: u32,
 }
 
 impl Handle {
+    /// Creates a new `Handle` that represents a single, specific handle value.
+    #[must_use]
+    pub fn new(class: HandleClass, value: u32) -> Self {
+        Self {
+            class,
+            mask: 0xFFFF_FFFF,
+            value,
+        }
+    }
+
     /// Returns the class of the handle (`Tpm` or `Vtpm`).
     #[must_use]
     pub fn class(&self) -> HandleClass {
@@ -163,7 +172,17 @@ impl Handle {
 
 impl std::fmt::Display for Handle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.raw)
+        let scheme = match self.class {
+            HandleClass::Tpm => "tpm",
+            HandleClass::Vtpm => "vtpm",
+        };
+        if self.mask == 0xFFFF_FFFF {
+            write!(f, "{}:{:08x}", scheme, self.value)
+        } else if self.mask == 0 {
+            write!(f, "{scheme}:*")
+        } else {
+            write!(f, "{scheme}:(pattern)")
+        }
     }
 }
 
@@ -183,7 +202,6 @@ impl FromStr for Handle {
 
         if value_str == "*" {
             return Ok(Self {
-                raw: s.to_string(),
                 class,
                 mask: 0,
                 value: 0,
@@ -235,12 +253,7 @@ impl FromStr for Handle {
             }
         }
 
-        Ok(Self {
-            raw: s.to_string(),
-            class,
-            mask,
-            value,
-        })
+        Ok(Self { class, mask, value })
     }
 }
 
