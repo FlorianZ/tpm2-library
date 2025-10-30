@@ -22,7 +22,7 @@ use sha1::Sha1;
 use sha2::{Sha256, Sha384, Sha512};
 use tpm2_crypto::{
     ecdh as crypto_ecdh, hash_size as crypto_hash_size, hmac as crypto_hmac, kdfa as crypto_kdfa,
-    make_name as crypto_make_name, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
+    make_name as crypto_make_name, CryptoError, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
@@ -30,8 +30,8 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPrivateKeyRsa, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData,
-        Tpm2bSymKey, TpmAlgId, TpmCc, TpmEccCurve, TpmRcBase, TpmsEccPoint, TpmtPublic,
-        TpmtSensitive, TpmtSymDefObject, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+        Tpm2bSymKey, TpmAlgId, TpmCc, TpmRcBase, TpmsEccPoint, TpmtPublic, TpmtSensitive,
+        TpmtSymDefObject, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
     },
     message::TpmImportCommand,
     TpmBuild, TpmHandle, TpmWriter,
@@ -164,23 +164,15 @@ impl Convert {
             )),
         }?;
 
-        match curve_id {
-            TpmEccCurve::NistP256 => {
-                crypto_ecdh::<p256::NistP256>(parent_point, parent_public.name_alg, rng)
-                    .map_err(CommandError::Crypto)
+        crypto_ecdh(curve_id, parent_point, parent_public.name_alg, rng).map_err(|e| {
+            if let CryptoError::UnsupportedEccCurve = e {
+                CommandError::InvalidInput(format!(
+                    "Unsupported ECC curve specified by parent key: {curve_id:?}"
+                ))
+            } else {
+                CommandError::Crypto(e)
             }
-            TpmEccCurve::NistP384 => {
-                crypto_ecdh::<p384::NistP384>(parent_point, parent_public.name_alg, rng)
-                    .map_err(CommandError::Crypto)
-            }
-            TpmEccCurve::NistP521 => {
-                crypto_ecdh::<p521::NistP521>(parent_point, parent_public.name_alg, rng)
-                    .map_err(CommandError::Crypto)
-            }
-            _ => Err(CommandError::InvalidInput(format!(
-                "Unsupported ECC curve specified by parent key: {curve_id:?}"
-            ))),
-        }
+        })
     }
 
     /// Generates the appropriate seed and encrypted seed based on parent key type.
