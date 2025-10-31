@@ -17,52 +17,36 @@ use rasn::{
     types::{OctetString, Utf8String},
     AsnType, Decode, Decoder, Encode, Encoder,
 };
+use std::collections::HashMap;
 use thiserror::Error;
-use tpm2_crypto::digest as crypto_digest;
-use tpm2_policy_language::{Expression, Handle, HandleClass, PcrSelection};
+use tpm2_policy_language::{Expression, Handle, HandleClass, PcrSelection, PolicyState};
 use tpm2_protocol::{
-    data::{
-        Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmlDigest,
-        TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection,
-    },
+    constant::TPM_MAX_COMMAND_SIZE,
+    data::{Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmlPcrSelection},
+    message::{tpm_parse_command, TpmBodyBuild, TpmCommandBody},
     TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
 
 /// Error type for TPM key format operations.
 #[derive(Debug, Error)]
 pub enum TpmKeyError {
-    /// Returned when an unsupported algorithm is specified for key creation or
-    /// serialization.
     #[error("unsupported algorithm: {0}")]
     InvalidAlgorithm(String),
-
-    /// Returned when data provided for serialization (e.g., to PEM) is invalid.
     #[error("invalid data: {0}")]
     InvalidData(String),
-
-    /// Returned when input data (e.g., from a PEM or DER file) is malformed
-    /// and cannot be parsed.
     #[error("malformed data: {0}")]
     MalformedData(String),
-
-    /// Returned when an ASN.1 `SEQUENCE OF TPMPolicy` contains a command that
-    /// cannot be represented by the `Expression` AST.
     #[error("unsupported policy command: 0x{0:08x}")]
     UnsupportedPolicyCommand(u32),
-
-    /// Returned when an unknown ASN.1 Object Identifier (OID) is
-    /// encountered during parsing.
     #[error("unknown OID: {0}")]
     UnknownOid(String),
-
-    /// Returned when a PEM file has an unknown tag.
     #[error("unknown PEM tag: {0}")]
     UnknownPemTag(String),
 }
 
 /// Serialize a type implementing `TpmBuild` type into `Vec<u8>`.
 fn write_object<T: TpmBuild>(obj: &T) -> Result<Vec<u8>, TpmError> {
-    let mut buf = vec![0u8; tpm2_protocol::constant::TPM_MAX_COMMAND_SIZE];
+    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
         obj.build(&mut writer)?;
@@ -146,7 +130,11 @@ impl TpmPolicyCommand {
                         })
                     }
                     TpmCc::PolicySecret => {
-                        let (handle, _) = TpmHandle::parse(&cmd.command_policy)
+                        let (handle, remainder) = TpmHandle::parse(&cmd.command_policy)
+                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
+                        let (_name, remainder) = Tpm2bName::parse(remainder)
+                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
+                        let (_policy_ref, _) = Tpm2bDigest::parse(remainder)
                             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
 
                         Ok(Expression::Secret {
@@ -200,10 +188,10 @@ pub struct TpmKeyAsn1 {
     #[rasn(tag(explicit(context, 5)))]
     pub rsa_parent: Option<bool>,
     #[rasn(tag(explicit(context, 6)))]
-    pub parent_pub_key: Option<OctetString>,
+    pub parent_pubkey: Option<OctetString>,
     pub parent: u32,
-    pub pub_key: OctetString,
-    pub priv_key: OctetString,
+    pub pubkey: OctetString,
+    pub privkey: OctetString,
 }
 
 impl TpmKeyAsn1 {
@@ -214,7 +202,7 @@ impl TpmKeyAsn1 {
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the
     /// public key bytes cannot be parsed.
     pub fn public(&self) -> Result<Tpm2bPublic, TpmKeyError> {
-        let (public, _) = Tpm2bPublic::parse(&self.pub_key)
+        let (public, _) = Tpm2bPublic::parse(&self.pubkey)
             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
         Ok(public)
     }
@@ -276,7 +264,7 @@ pub struct TpmKey {
     pub parent_public: Option<Tpm2bPublic>,
     pub key_type: TpmAlgId,
     pub empty_auth: Option<bool>,
-    pub policy: Option<Expression>,
+    pub policy: Option<Vec<Vec<u8>>>,
 }
 
 fn oid_to_key_type(oid: &ObjectIdentifier) -> Result<TpmAlgId, TpmKeyError> {
@@ -352,9 +340,9 @@ impl TpmKey {
     /// or inner DER bytes cannot be parsed.
     /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
     /// tag is not 'TSS2 PRIVATE KEY'.
-    pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, TpmKeyError> {
+    pub fn from_pem(pem_bytes: &[u8], context: &PolicyState) -> Result<Self, TpmKeyError> {
         let asn1 = TpmKeyAsn1::from_pem(pem_bytes)?;
-        Self::from_asn1(asn1)
+        Self::from_asn1(asn1, context)
     }
 
     /// Parse TPM key from DER bytes.
@@ -363,9 +351,9 @@ impl TpmKey {
     ///
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
     /// bytes cannot be parsed.
-    pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
+    pub fn from_der(der_bytes: &[u8], context: &PolicyState) -> Result<Self, TpmKeyError> {
         let asn1 = TpmKeyAsn1::from_der(der_bytes)?;
-        Self::from_asn1(asn1)
+        Self::from_asn1(asn1, context)
     }
 
     /// Converts the runtime `TpmKey` into its ASN.1 representation.
@@ -375,7 +363,7 @@ impl TpmKey {
             .as_ref()
             .map(|pp| pp.inner.object_type == TpmAlgId::Rsa);
 
-        let parent_pub_key_bytes = if let Some(parent_public) = &self.parent_public {
+        let parent_pubkey_bytes = if let Some(parent_public) = &self.parent_public {
             Some(OctetString::copy_from_slice(
                 &write_object(parent_public)
                     .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?,
@@ -391,25 +379,38 @@ impl TpmKey {
         };
         let key_type_oid = key_type_to_oid(resolved_key_type)?;
 
-        let (policy, auth_policy) = match self.policy.as_ref() {
-            Some(Expression::Or(branches)) => {
-                let auth_policies: Result<Vec<TpmAuthPolicy>, TpmKeyError> = branches
-                    .iter()
-                    .map(|branch| {
-                        let commands = expression_to_commands(branch, self.public.inner.name_alg)?;
-                        Ok(TpmAuthPolicy {
-                            name: None,
-                            policy: commands,
+        let (policy, auth_policy) = if let Some(blobs) = &self.policy {
+            let expr = Expression::from_command_list(blobs)
+                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+
+            let (policy, auth_policy) = match expr {
+                Expression::Or(branches) => {
+                    let auth_policies = branches
+                        .iter()
+                        .map(|branch| {
+                            let (branch_blobs, _) = branch
+                                .to_command_list(
+                                    self.public.inner.name_alg,
+                                    &PolicyState {
+                                        banks: vec![],
+                                        names: HashMap::default(),
+                                    },
+                                )
+                                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+                            let commands = blobs_to_policy_commands(&branch_blobs)?;
+                            Ok(TpmAuthPolicy {
+                                name: None,
+                                policy: commands,
+                            })
                         })
-                    })
-                    .collect();
-                (None, Some(auth_policies?))
-            }
-            Some(expr) => (
-                Some(expression_to_commands(expr, self.public.inner.name_alg)?),
-                None,
-            ),
-            None => (None, None),
+                        .collect::<Result<Vec<_>, _>>()?;
+                    (None, Some(auth_policies))
+                }
+                _ => (Some(blobs_to_policy_commands(blobs)?), None),
+            };
+            (policy, auth_policy)
+        } else {
+            (None, None)
         };
 
         Ok(TpmKeyAsn1 {
@@ -420,12 +421,12 @@ impl TpmKey {
             auth_policy,
             description: None,
             rsa_parent,
-            parent_pub_key: parent_pub_key_bytes,
+            parent_pubkey: parent_pubkey_bytes,
             parent: self.parent_handle.0,
-            pub_key: OctetString::copy_from_slice(
+            pubkey: OctetString::copy_from_slice(
                 &write_object(&self.public).map_err(|e| TpmKeyError::InvalidData(e.to_string()))?,
             ),
-            priv_key: OctetString::copy_from_slice(
+            privkey: OctetString::copy_from_slice(
                 &write_object(&self.private)
                     .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?,
             ),
@@ -433,12 +434,12 @@ impl TpmKey {
     }
 
     /// Converts the ASN.1 `TpmKeyAsn1` into the runtime representation.
-    fn from_asn1(asn1: TpmKeyAsn1) -> Result<Self, TpmKeyError> {
-        let (public, _) = Tpm2bPublic::parse(&asn1.pub_key)
+    fn from_asn1(asn1: TpmKeyAsn1, context: &PolicyState) -> Result<Self, TpmKeyError> {
+        let (public, _) = Tpm2bPublic::parse(&asn1.pubkey)
             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-        let (private, _) = Tpm2bPrivate::parse(&asn1.priv_key)
+        let (private, _) = Tpm2bPrivate::parse(&asn1.privkey)
             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-        let parent_public = if let Some(parent_bytes) = &asn1.parent_pub_key {
+        let parent_public = if let Some(parent_bytes) = &asn1.parent_pubkey {
             let (parent_pub, _) = Tpm2bPublic::parse(parent_bytes)
                 .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
             Some(parent_pub)
@@ -451,7 +452,7 @@ impl TpmKey {
             key_type = public.inner.object_type;
         }
 
-        let policy = match (asn1.auth_policy, asn1.policy) {
+        let temp_expr = match (asn1.auth_policy, asn1.policy) {
             (Some(auth_policies), _) if !auth_policies.is_empty() => {
                 let branches: Result<Vec<_>, _> = auth_policies
                     .into_iter()
@@ -463,6 +464,15 @@ impl TpmKey {
             _ => None,
         };
 
+        let policy_blobs = if let Some(expr) = temp_expr {
+            let (blobs, _) = expr
+                .to_command_list(public.inner.name_alg, context)
+                .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
+            Some(blobs)
+        } else {
+            None
+        };
+
         Ok(Self {
             public,
             private,
@@ -470,153 +480,38 @@ impl TpmKey {
             parent_public,
             key_type,
             empty_auth: asn1.empty_auth,
-            policy,
+            policy: policy_blobs,
         })
     }
 }
 
-/// Converts a `Vec<PcrSelection>` to the TPM wire format `TpmlPcrSelection`.
-fn pcr_selection_vec_to_tpml(selections: &[PcrSelection]) -> Result<TpmlPcrSelection, TpmKeyError> {
-    let mut list = TpmlPcrSelection::new();
-    for selection in selections {
-        let mut pcr_select_bytes = vec![0u8; 3];
-        for &pcr_index in &selection.indices {
-            let pcr_index = pcr_index as usize;
-            if pcr_index >= 24 {
-                return Err(TpmKeyError::InvalidData(format!(
-                    "invalid PCR index {pcr_index}"
-                )));
-            }
-            pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
-        }
-        list.try_push(TpmsPcrSelection {
-            hash: selection.alg,
-            pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
-                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?,
-        })
-        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-    }
-    Ok(list)
-}
+/// Converts a list of TPM command blobs into a `Vec<TpmPolicyCommand>`.
+fn blobs_to_policy_commands(blobs: &[Vec<u8>]) -> Result<Vec<TpmPolicyCommand>, TpmKeyError> {
+    blobs
+        .iter()
+        .map(|blob| {
+            let (_, cmd_body, _) =
+                tpm_parse_command(blob).map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
 
-/// Converts an `Expression` AST into a linear sequence of `TpmPolicyCommand`s.
-fn expression_to_commands(
-    expr: &Expression,
-    hash_alg: TpmAlgId,
-) -> Result<Vec<TpmPolicyCommand>, TpmKeyError> {
-    let mut commands = Vec::new();
-    let mut stack = vec![expr];
-
-    while let Some(current_expr) = stack.pop() {
-        match current_expr {
-            Expression::And(sub_exprs) => {
-                stack.extend(sub_exprs.iter().rev());
-            }
-            Expression::Or(branches) => {
-                let mut branch_digests = TpmlDigest::new();
-                for branch in branches {
-                    let branch_commands = expression_to_commands(branch, hash_alg)?;
-                    let digest_vec = calculate_policy_digest(&branch_commands, hash_alg)?;
-                    let digest = Tpm2bDigest::try_from(digest_vec.as_slice())
-                        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                    branch_digests
-                        .try_push(digest)
-                        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                }
-                let body_bytes = write_object(&branch_digests)
-                    .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                commands.push(TpmPolicyCommand {
-                    command_code: TpmCc::PolicyOR as u32,
-                    command_policy: OctetString::copy_from_slice(&body_bytes),
-                });
-            }
-            leaf => {
-                commands.push(expression_to_leaf_command(leaf)?);
-            }
-        }
-    }
-    Ok(commands)
-}
-
-/// Simulates a software policy session to calculate the final digest of a
-/// linear command sequence.
-fn calculate_policy_digest(
-    commands: &[TpmPolicyCommand],
-    hash_alg: TpmAlgId,
-) -> Result<Vec<u8>, TpmKeyError> {
-    let mut digest = vec![0u8; tpm2_crypto::hash_size(hash_alg).map_err(TpmKeyError::from)?];
-
-    for cmd in commands {
-        let cc_bytes = cmd.command_code.to_be_bytes();
-        let new_digest = crypto_digest(hash_alg, &[&digest, &cc_bytes, &cmd.command_policy])
-            .map_err(TpmKeyError::from)?;
-        digest = new_digest;
-    }
-    Ok(digest)
-}
-
-impl From<tpm2_crypto::CryptoError> for TpmKeyError {
-    fn from(err: tpm2_crypto::CryptoError) -> Self {
-        Self::InvalidData(err.to_string())
-    }
-}
-
-/// Converts a single leaf `Expression` into a `TpmPolicyCommand`.
-fn expression_to_leaf_command(leaf: &Expression) -> Result<TpmPolicyCommand, TpmKeyError> {
-    let (command_code, command_policy_bytes) = match leaf {
-        Expression::Pcr {
-            selections, digest, ..
-        } => {
-            let pcr_digest = digest.as_ref().map_or_else(
-                || Ok(Tpm2bDigest::default()),
-                |hex_str| {
-                    let bytes = hex::decode(hex_str)
-                        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                    Tpm2bDigest::try_from(bytes.as_slice())
-                        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))
-                },
-            )?;
-            let pcrs = pcr_selection_vec_to_tpml(selections)?;
-            let mut buf = Vec::new();
-            let mut writer = TpmWriter::new(&mut buf);
-            pcrs.build(&mut writer)
-                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-            pcr_digest
-                .build(&mut writer)
-                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-            (TpmCc::PolicyPcr, buf)
-        }
-        Expression::Secret { auth_handle, .. } => {
-            let handle = if let Expression::Handle(h) = **auth_handle {
-                h.value().ok_or_else(|| {
-                    TpmKeyError::InvalidData("secret() handle must not be a pattern".to_string())
-                })?
-            } else {
-                return Err(TpmKeyError::InvalidData(
-                    "secret() auth_handle must be a Handle expression".to_string(),
-                ));
+            let mut params_buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+            let params_len = {
+                let mut writer = TpmWriter::new(&mut params_buf);
+                let build_result = match &cmd_body {
+                    TpmCommandBody::PolicyPcr(c) => c.build_parameters(&mut writer),
+                    TpmCommandBody::PolicySecret(c) => c.build_parameters(&mut writer),
+                    TpmCommandBody::PolicyOr(c) => c.build_parameters(&mut writer),
+                    TpmCommandBody::PolicyRestart(c) => c.build_parameters(&mut writer),
+                    _ => return Err(TpmKeyError::UnsupportedPolicyCommand(cmd_body.cc() as u32)),
+                };
+                build_result.map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+                writer.len()
             };
-            let mut buf = Vec::new();
-            let mut writer = TpmWriter::new(&mut buf);
-            TpmHandle(handle)
-                .build(&mut writer)
-                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-            Tpm2bName::default()
-                .build(&mut writer)
-                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-            Tpm2bDigest::default()
-                .build(&mut writer)
-                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-            (TpmCc::PolicySecret, buf)
-        }
-        _ => {
-            return Err(TpmKeyError::InvalidData(format!(
-                "unsupported expression in policy sequence: {leaf}"
-            )));
-        }
-    };
-    Ok(TpmPolicyCommand {
-        command_code: command_code as u32,
-        command_policy: OctetString::copy_from_slice(&command_policy_bytes),
-    })
+            params_buf.truncate(params_len);
+
+            Ok(TpmPolicyCommand {
+                command_code: cmd_body.cc() as u32,
+                command_policy: OctetString::copy_from_slice(&params_buf),
+            })
+        })
+        .collect()
 }
