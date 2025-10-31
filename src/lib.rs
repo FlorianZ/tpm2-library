@@ -18,11 +18,12 @@ use rasn::{
     AsnType, Decode, Decoder, Encode, Encoder,
 };
 use thiserror::Error;
+use tpm2_crypto::digest as crypto_digest;
 use tpm2_policy_language::{Expression, Handle, HandleClass, PcrSelection};
 use tpm2_protocol::{
     data::{
-        Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmlPcrSelection,
-        TpmsPcrSelect, TpmsPcrSelection,
+        Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmlDigest,
+        TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection,
     },
     TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter,
 };
@@ -92,10 +93,12 @@ impl TpmPolicyCommand {
     ///
     /// # Errors
     ///
-    /// Returns [`MalformedData`] if the command body bytes cannot be parsed, if
-    /// the policy sequence is empty, or if an invalid PCR index is found.
-    /// Returns [`UnsupportedPolicyCommand`] if a command code is encountered that
-    /// is not supported by the `Expression` AST representation.
+    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the
+    /// command body bytes cannot be parsed, when the policy sequence is empty,
+    /// or when an invalid PCR index is found.
+    /// Returns [`UnsupportedPolicyCommand`](crate::TpmKeyError::UnsupportedPolicyCommand)
+    /// when a command code is encountered that is not supported by the
+    /// `Expression` AST representation.
     pub fn to_expression(commands: Vec<Self>) -> Result<Expression, TpmKeyError> {
         let mut expressions: Vec<Expression> = commands
             .into_iter()
@@ -143,11 +146,7 @@ impl TpmPolicyCommand {
                         })
                     }
                     TpmCc::PolicySecret => {
-                        let (handle, remainder) = TpmHandle::parse(&cmd.command_policy)
-                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-                        let (_name, remainder) = Tpm2bName::parse(remainder)
-                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-                        let (_policy_ref, _) = Tpm2bDigest::parse(remainder)
+                        let (handle, _) = TpmHandle::parse(&cmd.command_policy)
                             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
 
                         Ok(Expression::Secret {
@@ -171,95 +170,6 @@ impl TpmPolicyCommand {
             1 => Ok(expressions.remove(0)),
             _ => Ok(Expression::And(expressions)),
         }
-    }
-
-    /// Converts an `Expression` AST into a sequence of `TpmPolicyCommand`s.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidData`] if the expression contains constructs that cannot
-    /// be serialized into the `TPMPolicy` ASN.1 format, such as `OR` logic or
-    /// malformed PCR digest strings.
-    pub fn from_expression(expr: &Expression) -> Result<Vec<Self>, TpmKeyError> {
-        let mut expressions = Vec::new();
-        let mut stack = vec![expr];
-        while let Some(e) = stack.pop() {
-            match e {
-                Expression::And(sub_exprs) => {
-                    stack.extend(sub_exprs.iter().rev());
-                }
-                Expression::Or(_) => {
-                    return Err(TpmKeyError::InvalidData(
-                        "OR policies are not supported for serialization".to_string(),
-                    ));
-                }
-                _ => expressions.push(e),
-            }
-        }
-
-        expressions
-            .into_iter()
-            .map(|e| {
-                let (command_code, command_policy_bytes) = match e {
-                    Expression::Pcr {
-                        selections, digest, ..
-                    } => {
-                        let pcr_digest = digest.as_ref().map_or_else(
-                            || Ok(Tpm2bDigest::default()),
-                            |hex_str| {
-                                let bytes = hex::decode(hex_str)
-                                    .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                                Tpm2bDigest::try_from(bytes.as_slice())
-                                    .map_err(|e| TpmKeyError::InvalidData(e.to_string()))
-                            },
-                        )?;
-                        let pcrs = pcr_selection_vec_to_tpml(selections)?;
-                        let mut buf = Vec::new();
-                        let mut writer = TpmWriter::new(&mut buf);
-                        pcrs.build(&mut writer)
-                            .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                        pcr_digest
-                            .build(&mut writer)
-                            .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                        (TpmCc::PolicyPcr, buf)
-                    }
-                    Expression::Secret { auth_handle, .. } => {
-                        let handle = if let Expression::Handle(h) = **auth_handle {
-                            h.value().ok_or_else(|| {
-                                TpmKeyError::InvalidData(
-                                    "secret() handle must not be a pattern".to_string(),
-                                )
-                            })?
-                        } else {
-                            return Err(TpmKeyError::InvalidData(
-                                "secret() auth_handle must be a Handle expression".to_string(),
-                            ));
-                        };
-                        let mut buf = Vec::new();
-                        let mut writer = TpmWriter::new(&mut buf);
-                        TpmHandle(handle)
-                            .build(&mut writer)
-                            .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                        Tpm2bName::default()
-                            .build(&mut writer)
-                            .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                        Tpm2bDigest::default()
-                            .build(&mut writer)
-                            .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                        (TpmCc::PolicySecret, buf)
-                    }
-                    _ => {
-                        return Err(TpmKeyError::InvalidData(format!(
-                            "unsupported expression in policy sequence: {e}"
-                        )));
-                    }
-                };
-                Ok(Self {
-                    command_code: command_code as u32,
-                    command_policy: OctetString::copy_from_slice(&command_policy_bytes),
-                })
-            })
-            .collect()
     }
 }
 
@@ -301,7 +211,8 @@ impl TpmKeyAsn1 {
     ///
     /// # Errors
     ///
-    /// Returns [`MalformedData`] if the public key bytes cannot be parsed.
+    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the
+    /// public key bytes cannot be parsed.
     pub fn public(&self) -> Result<Tpm2bPublic, TpmKeyError> {
         let (public, _) = Tpm2bPublic::parse(&self.pub_key)
             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
@@ -312,7 +223,8 @@ impl TpmKeyAsn1 {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidData`] if the key's fields cannot be encoded to DER.
+    /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
+    /// fields cannot be encoded to DER.
     pub fn to_pem(&self) -> Result<String, TpmKeyError> {
         Ok(pem::encode(&Pem::new("TSS2 PRIVATE KEY", self.to_der()?)))
     }
@@ -321,7 +233,8 @@ impl TpmKeyAsn1 {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidData`] if the key's fields cannot be encoded to DER.
+    /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
+    /// fields cannot be encoded to DER.
     pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
         rasn::der::encode(self).map_err(|e| TpmKeyError::InvalidData(e.to_string()))
     }
@@ -330,8 +243,10 @@ impl TpmKeyAsn1 {
     ///
     /// # Errors
     ///
-    /// Returns [`MalformedData`] if the PEM or inner DER bytes cannot be parsed.
-    /// Returns [`UnknownPemTag`] if the PEM tag is not 'TSS2 PRIVATE KEY'.
+    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the PEM
+    /// or inner DER bytes cannot be parsed.
+    /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
+    /// tag is not 'TSS2 PRIVATE KEY'.
     pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let pem = pem::parse(pem_bytes).map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
         if pem.tag() == "TSS2 PRIVATE KEY" {
@@ -345,7 +260,8 @@ impl TpmKeyAsn1 {
     ///
     /// # Errors
     ///
-    /// Returns [`MalformedData`] if the DER bytes cannot be parsed.
+    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
+    /// bytes cannot be parsed.
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         rasn::der::decode(der_bytes).map_err(|e| TpmKeyError::MalformedData(e.to_string()))
     }
@@ -410,7 +326,8 @@ impl TpmKey {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidData`] if the key's fields cannot be encoded to DER.
+    /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
+    /// fields cannot be encoded to DER.
     pub fn to_pem(&self) -> Result<String, TpmKeyError> {
         let asn1 = self.to_asn1()?;
         asn1.to_pem()
@@ -420,7 +337,8 @@ impl TpmKey {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidData`] if the key's fields cannot be encoded to DER.
+    /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
+    /// fields cannot be encoded to DER.
     pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
         let asn1 = self.to_asn1()?;
         asn1.to_der()
@@ -430,8 +348,10 @@ impl TpmKey {
     ///
     /// # Errors
     ///
-    /// Returns [`MalformedData`] if the PEM or inner DER bytes cannot be parsed.
-    /// Returns [`UnknownPemTag`] if the PEM tag is not 'TSS2 PRIVATE KEY'.
+    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the PEM
+    /// or inner DER bytes cannot be parsed.
+    /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
+    /// tag is not 'TSS2 PRIVATE KEY'.
     pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let asn1 = TpmKeyAsn1::from_pem(pem_bytes)?;
         Self::from_asn1(asn1)
@@ -441,7 +361,8 @@ impl TpmKey {
     ///
     /// # Errors
     ///
-    /// Returns [`MalformedData`] if the DER bytes cannot be parsed.
+    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
+    /// bytes cannot be parsed.
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let asn1 = TpmKeyAsn1::from_der(der_bytes)?;
         Self::from_asn1(asn1)
@@ -470,16 +391,33 @@ impl TpmKey {
         };
         let key_type_oid = key_type_to_oid(resolved_key_type)?;
 
+        let (policy, auth_policy) = match self.policy.as_ref() {
+            Some(Expression::Or(branches)) => {
+                let auth_policies: Result<Vec<TpmAuthPolicy>, TpmKeyError> = branches
+                    .iter()
+                    .map(|branch| {
+                        let commands = expression_to_commands(branch, self.public.inner.name_alg)?;
+                        Ok(TpmAuthPolicy {
+                            name: None,
+                            policy: commands,
+                        })
+                    })
+                    .collect();
+                (None, Some(auth_policies?))
+            }
+            Some(expr) => (
+                Some(expression_to_commands(expr, self.public.inner.name_alg)?),
+                None,
+            ),
+            None => (None, None),
+        };
+
         Ok(TpmKeyAsn1 {
             key_type: key_type_oid,
             empty_auth: self.empty_auth,
-            policy: self
-                .policy
-                .as_ref()
-                .map(TpmPolicyCommand::from_expression)
-                .transpose()?,
+            policy,
             secret: None,
-            auth_policy: None,
+            auth_policy,
             description: None,
             rsa_parent,
             parent_pub_key: parent_pub_key_bytes,
@@ -513,6 +451,18 @@ impl TpmKey {
             key_type = public.inner.object_type;
         }
 
+        let policy = match (asn1.auth_policy, asn1.policy) {
+            (Some(auth_policies), _) if !auth_policies.is_empty() => {
+                let branches: Result<Vec<_>, _> = auth_policies
+                    .into_iter()
+                    .map(|p| TpmPolicyCommand::to_expression(p.policy))
+                    .collect();
+                Some(Expression::Or(branches?))
+            }
+            (_, Some(policy_commands)) => Some(TpmPolicyCommand::to_expression(policy_commands)?),
+            _ => None,
+        };
+
         Ok(Self {
             public,
             private,
@@ -520,10 +470,7 @@ impl TpmKey {
             parent_public,
             key_type,
             empty_auth: asn1.empty_auth,
-            policy: asn1
-                .policy
-                .map(TpmPolicyCommand::to_expression)
-                .transpose()?,
+            policy,
         })
     }
 }
@@ -550,4 +497,126 @@ fn pcr_selection_vec_to_tpml(selections: &[PcrSelection]) -> Result<TpmlPcrSelec
         .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
     }
     Ok(list)
+}
+
+/// Converts an `Expression` AST into a linear sequence of `TpmPolicyCommand`s.
+fn expression_to_commands(
+    expr: &Expression,
+    hash_alg: TpmAlgId,
+) -> Result<Vec<TpmPolicyCommand>, TpmKeyError> {
+    let mut commands = Vec::new();
+    let mut stack = vec![expr];
+
+    while let Some(current_expr) = stack.pop() {
+        match current_expr {
+            Expression::And(sub_exprs) => {
+                stack.extend(sub_exprs.iter().rev());
+            }
+            Expression::Or(branches) => {
+                let mut branch_digests = TpmlDigest::new();
+                for branch in branches {
+                    let branch_commands = expression_to_commands(branch, hash_alg)?;
+                    let digest_vec = calculate_policy_digest(&branch_commands, hash_alg)?;
+                    let digest = Tpm2bDigest::try_from(digest_vec.as_slice())
+                        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+                    branch_digests
+                        .try_push(digest)
+                        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+                }
+                let body_bytes = write_object(&branch_digests)
+                    .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+                commands.push(TpmPolicyCommand {
+                    command_code: TpmCc::PolicyOR as u32,
+                    command_policy: OctetString::copy_from_slice(&body_bytes),
+                });
+            }
+            leaf => {
+                commands.push(expression_to_leaf_command(leaf)?);
+            }
+        }
+    }
+    Ok(commands)
+}
+
+/// Simulates a software policy session to calculate the final digest of a
+/// linear command sequence.
+fn calculate_policy_digest(
+    commands: &[TpmPolicyCommand],
+    hash_alg: TpmAlgId,
+) -> Result<Vec<u8>, TpmKeyError> {
+    let mut digest = vec![0u8; tpm2_crypto::hash_size(hash_alg).map_err(TpmKeyError::from)?];
+
+    for cmd in commands {
+        let cc_bytes = cmd.command_code.to_be_bytes();
+        let new_digest = crypto_digest(hash_alg, &[&digest, &cc_bytes, &cmd.command_policy])
+            .map_err(TpmKeyError::from)?;
+        digest = new_digest;
+    }
+    Ok(digest)
+}
+
+impl From<tpm2_crypto::CryptoError> for TpmKeyError {
+    fn from(err: tpm2_crypto::CryptoError) -> Self {
+        Self::InvalidData(err.to_string())
+    }
+}
+
+/// Converts a single leaf `Expression` into a `TpmPolicyCommand`.
+fn expression_to_leaf_command(leaf: &Expression) -> Result<TpmPolicyCommand, TpmKeyError> {
+    let (command_code, command_policy_bytes) = match leaf {
+        Expression::Pcr {
+            selections, digest, ..
+        } => {
+            let pcr_digest = digest.as_ref().map_or_else(
+                || Ok(Tpm2bDigest::default()),
+                |hex_str| {
+                    let bytes = hex::decode(hex_str)
+                        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+                    Tpm2bDigest::try_from(bytes.as_slice())
+                        .map_err(|e| TpmKeyError::InvalidData(e.to_string()))
+                },
+            )?;
+            let pcrs = pcr_selection_vec_to_tpml(selections)?;
+            let mut buf = Vec::new();
+            let mut writer = TpmWriter::new(&mut buf);
+            pcrs.build(&mut writer)
+                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+            pcr_digest
+                .build(&mut writer)
+                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+            (TpmCc::PolicyPcr, buf)
+        }
+        Expression::Secret { auth_handle, .. } => {
+            let handle = if let Expression::Handle(h) = **auth_handle {
+                h.value().ok_or_else(|| {
+                    TpmKeyError::InvalidData("secret() handle must not be a pattern".to_string())
+                })?
+            } else {
+                return Err(TpmKeyError::InvalidData(
+                    "secret() auth_handle must be a Handle expression".to_string(),
+                ));
+            };
+            let mut buf = Vec::new();
+            let mut writer = TpmWriter::new(&mut buf);
+            TpmHandle(handle)
+                .build(&mut writer)
+                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+            Tpm2bName::default()
+                .build(&mut writer)
+                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+            Tpm2bDigest::default()
+                .build(&mut writer)
+                .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+            (TpmCc::PolicySecret, buf)
+        }
+        _ => {
+            return Err(TpmKeyError::InvalidData(format!(
+                "unsupported expression in policy sequence: {leaf}"
+            )));
+        }
+    };
+    Ok(TpmPolicyCommand {
+        command_code: command_code as u32,
+        command_policy: OctetString::copy_from_slice(&command_policy_bytes),
+    })
 }
