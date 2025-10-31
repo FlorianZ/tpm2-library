@@ -10,9 +10,8 @@ rust-version = "1.78"
 version = "0.2.1"
 
 [dependencies]
-num-bigint = { version = "0.4", features = ["rand"] }
+num-bigint = { version = "0.4" }
 openssl = { version = "0.10" }
-rand = "0.8"
 thiserror = "1.0"
 tpm2-protocol = "0.11"
 

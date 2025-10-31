@@ -7,7 +7,6 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-use num_bigint::{BigUint, RandBigInt};
 use openssl::{
     bn::{BigNum, BigNumContext},
     derive::Deriver,
@@ -18,7 +17,6 @@ use openssl::{
     pkey::PKey,
     sign::Signer,
 };
-use rand::{CryptoRng, RngCore};
 use thiserror::Error;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
@@ -136,9 +134,9 @@ pub fn hmac(alg: TpmAlgId, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>,
             .update(chunk)
             .map_err(|_| CryptoError::MalformedHmacKey)?;
     }
-    Ok(signer
+    signer
         .sign_to_vec()
-        .map_err(|_| CryptoError::MalformedHmacKey)?)
+        .map_err(|_| CryptoError::MalformedHmacKey)
 }
 
 /// Verifies an HMAC signature over a series of data chunks.
@@ -303,7 +301,7 @@ pub fn ecdh(
     curve_id: TpmEccCurve,
     parent_point: &TpmsEccPoint,
     name_alg: TpmAlgId,
-    rng: &mut (impl RngCore + CryptoRng),
+    priv_bytes: &[u8],
 ) -> Result<(Vec<u8>, TpmsEccPoint), CryptoError> {
     let nid = map_ecc_curve_to_nid(curve_id).map_err(|_| CryptoError::UnsupportedEccCurve)?;
     let group = EcGroup::from_curve_name(nid).map_err(|_| CryptoError::UnsupportedEccCurve)?;
@@ -322,12 +320,8 @@ pub fn ecdh(
     group
         .order(&mut order, &mut ctx)
         .map_err(|_| CryptoError::MalformedEccParameter)?;
-    let order_uint = BigUint::from_bytes_be(&order.to_vec());
-    let one = BigUint::from(1u8);
 
-    let priv_uint = rng.gen_biguint_range(&one, &order_uint);
-    let priv_bn = BigNum::from_slice(&priv_uint.to_bytes_be())
-        .map_err(|_| CryptoError::MalformedEccParameter)?;
+    let priv_bn = BigNum::from_slice(priv_bytes).map_err(|_| CryptoError::MalformedEccParameter)?;
 
     let mut ephemeral_pub_point =
         EcPoint::new(&group).map_err(|_| CryptoError::MalformedEccParameter)?;
