@@ -399,16 +399,16 @@ impl fmt::Display for PcrSelection {
             .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        write!(f, "{}:{}", Tpm2shAlgId(self.alg), indices_str)
+        write!(f, "{}:{}", PolicyAlgId(self.alg), indices_str)
     }
 }
 
 /// Provides a [`Display`](std::fmt::Display) implementation for
 /// [`TpmAlgId`](tpm2_protocol::data::TpmAlgId).
 #[derive(Debug, Clone, Copy)]
-pub struct Tpm2shAlgId(pub TpmAlgId);
+pub struct PolicyAlgId(pub TpmAlgId);
 
-impl TryFrom<&str> for Tpm2shAlgId {
+impl TryFrom<&str> for PolicyAlgId {
     type Error = Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
@@ -423,7 +423,7 @@ impl TryFrom<&str> for Tpm2shAlgId {
     }
 }
 
-impl std::fmt::Display for Tpm2shAlgId {
+impl std::fmt::Display for PolicyAlgId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self.0 {
             TpmAlgId::Sha1 => "sha1",
@@ -447,7 +447,7 @@ impl TryFrom<&str> for PcrSelectionList {
                     .split_once(':')
                     .ok_or_else(|| PcrError::InvalidSelectionString(part.to_string()))?;
 
-                let alg = Tpm2shAlgId::try_from(alg_str)?.0;
+                let alg = PolicyAlgId::try_from(alg_str)?.0;
 
                 let indices: Vec<u32> = indices_str
                     .split(',')
