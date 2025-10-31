@@ -56,7 +56,6 @@ pub enum Auth {
     Session(u32),
 }
 
-/// Decodes a hexadecimal string.
 fn parse_auth_hex(s: &str) -> Result<Vec<u8>, ParseError> {
     let bytes = hex::decode(s).map_err(|_| ParseError::InvalidHexString(s.to_string()))?;
     if bytes.len() > MAX_AUTH_SIZE {
@@ -66,7 +65,7 @@ fn parse_auth_hex(s: &str) -> Result<Vec<u8>, ParseError> {
 }
 
 impl Default for Auth {
-    /// Creates a default `Auth` instance representing an empty password.
+    /// Creates a default `Auth` instance with an empty password.
     fn default() -> Self {
         Self::Password(Vec::new())
     }
@@ -115,7 +114,7 @@ impl FromStr for Auth {
     }
 }
 
-/// Handle types.
+/// Handle classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleClass {
     Tpm,
@@ -124,8 +123,9 @@ pub enum HandleClass {
 
 /// TPM and vTPM handles, with support for pattern matching.
 ///
-/// A `Handle` can represent either a single, specific handle (e.g., `tpm:81000001`)
-/// or a pattern for matching multiple handles (e.g., `tpm:81*`, `vtpm:????????`).
+/// A `Handle` can represent either a single, specific handle (e.g.,
+/// `tpm:81000001`) or a pattern for matching multiple handles (e.g., `tpm:81*`,
+/// `vtpm:????????`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Handle {
     class: HandleClass,
@@ -152,8 +152,8 @@ impl Handle {
 
     /// Returns the value of the handle if it represents a single handle.
     ///
-    /// Returns `Some(value)` if the handle was created without wildcards.
-    /// Returns `None` if the handle is a pattern.
+    /// Returns `Some(value)` when the handle was created without wildcards.
+    /// Returns `None` when the handle is a pattern.
     #[must_use]
     pub fn value(&self) -> Option<u32> {
         if self.mask == 0xFFFF_FFFF {
@@ -269,7 +269,7 @@ impl TryFrom<Handle> for TpmHt {
     }
 }
 
-/// Represents a user's selection of PCR indices for a specific bank.
+/// A selection of PCR indices for a specific bank.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PcrSelection {
     pub alg: TpmAlgId,
@@ -288,7 +288,8 @@ impl fmt::Display for PcrSelection {
     }
 }
 
-/// A newtype wrapper to provide a project-specific `Display` implementation for `TpmAlgId`.
+/// Provides a [`Display`](std::fmt::Display) implementation for
+/// [`TpmAlgId`](tpm2_protocol::data::TpmAlgId).
 #[derive(Debug, Clone, Copy)]
 pub struct Tpm2shAlgId(pub TpmAlgId);
 
@@ -663,16 +664,25 @@ impl fmt::Display for Expression {
 }
 
 impl Expression {
-    /// Parses a policy expression string into an `Expression` AST.
+    /// Parses a policy expression string into an
+    /// [`Expression`](crate::Expression) AST.
     ///
     /// # Errors
     ///
-    /// Returns [`ParseError::InvalidAuthString`] when an auth literal is malformed.
-    /// Returns [`ParseError::InvalidHandleString`] when a handle literal is malformed.
-    /// Returns [`ParseError::InvalidPcrSelectionString`] when a `pcr()` argument is malformed.
-    /// Returns [`ParseError::UnexpectedEnd`] when the expression ends prematurely.
-    /// Returns [`ParseError::UnexpectedToken`] when an unexpected token is found.
-    /// Returns [`ParseError::UnmatchedParenthesis`] when parentheses are mismatched.
+    /// Returns [`InvalidAuthString`](crate::ParseError::InvalidAuthString) when
+    /// an auth literal is malformed.
+    /// Returns [`InvalidHandleString`](crate::ParseError::InvalidHandleString)
+    /// when a handle literal is malformed.
+    /// Returns
+    /// [`InvalidPcrSelectionString`](crate::ParseError::InvalidPcrSelectionString)
+    /// when a `pcr()` argument is malformed.
+    /// Returns [`UnexpectedEnd`](crate::ParseError::UnexpectedEnd) when the
+    /// expression ends prematurely.
+    /// Returns [`UnexpectedToken`](crate::ParseError::UnexpectedToken) when an
+    /// unexpected token is found.
+    /// Returns
+    /// [`UnmatchedParenthesis`](crate::ParseError::UnmatchedParentheses) when
+    /// parentheses are mismatched.
     pub fn new(input: &str) -> Result<Expression, ParseError> {
         let tokens = tokenize(input);
         let mut iter = tokens.iter().peekable();
