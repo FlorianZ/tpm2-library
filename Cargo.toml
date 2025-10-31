@@ -1,0 +1,19 @@
+[package]
+name = "tpm2-tpmkey"
+description = "TPM 2.0 ASN.1 format reader and writer"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-crypto.git/about/?h=main"
+repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-crypto.git"
+authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
+edition = "2021"
+rust-version = "1.79"
+readme = "README.md"
+
+[dependencies]
+hex = "0.4"
+pem = "3.0"
+rasn = "0.26"
+thiserror = "1.0"
+tpm2-policy-language = "0.2"
+tpm2-protocol = "0.11"
