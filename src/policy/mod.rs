@@ -221,36 +221,16 @@ pub fn execute_policy(
             }
             execute_policy(last_expr, session, context)
         }
-        Expression::Or(branches) => {
-            let mut branch_digests = TpmlDigest::new();
-            for branch in branches {
-                let mut temp_session = SoftwarePolicySession::new(session.hash_alg())?;
-                let branch_digest = execute_policy(branch, &mut temp_session, context)?;
-                branch_digests
-                    .try_push(branch_digest)
+        Expression::Or(branch_list) => {
+            let mut digest_list = TpmlDigest::new();
+            for branch in branch_list {
+                session.policy_restart()?;
+                let digest = execute_policy(branch, session, context)?;
+                digest_list
+                    .try_push(digest)
                     .map_err(|e| PolicyError::InvalidExpression(e.to_string()))?;
             }
-
-            let mut last_error: Option<PolicyError> = None;
-            let mut branch_succeeded = false;
-            for branch in branches {
-                session.policy_restart()?;
-                match execute_policy(branch, session, context) {
-                    Ok(_) => {
-                        branch_succeeded = true;
-                        break;
-                    }
-                    Err(e) => {
-                        last_error = Some(e);
-                    }
-                }
-            }
-
-            if !branch_succeeded {
-                return Err(last_error.unwrap_or(PolicyError::NoValidPolicyOrBranch));
-            }
-
-            session.policy_or(&branch_digests)?;
+            session.policy_or(&digest_list)?;
             session.get_digest()
         }
         Expression::Handle(handle) => Err(PolicyError::InvalidExpression(handle.to_string())),

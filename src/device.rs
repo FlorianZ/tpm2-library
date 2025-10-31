@@ -134,6 +134,7 @@ impl Device {
     /// either built command or parsed response is malformed.
     /// Returns [`TpmRc`](crate::device::DeviceError::TpmRc) when the chip
     /// responses with a return code.
+    #[allow(clippy::too_many_lines)]
     pub fn execute<C: TpmCommandObject>(
         &mut self,
         command: &C,
