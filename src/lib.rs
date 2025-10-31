@@ -36,15 +36,15 @@ pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 pub enum CryptoError {
     #[error("big number conversion failed")]
     BigNumConversion,
-    #[error("invalid ECC point")]
-    HmacMismatch,
-    #[error("invalid hash algorithm")]
-    InvalidEccPoint,
     #[error("HMAC mismatch")]
+    HmacMismatch,
+    #[error("invalid ECC point")]
+    InvalidEccPoint,
+    #[error("invalid hash algorithm")]
     InvalidHashAlgorithm,
     #[error("invalid data chunk")]
     InvalidChunk,
-    #[error("HMAC mismatch")]
+    #[error("invalid parent ECC point")]
     InvalidParent,
     #[error("invalid public area")]
     InvalidPublicArea,
