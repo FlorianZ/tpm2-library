@@ -1316,7 +1316,7 @@ checksum = "7f38953c988561917395cfb21b0f8032461e985b7814b11de233bd1edd2a1f4c"
 
 [[package]]
 name = "tpm2sh"
-version = "0.14.5"
+version = "0.14.6"
 dependencies = [
  "aes",
  "cfb-mode",
