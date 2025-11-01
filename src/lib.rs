@@ -4,7 +4,7 @@
 
 //! # TPM 2.0 Protocol
 //!
-//! A library for building and parsing TCG TPM 2.0 protocol messages.
+//! A library for marshaling and unmarshaling TCG TPM 2.0 protocol messages.
 //!
 //! ## Constraints
 //!
@@ -29,7 +29,7 @@ pub mod constant;
 pub mod data;
 #[macro_use]
 pub mod r#macro;
-pub mod message;
+pub mod frame;
 
 /// A TPM handle, which is a 32-bit unsigned integer.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -48,15 +48,15 @@ impl core::convert::From<TpmHandle> for u32 {
     }
 }
 
-impl TpmBuild for TpmHandle {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        TpmBuild::build(&self.0, writer)
+impl TpmMarshal for TpmHandle {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        TpmMarshal::marshal(&self.0, writer)
     }
 }
 
-impl TpmParse for TpmHandle {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (val, buf) = u32::parse(buf)?;
+impl TpmUnmarshal for TpmHandle {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (val, buf) = u32::unmarshal(buf)?;
         Ok((Self(val), buf))
     }
 }
@@ -108,9 +108,9 @@ pub enum TpmError {
     CapacityExceeded,
     /// The buffer contains malformed data.
     Malformed,
-    /// Trailing left data after parsing
+    /// Trailing left data after unmarshaling
     TrailingData,
-    /// Not enough bytes to parse the full data structure.
+    /// Not enough bytes to unmarshal the full data structure.
     Truncated,
     /// Unknown discriminant.
     UnknownDiscriminant(&'static str, TpmDiscriminant),
@@ -196,47 +196,47 @@ pub trait TpmSized {
     }
 }
 
-pub trait TpmBuild: TpmSized {
-    /// Builds the object into the given writer.
+pub trait TpmMarshal: TpmSized {
+    /// Marshals the object into the given writer.
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmError)` on a build failure.
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()>;
+    /// Returns `Err(TpmError)` on a marshal failure.
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
-pub trait TpmParse: Sized + TpmSized {
-    /// Parses an object from the given buffer.
+pub trait TpmUnmarshal: Sized + TpmSized {
+    /// Unmarshals an object from the given buffer.
     ///
-    /// Returns the parsed type and the remaining portion of the buffer.
+    /// Returns the unmarshald type and the remaining portion of the buffer.
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmError)` on a parse failure.
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])>;
+    /// Returns `Err(TpmError)` on a unmarshal failure.
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 
 /// Types that are composed of a tag and a value e.g., a union.
 pub trait TpmTagged {
     /// The type of the tag/discriminant.
-    type Tag: TpmParse + TpmBuild + Copy;
+    type Tag: TpmUnmarshal + TpmMarshal + Copy;
     /// The type of the value/union.
     type Value;
 }
 
-/// Parses a tagged object from a buffer.
-pub trait TpmParseTagged: Sized {
-    /// Parses a tagged object from the given buffer using the provided tag.
+/// Unmarshals a tagged object from a buffer.
+pub trait TpmUnmarshalTagged: Sized {
+    /// Unmarshals a tagged object from the given buffer using the provided tag.
     ///
     /// # Errors
     ///
-    /// This method can return any error of the underlying type's `TpmParse` implementation,
+    /// This method can return any error of the underlying type's `TpmUnmarshal` implementation,
     /// such as a `TpmError::Truncated` if the buffer is too small or an
     /// `TpmError::Malformed` if the data is malformed.
-    fn parse_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
+    fn unmarshal_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where
         Self: TpmTagged,
-        <Self as TpmTagged>::Tag: TpmParse + TpmBuild;
+        <Self as TpmTagged>::Tag: TpmUnmarshal + TpmMarshal;
 }
 
 tpm_integer!(u8, Unsigned);

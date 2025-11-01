@@ -1,4 +1,4 @@
-# TPM 2.0 marshaller/unmarshaller
+# TPM 2.0 marshaler/unmarshaler
 
 A unipolar `no_std` TPM 2.0 implementation that does not require heap allocator
 and has zero dependencies.
@@ -37,7 +37,7 @@ exit codes. This ensures that is code that can be imported to Linux kernel.
 ## Architecture
 
 `tpm2_protocol` is a low-level and policy-free library for TPM 2.0 command and
-response building and parsing.
+response marshaling and unmarshaling.
 
 The primary design goal is to be correct against TCG specifications, and to be
 usable in constrained environments.

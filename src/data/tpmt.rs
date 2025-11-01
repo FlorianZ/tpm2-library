@@ -9,8 +9,8 @@ use super::{
     TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
-    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmBuild, TpmError, TpmParse, TpmParseTagged,
-    TpmResult, TpmSized, TpmWriter,
+    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmError, TpmMarshal, TpmResult, TpmSized,
+    TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
 };
 
 macro_rules! tpm_struct_tagged {
@@ -34,18 +34,18 @@ macro_rules! tpm_struct_tagged {
             }
         }
 
-        impl $crate::TpmBuild for $name {
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $crate::TpmBuild::build(&self.$tag_field, writer)?;
-                $crate::TpmBuild::build(&self.$value_field, writer)
+        impl $crate::TpmMarshal for $name {
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $crate::TpmMarshal::marshal(&self.$tag_field, writer)?;
+                $crate::TpmMarshal::marshal(&self.$value_field, writer)
             }
         }
 
-        impl $crate::TpmParse for $name {
-            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let ($tag_field, buf) = <$tag_ty>::parse(buf)?;
+        impl $crate::TpmUnmarshal for $name {
+            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                let ($tag_field, buf) = <$tag_ty>::unmarshal(buf)?;
                 let ($value_field, buf) =
-                    <$value_ty as $crate::TpmParseTagged>::parse_tagged($tag_field, buf)?;
+                    <$value_ty as $crate::TpmUnmarshalTagged>::unmarshal_tagged($tag_field, buf)?;
                 Ok((
                     Self {
                         $tag_field,
@@ -80,39 +80,39 @@ impl TpmSized for TpmtPublic {
     }
 }
 
-impl TpmBuild for TpmtPublic {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        self.object_type.build(writer)?;
-        self.name_alg.build(writer)?;
-        self.object_attributes.build(writer)?;
-        self.auth_policy.build(writer)?;
-        self.parameters.build(writer)?;
-        self.unique.build(writer)
+impl TpmMarshal for TpmtPublic {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        self.object_type.marshal(writer)?;
+        self.name_alg.marshal(writer)?;
+        self.object_attributes.marshal(writer)?;
+        self.auth_policy.marshal(writer)?;
+        self.parameters.marshal(writer)?;
+        self.unique.marshal(writer)
     }
 }
 
-impl TpmParse for TpmtPublic {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (object_type, buf) = TpmAlgId::parse(buf)?;
-        let (name_alg, buf) = TpmAlgId::parse(buf)?;
-        let (object_attributes, buf) = TpmaObject::parse(buf)?;
-        let (auth_policy, buf) = Tpm2bDigest::parse(buf)?;
-        let (parameters, buf) = TpmuPublicParms::parse_tagged(object_type, buf)?;
+impl TpmUnmarshal for TpmtPublic {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (object_type, buf) = TpmAlgId::unmarshal(buf)?;
+        let (name_alg, buf) = TpmAlgId::unmarshal(buf)?;
+        let (object_attributes, buf) = TpmaObject::unmarshal(buf)?;
+        let (auth_policy, buf) = Tpm2bDigest::unmarshal(buf)?;
+        let (parameters, buf) = TpmuPublicParms::unmarshal_tagged(object_type, buf)?;
         let (unique, buf) = match object_type {
             TpmAlgId::KeyedHash => {
-                let (val, rest) = Tpm2bDigest::parse(buf)?;
+                let (val, rest) = Tpm2bDigest::unmarshal(buf)?;
                 (TpmuPublicId::KeyedHash(val), rest)
             }
             TpmAlgId::SymCipher => {
-                let (val, rest) = Tpm2bSymKey::parse(buf)?;
+                let (val, rest) = Tpm2bSymKey::unmarshal(buf)?;
                 (TpmuPublicId::SymCipher(val), rest)
             }
             TpmAlgId::Rsa => {
-                let (val, rest) = Tpm2bPublicKeyRsa::parse(buf)?;
+                let (val, rest) = Tpm2bPublicKeyRsa::unmarshal(buf)?;
                 (TpmuPublicId::Rsa(val), rest)
             }
             TpmAlgId::Ecc => {
-                let (point, rest) = TpmsEccPoint::parse(buf)?;
+                let (point, rest) = TpmsEccPoint::unmarshal(buf)?;
                 (TpmuPublicId::Ecc(point), rest)
             }
             TpmAlgId::Null => (TpmuPublicId::Null, buf),
@@ -194,35 +194,35 @@ impl TpmSized for TpmtSensitive {
     }
 }
 
-impl TpmBuild for TpmtSensitive {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        self.sensitive_type.build(writer)?;
-        self.auth_value.build(writer)?;
-        self.seed_value.build(writer)?;
-        self.sensitive.build(writer)
+impl TpmMarshal for TpmtSensitive {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        self.sensitive_type.marshal(writer)?;
+        self.auth_value.marshal(writer)?;
+        self.seed_value.marshal(writer)?;
+        self.sensitive.marshal(writer)
     }
 }
 
-impl TpmParse for TpmtSensitive {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (sensitive_type, buf) = TpmAlgId::parse(buf)?;
-        let (auth_value, buf) = Tpm2bAuth::parse(buf)?;
-        let (seed_value, buf) = Tpm2bDigest::parse(buf)?;
+impl TpmUnmarshal for TpmtSensitive {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (sensitive_type, buf) = TpmAlgId::unmarshal(buf)?;
+        let (auth_value, buf) = Tpm2bAuth::unmarshal(buf)?;
+        let (seed_value, buf) = Tpm2bDigest::unmarshal(buf)?;
         let (sensitive, buf) = match sensitive_type {
             TpmAlgId::Rsa => {
-                let (val, buf) = crate::data::Tpm2bPrivateKeyRsa::parse(buf)?;
+                let (val, buf) = crate::data::Tpm2bPrivateKeyRsa::unmarshal(buf)?;
                 (TpmuSensitiveComposite::Rsa(val), buf)
             }
             TpmAlgId::Ecc => {
-                let (val, buf) = Tpm2bEccParameter::parse(buf)?;
+                let (val, buf) = Tpm2bEccParameter::unmarshal(buf)?;
                 (TpmuSensitiveComposite::Ecc(val), buf)
             }
             TpmAlgId::KeyedHash => {
-                let (val, buf) = Tpm2bSensitiveData::parse(buf)?;
+                let (val, buf) = Tpm2bSensitiveData::unmarshal(buf)?;
                 (TpmuSensitiveComposite::Bits(val), buf)
             }
             TpmAlgId::SymCipher => {
-                let (val, buf) = Tpm2bSymKey::parse(buf)?;
+                let (val, buf) = Tpm2bSymKey::unmarshal(buf)?;
                 (TpmuSensitiveComposite::Sym(val), buf)
             }
             _ => return Err(TpmError::Malformed),
@@ -257,20 +257,20 @@ impl TpmSized for TpmtSymDef {
     }
 }
 
-impl TpmBuild for TpmtSymDef {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        self.algorithm.build(writer)?;
+impl TpmMarshal for TpmtSymDef {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        self.algorithm.marshal(writer)?;
         if self.algorithm != TpmAlgId::Null {
-            self.key_bits.build(writer)?;
-            self.mode.build(writer)?;
+            self.key_bits.marshal(writer)?;
+            self.mode.marshal(writer)?;
         }
         Ok(())
     }
 }
 
-impl TpmParse for TpmtSymDef {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (algorithm, buf) = TpmAlgId::parse(buf)?;
+impl TpmUnmarshal for TpmtSymDef {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (algorithm, buf) = TpmAlgId::unmarshal(buf)?;
         if algorithm == TpmAlgId::Null {
             return Ok((
                 Self {
@@ -283,19 +283,19 @@ impl TpmParse for TpmtSymDef {
         }
         let (key_bits, buf) = match algorithm {
             TpmAlgId::Aes => {
-                let (val, buf) = u16::parse(buf)?;
+                let (val, buf) = u16::unmarshal(buf)?;
                 (TpmuSymKeyBits::Aes(val), buf)
             }
             TpmAlgId::Sm4 => {
-                let (val, buf) = u16::parse(buf)?;
+                let (val, buf) = u16::unmarshal(buf)?;
                 (TpmuSymKeyBits::Sm4(val), buf)
             }
             TpmAlgId::Camellia => {
-                let (val, buf) = u16::parse(buf)?;
+                let (val, buf) = u16::unmarshal(buf)?;
                 (TpmuSymKeyBits::Camellia(val), buf)
             }
             TpmAlgId::Xor => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
+                let (val, buf) = TpmAlgId::unmarshal(buf)?;
                 (TpmuSymKeyBits::Xor(val), buf)
             }
             TpmAlgId::Null => (TpmuSymKeyBits::Null, buf),
@@ -303,19 +303,19 @@ impl TpmParse for TpmtSymDef {
         };
         let (mode, buf) = match algorithm {
             TpmAlgId::Aes => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
+                let (val, buf) = TpmAlgId::unmarshal(buf)?;
                 (TpmuSymMode::Aes(val), buf)
             }
             TpmAlgId::Sm4 => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
+                let (val, buf) = TpmAlgId::unmarshal(buf)?;
                 (TpmuSymMode::Sm4(val), buf)
             }
             TpmAlgId::Camellia => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
+                let (val, buf) = TpmAlgId::unmarshal(buf)?;
                 (TpmuSymMode::Camellia(val), buf)
             }
             TpmAlgId::Xor => {
-                let (val, buf) = TpmAlgId::parse(buf)?;
+                let (val, buf) = TpmAlgId::unmarshal(buf)?;
                 (TpmuSymMode::Xor(val), buf)
             }
             TpmAlgId::Null => (TpmuSymMode::Null, buf),

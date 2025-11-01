@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 #[allow(unused_imports)]
-use crate::{tpm_enum, TpmDiscriminant, TpmError, TpmParse};
+use crate::{tpm_enum, TpmDiscriminant, TpmError, TpmUnmarshal};
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display, Formatter},
@@ -203,15 +203,15 @@ impl crate::TpmSized for TpmRc {
     }
 }
 
-impl crate::TpmBuild for TpmRc {
-    fn build(&self, writer: &mut crate::TpmWriter) -> crate::TpmResult<()> {
-        self.value().build(writer)
+impl crate::TpmMarshal for TpmRc {
+    fn marshal(&self, writer: &mut crate::TpmWriter) -> crate::TpmResult<()> {
+        self.value().marshal(writer)
     }
 }
 
-impl crate::TpmParse for TpmRc {
-    fn parse(buf: &[u8]) -> crate::TpmResult<(Self, &[u8])> {
-        let (val, remainder) = u32::parse(buf)?;
+impl crate::TpmUnmarshal for TpmRc {
+    fn unmarshal(buf: &[u8]) -> crate::TpmResult<(Self, &[u8])> {
+        let (val, remainder) = u32::unmarshal(buf)?;
         let rc = Self::try_from(val)?;
         Ok((rc, remainder))
     }

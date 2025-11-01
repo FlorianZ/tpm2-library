@@ -15,7 +15,7 @@ use crate::{
         TpmtHa, TpmtKdfScheme, TpmtPublicParms, TpmtRsaDecrypt, TpmtSignature, TpmtSymDef,
         TpmtSymDefObject, TpmtTkAuth, TpmtTkCreation, TpmtTkHashcheck, TpmtTkVerified,
     },
-    message::TpmHeader,
+    frame::TpmHeader,
     tpm_struct, TpmHandle,
 };
 use core::fmt::Debug;

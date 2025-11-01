@@ -24,12 +24,12 @@ macro_rules! tpm_struct {
             $(pub $param_field: $param_type,)*
         }
 
-        impl $crate::message::TpmHeader for $name {
+        impl $crate::frame::TpmHeader for $name {
             const CC: $crate::data::TpmCc = $cc;
             const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
 
-        impl $crate::message::TpmFrame for $name {
+        impl $crate::frame::TpmFrame for $name {
             fn cc(&self) -> $crate::data::TpmCc {
                 Self::CC
             }
@@ -45,37 +45,37 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::TpmBuild for $name {
+        impl $crate::TpmMarshal for $name {
             #[allow(unused_variables)]
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                <Self as $crate::message::TpmBodyBuild>::build_handles(self, writer)?;
-                <Self as $crate::message::TpmBodyBuild>::build_parameters(self, writer)
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                <Self as $crate::frame::TpmBodyMarshal>::marshal_handles(self, writer)?;
+                <Self as $crate::frame::TpmBodyMarshal>::marshal_parameters(self, writer)
             }
         }
 
-        impl $crate::message::TpmBodyBuild for $name {
+        impl $crate::frame::TpmBodyMarshal for $name {
             #[allow(unused_variables)]
-            fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $($crate::TpmBuild::build(&self.$handle_field, writer)?;)*
+            fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $($crate::TpmMarshal::marshal(&self.$handle_field, writer)?;)*
                 Ok(())
             }
 
             #[allow(unused_variables)]
-            fn build_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $($crate::TpmBuild::build(&self.$param_field, writer)?;)*
+            fn marshal_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $($crate::TpmMarshal::marshal(&self.$param_field, writer)?;)*
                 Ok(())
             }
         }
 
-        impl $crate::message::TpmCommandBodyParse for $name {
+        impl $crate::frame::TpmCommandBodyUnmarshal for $name {
             #[allow(unused_mut, unused_variables)]
-            fn parse_body<'a>(
+            fn unmarshal_body<'a>(
                 handles: &'a [u8],
                 params: &'a [u8],
             ) -> $crate::TpmResult<(Self, &'a [u8])> {
                 let mut cursor = handles;
                 $(
-                    let ($handle_field, tail) = <$crate::TpmHandle as $crate::TpmParse>::parse(cursor)?;
+                    let ($handle_field, tail) = <$crate::TpmHandle as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     cursor = tail;
                 )*
 
@@ -85,7 +85,7 @@ macro_rules! tpm_struct {
 
                 let mut cursor = params;
                 $(
-                    let ($param_field, tail) = <$param_type as $crate::TpmParse>::parse(cursor)?;
+                    let ($param_field, tail) = <$param_type as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     cursor = tail;
                 )*
 
@@ -120,12 +120,12 @@ macro_rules! tpm_struct {
             $(pub $param_field: $param_type,)*
         }
 
-        impl $crate::message::TpmHeader for $name {
+        impl $crate::frame::TpmHeader for $name {
             const CC: $crate::data::TpmCc = $cc;
             const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
 
-        impl $crate::message::TpmFrame for $name {
+        impl $crate::frame::TpmFrame for $name {
             fn cc(&self) -> $crate::data::TpmCc {
                 Self::CC
             }
@@ -134,15 +134,15 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::message::TpmBodyBuild for $name {
+        impl $crate::frame::TpmBodyMarshal for $name {
             #[allow(unused_variables)]
-            fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $($crate::TpmBuild::build(&self.$handle_field, writer)?;)*
+            fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $($crate::TpmMarshal::marshal(&self.$handle_field, writer)?;)*
                 Ok(())
             }
             #[allow(unused_variables)]
-            fn build_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $($crate::TpmBuild::build(&self.$param_field, writer)?;)*
+            fn marshal_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $($crate::TpmMarshal::marshal(&self.$param_field, writer)?;)*
                 Ok(())
             }
         }
@@ -154,27 +154,27 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::TpmBuild for $name {
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                <Self as $crate::message::TpmBodyBuild>::build_handles(self, writer)?;
-                <Self as $crate::message::TpmBodyBuild>::build_parameters(self, writer)
+        impl $crate::TpmMarshal for $name {
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                <Self as $crate::frame::TpmBodyMarshal>::marshal_handles(self, writer)?;
+                <Self as $crate::frame::TpmBodyMarshal>::marshal_parameters(self, writer)
             }
         }
 
-        impl $crate::message::TpmResponseBodyParse for $name {
+        impl $crate::frame::TpmResponseBodyUnmarshal for $name {
             #[allow(unused_mut, unused_variables)]
-            fn parse_body(
+            fn unmarshal_body(
                 tag: $crate::data::TpmSt,
                 buf: &[u8],
             ) -> $crate::TpmResult<(Self, &[u8])> {
                 let mut cursor = buf;
                 $(
-                    let ($handle_field, tail) = <$crate::TpmHandle as $crate::TpmParse>::parse(cursor)?;
+                    let ($handle_field, tail) = <$crate::TpmHandle as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     cursor = tail;
                 )*
 
                 if tag == $crate::data::TpmSt::Sessions {
-                    let (size, buf_after_size) = <u32 as $crate::TpmParse>::parse(cursor)?;
+                    let (size, buf_after_size) = <u32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     let size = size as usize;
                     if buf_after_size.len() < size {
                         return Err($crate::TpmError::Truncated);
@@ -182,7 +182,7 @@ macro_rules! tpm_struct {
                     let (mut params_cursor, final_tail) = buf_after_size.split_at(size);
 
                     $(
-                        let ($param_field, tail) = <$param_type as $crate::TpmParse>::parse(params_cursor)?;
+                        let ($param_field, tail) = <$param_type as $crate::TpmUnmarshal>::unmarshal(params_cursor)?;
                         params_cursor = tail;
                     )*
 
@@ -200,7 +200,7 @@ macro_rules! tpm_struct {
                 } else {
                     let mut params_cursor = cursor;
                     $(
-                        let ($param_field, tail) = <$param_type as $crate::TpmParse>::parse(params_cursor)?;
+                        let ($param_field, tail) = <$param_type as $crate::TpmUnmarshal>::unmarshal(params_cursor)?;
                         params_cursor = tail;
                     )*
 
@@ -235,17 +235,17 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::TpmBuild for $name {
+        impl $crate::TpmMarshal for $name {
             #[allow(unused_variables)]
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $( $crate::TpmBuild::build(&self.$field_name, writer)?; )*
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $( $crate::TpmMarshal::marshal(&self.$field_name, writer)?; )*
                 Ok(())
             }
         }
 
-        impl $crate::TpmParse for $name {
-            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                $(let ($field_name, buf) = <$field_type>::parse(buf)?;)*
+        impl $crate::TpmUnmarshal for $name {
+            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                $(let ($field_name, buf) = <$field_type>::unmarshal(buf)?;)*
                 Ok((
                     Self {
                         $($field_name,)*

@@ -71,15 +71,15 @@ macro_rules! tpm_bitflags {
             }
         }
 
-        impl $crate::TpmBuild for $name {
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $crate::TpmBuild::build(&self.0, writer)
+        impl $crate::TpmMarshal for $name {
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $crate::TpmMarshal::marshal(&self.0, writer)
             }
         }
 
-        impl $crate::TpmParse for $name {
-            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = <$repr>::parse(buf)?;
+        impl $crate::TpmUnmarshal for $name {
+            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                let (val, buf) = <$repr>::unmarshal(buf)?;
                 Ok((Self(val), buf))
             }
         }
@@ -114,15 +114,15 @@ macro_rules! tpm_bool {
             }
         }
 
-        impl $crate::TpmBuild for $name {
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $crate::TpmBuild::build(&u8::from(self.0), writer)
+        impl $crate::TpmMarshal for $name {
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                $crate::TpmMarshal::marshal(&u8::from(self.0), writer)
             }
         }
 
-        impl $crate::TpmParse for $name {
-            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = u8::parse(buf)?;
+        impl $crate::TpmUnmarshal for $name {
+            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                let (val, buf) = u8::unmarshal(buf)?;
                 match val {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
@@ -149,7 +149,7 @@ macro_rules! tpm_dispatch {
     (@const_check_sorted_impl $prev_cmd:ident,) => {};
     (@const_check_sorted_impl $prev_cmd:ident, $current_cmd:ident, $( $rest_cmd:ident, )* ) => {
         const _: () = assert!(
-            <$crate::message::data::$prev_cmd as $crate::message::TpmHeader>::CC as u32 <= <$crate::message::data::$current_cmd as $crate::message::TpmHeader>::CC as u32,
+            <$crate::frame::data::$prev_cmd as $crate::frame::TpmHeader>::CC as u32 <= <$crate::frame::data::$current_cmd as $crate::frame::TpmHeader>::CC as u32,
             "TPM_DISPATCH_TABLE must be sorted by TpmCc."
         );
         $crate::tpm_dispatch!(@const_check_sorted_impl $current_cmd, $( $rest_cmd, )*);
@@ -160,7 +160,7 @@ macro_rules! tpm_dispatch {
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
         pub enum TpmCommandBody {
-            $( $variant($crate::message::data::$cmd), )*
+            $( $variant($crate::frame::data::$cmd), )*
         }
 
         impl $crate::TpmSized for TpmCommandBody {
@@ -172,54 +172,54 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl $crate::message::TpmBodyBuild for TpmCommandBody {
-             fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+        impl $crate::frame::TpmBodyMarshal for TpmCommandBody {
+             fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
-                    $( Self::$variant(c) => $crate::message::TpmBodyBuild::build_handles(c, writer), )*
+                    $( Self::$variant(c) => $crate::frame::TpmBodyMarshal::marshal_handles(c, writer), )*
                  }
              }
-             fn build_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+             fn marshal_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
-                    $( Self::$variant(c) => $crate::message::TpmBodyBuild::build_parameters(c, writer), )*
-                 }
-             }
-        }
-
-        impl $crate::TpmBuild for TpmCommandBody {
-             fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                 match self {
-                    $( Self::$variant(c) => $crate::TpmBuild::build(c, writer), )*
+                    $( Self::$variant(c) => $crate::frame::TpmBodyMarshal::marshal_parameters(c, writer), )*
                  }
              }
         }
 
-        impl $crate::message::TpmFrame for TpmCommandBody {
+        impl $crate::TpmMarshal for TpmCommandBody {
+             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                 match self {
+                    $( Self::$variant(c) => $crate::TpmMarshal::marshal(c, writer), )*
+                 }
+             }
+        }
+
+        impl $crate::frame::TpmFrame for TpmCommandBody {
             fn cc(&self) -> $crate::data::TpmCc {
                 match self {
-                    $( Self::$variant(c) => $crate::message::TpmFrame::cc(c), )*
+                    $( Self::$variant(c) => $crate::frame::TpmFrame::cc(c), )*
                 }
             }
             fn handles(&self) -> usize {
                 match self {
-                    $( Self::$variant(c) => $crate::message::TpmFrame::handles(c), )*
+                    $( Self::$variant(c) => $crate::frame::TpmFrame::handles(c), )*
                 }
             }
         }
 
         impl TpmCommandBody {
-            /// Builds a command body into a writer.
+            /// Marshals a command body into a writer.
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmError)` on a build failure.
-            pub fn build_frame(
+            /// Returns `Err(TpmError)` on a marshal failure.
+            pub fn marshal_frame(
                 &self,
                 tag: $crate::data::TpmSt,
-                sessions: &$crate::message::TpmAuthCommands,
+                sessions: &$crate::frame::TpmAuthCommands,
                 writer: &mut $crate::TpmWriter,
             ) -> $crate::TpmResult<()> {
                 match self {
-                    $( Self::$variant(c) => $crate::message::tpm_build_command(c, tag, sessions, writer), )*
+                    $( Self::$variant(c) => $crate::frame::tpm_marshal_command(c, tag, sessions, writer), )*
                 }
             }
         }
@@ -228,7 +228,7 @@ macro_rules! tpm_dispatch {
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
         pub enum TpmResponseBody {
-            $( $variant($crate::message::data::$resp), )*
+            $( $variant($crate::frame::data::$resp), )*
         }
 
         impl $crate::TpmSized for TpmResponseBody {
@@ -240,36 +240,36 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl $crate::message::TpmBodyBuild for TpmResponseBody {
-             fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+        impl $crate::frame::TpmBodyMarshal for TpmResponseBody {
+             fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
-                    $( Self::$variant(r) => $crate::message::TpmBodyBuild::build_handles(r, writer), )*
+                    $( Self::$variant(r) => $crate::frame::TpmBodyMarshal::marshal_handles(r, writer), )*
                  }
              }
-             fn build_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+             fn marshal_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
-                    $( Self::$variant(r) => $crate::message::TpmBodyBuild::build_parameters(r, writer), )*
-                 }
-             }
-        }
-
-        impl $crate::TpmBuild for TpmResponseBody {
-             fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                 match self {
-                    $( Self::$variant(r) => $crate::TpmBuild::build(r, writer), )*
+                    $( Self::$variant(r) => $crate::frame::TpmBodyMarshal::marshal_parameters(r, writer), )*
                  }
              }
         }
 
-        impl $crate::message::TpmFrame for TpmResponseBody {
+        impl $crate::TpmMarshal for TpmResponseBody {
+             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                 match self {
+                    $( Self::$variant(r) => $crate::TpmMarshal::marshal(r, writer), )*
+                 }
+             }
+        }
+
+        impl $crate::frame::TpmFrame for TpmResponseBody {
             fn cc(&self) -> $crate::data::TpmCc {
                 match self {
-                    $( Self::$variant(r) => $crate::message::TpmFrame::cc(r), )*
+                    $( Self::$variant(r) => $crate::frame::TpmFrame::cc(r), )*
                 }
             }
             fn handles(&self) -> usize {
                 match self {
-                    $( Self::$variant(r) => $crate::message::TpmFrame::handles(r), )*
+                    $( Self::$variant(r) => $crate::frame::TpmFrame::handles(r), )*
                 }
             }
         }
@@ -282,7 +282,7 @@ macro_rules! tpm_dispatch {
                 ///
                 /// Returns the original `TpmResponseBody` as an error if the enum variant does not match.
                 #[allow(non_snake_case, clippy::result_large_err)]
-                pub fn $variant(self) -> Result<$crate::message::data::$resp, Self> {
+                pub fn $variant(self) -> Result<$crate::frame::data::$resp, Self> {
                     if let Self::$variant(r) = self {
                         Ok(r)
                     } else {
@@ -291,34 +291,34 @@ macro_rules! tpm_dispatch {
                 }
             )*
 
-            /// Builds a response body into a writer.
+            /// Marshals a response body into a writer.
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmError)` on a build failure.
-            pub fn build_frame(
+            /// Returns `Err(TpmError)` on a marshal failure.
+            pub fn marshal_frame(
                 &self,
                 rc: $crate::data::TpmRc,
-                sessions: &$crate::message::TpmAuthResponses,
+                sessions: &$crate::frame::TpmAuthResponses,
                 writer: &mut $crate::TpmWriter,
             ) -> $crate::TpmResult<()> {
                 match self {
-                    $( Self::$variant(r) => $crate::message::tpm_build_response(r, sessions, rc, writer), )*
+                    $( Self::$variant(r) => $crate::frame::tpm_marshal_response(r, sessions, rc, writer), )*
                 }
             }
         }
 
-        pub(crate) static TPM_DISPATCH_TABLE: &[$crate::message::TpmDispatch] = &[
+        pub(crate) static TPM_DISPATCH_TABLE: &[$crate::frame::TpmDispatch] = &[
             $(
-                $crate::message::TpmDispatch {
-                    cc: <$crate::message::data::$cmd as $crate::message::TpmHeader>::CC,
-                    handles: <$crate::message::data::$cmd as $crate::message::TpmHeader>::HANDLES,
-                    command_parser: |handles, params| {
-                        <$crate::message::data::$cmd as $crate::message::TpmCommandBodyParse>::parse_body(handles, params)
+                $crate::frame::TpmDispatch {
+                    cc: <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC,
+                    handles: <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::HANDLES,
+                    command_unmarshaler: |handles, params| {
+                        <$crate::frame::data::$cmd as $crate::frame::TpmCommandBodyUnmarshal>::unmarshal_body(handles, params)
                             .map(|(c, r)| (TpmCommandBody::$variant(c), r))
                     },
-                    response_parser: |tag, buf| {
-                        <$crate::message::data::$resp as $crate::message::TpmResponseBodyParse>::parse_body(tag, buf)
+                    response_unmarshaler: |tag, buf| {
+                        <$crate::frame::data::$resp as $crate::frame::TpmResponseBodyUnmarshal>::unmarshal_body(tag, buf)
                             .map(|(r, rest)| (TpmResponseBody::$variant(r), rest))
                     },
                 },
@@ -353,19 +353,19 @@ macro_rules! tpm2b_struct {
             }
         }
 
-        impl $crate::TpmBuild for $wrapper_ty {
-            fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+        impl $crate::TpmMarshal for $wrapper_ty {
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 u16::try_from(inner_len)
                     .map_err(|_| $crate::TpmError::CapacityExceeded)?
-                    .build(writer)?;
-                $crate::TpmBuild::build(&self.inner, writer)
+                    .marshal(writer)?;
+                $crate::TpmMarshal::marshal(&self.inner, writer)
             }
         }
 
-        impl $crate::TpmParse for $wrapper_ty {
-            fn parse(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (size, buf_after_size) = u16::parse(buf)?;
+        impl $crate::TpmUnmarshal for $wrapper_ty {
+            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                let (size, buf_after_size) = u16::unmarshal(buf)?;
                 let size = size as usize;
 
                 if buf_after_size.len() < size {
@@ -373,7 +373,7 @@ macro_rules! tpm2b_struct {
                 }
                 let (inner_bytes, rest) = buf_after_size.split_at(size);
 
-                let (inner_val, tail) = <$inner_ty>::parse(inner_bytes)?;
+                let (inner_val, tail) = <$inner_ty>::unmarshal(inner_bytes)?;
 
                 if !tail.is_empty() {
                     return Err($crate::TpmError::TrailingData);

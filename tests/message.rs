@@ -7,12 +7,14 @@
 
 mod common;
 
-use crate::common::{bytes_to_hex, hex_to_bytes, parse_tpm_error_kind_str, run_test};
+use crate::common::{bytes_to_hex, hex_to_bytes, run_test, unmarshal_tpm_error_kind_str};
 use std::str::FromStr;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{TpmCc, TpmRc, TpmRcBase},
-    message::{tpm_build_response, tpm_parse_command, tpm_parse_response, TpmStartupResponse},
+    frame::{
+        tpm_marshal_response, tpm_unmarshal_command, tpm_unmarshal_response, TpmStartupResponse,
+    },
     TpmWriter,
 };
 
@@ -43,7 +45,8 @@ fn main() {
 
             match type_str {
                 "Command" => {
-                    let (_handles, body, sessions) = tpm_parse_command(&original_bytes).unwrap();
+                    let (_handles, body, sessions) =
+                        tpm_unmarshal_command(&original_bytes).unwrap();
 
                     let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
                     let built_len = {
@@ -53,7 +56,7 @@ fn main() {
                         } else {
                             tpm2_protocol::data::TpmSt::Sessions
                         };
-                        body.build_frame(tag, &sessions, &mut writer).unwrap();
+                        body.marshal_frame(tag, &sessions, &mut writer).unwrap();
                         writer.len()
                     };
                     let rebuilt_slice = &built_bytes[..built_len];
@@ -66,18 +69,18 @@ fn main() {
                     );
                 }
                 "Response" => {
-                    let parse_result = tpm_parse_response(cc, &original_bytes);
+                    let unmarshal_result = tpm_unmarshal_response(cc, &original_bytes);
 
                     if outcome_str == "Success" {
-                        let (body, sessions) = parse_result
-                            .expect("parsing failed on a success test case")
+                        let (body, sessions) = unmarshal_result
+                            .expect("unmarshaling failed on a success test case")
                             .expect("expected success but got TpmRc error");
 
                         let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
                         let built_len = {
                             let mut writer = TpmWriter::new(&mut built_bytes);
                             let rc = TpmRc::from(TpmRcBase::Success);
-                            body.build_frame(rc, &sessions, &mut writer).unwrap();
+                            body.marshal_frame(rc, &sessions, &mut writer).unwrap();
                             writer.len()
                         };
 
@@ -90,8 +93,8 @@ fn main() {
                             bytes_to_hex(rebuilt_slice)
                         );
                     } else if let Ok(expected_rc_base) = TpmRcBase::from_str(&outcome_str) {
-                        let actual_rc = parse_result
-                            .expect("parsing failed on a TpmRc test case")
+                        let actual_rc = unmarshal_result
+                            .expect("unmarshaling failed on a TpmRc test case")
                             .err()
                             .expect("expected a TpmRc error but got success");
 
@@ -100,7 +103,7 @@ fn main() {
                         let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
                         let built_len = {
                             let mut writer = TpmWriter::new(&mut built_bytes);
-                            tpm_build_response(
+                            tpm_marshal_response(
                                 &TpmStartupResponse::default(),
                                 &[],
                                 actual_rc,
@@ -116,12 +119,15 @@ fn main() {
                             "Error response did not roundtrip correctly"
                         );
                     } else {
-                        let expected_err =
-                            parse_tpm_error_kind_str(&outcome_str).unwrap_or_else(|e| {
-                                panic!("failed to parse outcome string '{outcome_str}': {e}")
+                        let expected_err = unmarshal_tpm_error_kind_str(&outcome_str)
+                            .unwrap_or_else(|e| {
+                                panic!("failed to unmarshal outcome string '{outcome_str}': {e}")
                             });
-                        let actual_err = parse_result.err().expect("expected TpmError, got Ok");
-                        assert_eq!(actual_err, expected_err, "mismatched parsing error type");
+                        let actual_err = unmarshal_result.err().expect("expected TpmError, got Ok");
+                        assert_eq!(
+                            actual_err, expected_err,
+                            "mismatched unmarshaling error type"
+                        );
                     }
                 }
                 _ => panic!("invalid message type in test case"),

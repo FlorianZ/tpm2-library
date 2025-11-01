@@ -13,7 +13,7 @@ use crate::{
         TpmlTaggedTpmProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtRsaScheme,
         TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
     },
-    tpm_struct, TpmBuild, TpmError, TpmHandle, TpmParse, TpmResult, TpmSized, TpmWriter,
+    tpm_struct, TpmError, TpmHandle, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmWriter,
 };
 use core::{
     convert::TryFrom,
@@ -87,16 +87,16 @@ impl TpmSized for TpmsPcrSelect {
     }
 }
 
-impl TpmBuild for TpmsPcrSelect {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        self.size.build(writer)?;
+impl TpmMarshal for TpmsPcrSelect {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        self.size.marshal(writer)?;
         writer.write_bytes(self)
     }
 }
 
-impl TpmParse for TpmsPcrSelect {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (size, remainder) = u8::parse(buf)?;
+impl TpmUnmarshal for TpmsPcrSelect {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (size, remainder) = u8::unmarshal(buf)?;
         let size_usize = size as usize;
 
         if size_usize > TPM_PCR_SELECT_MAX {
@@ -160,39 +160,39 @@ impl TpmSized for TpmsCapabilityData {
     }
 }
 
-impl TpmBuild for TpmsCapabilityData {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        self.capability.build(writer)?;
-        self.data.build(writer)
+impl TpmMarshal for TpmsCapabilityData {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        self.capability.marshal(writer)?;
+        self.data.marshal(writer)
     }
 }
 
-impl TpmParse for TpmsCapabilityData {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (capability, buf) = TpmCap::parse(buf)?;
+impl TpmUnmarshal for TpmsCapabilityData {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (capability, buf) = TpmCap::unmarshal(buf)?;
         let (data, buf) = match capability {
             TpmCap::Algs => {
-                let (algs, buf) = TpmlAlgProperty::parse(buf)?;
+                let (algs, buf) = TpmlAlgProperty::unmarshal(buf)?;
                 (TpmuCapabilities::Algs(algs), buf)
             }
             TpmCap::Handles => {
-                let (handles, buf) = TpmlHandle::parse(buf)?;
+                let (handles, buf) = TpmlHandle::unmarshal(buf)?;
                 (TpmuCapabilities::Handles(handles), buf)
             }
             TpmCap::Pcrs => {
-                let (pcrs, buf) = TpmlPcrSelection::parse(buf)?;
+                let (pcrs, buf) = TpmlPcrSelection::unmarshal(buf)?;
                 (TpmuCapabilities::Pcrs(pcrs), buf)
             }
             TpmCap::Commands => {
-                let (cmds, buf) = TpmlCca::parse(buf)?;
+                let (cmds, buf) = TpmlCca::unmarshal(buf)?;
                 (TpmuCapabilities::Commands(cmds), buf)
             }
             TpmCap::TpmProperties => {
-                let (props, buf) = TpmlTaggedTpmProperty::parse(buf)?;
+                let (props, buf) = TpmlTaggedTpmProperty::unmarshal(buf)?;
                 (TpmuCapabilities::TpmProperties(props), buf)
             }
             TpmCap::EccCurves => {
-                let (curves, buf) = TpmlEccCurve::parse(buf)?;
+                let (curves, buf) = TpmlEccCurve::unmarshal(buf)?;
                 (TpmuCapabilities::EccCurves(curves), buf)
             }
         };
@@ -289,17 +289,17 @@ impl TpmSized for TpmsPcrSelection {
     }
 }
 
-impl TpmBuild for TpmsPcrSelection {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        self.hash.build(writer)?;
-        self.pcr_select.build(writer)
+impl TpmMarshal for TpmsPcrSelection {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        self.hash.marshal(writer)?;
+        self.pcr_select.marshal(writer)
     }
 }
 
-impl TpmParse for TpmsPcrSelection {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (hash, buf) = TpmAlgId::parse(buf)?;
-        let (pcr_select, buf) = TpmsPcrSelect::parse(buf)?;
+impl TpmUnmarshal for TpmsPcrSelection {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (hash, buf) = TpmAlgId::unmarshal(buf)?;
+        let (pcr_select, buf) = TpmsPcrSelect::unmarshal(buf)?;
         Ok((Self { hash, pcr_select }, buf))
     }
 }
@@ -474,60 +474,60 @@ impl TpmSized for TpmsAttest {
     }
 }
 
-impl TpmBuild for TpmsAttest {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        0xff54_4347_u32.build(writer)?;
-        self.attest_type.build(writer)?;
-        self.qualified_signer.build(writer)?;
-        self.extra_data.build(writer)?;
-        self.clock_info.build(writer)?;
-        self.firmware_version.build(writer)?;
-        self.attested.build(writer)
+impl TpmMarshal for TpmsAttest {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        0xff54_4347_u32.marshal(writer)?;
+        self.attest_type.marshal(writer)?;
+        self.qualified_signer.marshal(writer)?;
+        self.extra_data.marshal(writer)?;
+        self.clock_info.marshal(writer)?;
+        self.firmware_version.marshal(writer)?;
+        self.attested.marshal(writer)
     }
 }
 
-impl TpmParse for TpmsAttest {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (magic, buf) = u32::parse(buf)?;
+impl TpmUnmarshal for TpmsAttest {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (magic, buf) = u32::unmarshal(buf)?;
         if magic != TPM_GENERATED_VALUE {
             return Err(TpmError::Malformed);
         }
-        let (attest_type, buf) = TpmSt::parse(buf)?;
-        let (qualified_signer, buf) = Tpm2bName::parse(buf)?;
-        let (extra_data, buf) = Tpm2bData::parse(buf)?;
-        let (clock_info, buf) = TpmsClockInfo::parse(buf)?;
-        let (firmware_version, buf) = u64::parse(buf)?;
+        let (attest_type, buf) = TpmSt::unmarshal(buf)?;
+        let (qualified_signer, buf) = Tpm2bName::unmarshal(buf)?;
+        let (extra_data, buf) = Tpm2bData::unmarshal(buf)?;
+        let (clock_info, buf) = TpmsClockInfo::unmarshal(buf)?;
+        let (firmware_version, buf) = u64::unmarshal(buf)?;
         let (attested, buf) = match attest_type {
             TpmSt::AttestCertify => {
-                let (val, buf) = TpmsCertifyInfo::parse(buf)?;
+                let (val, buf) = TpmsCertifyInfo::unmarshal(buf)?;
                 (TpmuAttest::Certify(val), buf)
             }
             TpmSt::AttestCreation => {
-                let (val, buf) = TpmsCreationInfo::parse(buf)?;
+                let (val, buf) = TpmsCreationInfo::unmarshal(buf)?;
                 (TpmuAttest::Creation(val), buf)
             }
             TpmSt::AttestQuote => {
-                let (val, buf) = TpmsQuoteInfo::parse(buf)?;
+                let (val, buf) = TpmsQuoteInfo::unmarshal(buf)?;
                 (TpmuAttest::Quote(val), buf)
             }
             TpmSt::AttestCommandAudit => {
-                let (val, buf) = TpmsCommandAuditInfo::parse(buf)?;
+                let (val, buf) = TpmsCommandAuditInfo::unmarshal(buf)?;
                 (TpmuAttest::CommandAudit(val), buf)
             }
             TpmSt::AttestSessionAudit => {
-                let (val, buf) = TpmsSessionAuditInfo::parse(buf)?;
+                let (val, buf) = TpmsSessionAuditInfo::unmarshal(buf)?;
                 (TpmuAttest::SessionAudit(val), buf)
             }
             TpmSt::AttestTime => {
-                let (val, buf) = TpmsTimeAttestInfo::parse(buf)?;
+                let (val, buf) = TpmsTimeAttestInfo::unmarshal(buf)?;
                 (TpmuAttest::Time(val), buf)
             }
             TpmSt::AttestNv => {
-                let (val, buf) = TpmsNvCertifyInfo::parse(buf)?;
+                let (val, buf) = TpmsNvCertifyInfo::unmarshal(buf)?;
                 (TpmuAttest::Nv(val), buf)
             }
             TpmSt::AttestNvDigest => {
-                let (val, buf) = TpmsNvDigestCertifyInfo::parse(buf)?;
+                let (val, buf) = TpmsNvDigestCertifyInfo::unmarshal(buf)?;
                 (TpmuAttest::NvDigest(val), buf)
             }
             _ => return Err(TpmError::Malformed),

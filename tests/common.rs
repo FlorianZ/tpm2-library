@@ -55,7 +55,7 @@ pub fn run_test(name: &str, test_fn: impl FnOnce() + std::panic::UnwindSafe) -> 
 }
 
 #[allow(dead_code)]
-fn parse_key_value_u16(part: &str, key: &str) -> Result<u16, &'static str> {
+fn unmarshal_key_value_u16(part: &str, key: &str) -> Result<u16, &'static str> {
     let value_str = part
         .trim()
         .strip_prefix(key)
@@ -69,7 +69,7 @@ fn parse_key_value_u16(part: &str, key: &str) -> Result<u16, &'static str> {
 }
 
 #[allow(dead_code)]
-fn parse_key_value_u32(part: &str, key: &str) -> Result<u32, &'static str> {
+fn unmarshal_key_value_u32(part: &str, key: &str) -> Result<u32, &'static str> {
     let value_str = part
         .trim()
         .strip_prefix(key)
@@ -83,7 +83,7 @@ fn parse_key_value_u32(part: &str, key: &str) -> Result<u32, &'static str> {
 }
 
 #[allow(dead_code)]
-fn parse_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static str> {
+fn unmarshal_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static str> {
     part.trim()
         .strip_prefix(key)
         .ok_or("Malformed key")?
@@ -97,7 +97,7 @@ fn parse_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static
 }
 
 #[allow(dead_code)]
-pub fn parse_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
+pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
     match s {
         "Malformed" => return Ok(TpmError::Malformed),
         "Truncated" => return Ok(TpmError::Truncated),

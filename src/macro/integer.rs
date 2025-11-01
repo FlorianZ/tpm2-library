@@ -5,8 +5,8 @@
 #[macro_export]
 macro_rules! tpm_integer {
     ($ty:ty, $variant:ident) => {
-        impl TpmParse for $ty {
-            fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        impl TpmUnmarshal for $ty {
+            fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
                 let size = size_of::<$ty>();
                 let bytes = buf.get(..size).ok_or(TpmError::Truncated)?;
                 let array = bytes.try_into().map_err(|_| TpmError::Malformed)?;
@@ -15,8 +15,8 @@ macro_rules! tpm_integer {
             }
         }
 
-        impl TpmBuild for $ty {
-            fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        impl TpmMarshal for $ty {
+            fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
                 writer.write_bytes(&self.to_be_bytes())
             }
         }

@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmBuild, TpmError, TpmParse, TpmResult, TpmSized, TpmWriter};
+use crate::{TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmWriter};
 use core::{convert::TryFrom, fmt::Debug, mem::size_of, ops::Deref};
 
 /// A buffer in the native TPM2B wire format.
@@ -56,17 +56,17 @@ impl<const CAPACITY: usize> TpmSized for TpmBuffer<CAPACITY> {
     }
 }
 
-impl<const CAPACITY: usize> TpmBuild for TpmBuffer<CAPACITY> {
-    fn build(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+impl<const CAPACITY: usize> TpmMarshal for TpmBuffer<CAPACITY> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         let native_size = self.size();
-        native_size.build(writer)?;
+        native_size.marshal(writer)?;
         writer.write_bytes(&self.data[..native_size as usize])
     }
 }
 
-impl<const CAPACITY: usize> TpmParse for TpmBuffer<CAPACITY> {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (native_size, remainder) = u16::parse(buf)?;
+impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (native_size, remainder) = u16::unmarshal(buf)?;
         let size_usize = native_size as usize;
 
         if size_usize > CAPACITY {

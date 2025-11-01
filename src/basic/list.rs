@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmBuild, TpmError, TpmParse, TpmResult, TpmSized};
+use crate::{TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal};
 use core::{
     convert::TryFrom,
     fmt::Debug,
@@ -92,20 +92,20 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
     }
 }
 
-impl<T: TpmBuild + Copy, const CAPACITY: usize> TpmBuild for TpmList<T, CAPACITY> {
-    fn build(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
+impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPACITY> {
+    fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
         let len = u32::try_from(self.len).map_err(|_| TpmError::CapacityExceeded)?;
-        TpmBuild::build(&len, writer)?;
+        TpmMarshal::marshal(&len, writer)?;
         for item in &**self {
-            TpmBuild::build(item, writer)?;
+            TpmMarshal::marshal(item, writer)?;
         }
         Ok(())
     }
 }
 
-impl<T: TpmParse + Copy, const CAPACITY: usize> TpmParse for TpmList<T, CAPACITY> {
-    fn parse(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (count_u32, mut buf) = u32::parse(buf)?;
+impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, CAPACITY> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (count_u32, mut buf) = u32::unmarshal(buf)?;
         let count = count_u32 as usize;
         if count > CAPACITY {
             return Err(TpmError::CapacityExceeded);
@@ -113,7 +113,7 @@ impl<T: TpmParse + Copy, const CAPACITY: usize> TpmParse for TpmList<T, CAPACITY
 
         let mut list = Self::new();
         for _ in 0..count {
-            let (item, rest) = T::parse(buf)?;
+            let (item, rest) = T::unmarshal(buf)?;
             list.try_push(item)?;
             buf = rest;
         }
