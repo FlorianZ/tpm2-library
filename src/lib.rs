@@ -21,7 +21,7 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bEccParameter, Tpm2bName, TpmAlgId, TpmEccCurve, TpmsEccPoint, TpmtPublic},
-    TpmBuild, TpmWriter,
+    TpmMarshal, TpmWriter,
 };
 
 pub const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
@@ -265,11 +265,11 @@ pub fn make_name(public: &TpmtPublic) -> Result<Tpm2bName, CryptoError> {
     let mut name_buf = Vec::new();
     name_buf.extend_from_slice(&(name_alg as u16).to_be_bytes());
 
-    let mut public_bytes = vec![0u8; TPM_MAX_COMMAND_SIZE];
+    let mut public_bytes = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = TpmWriter::new(&mut public_bytes);
         public
-            .build(&mut writer)
+            .marshal(&mut writer)
             .map_err(|_| CryptoError::InvalidPublicArea)?;
         writer.len()
     };

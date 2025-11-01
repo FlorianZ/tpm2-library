@@ -13,7 +13,7 @@ version = "0.3.0"
 num-bigint = { version = "0.4" }
 openssl = { version = "0.10" }
 thiserror = "1.0"
-tpm2-protocol = "0.11"
+tpm2-protocol = "0.12"
 
 [[test]]
 name = "hmac"
