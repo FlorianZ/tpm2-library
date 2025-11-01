@@ -164,7 +164,7 @@ macro_rules! tpm_dispatch {
         }
 
         impl $crate::TpmSized for TpmCommandBody {
-            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE;
+            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE as usize;
             fn len(&self) -> usize {
                 match self {
                     $( Self::$variant(c) => $crate::TpmSized::len(c), )*
@@ -232,7 +232,7 @@ macro_rules! tpm_dispatch {
         }
 
         impl $crate::TpmSized for TpmResponseBody {
-            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE;
+            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE as usize;
             fn len(&self) -> usize {
                 match self {
                     $( Self::$variant(r) => $crate::TpmSized::len(r), )*

@@ -38,7 +38,7 @@ pub type TpmResponseResult = Result<(TpmResponseBody, TpmAuthResponses), TpmRc>;
 pub fn tpm_unmarshal_command(
     buf: &[u8],
 ) -> TpmResult<(TpmHandles, TpmCommandBody, TpmAuthCommands)> {
-    if buf.len() < TPM_HEADER_SIZE {
+    if buf.len() < TPM_HEADER_SIZE as usize {
         return Err(TpmError::Truncated);
     }
     let buf_len = buf.len();
@@ -122,7 +122,7 @@ pub fn tpm_unmarshal_command(
 /// * `TpmError::UnknownDiscriminant` if the buffer contains an unsupported command code
 /// * `TpmError::TrailingData` if the response has after spurious data left
 pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult> {
-    if buf.len() < TPM_HEADER_SIZE {
+    if buf.len() < TPM_HEADER_SIZE as usize {
         return Err(TpmError::Truncated);
     }
 

@@ -26,7 +26,7 @@ use core::{
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct TpmsPcrSelect {
     size: u8,
-    data: [u8; TPM_PCR_SELECT_MAX],
+    data: [u8; TPM_PCR_SELECT_MAX as usize],
 }
 
 impl TpmsPcrSelect {
@@ -35,7 +35,7 @@ impl TpmsPcrSelect {
     pub const fn new() -> Self {
         Self {
             size: 0,
-            data: [0; TPM_PCR_SELECT_MAX],
+            data: [0; TPM_PCR_SELECT_MAX as usize],
         }
     }
 }
@@ -58,7 +58,7 @@ impl TryFrom<&[u8]> for TpmsPcrSelect {
     type Error = TpmError;
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
-        if slice.len() > TPM_PCR_SELECT_MAX {
+        if slice.len() > TPM_PCR_SELECT_MAX as usize {
             return Err(TpmError::CapacityExceeded);
         }
         let mut pcr_select = Self::new();
@@ -80,7 +80,7 @@ impl Debug for TpmsPcrSelect {
 }
 
 impl TpmSized for TpmsPcrSelect {
-    const SIZE: usize = size_of::<u8>() + TPM_PCR_SELECT_MAX;
+    const SIZE: usize = size_of::<u8>() + TPM_PCR_SELECT_MAX as usize;
 
     fn len(&self) -> usize {
         size_of::<u8>() + self.size as usize
@@ -97,16 +97,15 @@ impl TpmMarshal for TpmsPcrSelect {
 impl TpmUnmarshal for TpmsPcrSelect {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (size, remainder) = u8::unmarshal(buf)?;
-        let size_usize = size as usize;
 
-        if size_usize > TPM_PCR_SELECT_MAX {
+        if size > TPM_PCR_SELECT_MAX {
             return Err(TpmError::CapacityExceeded);
         }
-        if remainder.len() < size_usize {
+        if remainder.len() < size as usize {
             return Err(TpmError::Truncated);
         }
 
-        let (pcr_bytes, final_remainder) = remainder.split_at(size_usize);
+        let (pcr_bytes, final_remainder) = remainder.split_at(size as usize);
         let pcr_select = Self::try_from(pcr_bytes)?;
         Ok((pcr_select, final_remainder))
     }
@@ -282,7 +281,7 @@ pub struct TpmsPcrSelection {
 }
 
 impl TpmSized for TpmsPcrSelection {
-    const SIZE: usize = TpmAlgId::SIZE + 1 + TPM_PCR_SELECT_MAX;
+    const SIZE: usize = TpmAlgId::SIZE + 1 + TPM_PCR_SELECT_MAX as usize;
 
     fn len(&self) -> usize {
         self.hash.len() + self.pcr_select.len()

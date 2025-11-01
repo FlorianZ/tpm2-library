@@ -37,7 +37,7 @@ impl TpmTagged for TpmuAsymScheme {
 }
 
 impl TpmSized for TpmuAsymScheme {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::Any(s) => s.len(),
@@ -78,7 +78,7 @@ pub enum TpmuCapabilities {
 }
 
 impl TpmSized for TpmuCapabilities {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::Algs(algs) => algs.len(),
@@ -185,7 +185,7 @@ pub enum TpmuPublicId {
 }
 
 impl TpmSized for TpmuPublicId {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::KeyedHash(data) => data.len(),
@@ -230,7 +230,7 @@ impl TpmTagged for TpmuPublicParms {
 }
 
 impl TpmSized for TpmuPublicParms {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::KeyedHash(d) => d.len(),
@@ -295,7 +295,7 @@ impl Default for TpmuSensitiveComposite {
 }
 
 impl TpmSized for TpmuSensitiveComposite {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::Ecc(val) => val.len(),
@@ -405,7 +405,7 @@ impl TpmTagged for TpmuSignature {
 }
 
 impl TpmSized for TpmuSignature {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::Rsassa(s) | Self::Rsapss(s) => s.len(),
@@ -480,7 +480,7 @@ pub enum TpmuAttest {
 }
 
 impl TpmSized for TpmuAttest {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::Certify(i) => i.len(),
@@ -524,7 +524,7 @@ impl TpmTagged for TpmuKeyedhashScheme {
 }
 
 impl TpmSized for TpmuKeyedhashScheme {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::Hmac(s) => s.len(),
@@ -580,7 +580,7 @@ impl TpmTagged for TpmuSigScheme {
 }
 
 impl TpmSized for TpmuSigScheme {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::Any(s) | Self::Hmac(s) => s.len(),
@@ -623,7 +623,7 @@ impl TpmTagged for TpmuNvPublic2 {
 
 #[allow(clippy::match_same_arms)]
 impl TpmSized for TpmuNvPublic2 {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
             Self::NvIndex(s) => s.len(),

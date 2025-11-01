@@ -21,7 +21,7 @@ use crate::{
 };
 use core::{convert::TryFrom, fmt::Debug};
 
-tpm2b!(Tpm2b, TPM_MAX_COMMAND_SIZE);
+tpm2b!(Tpm2b, { TPM_MAX_COMMAND_SIZE as usize });
 tpm2b!(Tpm2bAuth, MAX_DIGEST_SIZE);
 tpm2b!(Tpm2bDigest, MAX_DIGEST_SIZE);
 tpm2b!(Tpm2bEccParameter, MAX_ECC_KEY_BYTES);

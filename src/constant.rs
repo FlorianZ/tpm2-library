@@ -15,6 +15,6 @@ pub const MAX_SESSIONS: usize = 8;
 pub const MAX_SYM_KEY_BYTES: usize = 32;
 
 pub const TPM_GENERATED_VALUE: u32 = 0xFF54_4347;
-pub const TPM_HEADER_SIZE: usize = 10;
-pub const TPM_MAX_COMMAND_SIZE: usize = 4096;
-pub const TPM_PCR_SELECT_MAX: usize = 3;
+pub const TPM_HEADER_SIZE: u32 = 10;
+pub const TPM_MAX_COMMAND_SIZE: u32 = 4096;
+pub const TPM_PCR_SELECT_MAX: u8 = 3;
