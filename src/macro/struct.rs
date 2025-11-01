@@ -80,7 +80,7 @@ macro_rules! tpm_struct {
                 )*
 
                 if !cursor.is_empty() {
-                    return Err($crate::TpmError::TrailingData);
+                    return Err($crate::TpmError::Trailing);
                 }
 
                 let mut cursor = params;
@@ -187,7 +187,7 @@ macro_rules! tpm_struct {
                     )*
 
                     if !params_cursor.is_empty() {
-                        return Err($crate::TpmError::TrailingData);
+                        return Err($crate::TpmError::Trailing);
                     }
 
                     Ok((

@@ -126,7 +126,7 @@ macro_rules! tpm_bool {
                 match val {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
-                    _ => Err($crate::TpmError::UnknownDiscriminant (stringify!($name), TpmDiscriminant::Unsigned(u64::from(val)))),
+                    _ => Err($crate::TpmError::InvalidDiscriminant (stringify!($name), TpmDiscriminant::Unsigned(u64::from(val)))),
                 }
             }
         }
@@ -376,7 +376,7 @@ macro_rules! tpm2b_struct {
                 let (inner_val, tail) = <$inner_ty>::unmarshal(inner_bytes)?;
 
                 if !tail.is_empty() {
-                    return Err($crate::TpmError::TrailingData);
+                    return Err($crate::TpmError::Trailing);
                 }
 
                 Ok((Self { inner: inner_val }, rest))

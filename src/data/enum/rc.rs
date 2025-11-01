@@ -227,7 +227,7 @@ impl TryFrom<u32> for TpmRc {
         };
 
         let base = TpmRcBase::try_from(base_code).map_err(|()| {
-            TpmError::UnknownDiscriminant(
+            TpmError::InvalidDiscriminant(
                 "TpmRcBase",
                 TpmDiscriminant::Unsigned(u64::from(base_code)),
             )

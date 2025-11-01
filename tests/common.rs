@@ -101,34 +101,34 @@ pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
     match s {
         "Malformed" => return Ok(TpmError::Malformed),
         "Truncated" => return Ok(TpmError::Truncated),
-        "TrailingData" => return Ok(TpmError::TrailingData),
+        "Trailing" => return Ok(TpmError::Trailing),
         _ => {}
     }
 
-    if let Some(rest) = s.strip_prefix("UnknownDiscriminant") {
+    if let Some(rest) = s.strip_prefix("InvalidDiscriminant") {
         let content = rest
             .trim()
             .strip_prefix('(')
             .and_then(|s| s.strip_suffix(')'))
-            .ok_or("UnknownDiscriminant: missing parentheses")?
+            .ok_or("InvalidDiscriminant: missing parentheses")?
             .trim();
 
         let mut parts = content.splitn(2, ',');
         let type_name_part = parts
             .next()
-            .ok_or("UnknownDiscriminant: missing type_name part")?;
+            .ok_or("InvalidDiscriminant: missing type_name part")?;
         let value_part = parts
             .next()
-            .ok_or("UnknownDiscriminant: missing value part")?;
+            .ok_or("InvalidDiscriminant: missing value part")?;
 
         let type_name_val = type_name_part
             .trim()
             .strip_prefix('"')
             .and_then(|s| s.strip_suffix('"'))
-            .ok_or("UnknownDiscriminant: malformed type_name string")?;
+            .ok_or("InvalidDiscriminant: malformed type_name string")?;
         let type_name = match type_name_val {
             "TpmSt" => "TpmSt",
-            _ => return Err("UnknownDiscriminant: unsupported type_name"),
+            _ => return Err("InvalidDiscriminant: unsupported type_name"),
         };
         let value_str = value_part.trim();
         if let Some(num_str) = value_str
@@ -136,14 +136,14 @@ pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
             .and_then(|s| s.strip_suffix(')'))
         {
             let val = u64::from_str_radix(num_str.strip_prefix("0x").unwrap_or(num_str), 16)
-                .map_err(|_| "UnknownDiscriminant: invalid number for Unsigned")?;
-            return Ok(TpmError::UnknownDiscriminant(
+                .map_err(|_| "InvalidDiscriminant: invalid number for Unsigned")?;
+            return Ok(TpmError::InvalidDiscriminant(
                 type_name,
                 TpmDiscriminant::Unsigned(val),
             ));
         }
 
-        return Err("UnknownDiscriminant: unsupported value variant");
+        return Err("InvalidDiscriminant: unsupported value variant");
     }
 
     Err("unknown variant")

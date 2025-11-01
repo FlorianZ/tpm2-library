@@ -102,30 +102,30 @@ impl core::fmt::LowerHex for TpmDiscriminant {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// TPM protocol data error.
+/// TPM protocol error.
 pub enum TpmError {
-    /// A specification capacity has been exceeded,
+    /// Capacity of a structure has been exceeded,
     CapacityExceeded,
-    /// The buffer contains malformed data.
-    Malformed,
-    /// Trailing left data after unmarshaling
-    TrailingData,
-    /// Not enough bytes to unmarshal the full data structure.
-    Truncated,
     /// Unknown discriminant.
-    UnknownDiscriminant(&'static str, TpmDiscriminant),
+    InvalidDiscriminant(&'static str, TpmDiscriminant),
+    /// The frame or object is malformed.
+    Malformed,
+    /// Trailing data left.
+    Trailing,
+    /// Not enough bytes to unmarshal.
+    Truncated,
 }
 
 impl core::fmt::Display for TpmError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::CapacityExceeded => write!(f, "capacity exceeded"),
-            Self::Malformed => write!(f, "malformed data"),
-            Self::TrailingData => write!(f, "trailing data"),
-            Self::Truncated => write!(f, "truncated data"),
-            Self::UnknownDiscriminant(type_name, value) => {
+            Self::CapacityExceeded => write!(f, "capacity has been exceeded"),
+            Self::InvalidDiscriminant(type_name, value) => {
                 write!(f, "unknown discriminant: {type_name}:  0x{value:x}")
             }
+            Self::Malformed => write!(f, "data is malformed"),
+            Self::Trailing => write!(f, "trailing data left"),
+            Self::Truncated => write!(f, "data is truncated"),
         }
     }
 }

@@ -33,8 +33,8 @@ pub type TpmResponseResult = Result<(TpmResponseBody, TpmAuthResponses), TpmRc>;
 /// # Errors
 ///
 /// * `TpmError::Truncated` if the buffer is too small
-/// * `TpmError::UnknownDiscriminant` if the buffer contains an unsupported command code or unexpected byte
-/// * `TpmError::TrailingData` if the command has after spurious data left
+/// * `TpmError::InvalidDiscriminant` if the buffer contains an unsupported command code or unexpected byte
+/// * `TpmError::Trailing` if the command has after spurious data left
 pub fn tpm_unmarshal_command(
     buf: &[u8],
 ) -> TpmResult<(TpmHandles, TpmCommandBody, TpmAuthCommands)> {
@@ -45,7 +45,7 @@ pub fn tpm_unmarshal_command(
 
     let (tag_raw, buf) = u16::unmarshal(buf)?;
     let tag = TpmSt::try_from(tag_raw).map_err(|()| {
-        TpmError::UnknownDiscriminant("TpmSt", TpmDiscriminant::Unsigned(u64::from(tag_raw)))
+        TpmError::InvalidDiscriminant("TpmSt", TpmDiscriminant::Unsigned(u64::from(tag_raw)))
     })?;
     let (size, buf) = u32::unmarshal(buf)?;
     let (cc_raw, body_buf) = u32::unmarshal(buf)?;
@@ -53,17 +53,17 @@ pub fn tpm_unmarshal_command(
     if buf_len < size as usize {
         return Err(TpmError::Truncated);
     } else if buf_len > size as usize {
-        return Err(TpmError::TrailingData);
+        return Err(TpmError::Trailing);
     }
 
     let cc = TpmCc::try_from(cc_raw).map_err(|()| {
-        TpmError::UnknownDiscriminant("TpmCc", TpmDiscriminant::Unsigned(u64::from(cc_raw)))
+        TpmError::InvalidDiscriminant("TpmCc", TpmDiscriminant::Unsigned(u64::from(cc_raw)))
     })?;
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
         .map_err(|_| {
-            TpmError::UnknownDiscriminant("TpmCc", TpmDiscriminant::Unsigned(u64::from(cc_raw)))
+            TpmError::InvalidDiscriminant("TpmCc", TpmDiscriminant::Unsigned(u64::from(cc_raw)))
         })?;
 
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
@@ -90,7 +90,7 @@ pub fn tpm_unmarshal_command(
             auth_area = rest;
         }
         if !auth_area.is_empty() {
-            return Err(TpmError::TrailingData);
+            return Err(TpmError::Trailing);
         }
         param_area
     } else {
@@ -100,7 +100,7 @@ pub fn tpm_unmarshal_command(
     let (command_data, param_remainder) = (dispatch.command_unmarshaler)(handle_area, param_area)?;
 
     if !param_remainder.is_empty() {
-        return Err(TpmError::TrailingData);
+        return Err(TpmError::Trailing);
     }
 
     let mut handles = TpmHandles::new();
@@ -119,8 +119,8 @@ pub fn tpm_unmarshal_command(
 /// # Errors
 ///
 /// * `TpmError::Truncated` if the buffer is too small
-/// * `TpmError::UnknownDiscriminant` if the buffer contains an unsupported command code
-/// * `TpmError::TrailingData` if the response has after spurious data left
+/// * `TpmError::InvalidDiscriminant` if the buffer contains an unsupported command code
+/// * `TpmError::Trailing` if the response has after spurious data left
 pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult> {
     if buf.len() < TPM_HEADER_SIZE as usize {
         return Err(TpmError::Truncated);
@@ -133,7 +133,7 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
     if buf.len() < size as usize {
         return Err(TpmError::Truncated);
     } else if buf.len() > size as usize {
-        return Err(TpmError::TrailingData);
+        return Err(TpmError::Trailing);
     }
 
     let rc = TpmRc::try_from(code)?;
@@ -142,14 +142,14 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
     }
 
     let tag = TpmSt::try_from(tag_raw).map_err(|()| {
-        TpmError::UnknownDiscriminant("TpmSt", TpmDiscriminant::Unsigned(u64::from(tag_raw)))
+        TpmError::InvalidDiscriminant("TpmSt", TpmDiscriminant::Unsigned(u64::from(tag_raw)))
     })?;
 
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
         .map_err(|_| {
-            TpmError::UnknownDiscriminant("TpmCc", TpmDiscriminant::Unsigned(u64::from(cc as u32)))
+            TpmError::InvalidDiscriminant("TpmCc", TpmDiscriminant::Unsigned(u64::from(cc as u32)))
         })?;
 
     let (body, mut session_area) = (dispatch.response_unmarshaler)(tag, body_buf)?;
@@ -164,7 +164,7 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
     }
 
     if !session_area.is_empty() {
-        return Err(TpmError::TrailingData);
+        return Err(TpmError::Trailing);
     }
 
     Ok(Ok((body, auth_responses)))
