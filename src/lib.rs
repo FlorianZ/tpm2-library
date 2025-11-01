@@ -23,8 +23,8 @@ use tpm2_policy_language::{Expression, Handle, HandleClass, PcrSelection, Policy
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmlPcrSelection},
-    message::{tpm_parse_command, TpmBodyBuild, TpmCommandBody},
-    TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter,
+    frame::{tpm_unmarshal_command, TpmBodyMarshal, TpmCommandBody, TpmFrame},
+    TpmError, TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
 /// Error type for TPM key format operations.
@@ -44,12 +44,12 @@ pub enum TpmKeyError {
     UnknownPemTag(String),
 }
 
-/// Serialize a type implementing `TpmBuild` type into `Vec<u8>`.
-fn write_object<T: TpmBuild>(obj: &T) -> Result<Vec<u8>, TpmError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+/// Serialize a type implementing `TpmMarshal` type into `Vec<u8>`.
+fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmError> {
+    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
-        obj.build(&mut writer)?;
+        obj.marshal(&mut writer)?;
         writer.len()
     };
     buf.truncate(len);
@@ -78,7 +78,7 @@ impl TpmPolicyCommand {
     /// # Errors
     ///
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the
-    /// command body bytes cannot be parsed, when the policy sequence is empty,
+    /// command body bytes cannot be umarshaled, when the policy sequence is empty,
     /// or when an invalid PCR index is found.
     /// Returns [`UnsupportedPolicyCommand`](crate::TpmKeyError::UnsupportedPolicyCommand)
     /// when a command code is encountered that is not supported by the
@@ -91,9 +91,9 @@ impl TpmPolicyCommand {
                     .map_err(|()| TpmKeyError::UnsupportedPolicyCommand(cmd.command_code))?;
                 match cc {
                     TpmCc::PolicyPcr => {
-                        let (pcrs, remainder) = TpmlPcrSelection::parse(&cmd.command_policy)
+                        let (pcrs, remainder) = TpmlPcrSelection::unmarshal(&cmd.command_policy)
                             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-                        let (pcr_digest, _) = Tpm2bDigest::parse(remainder)
+                        let (pcr_digest, _) = Tpm2bDigest::unmarshal(remainder)
                             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
 
                         let selections = pcrs
@@ -130,11 +130,11 @@ impl TpmPolicyCommand {
                         })
                     }
                     TpmCc::PolicySecret => {
-                        let (handle, remainder) = TpmHandle::parse(&cmd.command_policy)
+                        let (handle, remainder) = TpmHandle::unmarshal(&cmd.command_policy)
                             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-                        let (_name, remainder) = Tpm2bName::parse(remainder)
+                        let (_name, remainder) = Tpm2bName::unmarshal(remainder)
                             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-                        let (_policy_ref, _) = Tpm2bDigest::parse(remainder)
+                        let (_policy_ref, _) = Tpm2bDigest::unmarshal(remainder)
                             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
 
                         Ok(Expression::Secret {
@@ -200,9 +200,9 @@ impl TpmKeyAsn1 {
     /// # Errors
     ///
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the
-    /// public key bytes cannot be parsed.
+    /// public key bytes cannot be umarshaled.
     pub fn public(&self) -> Result<Tpm2bPublic, TpmKeyError> {
-        let (public, _) = Tpm2bPublic::parse(&self.pubkey)
+        let (public, _) = Tpm2bPublic::unmarshal(&self.pubkey)
             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
         Ok(public)
     }
@@ -232,7 +232,7 @@ impl TpmKeyAsn1 {
     /// # Errors
     ///
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the PEM
-    /// or inner DER bytes cannot be parsed.
+    /// or inner DER bytes cannot be umarshaled.
     /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
     /// tag is not 'TSS2 PRIVATE KEY'.
     pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, TpmKeyError> {
@@ -249,7 +249,7 @@ impl TpmKeyAsn1 {
     /// # Errors
     ///
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
-    /// bytes cannot be parsed.
+    /// bytes cannot be umarshaled.
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         rasn::der::decode(der_bytes).map_err(|e| TpmKeyError::MalformedData(e.to_string()))
     }
@@ -337,7 +337,7 @@ impl TpmKey {
     /// # Errors
     ///
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the PEM
-    /// or inner DER bytes cannot be parsed.
+    /// or inner DER bytes cannot be umarshaled.
     /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
     /// tag is not 'TSS2 PRIVATE KEY'.
     pub fn from_pem(pem_bytes: &[u8], context: &PolicyState) -> Result<Self, TpmKeyError> {
@@ -350,7 +350,7 @@ impl TpmKey {
     /// # Errors
     ///
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
-    /// bytes cannot be parsed.
+    /// bytes cannot be umarshaled.
     pub fn from_der(der_bytes: &[u8], context: &PolicyState) -> Result<Self, TpmKeyError> {
         let asn1 = TpmKeyAsn1::from_der(der_bytes)?;
         Self::from_asn1(asn1, context)
@@ -435,12 +435,12 @@ impl TpmKey {
 
     /// Converts the ASN.1 `TpmKeyAsn1` into the runtime representation.
     fn from_asn1(asn1: TpmKeyAsn1, context: &PolicyState) -> Result<Self, TpmKeyError> {
-        let (public, _) = Tpm2bPublic::parse(&asn1.pubkey)
+        let (public, _) = Tpm2bPublic::unmarshal(&asn1.pubkey)
             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-        let (private, _) = Tpm2bPrivate::parse(&asn1.privkey)
+        let (private, _) = Tpm2bPrivate::unmarshal(&asn1.privkey)
             .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
         let parent_public = if let Some(parent_bytes) = &asn1.parent_pubkey {
-            let (parent_pub, _) = Tpm2bPublic::parse(parent_bytes)
+            let (parent_pub, _) = Tpm2bPublic::unmarshal(parent_bytes)
                 .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
             Some(parent_pub)
         } else {
@@ -490,20 +490,20 @@ fn blobs_to_policy_commands(blobs: &[Vec<u8>]) -> Result<Vec<TpmPolicyCommand>, 
     blobs
         .iter()
         .map(|blob| {
-            let (_, cmd_body, _) =
-                tpm_parse_command(blob).map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
+            let (_, cmd_body, _) = tpm_unmarshal_command(blob)
+                .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
 
-            let mut params_buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+            let mut params_buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
             let params_len = {
                 let mut writer = TpmWriter::new(&mut params_buf);
-                let build_result = match &cmd_body {
-                    TpmCommandBody::PolicyPcr(c) => c.build_parameters(&mut writer),
-                    TpmCommandBody::PolicySecret(c) => c.build_parameters(&mut writer),
-                    TpmCommandBody::PolicyOr(c) => c.build_parameters(&mut writer),
-                    TpmCommandBody::PolicyRestart(c) => c.build_parameters(&mut writer),
+                let marshal_result = match &cmd_body {
+                    TpmCommandBody::PolicyPcr(c) => c.marshal_parameters(&mut writer),
+                    TpmCommandBody::PolicySecret(c) => c.marshal_parameters(&mut writer),
+                    TpmCommandBody::PolicyOr(c) => c.marshal_parameters(&mut writer),
+                    TpmCommandBody::PolicyRestart(c) => c.marshal_parameters(&mut writer),
                     _ => return Err(TpmKeyError::UnsupportedPolicyCommand(cmd_body.cc() as u32)),
                 };
-                build_result.map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
+                marshal_result.map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
                 writer.len()
             };
             params_buf.truncate(params_len);
