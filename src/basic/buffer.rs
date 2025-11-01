@@ -92,7 +92,7 @@ impl<const CAPACITY: usize> TryFrom<&[u8]> for TpmBuffer<CAPACITY> {
             return Err(TpmError::CapacityExceeded);
         }
         let mut buffer = Self::new();
-        let len_u16 = u16::try_from(slice.len())?;
+        let len_u16 = u16::try_from(slice.len()).map_err(|_| TpmError::Malformed)?;
         buffer.set_size(len_u16);
         buffer.data[..slice.len()].copy_from_slice(slice);
         Ok(buffer)

@@ -94,7 +94,7 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 
 impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPACITY> {
     fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len = u32::try_from(self.len).map_err(|_| TpmError::CapacityExceeded)?;
+        let len = u32::try_from(self.len).map_err(|_| TpmError::Malformed)?;
         TpmMarshal::marshal(&len, writer)?;
         for item in &**self {
             TpmMarshal::marshal(item, writer)?;

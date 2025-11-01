@@ -130,12 +130,6 @@ impl core::fmt::Display for TpmError {
     }
 }
 
-impl From<core::num::TryFromIntError> for TpmError {
-    fn from(_: core::num::TryFromIntError) -> Self {
-        Self::CapacityExceeded
-    }
-}
-
 pub type TpmResult<T> = Result<T, TpmError>;
 
 /// Writes into a mutable byte slice.
