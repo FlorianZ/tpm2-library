@@ -10,7 +10,7 @@ use crate::{
 };
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlDigest, TpmlPcrSelection},
-    message::{
+    frame::{
         TpmPolicyGetDigestCommand, TpmPolicyOrCommand, TpmPolicyPcrCommand,
         TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },

@@ -18,7 +18,7 @@ use tpm2_protocol::{
         TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite, TpmuSymKeyBits,
         TpmuSymMode,
     },
-    message::{
+    frame::{
         TpmCommandBody, TpmContextLoadCommand, TpmContextLoadResponse, TpmContextSaveCommand,
         TpmContextSaveResponse, TpmCreateCommand, TpmCreatePrimaryCommand,
         TpmCreatePrimaryResponse, TpmCreateResponse, TpmDictionaryAttackLockResetCommand,

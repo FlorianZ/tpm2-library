@@ -12,7 +12,7 @@ use rasn::{
     types::{OctetString, Utf8String},
     AsnType, Decode, Decoder, Encode, Encoder,
 };
-use tpm2_protocol::{data::Tpm2bPublic, TpmParse};
+use tpm2_protocol::{data::Tpm2bPublic, TpmUnmarshal};
 
 pub const OID_LOADABLE_KEY: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 3]));
@@ -69,7 +69,7 @@ impl TpmKey {
     ///
     /// Returns a `KeyError` if the public key bytes cannot be parsed.
     pub fn public(&self) -> Result<Tpm2bPublic, KeyError> {
-        let (public, _) = Tpm2bPublic::parse(&self.pub_key)?;
+        let (public, _) = Tpm2bPublic::unmarshal(&self.pub_key)?;
         Ok(public)
     }
 

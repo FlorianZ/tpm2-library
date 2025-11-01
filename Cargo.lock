@@ -1284,9 +1284,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.2.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b5da4a9a81c271ede0a0f29696a61aecc5fa12f4cb03f3cbf167199707ea8c5"
+checksum = "e55e627be91ef5decb1de4ca6398f2d061ceafd8e4046a4e4122cdef2f47fb69"
 dependencies = [
  "num-bigint",
  "openssl",
@@ -1297,21 +1297,22 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "0.2.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0822af9827b46e9a3356cb0183df8aa06f316fce9e5711a2dc72c1d1b206be6f"
+checksum = "9238405040c1c42f84936ce803a067864bac0ebe514a133f7abe4be21c8d2dd9"
 dependencies = [
  "hex",
  "strum",
  "thiserror",
+ "tpm2-crypto",
  "tpm2-protocol",
 ]
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.11.4"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1398fee6181fda00557c1237fe8e52e853a8e64d258d9fc262ea20690234f1f"
+checksum = "7f38953c988561917395cfb21b0f8032461e985b7814b11de233bd1edd2a1f4c"
 
 [[package]]
 name = "tpm2sh"

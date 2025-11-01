@@ -25,18 +25,18 @@ pub mod vtpm;
 /// before exiting.
 pub static TEARDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Serialize a type implementing `TpmBuild` type into `Vec<u8>`.
+/// Serialize a type implementing `TpmMarshal` type into `Vec<u8>`.
 ///
 /// # Errors
 ///
 /// Returns a `TpmError` if the object cannot be serialized into the buffer.
-pub fn write_object<T: tpm2_protocol::TpmBuild>(
+pub fn write_object<T: tpm2_protocol::TpmMarshal>(
     obj: &T,
 ) -> Result<Vec<u8>, tpm2_protocol::TpmError> {
-    let mut buf = vec![0u8; tpm2_protocol::constant::TPM_MAX_COMMAND_SIZE];
+    let mut buf = vec![0u8; tpm2_protocol::constant::TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = tpm2_protocol::TpmWriter::new(&mut buf);
-        obj.build(&mut writer)?;
+        obj.marshal(&mut writer)?;
         writer.len()
     };
     buf.truncate(len);

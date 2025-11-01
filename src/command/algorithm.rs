@@ -15,7 +15,7 @@ use tpm2_protocol::{
         TpmAlgId, TpmCap, TpmRcBase, TpmsRsaParms, TpmtPublicParms, TpmuCapabilities,
         TpmuPublicParms,
     },
-    message::TpmTestParmsCommand,
+    frame::TpmTestParmsCommand,
 };
 
 /// Lists available algorithms supported by the chip.

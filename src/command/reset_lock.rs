@@ -11,7 +11,7 @@ use crate::{
 use clap::Args;
 use tpm2_protocol::{
     data::{TpmCc, TpmRh},
-    message::TpmDictionaryAttackLockResetCommand,
+    frame::TpmDictionaryAttackLockResetCommand,
 };
 
 /// Resets the dictionary attack lockout counter.

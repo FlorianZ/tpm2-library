@@ -14,7 +14,7 @@ use crate::{
 use clap::Args;
 use tpm2_protocol::{
     data::{Tpm2bEvent, TpmCc, TpmuHa},
-    message::TpmPcrEventCommand,
+    frame::TpmPcrEventCommand,
     TpmHandle,
 };
 

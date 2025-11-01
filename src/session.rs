@@ -18,9 +18,9 @@ use tpm2_protocol::{
         Tpm2bEncryptedSecret, Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaSession,
         TpmsAuthCommand, TpmtSymDefObject,
     },
-    message::{
-        TpmAuthResponses, TpmEvictControlCommand, TpmResponseBody, TpmStartAuthSessionCommand,
-        TpmStartAuthSessionResponse,
+    frame::{
+        TpmAuthResponses, TpmEvictControlCommand, TpmFrame, TpmResponseBody,
+        TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
     TpmError, TpmHandle,
 };
@@ -172,7 +172,7 @@ impl<'a> Session<'a> {
     /// session's hash algorithm is unsupported.
     /// Returns [`TrailingAuthorizations`](crate::session::SessionError::TrailingAuthorizations)
     /// when more auth values are provided than handles requiring authorization.
-    fn build_auth_area<C: TpmCommandObject>(
+    fn build_auth_area<C: TpmFrame>(
         &self,
         device: &mut Device,
         command: &C,
@@ -229,7 +229,7 @@ impl<'a> Session<'a> {
                         session,
                         &nonce_caller,
                         &[],
-                        C::CC,
+                        command.cc(),
                         &[*handle_param],
                         &params,
                         current_nonce_decrypt,

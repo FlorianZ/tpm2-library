@@ -10,7 +10,7 @@ use crate::{
 use clap::Args;
 use std::io::IsTerminal;
 use tpm2_policy_language::Handle;
-use tpm2_protocol::{data::TpmCc, message::TpmUnsealCommand};
+use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]

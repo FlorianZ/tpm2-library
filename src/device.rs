@@ -25,18 +25,17 @@ use tpm2_protocol::{
         Tpm2bName, TpmCap, TpmCc, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt, TpmsAlgProperty,
         TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmtPublic, TpmuCapabilities,
     },
-    message::{
-        tpm_build_command, tpm_parse_response, TpmAuthResponses, TpmBodyBuild,
-        TpmContextLoadCommand, TpmContextSaveCommand, TpmEvictControlCommand,
-        TpmFlushContextCommand, TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmHeader,
-        TpmReadPublicCommand, TpmResponseBody,
+    frame::{
+        tpm_marshal_command, tpm_unmarshal_response, TpmAuthResponses, TpmContextLoadCommand,
+        TpmContextSaveCommand, TpmEvictControlCommand, TpmFlushContextCommand, TpmFrame,
+        TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponseBody,
     },
     TpmError, TpmHandle, TpmWriter,
 };
 
 /// A type-erased object safe TPM command object
-pub trait TpmCommandObject: TpmPrint + TpmHeader + TpmBodyBuild {}
-impl<T> TpmCommandObject for T where T: TpmHeader + TpmBodyBuild + TpmPrint {}
+pub trait TpmCommandObject: TpmFrame + TpmPrint {}
+impl<T> TpmCommandObject for T where T: TpmFrame + TpmPrint {}
 
 #[derive(Debug, Error)]
 pub enum DeviceError {
@@ -154,7 +153,7 @@ impl Device {
         let mut fds = [PollFd::new(borrowed, PollFlags::POLLIN)];
 
         let start_time = Instant::now();
-        let mut resp_buf = Vec::with_capacity(TPM_MAX_COMMAND_SIZE);
+        let mut resp_buf = Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize);
         let mut total_size: Option<usize> = None;
         let mut temp_buf = [0u8; 1024];
 
@@ -215,7 +214,7 @@ impl Device {
                     break Err(DeviceError::InvalidResponse);
                 };
                 let size = u32::from_be_bytes(size_bytes) as usize;
-                if !(10..=TPM_MAX_COMMAND_SIZE).contains(&size) {
+                if !(10..=TPM_MAX_COMMAND_SIZE as usize).contains(&size) {
                     break Err(DeviceError::InvalidResponse);
                 }
                 total_size = Some(size);
@@ -231,7 +230,7 @@ impl Device {
             }
         }?;
 
-        let result = tpm_parse_response(cc, &resp_buf);
+        let result = tpm_unmarshal_response(cc, &resp_buf);
         if self.log_format == LogFormat::Pretty {
             let mut buf = Vec::new();
             match &result {
@@ -270,10 +269,10 @@ impl Device {
         } else {
             TpmSt::Sessions
         };
-        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            tpm_build_command(command, tag, sessions, &mut writer)?;
+            tpm_marshal_command(command, tag, sessions, &mut writer)?;
             writer.len()
         };
         buf.truncate(len);

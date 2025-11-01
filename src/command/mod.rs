@@ -51,7 +51,6 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
-use tpm2_policy_language::ParseError as PolicyParseError;
 use tpm2_protocol::{
     data::{TpmCc, TpmRcBase},
     TpmError,
@@ -186,8 +185,8 @@ pub enum CommandError {
     #[error("policy: {0}")]
     Policy(#[from] PolicyError),
     #[error("policy parse: {0}")]
-    PolicyParse(#[from] PolicyParseError),
-    #[error("hex decode: {0}")]
+    PolicyLanguageError(#[from] tpm2_policy_language::Error),
+    #[error("ECDH private key generation failed")]
     HexDecode(#[from] hex::FromHexError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),

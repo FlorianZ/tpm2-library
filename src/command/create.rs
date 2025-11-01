@@ -21,7 +21,7 @@ use tpm2_protocol::{
         Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRcBase,
         TpmlPcrSelection, TpmsSensitiveCreate,
     },
-    message::TpmCreateCommand,
+    frame::TpmCreateCommand,
 };
 
 /// A template for creating a new TPM key object.

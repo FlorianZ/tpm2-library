@@ -16,7 +16,7 @@ use tpm2_protocol::{
         Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
         TpmlPcrSelection, TpmsSensitiveCreate,
     },
-    message::TpmCreatePrimaryCommand,
+    frame::TpmCreatePrimaryCommand,
 };
 
 /// Creates a new primary key in a specified hierarchy.

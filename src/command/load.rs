@@ -14,8 +14,8 @@ use clap::Args;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmCc},
-    message::TpmLoadCommand,
-    TpmHandle, TpmParse,
+    frame::TpmLoadCommand,
+    TpmHandle, TpmUnmarshal,
 };
 
 /// Loads a PEM or DER TPMKey file to cache.
@@ -47,7 +47,7 @@ impl Job for Load {
                 .as_ref()
                 .ok_or(CommandError::InvalidInput("parent missing".to_string()))?;
             let (parent_public, _) =
-                Tpm2bPublic::parse(parent_pub_key_bytes).map_err(KeyError::from)?;
+                Tpm2bPublic::unmarshal(parent_pub_key_bytes).map_err(KeyError::from)?;
 
             let parent_handle = Self::fetch_parent(job, device, &parent_public)?;
 
@@ -98,8 +98,8 @@ impl Load {
         tpm_key: &TpmKey,
         auths: &[Auth],
     ) -> Result<(TpmHandle, Tpm2bName, Tpm2bPublic), CommandError> {
-        let (in_public, _) = Tpm2bPublic::parse(&tpm_key.pub_key)?;
-        let (in_private, _) = Tpm2bPrivate::parse(&tpm_key.priv_key)?;
+        let (in_public, _) = Tpm2bPublic::unmarshal(&tpm_key.pub_key)?;
+        let (in_private, _) = Tpm2bPrivate::unmarshal(&tpm_key.priv_key)?;
 
         let cmd = TpmLoadCommand {
             parent_handle,

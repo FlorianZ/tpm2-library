@@ -11,7 +11,7 @@ use crate::{
 use std::{any::Any, fs, path::Path};
 use tpm2_protocol::{
     data::{Tpm2bPublic, TpmRcBase, TpmsContext},
-    TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter,
+    TpmError, TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
 #[derive(Debug, Clone)]
@@ -25,7 +25,7 @@ pub struct VtpmKey {
 impl VtpmKey {
     pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
         let content = fs::read(path)?;
-        let (key, remainder) = Self::parse(&content)?;
+        let (key, remainder) = Self::unmarshal(&content)?;
         if !remainder.is_empty() {
             log::warn!("trailing data");
         }
@@ -40,21 +40,21 @@ impl TpmSized for VtpmKey {
     }
 }
 
-impl TpmBuild for VtpmKey {
-    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
-        self.context.build(writer)?;
-        self.handle.build(writer)?;
-        self.public.build(writer)?;
-        self.parent.build(writer)
+impl TpmMarshal for VtpmKey {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
+        self.context.marshal(writer)?;
+        self.handle.marshal(writer)?;
+        self.public.marshal(writer)?;
+        self.parent.marshal(writer)
     }
 }
 
-impl TpmParse for VtpmKey {
-    fn parse(buffer: &[u8]) -> Result<(Self, &[u8]), TpmError> {
-        let (context, remainder) = TpmsContext::parse(buffer)?;
-        let (handle, remainder) = TpmHandle::parse(remainder)?;
-        let (public, remainder) = Tpm2bPublic::parse(remainder)?;
-        let (parent, remainder) = Tpm2bPublic::parse(remainder)?;
+impl TpmUnmarshal for VtpmKey {
+    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmError> {
+        let (context, remainder) = TpmsContext::unmarshal(buffer)?;
+        let (handle, remainder) = TpmHandle::unmarshal(remainder)?;
+        let (public, remainder) = Tpm2bPublic::unmarshal(remainder)?;
+        let (parent, remainder) = Tpm2bPublic::unmarshal(remainder)?;
         Ok((
             Self {
                 context,

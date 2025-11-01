@@ -18,8 +18,8 @@ use tpm2_protocol::{
         Tpm2bAuth, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaSession,
         TpmsAuthCommand, TpmsContext,
     },
-    message::TpmStartAuthSessionResponse,
-    TpmBuild, TpmError, TpmHandle, TpmParse, TpmSized, TpmWriter,
+    frame::TpmStartAuthSessionResponse,
+    TpmError, TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
 /// Manages the state of an active authorization session.
@@ -81,11 +81,11 @@ impl VtpmSession {
     /// Loads a session from a binary file.
     pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
         let session_bytes = fs::read(path)?;
-        let (context, remainder) = TpmsContext::parse(&session_bytes)?;
-        let (nonce_tpm, remainder) = Tpm2bNonce::parse(remainder)?;
-        let (attributes, remainder) = TpmaSession::parse(remainder)?;
-        let (hmac_key, remainder) = Tpm2bAuth::parse(remainder)?;
-        let (auth_hash, _) = TpmAlgId::parse(remainder)?;
+        let (context, remainder) = TpmsContext::unmarshal(&session_bytes)?;
+        let (nonce_tpm, remainder) = Tpm2bNonce::unmarshal(remainder)?;
+        let (attributes, remainder) = TpmaSession::unmarshal(remainder)?;
+        let (hmac_key, remainder) = Tpm2bAuth::unmarshal(remainder)?;
+        let (auth_hash, _) = TpmAlgId::unmarshal(remainder)?;
 
         Ok(Self {
             context,
@@ -187,13 +187,13 @@ impl TpmSized for VtpmSession {
     }
 }
 
-impl TpmBuild for VtpmSession {
-    fn build(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
-        self.context.build(writer)?;
-        self.nonce_tpm.build(writer)?;
-        self.attributes.build(writer)?;
-        self.hmac_key.build(writer)?;
-        self.auth_hash.build(writer)
+impl TpmMarshal for VtpmSession {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
+        self.context.marshal(writer)?;
+        self.nonce_tpm.marshal(writer)?;
+        self.attributes.marshal(writer)?;
+        self.hmac_key.marshal(writer)?;
+        self.auth_hash.marshal(writer)
     }
 }
 
@@ -238,7 +238,7 @@ pub fn create_auth(
             } else {
                 let mut buf = [0u8; TpmHandle::SIZE];
                 let mut writer = TpmWriter::new(&mut buf);
-                TpmHandle(handle).build(&mut writer)?;
+                TpmHandle(handle).marshal(&mut writer)?;
                 let len = writer.len();
                 Tpm2bName::try_from(&buf[..len]).map_err(DeviceError::from)
             }

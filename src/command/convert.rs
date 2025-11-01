@@ -33,8 +33,8 @@ use tpm2_protocol::{
         Tpm2bSymKey, TpmAlgId, TpmCc, TpmRcBase, TpmsEccPoint, TpmtPublic, TpmtSensitive,
         TpmtSymDefObject, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
     },
-    message::TpmImportCommand,
-    TpmBuild, TpmHandle, TpmWriter,
+    frame::TpmImportCommand,
+    TpmHandle, TpmMarshal, TpmWriter,
 };
 
 /// Convert external keys to TPM keys.
@@ -294,12 +294,12 @@ impl Convert {
         .map_err(CommandError::Crypto)?;
 
         let duplicate_blob = {
-            let mut duplicate_blob_buf = [0u8; TPM_MAX_COMMAND_SIZE];
+            let mut duplicate_blob_buf = [0u8; TPM_MAX_COMMAND_SIZE as usize];
             let len = {
                 let mut writer = TpmWriter::new(&mut duplicate_blob_buf);
                 Tpm2bDigest::try_from(final_mac.as_slice())
                     .map_err(CommandError::TpmProtocol)?
-                    .build(&mut writer)?;
+                    .marshal(&mut writer)?;
                 writer.write_bytes(encrypted_sensitive_data)?;
                 writer.len()
             };

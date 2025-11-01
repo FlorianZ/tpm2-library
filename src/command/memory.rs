@@ -24,7 +24,7 @@ use strum::Display;
 use tpm2_policy_language::{Auth, Handle};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
-    message::{TpmNvReadCommand, TpmNvReadPublicCommand},
+    frame::{TpmNvReadCommand, TpmNvReadPublicCommand},
     TpmHandle,
 };
 
@@ -197,7 +197,8 @@ impl Memory {
                 MemoryHandleType::Session,
                 auth_args,
                 |_, _, handle, _| {
-                    let ht = TpmHt::try_from(*handle).map_err(CommandError::PolicyParse)?;
+                    let ht = TpmHt::try_from(*handle)
+                        .map_err(|_| CommandError::InvalidInput(handle.to_string()))?;
                     let detail = if ht == TpmHt::HmacSession {
                         "hmac"
                     } else {

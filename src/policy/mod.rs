@@ -9,7 +9,7 @@ mod tpm;
 
 pub use software::*;
 pub use tpm::*;
-use tpm2_policy_language::{Auth, Expression, HandleClass, ParseError as PolicyParseError};
+use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Expression, HandleClass};
 
 use crate::{
     device::DeviceError,
@@ -28,6 +28,16 @@ use tpm2_protocol::{
 
 #[derive(Debug, Error)]
 pub enum PolicyError {
+    #[error("cache: {0}")]
+    Vtpm(#[from] VtpmError),
+    #[error("crypto: {0}")]
+    Crypto(#[from] CryptoError),
+    #[error("device: {0}")]
+    Device(#[from] DeviceError),
+    #[error("hex decode: {0}")]
+    HexDecode(#[from] hex::FromHexError),
+    #[error("int decode: {0}")]
+    IntDecode(#[from] ParseIntError),
     #[error("invalid algorithm: {0:?}")]
     InvalidAlgorithm(TpmAlgId),
     #[error("invalid expression: {0}")]
@@ -36,28 +46,18 @@ pub enum PolicyError {
     InvalidSecret(String),
     #[error("invalid value: {0}")]
     InvalidValue(String),
-    #[error("no valid branch found for OR policy")]
-    NoValidPolicyOrBranch,
-    #[error("PCR value for selection '{0}' not provided")]
-    PcrValueMissing(String),
-    #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
-    #[error("device: {0}")]
-    Device(#[from] DeviceError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[error("cache: {0}")]
-    Cache(#[from] VtpmError),
+    #[error("no valid branch found for OR policy")]
+    NoValidPolicyOrBranch,
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
-    #[error("hex decode: {0}")]
-    HexDecode(#[from] hex::FromHexError),
-    #[error("int decode: {0}")]
-    IntDecode(#[from] ParseIntError),
+    #[error("PCR value for selection '{0}' not provided")]
+    PcrValueMissing(String),
+    #[error("policy language: {0}")]
+    PolicyLanguage(#[from] PolicyLanguageError),
     #[error("protocol: {0}")]
     TpmProtocol(TpmError),
-    #[error("parse: {0}")]
-    Parse(#[from] PolicyParseError),
 }
 
 impl From<TpmError> for PolicyError {

@@ -17,7 +17,7 @@ use tpm2_protocol::{
         TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection,
         TpmuCapabilities,
     },
-    message::TpmPcrReadCommand,
+    frame::TpmPcrReadCommand,
     TpmError,
 };
 
@@ -107,7 +107,7 @@ pub fn pcr_selection_vec_to_tpml(
                 ))
             })?;
         let pcr_select_size = bank.count.div_ceil(8);
-        if pcr_select_size > TPM_PCR_SELECT_MAX {
+        if pcr_select_size > TPM_PCR_SELECT_MAX.into() {
             return Err(PcrError::InvalidPcrSelection(format!(
                 "invalid select size {pcr_select_size} (> {TPM_PCR_SELECT_MAX})"
             )));

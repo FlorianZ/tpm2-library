@@ -18,10 +18,10 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
-use tpm2_policy_language::{Auth, Handle, HandleClass};
+use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Handle, HandleClass};
 use tpm2_protocol::{
     data::{Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
-    message::TpmAuthResponses,
+    frame::TpmAuthResponses,
     TpmError, TpmHandle,
 };
 
@@ -57,8 +57,8 @@ pub enum VtpmError {
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
-    #[error("handle: {0}")]
-    PolicyParseError(#[from] tpm2_policy_language::ParseError),
+    #[error("policy language: {0}")]
+    PolicyLanguage(#[from] PolicyLanguageError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
