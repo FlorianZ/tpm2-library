@@ -27,11 +27,11 @@ use tpm2_protocol::{
         TpmaSession, TpmlDigest, TpmlPcrSelection, TpmsAuthCommand, TpmsPcrSelect,
         TpmsPcrSelection,
     },
-    message::{
-        self, tpm_parse_command, TpmBodyBuild, TpmCommandBody, TpmHeader, TpmPolicyOrCommand,
+    frame::{
+        tpm_marshal_command, tpm_unmarshal_command, TpmCommandBody, TpmFrame, TpmPolicyOrCommand,
         TpmPolicyPcrCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
-    TpmBuild, TpmSized, TpmWriter,
+    TpmMarshal, TpmSized, TpmWriter,
 };
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -855,11 +855,11 @@ impl SoftwarePolicySession {
 
     /// Applies a `TPM2_PolicyPCR` action to the session.
     fn policy_pcr(&mut self, cmd: &TpmPolicyPcrCommand) -> Result<(), Error> {
-        let mut pcrs_bytes = vec![0u8; TPM_MAX_COMMAND_SIZE];
+        let mut pcrs_bytes = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
         let pcrs_bytes_len = {
             let mut writer = TpmWriter::new(&mut pcrs_bytes);
             cmd.pcrs
-                .build(&mut writer)
+                .marshal(&mut writer)
                 .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
             writer.len()
         };
@@ -938,16 +938,16 @@ fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand, Error> {
 }
 
 /// Builds a complete, serialized TPM command buffer.
-fn build_full_command<C: TpmHeader + TpmBuild + TpmBodyBuild>(
+fn build_full_command<C: TpmFrame>(
     command: &C,
     tag: TpmSt,
     sessions: &[TpmsAuthCommand],
 ) -> Result<Vec<u8>, Error> {
-    let mut cmd_buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+    let mut cmd_buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
 
     let cmd_len = {
         let mut writer = TpmWriter::new(&mut cmd_buf);
-        message::tpm_build_command(command, tag, sessions, &mut writer)
+        tpm_marshal_command(command, tag, sessions, &mut writer)
             .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
         writer.len()
     };
@@ -976,7 +976,7 @@ fn pcr_selection_vec_to_tpml(
             .find(|b| b.alg == selection.alg)
             .ok_or_else(|| Error::UnsupportedHashAlgorithm(selection.alg.to_string()))?;
         let pcr_select_size = bank.count.div_ceil(8);
-        if pcr_select_size > TPM_PCR_SELECT_MAX {
+        if pcr_select_size > TPM_PCR_SELECT_MAX as usize {
             return Err(PcrError::SelectionTooLarge(pcr_select_size).into());
         }
         let mut pcr_select_bytes = vec![0u8; pcr_select_size];
@@ -1050,7 +1050,7 @@ impl Expression {
         let mut stack: Vec<Vec<Expression>> = vec![vec![]];
 
         for cmd_blob in command_list {
-            let (_handles, command_body, auth_sessions) = tpm_parse_command(cmd_blob)
+            let (_handles, command_body, auth_sessions) = tpm_unmarshal_command(cmd_blob)
                 .map_err(|e| CommandError::ParseFailed(e.to_string()))?;
 
             let current_branch = stack.last_mut().ok_or(ExpressionError::MalformedState)?;
