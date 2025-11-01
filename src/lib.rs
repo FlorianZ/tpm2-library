@@ -23,7 +23,7 @@ use tpm2_policy_language::{Expression, Handle, HandleClass, PcrSelection, Policy
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmlPcrSelection},
-    frame::{tpm_unmarshal_command, TpmBodyMarshal, TpmCommandBody, TpmFrame},
+    frame::{tpm_unmarshal_command, TpmCommandBody, TpmFrame},
     TpmError, TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
@@ -70,6 +70,28 @@ pub struct TpmPolicyCommand {
     pub command_code: u32,
     #[rasn(tag(explicit(context, 1)))]
     pub command_policy: OctetString,
+}
+
+impl TryFrom<&[u8]> for TpmPolicyCommand {
+    type Error = TpmKeyError;
+
+    fn try_from(blob: &[u8]) -> Result<Self, Self::Error> {
+        let (_, cmd, _) =
+            tpm_unmarshal_command(blob).map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
+
+        match cmd {
+            TpmCommandBody::PolicyPcr(_)
+            | TpmCommandBody::PolicySecret(_)
+            | TpmCommandBody::PolicyOr(_)
+            | TpmCommandBody::PolicyRestart(_) => (),
+            _ => return Err(TpmKeyError::UnsupportedPolicyCommand(cmd.cc() as u32)),
+        }
+
+        Ok(TpmPolicyCommand {
+            command_code: cmd.cc() as u32,
+            command_policy: OctetString::copy_from_slice(blob),
+        })
+    }
 }
 
 impl TpmPolicyCommand {
@@ -397,7 +419,10 @@ impl TpmKey {
                                     },
                                 )
                                 .map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                            let commands = blobs_to_policy_commands(&branch_blobs)?;
+                            let commands = branch_blobs
+                                .iter()
+                                .map(|blob| TpmPolicyCommand::try_from(blob.as_slice()))
+                                .collect::<Result<_, _>>()?;
                             Ok(TpmAuthPolicy {
                                 name: None,
                                 policy: commands,
@@ -406,7 +431,15 @@ impl TpmKey {
                         .collect::<Result<Vec<_>, _>>()?;
                     (None, Some(auth_policies))
                 }
-                _ => (Some(blobs_to_policy_commands(blobs)?), None),
+                _ => (
+                    Some(
+                        blobs
+                            .iter()
+                            .map(|blob| TpmPolicyCommand::try_from(blob.as_slice()))
+                            .collect::<Result<_, _>>()?,
+                    ),
+                    None,
+                ),
             };
             (policy, auth_policy)
         } else {
@@ -483,35 +516,4 @@ impl TpmKey {
             policy: policy_blobs,
         })
     }
-}
-
-/// Converts a list of TPM command blobs into a `Vec<TpmPolicyCommand>`.
-fn blobs_to_policy_commands(blobs: &[Vec<u8>]) -> Result<Vec<TpmPolicyCommand>, TpmKeyError> {
-    blobs
-        .iter()
-        .map(|blob| {
-            let (_, cmd_body, _) = tpm_unmarshal_command(blob)
-                .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-
-            let mut params_buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-            let params_len = {
-                let mut writer = TpmWriter::new(&mut params_buf);
-                let marshal_result = match &cmd_body {
-                    TpmCommandBody::PolicyPcr(c) => c.marshal_parameters(&mut writer),
-                    TpmCommandBody::PolicySecret(c) => c.marshal_parameters(&mut writer),
-                    TpmCommandBody::PolicyOr(c) => c.marshal_parameters(&mut writer),
-                    TpmCommandBody::PolicyRestart(c) => c.marshal_parameters(&mut writer),
-                    _ => return Err(TpmKeyError::UnsupportedPolicyCommand(cmd_body.cc() as u32)),
-                };
-                marshal_result.map_err(|e| TpmKeyError::InvalidData(e.to_string()))?;
-                writer.len()
-            };
-            params_buf.truncate(params_len);
-
-            Ok(TpmPolicyCommand {
-                command_code: cmd_body.cc() as u32,
-                command_policy: OctetString::copy_from_slice(&params_buf),
-            })
-        })
-        .collect()
 }
