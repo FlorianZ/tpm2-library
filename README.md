@@ -1,7 +1,6 @@
 # TPM 2.0 ASN.1 Format Reader and Writer
 
-`tpm2-tpmkey` is a Rust library for parsing and serializing the TPM 2.0 `TpmKey`
-ASN.1 format.
+`tpm2-tpmkey` is a Rust library for reading and writing TPM 2.0 key ASN.1 files.
 
 ## Development
 
