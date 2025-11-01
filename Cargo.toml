@@ -7,7 +7,7 @@ name = "tpm2-crypto"
 readme = "README.md"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-crypto.git"
 rust-version = "1.78"
-version = "0.3.0"
+version = "0.3.1"
 
 [dependencies]
 num-bigint = { version = "0.4" }
