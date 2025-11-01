@@ -291,12 +291,22 @@ impl std::fmt::Display for Handle {
             HandleClass::Tpm => "tpm",
             HandleClass::Vtpm => "vtpm",
         };
-        if self.mask == 0xFFFF_FFFF {
-            write!(f, "{}:{:08x}", scheme, self.value)
-        } else if self.mask == 0 {
-            write!(f, "{scheme}:*")
+        write!(f, "{scheme}:")?;
+        if self.mask == 0 {
+            write!(f, "*")
+        } else if self.mask == 0xFFFF_FFFF {
+            write!(f, "{:08x}", self.value)
         } else {
-            write!(f, "{scheme}:(pattern)")
+            let mut out = [b'?'; 8];
+            for i in (0..8).rev() {
+                let nibble_mask = (self.mask >> (i * 4)) & 0xF;
+                if nibble_mask == 0xF {
+                    let nibble_val = (self.value >> (i * 4)) & 0xF;
+                    out[7 - i as usize] = b"0123456789abcdef"[nibble_val as usize];
+                }
+            }
+            let s = std::str::from_utf8(&out).map_err(|_| fmt::Error)?;
+            write!(f, "{s}")
         }
     }
 }
@@ -323,14 +333,19 @@ impl FromStr for Handle {
             });
         }
 
-        let (prefix_str, suffix_str) = if let Some((p, suffix)) = value_str.split_once('*') {
+        let mut normalized_str = String::with_capacity(8);
+        if let Some((prefix, suffix)) = value_str.split_once('*') {
             if suffix.contains('*') {
                 return Err(HandleError::TooManyAsterisks);
             }
-            if p.len() + suffix.len() > 8 {
+            if prefix.len() + suffix.len() > 8 {
                 return Err(HandleError::TooManyDigits);
             }
-            (p, suffix)
+            normalized_str.push_str(prefix);
+            normalized_str.extend(
+                std::iter::repeat('?').take(8_usize.saturating_sub(prefix.len() + suffix.len())),
+            );
+            normalized_str.push_str(suffix);
         } else {
             if value_str.len() < 8 {
                 return Err(HandleError::TooFewDigits);
@@ -338,13 +353,15 @@ impl FromStr for Handle {
             if value_str.len() > 8 {
                 return Err(HandleError::TooManyDigits);
             }
-            (value_str, "")
-        };
+            normalized_str.push_str(value_str);
+        }
 
         let mut mask: u32 = 0;
         let mut value: u32 = 0;
 
-        let mut parse_nibble = |c: char, shift: u32| -> Result<(), HandleError> {
+        for (i, c) in normalized_str.chars().enumerate() {
+            #[allow(clippy::cast_possible_truncation)]
+            let shift = ((7 - i) * 4) as u32;
             match c.to_digit(16) {
                 Some(v) => {
                     mask |= 0xF << shift;
@@ -353,17 +370,6 @@ impl FromStr for Handle {
                 None if c == '?' => {}
                 None => return Err(HandleError::InvalidString(value_str.to_string())),
             }
-            Ok(())
-        };
-
-        for (i, c) in prefix_str.chars().enumerate() {
-            let shift = u32::try_from((7 - i) * 4).map_err(|_| HandleError::TooManyDigits)?;
-            parse_nibble(c, shift)?;
-        }
-
-        for (i, c) in suffix_str.chars().rev().enumerate() {
-            let shift = u32::try_from(i * 4).map_err(|_| HandleError::TooManyDigits)?;
-            parse_nibble(c, shift)?;
         }
 
         Ok(Self { class, mask, value })
