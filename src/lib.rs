@@ -136,9 +136,9 @@ pub fn hmac(alg: TpmAlgId, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>,
             .update(chunk)
             .map_err(|_| CryptoError::MalformedHmacKey)?;
     }
-    Ok(signer
+    signer
         .sign_to_vec()
-        .map_err(|_| CryptoError::MalformedHmacKey)?)
+        .map_err(|_| CryptoError::MalformedHmacKey)
 }
 
 /// Verifies an HMAC signature over a series of data chunks.
