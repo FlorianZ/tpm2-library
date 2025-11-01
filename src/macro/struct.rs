@@ -29,6 +29,15 @@ macro_rules! tpm_struct {
             const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
         }
 
+        impl $crate::message::TpmFrame for $name {
+            fn cc(&self) -> $crate::data::TpmCc {
+                Self::CC
+            }
+            fn handles(&self) -> usize {
+                Self::HANDLES
+            }
+        }
+
         impl $crate::TpmSized for $name {
             const SIZE: usize = (Self::HANDLES * <$crate::TpmHandle>::SIZE) $(+ <$param_type>::SIZE)*;
             fn len(&self) -> usize {
@@ -114,6 +123,15 @@ macro_rules! tpm_struct {
         impl $crate::message::TpmHeader for $name {
             const CC: $crate::data::TpmCc = $cc;
             const HANDLES: usize = 0 $(+ {let _ = stringify!($handle_field); 1})*;
+        }
+
+        impl $crate::message::TpmFrame for $name {
+            fn cc(&self) -> $crate::data::TpmCc {
+                Self::CC
+            }
+            fn handles(&self) -> usize {
+                Self::HANDLES
+            }
         }
 
         impl $crate::message::TpmBodyBuild for $name {

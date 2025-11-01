@@ -53,7 +53,7 @@ fn main() {
                         } else {
                             tpm2_protocol::data::TpmSt::Sessions
                         };
-                        body.build(tag, &sessions, &mut writer).unwrap();
+                        body.build_frame(tag, &sessions, &mut writer).unwrap();
                         writer.len()
                     };
                     let rebuilt_slice = &built_bytes[..built_len];
@@ -77,7 +77,7 @@ fn main() {
                         let built_len = {
                             let mut writer = TpmWriter::new(&mut built_bytes);
                             let rc = TpmRc::from(TpmRcBase::Success);
-                            body.build(rc, &sessions, &mut writer).unwrap();
+                            body.build_frame(rc, &sessions, &mut writer).unwrap();
                             writer.len()
                         };
 

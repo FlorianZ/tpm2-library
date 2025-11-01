@@ -172,20 +172,47 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl TpmCommandBody {
-            #[must_use]
-            pub fn cc(&self) -> $crate::data::TpmCc {
+        impl $crate::message::TpmBodyBuild for TpmCommandBody {
+             fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                 match self {
+                    $( Self::$variant(c) => $crate::message::TpmBodyBuild::build_handles(c, writer), )*
+                 }
+             }
+             fn build_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                 match self {
+                    $( Self::$variant(c) => $crate::message::TpmBodyBuild::build_parameters(c, writer), )*
+                 }
+             }
+        }
+
+        impl $crate::TpmBuild for TpmCommandBody {
+             fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                 match self {
+                    $( Self::$variant(c) => $crate::TpmBuild::build(c, writer), )*
+                 }
+             }
+        }
+
+        impl $crate::message::TpmFrame for TpmCommandBody {
+            fn cc(&self) -> $crate::data::TpmCc {
                 match self {
-                    $( Self::$variant(c) => c.cc(), )*
+                    $( Self::$variant(c) => $crate::message::TpmFrame::cc(c), )*
                 }
             }
+            fn handles(&self) -> usize {
+                match self {
+                    $( Self::$variant(c) => $crate::message::TpmFrame::handles(c), )*
+                }
+            }
+        }
 
+        impl TpmCommandBody {
             /// Builds a command body into a writer.
             ///
             /// # Errors
             ///
             /// Returns `Err(TpmError)` on a build failure.
-            pub fn build(
+            pub fn build_frame(
                 &self,
                 tag: $crate::data::TpmSt,
                 sessions: &$crate::message::TpmAuthCommands,
@@ -213,14 +240,41 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl TpmResponseBody {
-            #[must_use]
-            pub fn cc(&self) -> $crate::data::TpmCc {
+        impl $crate::message::TpmBodyBuild for TpmResponseBody {
+             fn build_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                 match self {
+                    $( Self::$variant(r) => $crate::message::TpmBodyBuild::build_handles(r, writer), )*
+                 }
+             }
+             fn build_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                 match self {
+                    $( Self::$variant(r) => $crate::message::TpmBodyBuild::build_parameters(r, writer), )*
+                 }
+             }
+        }
+
+        impl $crate::TpmBuild for TpmResponseBody {
+             fn build(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                 match self {
+                    $( Self::$variant(r) => $crate::TpmBuild::build(r, writer), )*
+                 }
+             }
+        }
+
+        impl $crate::message::TpmFrame for TpmResponseBody {
+            fn cc(&self) -> $crate::data::TpmCc {
                 match self {
-                    $( Self::$variant(r) => r.cc(), )*
+                    $( Self::$variant(r) => $crate::message::TpmFrame::cc(r), )*
                 }
             }
+            fn handles(&self) -> usize {
+                match self {
+                    $( Self::$variant(r) => $crate::message::TpmFrame::handles(r), )*
+                }
+            }
+        }
 
+        impl TpmResponseBody {
             $(
                 /// Attempts to convert the `TpmResponseBody` into a specific response type.
                 ///
@@ -242,7 +296,7 @@ macro_rules! tpm_dispatch {
             /// # Errors
             ///
             /// Returns `Err(TpmError)` on a build failure.
-            pub fn build(
+            pub fn build_frame(
                 &self,
                 rc: $crate::data::TpmRc,
                 sessions: &$crate::message::TpmAuthResponses,

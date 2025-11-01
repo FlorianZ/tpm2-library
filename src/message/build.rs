@@ -5,7 +5,7 @@
 use crate::{
     constant::TPM_HEADER_SIZE,
     data::{TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    message::{TpmBodyBuild, TpmHeader},
+    message::TpmFrame,
     TpmBuild, TpmError, TpmResult, TpmSized,
 };
 use core::{convert::TryFrom, mem::size_of};
@@ -22,13 +22,13 @@ pub fn tpm_build_command<C>(
     writer: &mut crate::TpmWriter,
 ) -> TpmResult<()>
 where
-    C: TpmHeader + TpmBodyBuild,
+    C: TpmFrame,
 {
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
         return Err(TpmError::Malformed);
     }
 
-    let handle_area_size = C::HANDLES * size_of::<u32>();
+    let handle_area_size = command.handles() * size_of::<u32>();
     let param_area_size = command.len() - handle_area_size;
     let auth_area_size = if tag == TpmSt::Sessions {
         let sessions_len: usize = sessions.iter().map(TpmSized::len).sum();
@@ -43,7 +43,7 @@ where
 
     (tag as u16).build(writer)?;
     command_size.build(writer)?;
-    (C::CC as u32).build(writer)?;
+    (command.cc() as u32).build(writer)?;
 
     command.build_handles(writer)?;
 
@@ -71,7 +71,7 @@ pub fn tpm_build_response<R>(
     writer: &mut crate::TpmWriter,
 ) -> TpmResult<()>
 where
-    R: TpmHeader + TpmBodyBuild,
+    R: TpmFrame,
 {
     if !matches!(rc, TpmRc::Fmt0(TpmRcBase::Success)) {
         (TpmSt::NoSessions as u16).build(writer)?;
@@ -86,7 +86,7 @@ where
         TpmSt::Sessions
     };
 
-    let handle_area_size = R::HANDLES * size_of::<u32>();
+    let handle_area_size = response.handles() * size_of::<u32>();
     let param_area_size = response.len() - handle_area_size;
     let sessions_len: usize = sessions.iter().map(TpmSized::len).sum();
 

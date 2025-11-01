@@ -22,14 +22,20 @@ pub type TpmAuthCommands = TpmList<crate::data::TpmsAuthCommand, MAX_SESSIONS>;
 /// A fixed-capacity list for response authorization sessions.
 pub type TpmAuthResponses = TpmList<crate::data::TpmsAuthResponse, MAX_SESSIONS>;
 
-/// A trait for TPM commands and responses that provides header information.
-pub trait TpmHeader: TpmBuild + Debug {
+/// A trait for TPM commands and responses that provides static header information.
+pub trait TpmHeader {
+    /// The Command Code (CC) for the command or response.
     const CC: crate::data::TpmCc;
+    /// The number of handles in the handle area.
     const HANDLES: usize;
+}
 
-    fn cc(&self) -> crate::data::TpmCc {
-        Self::CC
-    }
+/// A trait for TPM commands and responses that provides dynamic frame information.
+pub trait TpmFrame: TpmBuild + TpmBodyBuild + Debug {
+    /// Returns the Command Code (CC) for the command or response.
+    fn cc(&self) -> crate::data::TpmCc;
+    /// Returns the number of handles in the handle area.
+    fn handles(&self) -> usize;
 }
 
 /// A trait for building command/response bodies in separate handle and parameter sections.
