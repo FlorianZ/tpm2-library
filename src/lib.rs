@@ -82,6 +82,8 @@ pub enum PcrError {
     SelectionTooLarge(usize),
     #[error("PCR value (digest) is missing")]
     ValueMissing,
+    #[error("PCR bank not available: {0:?}")]
+    BankMissing(TpmAlgId),
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -238,7 +240,7 @@ pub enum HandleClass {
 
 /// TPM and vTPM handles, with support for pattern matching.
 ///
-/// A `Handle` can represent either a single, specific handle (e.g.,
+/// A `Handle` can represent either a single, specific handle value (e.g.,
 /// `tpm:81000001`) or a pattern for matching multiple handles (e.g., `tpm:81*`,
 /// `vtpm:????????`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,11 +300,12 @@ impl std::fmt::Display for Handle {
             write!(f, "{:08x}", self.value)
         } else {
             let mut out = [b'?'; 8];
-            for i in (0..8).rev() {
+            for (pos, item) in out.iter_mut().enumerate() {
+                let i = 7usize.saturating_sub(pos);
                 let nibble_mask = (self.mask >> (i * 4)) & 0xF;
                 if nibble_mask == 0xF {
                     let nibble_val = (self.value >> (i * 4)) & 0xF;
-                    out[7 - i as usize] = b"0123456789abcdef"[nibble_val as usize];
+                    *item = b"0123456789abcdef"[nibble_val as usize];
                 }
             }
             let s = std::str::from_utf8(&out).map_err(|_| fmt::Error)?;
@@ -685,29 +688,30 @@ fn parse_pcr_call<'a>(
         ));
     }
 
-    let pcr_string = match tokens.next() {
-        Some(Token::Ident(s)) => s,
-        Some(other) => {
-            return Err(ExpressionError::UnexpectedToken(format!(
-                "expected PCR selection string, found {other}"
-            )))
+    let mut buf = String::new();
+    loop {
+        match tokens.next() {
+            Some(Token::RParen) => break,
+            Some(Token::Ident(s)) => buf.push_str(s),
+            Some(Token::Comma) => buf.push(','),
+            Some(Token::And | Token::Or | Token::LParen) => {
+                return Err(ExpressionError::UnexpectedToken(
+                    "unexpected token inside pcr()".to_string(),
+                ))
+            }
+            None => return Err(ExpressionError::UnexpectedEnd),
         }
-        None => return Err(ExpressionError::UnexpectedEnd),
-    };
-
-    if tokens.next() != Some(&Token::RParen) {
-        return Err(ExpressionError::ParenthesisMismatch);
     }
 
     let (selection_part, digest_part): (&str, Option<String>) =
-        if let Some((selection, digest)) = pcr_string.rsplit_once(':') {
+        if let Some((selection, digest)) = buf.rsplit_once(':') {
             if hex::decode(digest).is_ok() && digest.len() > 10 {
                 (selection, Some(digest.to_string()))
             } else {
-                (pcr_string, None)
+                (buf.as_str(), None)
             }
         } else {
-            (pcr_string, None)
+            (buf.as_str(), None)
         };
 
     let selections = PcrSelectionList::try_from(selection_part)
@@ -980,7 +984,7 @@ fn pcr_selection_vec_to_tpml(
         let bank = banks
             .iter()
             .find(|b| b.alg == selection.alg)
-            .ok_or_else(|| Error::UnsupportedHashAlgorithm(selection.alg.to_string()))?;
+            .ok_or(PcrError::BankMissing(selection.alg))?;
         let pcr_select_size = bank.count.div_ceil(8);
         if pcr_select_size > TPM_PCR_SELECT_MAX as usize {
             return Err(PcrError::SelectionTooLarge(pcr_select_size).into());
@@ -1218,6 +1222,10 @@ impl Expression {
 
         let digest_bytes = hex::decode(digest.as_ref().ok_or(PcrError::ValueMissing)?)
             .map_err(|_| Error::InvalidDigestFormat)?;
+
+        if digest_bytes.len() != software_session.digest_size {
+            return Err(Error::InvalidDigestSize(digest_bytes.len()));
+        }
 
         let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
             .map_err(|_| Error::InvalidDigestSize(digest_bytes.len()))?;
