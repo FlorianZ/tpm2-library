@@ -1,7 +1,6 @@
 # TPM 2.0 Policy Language Parser
 
-`tpm2-policy-language` is a Rust library for parsing the TPM 2.0 policy language
-into an Abstract Syntax Tree (AST).
+`tpm2-policy-language` is a TPM 2.0 policy language interpreter.
 
 ## Development
 
