@@ -24,7 +24,7 @@ use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
     frame::{tpm_unmarshal_command, TpmCommandBody, TpmFrame},
-    TpmError, TpmHandle, TpmMarshal, TpmUnmarshal, TpmWriter,
+    TpmHandle, TpmMarshal, TpmMarshalError, TpmUnmarshal, TpmWriter,
 };
 
 /// Error type for TPM key format operations.
@@ -45,7 +45,7 @@ pub enum TpmKeyError {
 }
 
 /// Serialize a type implementing `TpmMarshal` type into `Vec<u8>`.
-fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmError> {
+fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmMarshalError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
