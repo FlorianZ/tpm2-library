@@ -1280,8 +1280,7 @@ impl Expression {
 
         let full_cmd = if let Some(p) = password {
             let password_bytes = expression_to_bytes(p)?;
-            let sanitized_password = vec![0u8; password_bytes.len()];
-            let auth_session = build_password_session(&sanitized_password)?;
+            let auth_session = build_password_session(&password_bytes)?;
             build_full_command(&cmd, TpmSt::Sessions, &[auth_session])?
         } else {
             build_full_command(&cmd, TpmSt::NoSessions, &[])?
