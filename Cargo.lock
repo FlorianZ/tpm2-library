@@ -492,9 +492,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "0.3.2"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9238405040c1c42f84936ce803a067864bac0ebe514a133f7abe4be21c8d2dd9"
+checksum = "5952bd99e9cd996fb2bf3e1dbc7c332b243a052c8ebb0dfcde659c2481d29317"
 dependencies = [
  "hex",
  "strum",

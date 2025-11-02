@@ -19,12 +19,12 @@ use rasn::{
 };
 use std::collections::HashMap;
 use thiserror::Error;
-use tpm2_policy_language::{Expression, Handle, HandleClass, PcrSelection, PolicyState};
+use tpm2_policy_language::{Expression, PolicyState};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmlPcrSelection},
+    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
     frame::{tpm_unmarshal_command, TpmCommandBody, TpmFrame},
-    TpmError, TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
+    TpmError, TpmHandle, TpmMarshal, TpmUnmarshal, TpmWriter,
 };
 
 /// Error type for TPM key format operations.
@@ -106,80 +106,12 @@ impl TpmPolicyCommand {
     /// when a command code is encountered that is not supported by the
     /// `Expression` AST representation.
     pub fn to_expression(commands: Vec<Self>) -> Result<Expression, TpmKeyError> {
-        let mut expressions: Vec<Expression> = commands
+        let blobs: Vec<Vec<u8>> = commands
             .into_iter()
-            .map(|cmd| {
-                let cc = TpmCc::try_from(cmd.command_code)
-                    .map_err(|()| TpmKeyError::UnsupportedPolicyCommand(cmd.command_code))?;
-                match cc {
-                    TpmCc::PolicyPcr => {
-                        let (pcrs, remainder) = TpmlPcrSelection::unmarshal(&cmd.command_policy)
-                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-                        let (pcr_digest, _) = Tpm2bDigest::unmarshal(remainder)
-                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
+            .map(|cmd| cmd.command_policy.to_vec())
+            .collect();
 
-                        let selections = pcrs
-                            .iter()
-                            .map(|sel| {
-                                let mut indices = Vec::new();
-                                for (byte_idx, &byte) in sel.pcr_select.iter().enumerate() {
-                                    for bit_idx in 0..8 {
-                                        if (byte >> bit_idx) & 1 == 1 {
-                                            let index = u32::try_from(byte_idx * 8 + bit_idx)
-                                                .map_err(|e| {
-                                                    TpmKeyError::MalformedData(e.to_string())
-                                                })?;
-                                            indices.push(index);
-                                        }
-                                    }
-                                }
-                                Ok(PcrSelection {
-                                    alg: sel.hash,
-                                    indices,
-                                })
-                            })
-                            .collect::<Result<Vec<_>, TpmKeyError>>()?;
-
-                        let digest = if pcr_digest.is_empty() {
-                            None
-                        } else {
-                            Some(hex::encode(pcr_digest))
-                        };
-                        Ok(Expression::Pcr {
-                            selections,
-                            digest,
-                            count: None,
-                        })
-                    }
-                    TpmCc::PolicySecret => {
-                        let (handle, remainder) = TpmHandle::unmarshal(&cmd.command_policy)
-                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-                        let (_name, remainder) = Tpm2bName::unmarshal(remainder)
-                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-                        let (_policy_ref, _) = Tpm2bDigest::unmarshal(remainder)
-                            .map_err(|e| TpmKeyError::MalformedData(e.to_string()))?;
-
-                        Ok(Expression::Secret {
-                            auth_handle: Box::new(Expression::Handle(Handle::new(
-                                HandleClass::Tpm,
-                                handle.0,
-                            ))),
-                            password: None,
-                            cp_hash: None,
-                        })
-                    }
-                    _ => Err(TpmKeyError::UnsupportedPolicyCommand(cc as u32)),
-                }
-            })
-            .collect::<Result<_, _>>()?;
-
-        match expressions.len() {
-            0 => Err(TpmKeyError::MalformedData(
-                "policy command sequence cannot be empty".to_string(),
-            )),
-            1 => Ok(expressions.remove(0)),
-            _ => Ok(Expression::And(expressions)),
-        }
+        Expression::from_command_list(&blobs).map_err(|e| TpmKeyError::MalformedData(e.to_string()))
     }
 }
 
@@ -414,7 +346,8 @@ impl TpmKey {
                                 .to_command_list(
                                     self.public.inner.name_alg,
                                     &PolicyState {
-                                        banks: vec![],
+                                        pcr_count: 0,
+                                        pcr_banks: vec![],
                                         names: HashMap::default(),
                                     },
                                 )
