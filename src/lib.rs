@@ -17,8 +17,11 @@
 //! [`Expression::from_command_list()`] function to perform the reverse
 //! operation.
 
+pub mod error;
+
+pub use self::error::*;
+
 use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter, str::FromStr};
-use thiserror::Error;
 use tpm2_crypto::{digest as crypto_digest, hash_size as crypto_hash_size};
 use tpm2_protocol::{
     constant::{TPM_MAX_COMMAND_SIZE, TPM_PCR_SELECT_MAX},
@@ -33,119 +36,6 @@ use tpm2_protocol::{
     },
     TpmMarshal, TpmSized, TpmWriter,
 };
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum AuthError {
-    #[error("invalid authorization string prefix (expected 'password:', 'policy:', or 'vtpm:')")]
-    InvalidPrefix,
-    #[error("authorization data size too large: {0}")]
-    SizeTooLarge(usize),
-    #[error("invalid hex string for password or policy")]
-    InvalidHex,
-    #[error("invalid handle string for session: {0}")]
-    InvalidHandleString(String),
-    #[error("invalid handle type for session: 0x{0:02x}")]
-    InvalidHandleType(u8),
-    #[error("expected 'password:<hex>'")]
-    ExpectedPassword,
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum HandleError {
-    #[error("handle has less than eight characters")]
-    TooFewDigits,
-    #[error("handle has more than one '*'")]
-    TooManyAsterisks,
-    #[error("handle has more than eight characters")]
-    TooManyDigits,
-    #[error("invalid handle string: {0}")]
-    InvalidString(String),
-    #[error("invalid handle type: 0x{0:02x}")]
-    InvalidType(u8),
-    #[error("handle must be a persistent TPM handle ('tpm:81xxxxxx')")]
-    MustBePersistent,
-    #[error("handle is a pattern but a concrete value is required")]
-    PatternNotAllowed,
-    #[error("invalid handle value: {0:08x}")]
-    InvalidValue(u32),
-    #[error("invalid handle scheme (expected 'tpm:' or 'vtpm:')")]
-    InvalidScheme,
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum PcrError {
-    #[error("PCR selection string is not valid: {0}")]
-    InvalidSelectionString(String),
-    #[error("PCR selection index overflow: {0}")]
-    IndexOverflow(usize),
-    #[error("PCR selection size too large: {0}")]
-    SelectionTooLarge(usize),
-    #[error("PCR value (digest) is missing")]
-    ValueMissing,
-    #[error("PCR bank not available: {0:?}")]
-    BankMissing(TpmAlgId),
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum SecretError {
-    #[error("secret() expects 1 to 3 arguments")]
-    ArgumentCount,
-    #[error("a handle name for {0:08x} was not provided in the policy state")]
-    HandleNameMissing(u32),
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum ExpressionError {
-    #[error("malformed policy command: {0}")]
-    MalformedPolicyCommand(String),
-    #[error("parser state is malformed")]
-    MalformedState,
-    #[error("unexpected end of expression")]
-    UnexpectedEnd,
-    #[error("unexpected token: {0}")]
-    UnexpectedToken(String),
-    #[error("parenthesis mismatch")]
-    ParenthesisMismatch,
-    #[error("trailing data")]
-    TrailingData,
-    #[error("invalid expression node: {0}")]
-    InvalidNode(String),
-    #[error(transparent)]
-    Pcr(#[from] PcrError),
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum CommandError {
-    #[error("unexpected non-policy command: {0:?}")]
-    UnexpectedCommand(TpmCc),
-    #[error("failed to build command: {0}")]
-    BuildFailed(String),
-    #[error("failed to parse command: {0}")]
-    ParseFailed(String),
-}
-
-/// The primary error type for this crate.
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum Error {
-    #[error(transparent)]
-    Auth(#[from] AuthError),
-    #[error(transparent)]
-    Command(#[from] CommandError),
-    #[error(transparent)]
-    Expression(#[from] ExpressionError),
-    #[error(transparent)]
-    Handle(#[from] HandleError),
-    #[error(transparent)]
-    Pcr(#[from] PcrError),
-    #[error(transparent)]
-    Secret(#[from] SecretError),
-    #[error("invalid hex digest format")]
-    InvalidDigestFormat,
-    #[error("invalid digest size: {0}")]
-    InvalidDigestSize(usize),
-    #[error("unsupported hash algorithm: {0}")]
-    UnsupportedHashAlgorithm(String),
-}
 
 /// Pre-resolved data needed for policy execution.
 ///
@@ -400,7 +290,7 @@ impl TryFrom<&str> for PolicyAlgId {
             "sha256" => TpmAlgId::Sha256,
             "sha384" => TpmAlgId::Sha384,
             "sha512" => TpmAlgId::Sha512,
-            _ => return Err(Error::UnsupportedHashAlgorithm(s.to_string())),
+            _ => return Err(CommandError::UnsupportedHashAlgorithm(s.to_string()).into()),
         };
         Ok(Self(alg_id))
     }
@@ -459,7 +349,7 @@ fn parse_tpml_pcr_selection_str(
         list.try_push(TpmsPcrSelection {
             hash: alg,
             pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
-                .map_err(|_| Error::InvalidDigestSize(pcr_select_bytes.len()))?,
+                .map_err(|_| PcrError::InvalidDigestSize(pcr_select_bytes.len()))?,
         })
         .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
     }
@@ -712,9 +602,7 @@ fn parse_pcr_call<'a>(
 
         if let Ok(selections) = selection_with_digest_result {
             if hex::decode(digest_part).is_err() {
-                return Err(ExpressionError::InvalidNode(
-                    Error::InvalidDigestFormat.to_string(),
-                ));
+                return Err(ExpressionError::InvalidDigestFormat);
             }
 
             return Ok(Expression::Pcr {
@@ -864,9 +752,9 @@ fn update_policy_digest(
     chunks.extend(params.iter());
 
     let new_digest_bytes = crypto_digest(hash_alg, &chunks)
-        .map_err(|e| Error::UnsupportedHashAlgorithm(e.to_string()))?;
+        .map_err(|e| CommandError::UnsupportedHashAlgorithm(e.to_string()))?;
     *current_digest = Tpm2bDigest::try_from(new_digest_bytes.as_slice())
-        .map_err(|_| Error::InvalidDigestSize(new_digest_bytes.len()))?;
+        .map_err(|_| CommandError::InvalidDigestSize(new_digest_bytes.len()))?;
     Ok(())
 }
 
@@ -874,9 +762,9 @@ impl SoftwarePolicySession {
     /// Creates a new software policy session.
     fn new(hash_alg: TpmAlgId) -> Result<Self, Error> {
         let digest_size = crypto_hash_size(hash_alg)
-            .map_err(|e| Error::UnsupportedHashAlgorithm(e.to_string()))?;
+            .map_err(|e| CommandError::UnsupportedHashAlgorithm(e.to_string()))?;
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
-            .map_err(|_| Error::InvalidDigestSize(digest_size))?;
+            .map_err(|_| CommandError::InvalidDigestSize(digest_size))?;
         Ok(Self {
             digest,
             hash_alg,
@@ -912,7 +800,7 @@ impl SoftwarePolicySession {
         }
 
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(|_| Error::InvalidDigestSize(self.digest_size))?;
+            .map_err(|_| CommandError::InvalidDigestSize(self.digest_size))?;
 
         update_policy_digest(
             &mut self.digest,
@@ -947,7 +835,7 @@ impl SoftwarePolicySession {
     /// Applies a `TPM2_PolicyRestart` action to the session.
     fn policy_restart(&mut self) -> Result<(), Error> {
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(|_| Error::InvalidDigestSize(self.digest_size))?;
+            .map_err(|_| CommandError::InvalidDigestSize(self.digest_size))?;
         Ok(())
     }
 
@@ -964,7 +852,7 @@ fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand, Error> {
         nonce: Tpm2bNonce::default(),
         session_attributes: TpmaSession::empty(),
         hmac: Tpm2bAuth::try_from(password)
-            .map_err(|_| Error::InvalidDigestSize(password.len()))?,
+            .map_err(|_| AuthError::InvalidDigestSize(password.len()))?,
     })
 }
 
@@ -1208,14 +1096,14 @@ impl Expression {
         };
 
         let digest_bytes = hex::decode(digest.as_ref().ok_or(PcrError::ValueMissing)?)
-            .map_err(|_| Error::InvalidDigestFormat)?;
+            .map_err(|_| PcrError::InvalidDigestFormat)?;
 
         if digest_bytes.len() != software_session.digest_size {
-            return Err(Error::InvalidDigestSize(digest_bytes.len()));
+            return Err(PcrError::InvalidDigestSize(digest_bytes.len()).into());
         }
 
         let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
-            .map_err(|_| Error::InvalidDigestSize(digest_bytes.len()))?;
+            .map_err(|_| PcrError::InvalidDigestSize(digest_bytes.len()))?;
 
         let cmd = TpmPolicyPcrCommand {
             policy_session: 0.into(),
@@ -1263,9 +1151,9 @@ impl Expression {
         let cp_hash_digest = match cp_hash.as_ref().map(String::as_str) {
             None | Some("") => Ok(Tpm2bDigest::default()),
             Some(hex_str) => {
-                let bytes = hex::decode(hex_str).map_err(|_| Error::InvalidDigestFormat)?;
+                let bytes = hex::decode(hex_str).map_err(|_| SecretError::InvalidDigestFormat)?;
                 Tpm2bDigest::try_from(bytes.as_slice())
-                    .map_err(|_| Error::InvalidDigestSize(bytes.len()))
+                    .map_err(|_| SecretError::InvalidDigestSize(bytes.len()))
             }
         }?;
 
