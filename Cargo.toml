@@ -8,7 +8,7 @@ name = "tpm2-policy-language"
 readme = "README.md"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-policy-language.git"
 rust-version = "1.79"
-version = "0.3.6"
+version = "0.3.7"
 
 [dependencies]
 hex = "0.4"
