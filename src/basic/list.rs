@@ -2,7 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal};
+use crate::{
+    TpmMarshal, TpmMarshalError, TpmMarshalResult, TpmSized, TpmUnmarshal, TpmUnmarshalError,
+    TpmUnmarshalResult,
+};
 use core::{
     convert::TryFrom,
     fmt::Debug,
@@ -40,9 +43,9 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     ///
     /// Returns a `TpmError::CapacityExceeded` error if the list is already at
     /// full capacity.
-    pub fn try_push(&mut self, item: T) -> Result<(), TpmError> {
+    pub fn push(&mut self, item: T) -> Result<(), T> {
         if self.len >= CAPACITY {
-            return Err(TpmError::CapacityExceeded);
+            return Err(item);
         }
         self.items[self.len].write(item);
         self.len += 1;
@@ -93,8 +96,8 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 }
 
 impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPACITY> {
-    fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len = u32::try_from(self.len).map_err(|_| TpmError::Malformed)?;
+    fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmMarshalResult<()> {
+        let len = u32::try_from(self.len).map_err(|_| TpmMarshalError::InvalidValue)?;
         TpmMarshal::marshal(&len, writer)?;
         for item in &**self {
             TpmMarshal::marshal(item, writer)?;
@@ -104,17 +107,18 @@ impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPA
 }
 
 impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, CAPACITY> {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         let (count_u32, mut buf) = u32::unmarshal(buf)?;
         let count = count_u32 as usize;
         if count > CAPACITY {
-            return Err(TpmError::CapacityExceeded);
+            return Err(TpmUnmarshalError::CapacityExceeded);
         }
 
         let mut list = Self::new();
         for _ in 0..count {
             let (item, rest) = T::unmarshal(buf)?;
-            list.try_push(item)?;
+            list.push(item)
+                .map_err(|_| TpmUnmarshalError::CapacityExceeded)?;
             buf = rest;
         }
 

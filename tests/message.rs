@@ -123,7 +123,9 @@ fn main() {
                             .unwrap_or_else(|e| {
                                 panic!("failed to unmarshal outcome string '{outcome_str}': {e}")
                             });
-                        let actual_err = unmarshal_result.err().expect("expected TpmError, got Ok");
+                        let actual_err = unmarshal_result
+                            .err()
+                            .expect("expected TpmUnmarshalError, got Ok");
                         assert_eq!(
                             actual_err, expected_err,
                             "mismatched unmarshaling error type"

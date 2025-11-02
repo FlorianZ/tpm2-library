@@ -2,7 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmWriter};
+use crate::{
+    TpmMarshal, TpmMarshalResult, TpmSized, TpmUnmarshal, TpmUnmarshalError, TpmUnmarshalResult,
+    TpmWriter,
+};
 use core::{convert::TryFrom, fmt::Debug, mem::size_of, ops::Deref};
 
 /// A buffer in the native TPM2B wire format.
@@ -57,7 +60,7 @@ impl<const CAPACITY: usize> TpmSized for TpmBuffer<CAPACITY> {
 }
 
 impl<const CAPACITY: usize> TpmMarshal for TpmBuffer<CAPACITY> {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         let native_size = self.size();
         native_size.marshal(writer)?;
         writer.write_bytes(&self.data[..native_size as usize])
@@ -65,16 +68,16 @@ impl<const CAPACITY: usize> TpmMarshal for TpmBuffer<CAPACITY> {
 }
 
 impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         let (native_size, remainder) = u16::unmarshal(buf)?;
         let size_usize = native_size as usize;
 
         if size_usize > CAPACITY {
-            return Err(TpmError::CapacityExceeded);
+            return Err(TpmUnmarshalError::CapacityExceeded);
         }
 
         if remainder.len() < size_usize {
-            return Err(TpmError::Truncated);
+            return Err(TpmUnmarshalError::TruncatedData);
         }
 
         let mut buffer = Self::new();
@@ -84,15 +87,15 @@ impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
     }
 }
 
-impl<const CAPACITY: usize> TryFrom<&[u8]> for TpmBuffer<CAPACITY> {
-    type Error = TpmError;
+impl<'a, const CAPACITY: usize> TryFrom<&'a [u8]> for TpmBuffer<CAPACITY> {
+    type Error = &'a [u8];
 
-    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(slice: &'a [u8]) -> Result<Self, Self::Error> {
         if slice.len() > CAPACITY {
-            return Err(TpmError::CapacityExceeded);
+            return Err(slice);
         }
         let mut buffer = Self::new();
-        let len_u16 = u16::try_from(slice.len()).map_err(|_| TpmError::Malformed)?;
+        let len_u16 = u16::try_from(slice.len()).map_err(|_| slice)?;
         buffer.set_size(len_u16);
         buffer.data[..slice.len()].copy_from_slice(slice);
         Ok(buffer)

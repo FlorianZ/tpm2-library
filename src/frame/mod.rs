@@ -2,7 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{basic::TpmList, tpm_dispatch, TpmMarshal, TpmResult, TpmSized, TpmWriter};
+use crate::{
+    basic::TpmList, tpm_dispatch, TpmMarshal, TpmMarshalResult, TpmSized, TpmUnmarshalResult,
+    TpmWriter,
+};
 use core::fmt::Debug;
 
 mod data;
@@ -45,14 +48,14 @@ pub trait TpmBodyMarshal: TpmSized {
     /// # Errors
     ///
     /// Returns `Err(TpmError)` on a marshal failure.
-    fn marshal_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
+    fn marshal_handles(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()>;
 
     /// Marshals the parameter area.
     ///
     /// # Errors
     ///
     /// Returns `Err(TpmError)` on a marshal failure.
-    fn marshal_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
+    fn marshal_parameters(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()>;
 }
 
 /// Unmarshals a command body from the slices point out to the handle area and
@@ -63,7 +66,10 @@ pub(crate) trait TpmCommandBodyUnmarshal: Sized {
     /// # Errors
     ///
     /// Returns `Err(TpmError)` on a unmarshal failure.
-    fn unmarshal_body<'a>(handles: &'a [u8], params: &'a [u8]) -> TpmResult<(Self, &'a [u8])>;
+    fn unmarshal_body<'a>(
+        handles: &'a [u8],
+        params: &'a [u8],
+    ) -> TpmUnmarshalResult<(Self, &'a [u8])>;
 }
 
 /// Unmarshals a response body using the response tag to handle structural variations.
@@ -74,7 +80,7 @@ pub trait TpmResponseBodyUnmarshal: Sized {
     /// # Errors
     ///
     /// Returns `Err(TpmError)` on a unmarshal failure.
-    fn unmarshal_body(tag: crate::data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
+    fn unmarshal_body(tag: crate::data::TpmSt, buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])>;
 }
 
 tpm_dispatch! {

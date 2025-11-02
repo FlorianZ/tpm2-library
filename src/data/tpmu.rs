@@ -14,8 +14,8 @@ use crate::{
         TpmsSchemeHmac, TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa,
         TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
-    TpmError, TpmMarshal, TpmResult, TpmSized, TpmTagged, TpmUnmarshal, TpmUnmarshalTagged,
-    TpmWriter,
+    TpmMarshal, TpmMarshalResult, TpmSized, TpmTagged, TpmUnmarshal, TpmUnmarshalError,
+    TpmUnmarshalResult, TpmUnmarshalTagged, TpmWriter,
 };
 use core::ops::Deref;
 
@@ -47,7 +47,7 @@ impl TpmSized for TpmuAsymScheme {
 }
 
 impl TpmMarshal for TpmuAsymScheme {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Any(s) => s.marshal(writer),
             Self::Null => Ok(()),
@@ -56,7 +56,7 @@ impl TpmMarshal for TpmuAsymScheme {
 }
 
 impl TpmUnmarshalTagged for TpmuAsymScheme {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         if tag == TpmAlgId::Null {
             Ok((Self::Null, buf))
         } else {
@@ -92,7 +92,7 @@ impl TpmSized for TpmuCapabilities {
 }
 
 impl TpmMarshal for TpmuCapabilities {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Algs(algs) => algs.marshal(writer),
             Self::Handles(handles) => handles.marshal(writer),
@@ -116,7 +116,7 @@ impl TpmTagged for TpmuHa {
 }
 
 impl TpmMarshal for TpmuHa {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Null => Ok(()),
             Self::Digest(d) => writer.write_bytes(d),
@@ -125,23 +125,25 @@ impl TpmMarshal for TpmuHa {
 }
 
 impl TpmUnmarshalTagged for TpmuHa {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         let digest_size = match tag {
             TpmAlgId::Null => return Ok((Self::Null, buf)),
             TpmAlgId::Sha1 => 20,
             TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => 32,
             TpmAlgId::Sha384 => 48,
             TpmAlgId::Sha512 => 64,
-            _ => return Err(TpmError::Malformed),
+            _ => return Err(TpmUnmarshalError::MalformedValue),
         };
 
         if buf.len() < digest_size {
-            return Err(TpmError::Truncated);
+            return Err(TpmUnmarshalError::TruncatedData);
         }
 
         let (digest_bytes, buf) = buf.split_at(digest_size);
 
-        let digest = Self::Digest(TpmBuffer::try_from(digest_bytes)?);
+        let digest = Self::Digest(
+            TpmBuffer::try_from(digest_bytes).map_err(|_| TpmUnmarshalError::CapacityExceeded)?,
+        );
 
         Ok((digest, buf))
     }
@@ -198,7 +200,7 @@ impl TpmSized for TpmuPublicId {
 }
 
 impl TpmMarshal for TpmuPublicId {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::KeyedHash(data) => data.marshal(writer),
             Self::SymCipher(data) => data.marshal(writer),
@@ -243,7 +245,7 @@ impl TpmSized for TpmuPublicParms {
 }
 
 impl TpmMarshal for TpmuPublicParms {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::KeyedHash(d) => d.marshal(writer),
             Self::SymCipher(d) => d.marshal(writer),
@@ -255,7 +257,7 @@ impl TpmMarshal for TpmuPublicParms {
 }
 
 impl TpmUnmarshalTagged for TpmuPublicParms {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         match tag {
             TpmAlgId::KeyedHash => {
                 let (details, buf) = TpmsKeyedhashParms::unmarshal(buf)?;
@@ -274,7 +276,7 @@ impl TpmUnmarshalTagged for TpmuPublicParms {
                 Ok((Self::Ecc(details), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::Malformed),
+            _ => Err(TpmUnmarshalError::MalformedValue),
         }
     }
 }
@@ -306,7 +308,7 @@ impl TpmSized for TpmuSensitiveComposite {
 }
 
 impl TpmMarshal for TpmuSensitiveComposite {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Ecc(val) => val.marshal(writer),
             Self::Sym(val) => val.marshal(writer),
@@ -342,7 +344,7 @@ impl TpmSized for TpmuSymKeyBits {
 }
 
 impl TpmMarshal for TpmuSymKeyBits {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Aes(val) | Self::Sm4(val) | Self::Camellia(val) => val.marshal(writer),
             Self::Xor(val) => val.marshal(writer),
@@ -377,7 +379,7 @@ impl TpmSized for TpmuSymMode {
 }
 
 impl TpmMarshal for TpmuSymMode {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Aes(val) | Self::Sm4(val) | Self::Camellia(val) | Self::Xor(val) => {
                 val.marshal(writer)
@@ -417,7 +419,7 @@ impl TpmSized for TpmuSignature {
 }
 
 impl TpmMarshal for TpmuSignature {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Rsassa(s) | Self::Rsapss(s) => s.marshal(writer),
             Self::Ecdsa(s) | Self::Ecdaa(s) | Self::Sm2(s) | Self::Ecschnorr(s) => {
@@ -430,7 +432,7 @@ impl TpmMarshal for TpmuSignature {
 }
 
 impl TpmUnmarshalTagged for TpmuSignature {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         match tag {
             TpmAlgId::Rsassa => {
                 let (val, buf) = TpmsSignatureRsa::unmarshal(buf)?;
@@ -461,7 +463,7 @@ impl TpmUnmarshalTagged for TpmuSignature {
                 Ok((Self::Hmac(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::Malformed),
+            _ => Err(TpmUnmarshalError::MalformedValue),
         }
     }
 }
@@ -496,7 +498,7 @@ impl TpmSized for TpmuAttest {
 }
 
 impl TpmMarshal for TpmuAttest {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Certify(i) => i.marshal(writer),
             Self::Creation(i) => i.marshal(writer),
@@ -535,7 +537,7 @@ impl TpmSized for TpmuKeyedhashScheme {
 }
 
 impl TpmMarshal for TpmuKeyedhashScheme {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Hmac(s) => s.marshal(writer),
             Self::Xor(s) => s.marshal(writer),
@@ -545,7 +547,7 @@ impl TpmMarshal for TpmuKeyedhashScheme {
 }
 
 impl TpmUnmarshalTagged for TpmuKeyedhashScheme {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         match tag {
             TpmAlgId::Hmac => {
                 let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
@@ -556,7 +558,7 @@ impl TpmUnmarshalTagged for TpmuKeyedhashScheme {
                 Ok((Self::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::Malformed),
+            _ => Err(TpmUnmarshalError::MalformedValue),
         }
     }
 }
@@ -590,7 +592,7 @@ impl TpmSized for TpmuSigScheme {
 }
 
 impl TpmMarshal for TpmuSigScheme {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::Any(s) | Self::Hmac(s) => s.marshal(writer),
             Self::Null => Ok(()),
@@ -599,7 +601,7 @@ impl TpmMarshal for TpmuSigScheme {
 }
 
 impl TpmUnmarshalTagged for TpmuSigScheme {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         if tag == TpmAlgId::Null {
             Ok((Self::Null, buf))
         } else {
@@ -634,7 +636,7 @@ impl TpmSized for TpmuNvPublic2 {
 }
 
 impl TpmMarshal for TpmuNvPublic2 {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
         match self {
             Self::ExternalNv(s) => s.marshal(writer),
             Self::NvIndex(s) | Self::PermanentNv(s) => s.marshal(writer),
@@ -643,7 +645,7 @@ impl TpmMarshal for TpmuNvPublic2 {
 }
 
 impl TpmUnmarshalTagged for TpmuNvPublic2 {
-    fn unmarshal_tagged(tag: TpmHt, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+    fn unmarshal_tagged(tag: TpmHt, buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
         match tag {
             TpmHt::NvIndex => {
                 let (val, buf) = TpmsNvPublic::unmarshal(buf)?;
@@ -657,7 +659,7 @@ impl TpmUnmarshalTagged for TpmuNvPublic2 {
                 let (val, buf) = TpmsNvPublic::unmarshal(buf)?;
                 Ok((Self::PermanentNv(val), buf))
             }
-            _ => Err(TpmError::Malformed),
+            _ => Err(TpmUnmarshalError::MalformedValue),
         }
     }
 }

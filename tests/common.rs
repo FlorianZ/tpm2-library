@@ -6,7 +6,7 @@
 #![allow(clippy::pedantic)]
 
 use std::{io::IsTerminal, vec::Vec};
-use tpm2_protocol::{TpmDiscriminant, TpmError};
+use tpm2_protocol::{TpmDiscriminant, TpmUnmarshalError};
 
 #[allow(dead_code)]
 pub fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -59,10 +59,10 @@ fn unmarshal_key_value_u16(part: &str, key: &str) -> Result<u16, &'static str> {
     let value_str = part
         .trim()
         .strip_prefix(key)
-        .ok_or("Malformed key")?
+        .ok_or("MalformedValue key")?
         .trim()
         .strip_prefix(':')
-        .ok_or("Malformed key-value separator")?
+        .ok_or("MalformedValue key-value separator")?
         .trim();
     u16::from_str_radix(value_str.strip_prefix("0x").unwrap_or(value_str), 16)
         .map_err(|_| "Invalid number format")
@@ -73,10 +73,10 @@ fn unmarshal_key_value_u32(part: &str, key: &str) -> Result<u32, &'static str> {
     let value_str = part
         .trim()
         .strip_prefix(key)
-        .ok_or("Malformed key")?
+        .ok_or("MalformedValue key")?
         .trim()
         .strip_prefix(':')
-        .ok_or("Malformed key-value separator")?
+        .ok_or("MalformedValue key-value separator")?
         .trim();
     u32::from_str_radix(value_str.strip_prefix("0x").unwrap_or(value_str), 16)
         .map_err(|_| "Invalid number format")
@@ -86,22 +86,22 @@ fn unmarshal_key_value_u32(part: &str, key: &str) -> Result<u32, &'static str> {
 fn unmarshal_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'static str> {
     part.trim()
         .strip_prefix(key)
-        .ok_or("Malformed key")?
+        .ok_or("MalformedValue key")?
         .trim()
         .strip_prefix(':')
-        .ok_or("Malformed key-value separator")?
+        .ok_or("MalformedValue key-value separator")?
         .trim()
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
-        .ok_or("Malformed string value: missing quotes")
+        .ok_or("MalformedValue string value: missing quotes")
 }
 
 #[allow(dead_code)]
-pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
+pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmUnmarshalError, &'static str> {
     match s {
-        "Malformed" => return Ok(TpmError::Malformed),
-        "Truncated" => return Ok(TpmError::Truncated),
-        "Trailing" => return Ok(TpmError::Trailing),
+        "MalformedValue" => return Ok(TpmUnmarshalError::MalformedValue),
+        "TruncatedData" => return Ok(TpmUnmarshalError::TruncatedData),
+        "TrailingData" => return Ok(TpmUnmarshalError::TrailingData),
         _ => {}
     }
 
@@ -137,7 +137,7 @@ pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
         {
             let val = u64::from_str_radix(num_str.strip_prefix("0x").unwrap_or(num_str), 16)
                 .map_err(|_| "InvalidDiscriminant: invalid number for Unsigned")?;
-            return Ok(TpmError::InvalidDiscriminant(
+            return Ok(TpmUnmarshalError::InvalidDiscriminant(
                 type_name,
                 TpmDiscriminant::Unsigned(val),
             ));

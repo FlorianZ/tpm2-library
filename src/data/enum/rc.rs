@@ -3,7 +3,10 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 #[allow(unused_imports)]
-use crate::{tpm_enum, TpmDiscriminant, TpmError, TpmUnmarshal};
+use crate::{
+    tpm_enum, TpmDiscriminant, TpmMarshal, TpmMarshalResult, TpmSized, TpmUnmarshal,
+    TpmUnmarshalError, TpmUnmarshalResult,
+};
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display, Formatter},
@@ -204,13 +207,13 @@ impl crate::TpmSized for TpmRc {
 }
 
 impl crate::TpmMarshal for TpmRc {
-    fn marshal(&self, writer: &mut crate::TpmWriter) -> crate::TpmResult<()> {
+    fn marshal(&self, writer: &mut crate::TpmWriter) -> crate::TpmMarshalResult<()> {
         self.value().marshal(writer)
     }
 }
 
 impl crate::TpmUnmarshal for TpmRc {
-    fn unmarshal(buf: &[u8]) -> crate::TpmResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> crate::TpmUnmarshalResult<(Self, &[u8])> {
         let (val, remainder) = u32::unmarshal(buf)?;
         let rc = Self::try_from(val)?;
         Ok((rc, remainder))
@@ -218,7 +221,7 @@ impl crate::TpmUnmarshal for TpmRc {
 }
 
 impl TryFrom<u32> for TpmRc {
-    type Error = TpmError;
+    type Error = TpmUnmarshalError;
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         let base_code = if (value & TPM_RC_FMT1) != 0 {
             TPM_RC_FMT1 | (value & TPM_RC_FMT1_ERROR_MASK)
@@ -227,7 +230,7 @@ impl TryFrom<u32> for TpmRc {
         };
 
         let base = TpmRcBase::try_from(base_code).map_err(|()| {
-            TpmError::InvalidDiscriminant(
+            TpmUnmarshalError::InvalidDiscriminant(
                 "TpmRcBase",
                 TpmDiscriminant::Unsigned(u64::from(base_code)),
             )
