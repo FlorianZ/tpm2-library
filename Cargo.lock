@@ -254,9 +254,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f38953c988561917395cfb21b0f8032461e985b7814b11de233bd1edd2a1f4c"
+checksum = "db1458473eaab4b4726d03612162bb08317d757a793d790f69338102984839c9"
 
 [[package]]
 name = "unicode-ident"

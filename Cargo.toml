@@ -14,7 +14,7 @@ num-bigint = { version = "0.4", features = ["rand"] }
 openssl = { version = "0.10" }
 rand = "0.8"
 thiserror = "1.0"
-tpm2-protocol = "0.12"
+tpm2-protocol = "0.13"
 
 [[test]]
 name = "hmac"
