@@ -45,10 +45,7 @@ use crate::{
     vtpm::VtpmError,
 };
 use clap::builder::styling::Style as AnsiStyle;
-use std::{
-    io::{IsTerminal, Write},
-    num::TryFromIntError,
-};
+use std::{io::Write, num::TryFromIntError};
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
 use tpm2_protocol::{
@@ -101,11 +98,7 @@ where
         .collect::<Vec<String>>()
         .join("  ");
 
-    if std::io::stdout().is_terminal() {
-        writeln!(writer, "{bold}{header_line}{bold:#}")?;
-    } else {
-        writeln!(writer, "{header_line}")?;
-    }
+    writeln!(writer, "{bold}{header_line}{bold:#}")?;
 
     for row in &rows {
         let row_line = row
