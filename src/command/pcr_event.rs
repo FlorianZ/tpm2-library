@@ -3,7 +3,7 @@
 
 use crate::{
     cli::Job,
-    command::{AuthArgs, CommandError},
+    command::{AuthArgs, CommandError, InputArgs},
     device::with_device,
     io::read_file_input,
     key::Tpm2shAlgId,
@@ -34,6 +34,9 @@ pub struct PcrEvent {
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
+
+    #[clap(flatten)]
+    pub input_args: InputArgs,
 }
 
 impl Job for PcrEvent {
@@ -42,7 +45,7 @@ impl Job for PcrEvent {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
 
-            let data_bytes = read_file_input(None)?;
+            let data_bytes = read_file_input(self.input_args.input.as_deref())?;
 
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())?;
             let command = TpmPcrEventCommand {
