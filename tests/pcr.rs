@@ -9,35 +9,41 @@
 
 use rstest::rstest;
 use std::collections::HashMap;
-use tpm2_policy_language::{Expression, PcrBank, PolicyState};
+use tpm2_policy_language::{Expression, PolicyState};
 use tpm2_protocol::data::TpmAlgId;
 
 #[rstest]
 #[case(
     "pcr(sha256:0,1,2:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)",
-    vec![PcrBank { alg: TpmAlgId::Sha256, count: 24 }],
+    24,
+    vec![TpmAlgId::Sha256],
     TpmAlgId::Sha256
 )]
 #[case(
     "pcr(sha1:0+sha256:7,9,12:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)",
-    vec![
-        PcrBank { alg: TpmAlgId::Sha1, count: 24 },
-        PcrBank { alg: TpmAlgId::Sha256, count: 24 }
-    ],
+    24,
+    vec![TpmAlgId::Sha1, TpmAlgId::Sha256],
     TpmAlgId::Sha256
 )]
 #[case(
-    "pcr(sha256:0, 1, 2:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)",
-    vec![PcrBank { alg: TpmAlgId::Sha256, count: 24 }],
+    "pcr(sha256:0,1,2:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)",
+    24,
+    vec![TpmAlgId::Sha256],
     TpmAlgId::Sha256
 )]
-fn pcr_roundtrip(#[case] input: &str, #[case] banks: Vec<PcrBank>, #[case] session_alg: TpmAlgId) {
+fn pcr_roundtrip(
+    #[case] input: &str,
+    #[case] pcr_count: usize,
+    #[case] pcr_banks: Vec<TpmAlgId>,
+    #[case] session_alg: TpmAlgId,
+) {
     let policy_state = PolicyState {
-        banks,
+        pcr_count,
+        pcr_banks,
         names: HashMap::new(),
     };
 
-    let original_ast = Expression::new(input).unwrap();
+    let original_ast = Expression::new(input, &policy_state).unwrap();
     let (cmds, _) = original_ast
         .to_command_list(session_alg, &policy_state)
         .unwrap();

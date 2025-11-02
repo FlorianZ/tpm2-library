@@ -110,6 +110,8 @@ pub enum ExpressionError {
     TrailingData,
     #[error("invalid expression node: {0}")]
     InvalidNode(String),
+    #[error(transparent)]
+    Pcr(#[from] PcrError),
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -145,21 +147,16 @@ pub enum Error {
     UnsupportedHashAlgorithm(String),
 }
 
-/// Represents the properties of a single PCR bank.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PcrBank {
-    pub alg: TpmAlgId,
-    pub count: usize,
-}
-
 /// Pre-resolved data needed for policy execution.
 ///
 /// This structure must be populated by the caller and passed to
 /// [`Expression::to_command_list()`].
 #[derive(Debug, Clone)]
 pub struct PolicyState {
+    /// Number of PCRs.
+    pub pcr_count: usize,
     /// List of available PCR banks.
-    pub banks: Vec<PcrBank>,
+    pub pcr_banks: Vec<TpmAlgId>,
     /// Map of persistent handle values to their TPM names.
     pub names: HashMap<u32, Tpm2bName>,
 }
@@ -389,29 +386,6 @@ impl TryFrom<Handle> for TpmHt {
     }
 }
 
-/// A selection of PCR indices for a specific bank.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PcrSelection {
-    pub alg: TpmAlgId,
-    pub indices: Vec<u32>,
-}
-
-/// A list of PCR selections, used as a newtype for `TryFrom` implementation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PcrSelectionList(pub Vec<PcrSelection>);
-
-impl fmt::Display for PcrSelection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let indices_str = self
-            .indices
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        write!(f, "{}:{}", PolicyAlgId(self.alg), indices_str)
-    }
-}
-
 /// Provides a [`Display`](std::fmt::Display) implementation for
 /// [`TpmAlgId`](tpm2_protocol::data::TpmAlgId).
 #[derive(Debug, Clone, Copy)]
@@ -445,55 +419,51 @@ impl std::fmt::Display for PolicyAlgId {
     }
 }
 
-impl TryFrom<&str> for PcrSelectionList {
-    type Error = Error;
-
-    fn try_from(selection_str: &str) -> Result<Self, Self::Error> {
-        let selections = selection_str
-            .split('+')
-            .map(|part| {
-                let (alg_str, indices_str) = part
-                    .split_once(':')
-                    .ok_or_else(|| PcrError::InvalidSelectionString(part.to_string()))?;
-
-                let alg = PolicyAlgId::try_from(alg_str)?.0;
-
-                let indices: Vec<u32> = indices_str
-                    .split(',')
-                    .map(str::parse)
-                    .collect::<Result<_, _>>()
-                    .map_err(|_| PcrError::InvalidSelectionString(part.to_string()))?;
-
-                Ok(PcrSelection { alg, indices })
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        Ok(Self(selections))
+/// Parses a PCR selection string (e.g., "sha1:0,1+sha256:7") into a
+/// `TpmlPcrSelection` using context from the `PolicyState`.
+fn parse_tpml_pcr_selection_str(
+    selection_str: &str,
+    context: &PolicyState,
+) -> Result<TpmlPcrSelection, Error> {
+    let mut list = TpmlPcrSelection::new();
+    let pcr_select_size = context.pcr_count.div_ceil(8);
+    if pcr_select_size > TPM_PCR_SELECT_MAX as usize {
+        return Err(PcrError::SelectionTooLarge(pcr_select_size).into());
     }
-}
 
-impl From<&TpmlPcrSelection> for PcrSelectionList {
-    fn from(tpml: &TpmlPcrSelection) -> Self {
-        let selections = tpml
-            .iter()
-            .map(|tpms| {
-                let mut indices = Vec::new();
-                for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
-                    for bit_index in 0..8 {
-                        if (byte & (1 << bit_index)) != 0 {
-                            #[allow(clippy::cast_possible_truncation)]
-                            let pcr_index = (byte_index * 8 + bit_index) as u32;
-                            indices.push(pcr_index);
-                        }
-                    }
-                }
-                PcrSelection {
-                    alg: tpms.hash,
-                    indices,
-                }
-            })
-            .collect();
-        Self(selections)
+    for part in selection_str.split('+') {
+        let (alg_str, indices_str) = part
+            .split_once(':')
+            .ok_or_else(|| PcrError::InvalidSelectionString(part.to_string()))?;
+
+        let alg = PolicyAlgId::try_from(alg_str)?.0;
+        if !context.pcr_banks.contains(&alg) {
+            return Err(PcrError::BankMissing(alg).into());
+        }
+
+        let indices: Vec<u32> = indices_str
+            .split(',')
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .map_err(|_| PcrError::InvalidSelectionString(part.to_string()))?;
+
+        let mut pcr_select_bytes = vec![0u8; pcr_select_size];
+        for &pcr_index in &indices {
+            let pcr_index = pcr_index as usize;
+            if pcr_index >= context.pcr_count {
+                return Err(PcrError::IndexOverflow(pcr_index).into());
+            }
+            pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
+        }
+
+        list.try_push(TpmsPcrSelection {
+            hash: alg,
+            pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
+                .map_err(|_| Error::InvalidDigestSize(pcr_select_bytes.len()))?,
+        })
+        .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
     }
+    Ok(list)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -555,8 +525,9 @@ fn tokenize(input: &str) -> Vec<Token<'_>> {
 
 fn parse_expression<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
+    context: &PolicyState,
 ) -> Result<Expression, ExpressionError> {
-    parse_or(tokens)
+    parse_or(tokens, context)
 }
 
 fn parse_binary_expression<'a, F, G>(
@@ -564,58 +535,79 @@ fn parse_binary_expression<'a, F, G>(
     mut operand_parser: F,
     operator: &Token,
     mut expression_combiner: G,
+    context: &PolicyState,
 ) -> Result<Expression, ExpressionError>
 where
-    F: FnMut(&mut Peekable<Iter<'a, Token<'a>>>) -> Result<Expression, ExpressionError>,
+    F: FnMut(
+        &mut Peekable<Iter<'a, Token<'a>>>,
+        &PolicyState,
+    ) -> Result<Expression, ExpressionError>,
     G: FnMut(Expression, Expression) -> Expression,
 {
-    let mut node = operand_parser(tokens)?;
+    let mut node = operand_parser(tokens, context)?;
     while tokens.peek() == Some(&operator) {
         tokens.next();
-        let rhs = operand_parser(tokens)?;
+        let rhs = operand_parser(tokens, context)?;
         node = expression_combiner(node, rhs);
     }
     Ok(node)
 }
 
-fn parse_or<'a>(tokens: &mut Peekable<Iter<'a, Token<'a>>>) -> Result<Expression, ExpressionError> {
-    parse_binary_expression(tokens, parse_and, &Token::Or, |lhs, rhs| match lhs {
-        Expression::Or(mut terms) => {
-            terms.push(rhs);
-            Expression::Or(terms)
-        }
-        _ => Expression::Or(vec![lhs, rhs]),
-    })
+fn parse_or<'a>(
+    tokens: &mut Peekable<Iter<'a, Token<'a>>>,
+    context: &PolicyState,
+) -> Result<Expression, ExpressionError> {
+    parse_binary_expression(
+        tokens,
+        parse_and,
+        &Token::Or,
+        |lhs, rhs| match lhs {
+            Expression::Or(mut terms) => {
+                terms.push(rhs);
+                Expression::Or(terms)
+            }
+            _ => Expression::Or(vec![lhs, rhs]),
+        },
+        context,
+    )
 }
 
 fn parse_and<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
+    context: &PolicyState,
 ) -> Result<Expression, ExpressionError> {
-    parse_binary_expression(tokens, parse_primary, &Token::And, |lhs, rhs| match lhs {
-        Expression::And(mut factors) => {
-            factors.push(rhs);
-            Expression::And(factors)
-        }
-        _ => Expression::And(vec![lhs, rhs]),
-    })
+    parse_binary_expression(
+        tokens,
+        parse_primary,
+        &Token::And,
+        |lhs, rhs| match lhs {
+            Expression::And(mut factors) => {
+                factors.push(rhs);
+                Expression::And(factors)
+            }
+            _ => Expression::And(vec![lhs, rhs]),
+        },
+        context,
+    )
 }
 
 fn parse_primary<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
+    context: &PolicyState,
 ) -> Result<Expression, ExpressionError> {
     let token = tokens.next().ok_or(ExpressionError::UnexpectedEnd)?;
 
     match token {
         Token::LParen => {
-            let expr = parse_or(tokens)?;
+            let expr = parse_or(tokens, context)?;
             if tokens.next() != Some(&Token::RParen) {
                 return Err(ExpressionError::ParenthesisMismatch);
             }
             Ok(expr)
         }
         Token::Ident(name) => match *name {
-            "pcr" => parse_pcr_call(tokens),
-            "secret" => parse_secret_call(tokens),
+            "pcr" => parse_pcr_call(tokens, context),
+            "secret" => parse_secret_call(tokens, context),
             _ => parse_literal(name),
         },
         _ => Err(ExpressionError::UnexpectedToken(token.to_string())),
@@ -636,6 +628,7 @@ fn parse_literal(s: &str) -> Result<Expression, ExpressionError> {
 
 fn parse_call_args<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
+    context: &PolicyState,
 ) -> Result<Vec<Expression>, ExpressionError> {
     match tokens.peek() {
         Some(&&Token::LParen) => {
@@ -658,7 +651,7 @@ fn parse_call_args<'a>(
     }
 
     loop {
-        args.push(parse_or(tokens)?);
+        args.push(parse_or(tokens, context)?);
 
         match tokens.peek() {
             Some(&&Token::RParen) => {
@@ -681,6 +674,7 @@ fn parse_call_args<'a>(
 
 fn parse_pcr_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
+    context: &PolicyState,
 ) -> Result<Expression, ExpressionError> {
     if tokens.next() != Some(&Token::LParen) {
         return Err(ExpressionError::UnexpectedToken(
@@ -703,31 +697,44 @@ fn parse_pcr_call<'a>(
         }
     }
 
-    let (selection_part, digest_part): (&str, Option<String>) =
-        if let Some((selection, digest)) = buf.rsplit_once(':') {
-            if hex::decode(digest).is_ok() && digest.len() > 10 {
-                (selection, Some(digest.to_string()))
-            } else {
-                (buf.as_str(), None)
-            }
-        } else {
-            (buf.as_str(), None)
-        };
+    let selection_only_result = parse_tpml_pcr_selection_str(&buf, context);
 
-    let selections = PcrSelectionList::try_from(selection_part)
-        .map_err(|e| ExpressionError::UnexpectedToken(e.to_string()))?
-        .0;
-    Ok(Expression::Pcr {
-        selections,
-        digest: digest_part,
-        count: None,
-    })
+    if let Ok(selections) = selection_only_result {
+        return Ok(Expression::Pcr {
+            selections,
+            digest: None,
+            count: None,
+        });
+    }
+
+    if let Some((selection_part, digest_part)) = buf.rsplit_once(':') {
+        let selection_with_digest_result = parse_tpml_pcr_selection_str(selection_part, context);
+
+        if let Ok(selections) = selection_with_digest_result {
+            if hex::decode(digest_part).is_err() {
+                return Err(ExpressionError::InvalidNode(
+                    Error::InvalidDigestFormat.to_string(),
+                ));
+            }
+
+            return Ok(Expression::Pcr {
+                selections,
+                digest: Some(digest_part.to_string()),
+                count: None,
+            });
+        }
+    }
+
+    Err(ExpressionError::UnexpectedToken(
+        selection_only_result.unwrap_err().to_string(),
+    ))
 }
 
 fn parse_secret_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
+    context: &PolicyState,
 ) -> Result<Expression, ExpressionError> {
-    let args = parse_call_args(tokens)?;
+    let args = parse_call_args(tokens, context)?;
     if args.is_empty() || args.len() > 3 {
         return Err(ExpressionError::UnexpectedToken(
             SecretError::ArgumentCount.to_string(),
@@ -757,7 +764,7 @@ fn parse_secret_call<'a>(
 pub enum Expression {
     Auth(Auth),
     Pcr {
-        selections: Vec<PcrSelection>,
+        selections: TpmlPcrSelection,
         digest: Option<String>,
         count: Option<u32>,
     },
@@ -780,12 +787,26 @@ impl fmt::Display for Expression {
                 digest,
                 count,
             } => {
-                let selection_str = selections
+                let selection_strings: Vec<String> = selections
                     .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("+");
-                write!(f, "pcr({selection_str}")?;
+                    .map(|tpms| {
+                        let alg_str = PolicyAlgId(tpms.hash).to_string();
+                        let mut indices = Vec::new();
+                        for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
+                            for bit_index in 0..8 {
+                                if (byte & (1 << bit_index)) != 0 {
+                                    #[allow(clippy::cast_possible_truncation)]
+                                    let pcr_index = (byte_index * 8 + bit_index) as u32;
+                                    indices.push(pcr_index.to_string());
+                                }
+                            }
+                        }
+                        format!("{}:{}", alg_str, indices.join(","))
+                    })
+                    .collect();
+
+                write!(f, "pcr({})", selection_strings.join("+"))?;
+
                 if let Some(d) = digest {
                     write!(f, ":{d}")?;
                 }
@@ -974,39 +995,6 @@ fn expression_to_bytes(expression: &Expression) -> Result<Vec<u8>, AuthError> {
     }
 }
 
-/// Converts a `PcrSelection` list to the TPM's `TpmlPcrSelection` struct.
-fn pcr_selection_vec_to_tpml(
-    selections: &[PcrSelection],
-    banks: &[PcrBank],
-) -> Result<TpmlPcrSelection, Error> {
-    let mut list = TpmlPcrSelection::new();
-    for selection in selections {
-        let bank = banks
-            .iter()
-            .find(|b| b.alg == selection.alg)
-            .ok_or(PcrError::BankMissing(selection.alg))?;
-        let pcr_select_size = bank.count.div_ceil(8);
-        if pcr_select_size > TPM_PCR_SELECT_MAX as usize {
-            return Err(PcrError::SelectionTooLarge(pcr_select_size).into());
-        }
-        let mut pcr_select_bytes = vec![0u8; pcr_select_size];
-        for &pcr_index in &selection.indices {
-            let pcr_index = pcr_index as usize;
-            if pcr_index >= bank.count {
-                return Err(PcrError::IndexOverflow(pcr_index).into());
-            }
-            pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
-        }
-        list.try_push(TpmsPcrSelection {
-            hash: selection.alg,
-            pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
-                .map_err(|_| Error::InvalidDigestSize(pcr_select_bytes.len()))?,
-        })
-        .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
-    }
-    Ok(list)
-}
-
 /// Conditionally wraps a list of expressions in `Expression::And`.
 /// If the list contains exactly one item, it is returned directly.
 fn build_and_branch(mut branch: Vec<Expression>) -> Expression {
@@ -1029,10 +1017,10 @@ impl Expression {
     /// Returns a [`Error`] variant if parsing fails due to syntactic errors,
     /// malformed literals (handles, auth strings, PCR selections), or other
     /// structural problems in the input string.
-    pub fn new(input: &str) -> Result<Expression, Error> {
+    pub fn new(input: &str, context: &PolicyState) -> Result<Expression, Error> {
         let tokens = tokenize(input);
         let mut iter = tokens.iter().peekable();
-        let expr = parse_expression(&mut iter)?;
+        let expr = parse_expression(&mut iter, context)?;
 
         if iter.peek().is_none() {
             Ok(expr)
@@ -1070,7 +1058,7 @@ impl Expression {
                     stack.push(vec![]);
                 }
                 TpmCommandBody::PolicyPcr(cmd) => {
-                    let selections = PcrSelectionList::from(&cmd.pcrs).0;
+                    let selections = cmd.pcrs;
                     let digest = Some(hex::encode(cmd.pcr_digest.as_ref()));
                     let expr = Expression::Pcr {
                         selections,
@@ -1196,7 +1184,7 @@ impl Expression {
                 expr.to_command_list_walk_or(command_list, software_session, context)
             }
             expr @ Expression::Pcr { .. } => {
-                expr.to_command_list_walk_pcr(command_list, software_session, context)
+                expr.to_command_list_walk_pcr(command_list, software_session)
             }
             expr @ Expression::Secret { .. } => {
                 expr.to_command_list_walk_secret(command_list, software_session, context)
@@ -1211,7 +1199,6 @@ impl Expression {
         &self,
         command_list: &mut Vec<Vec<u8>>,
         software_session: &mut SoftwarePolicySession,
-        context: &PolicyState,
     ) -> Result<Tpm2bDigest, Error> {
         let (selections, digest) = match self {
             Expression::Pcr {
@@ -1230,12 +1217,10 @@ impl Expression {
         let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
             .map_err(|_| Error::InvalidDigestSize(digest_bytes.len()))?;
 
-        let pcrs = pcr_selection_vec_to_tpml(selections, &context.banks)?;
-
         let cmd = TpmPolicyPcrCommand {
             policy_session: 0.into(),
             pcr_digest,
-            pcrs,
+            pcrs: *selections,
         };
 
         let full_cmd = build_full_command(&cmd, TpmSt::NoSessions, &[])?;

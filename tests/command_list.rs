@@ -9,7 +9,7 @@
 
 use rstest::rstest;
 use std::collections::HashMap;
-use tpm2_policy_language::{Auth, Expression, PcrBank, PolicyState};
+use tpm2_policy_language::{Auth, Expression, PolicyState};
 use tpm2_protocol::data::{Tpm2bName, TpmAlgId};
 
 /// Recursively traverses an AST and replaces any password bytes with a
@@ -58,14 +58,12 @@ fn command_list_roundtrip(#[case] input: &str) {
         .unwrap(),
     );
     let policy_state = PolicyState {
-        banks: vec![PcrBank {
-            alg: TpmAlgId::Sha256,
-            count: 24,
-        }],
+        pcr_count: 24,
+        pcr_banks: vec![TpmAlgId::Sha256],
         names,
     };
 
-    let original_ast = Expression::new(input).unwrap();
+    let original_ast = Expression::new(input, &policy_state).unwrap();
 
     let (command_list, _digest) = original_ast
         .to_command_list(TpmAlgId::Sha256, &policy_state)
