@@ -948,7 +948,7 @@ impl SoftwarePolicySession {
     fn policy_restart(&mut self) -> Result<(), Error> {
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
             .map_err(|_| Error::InvalidDigestSize(self.digest_size))?;
-        update_policy_digest(&mut self.digest, self.hash_alg, TpmCc::PolicyRestart, &[])
+        Ok(())
     }
 
     /// Retrieves the final policy digest from the session.
