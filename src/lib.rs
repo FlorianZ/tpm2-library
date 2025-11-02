@@ -151,7 +151,7 @@ pub enum Error {
 ///
 /// This structure must be populated by the caller and passed to
 /// [`Expression::to_command_list()`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PolicyState {
     /// Number of PCRs.
     pub pcr_count: usize,
