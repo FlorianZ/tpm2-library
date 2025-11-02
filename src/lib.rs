@@ -648,7 +648,7 @@ fn parse_secret_call<'a>(
 }
 
 /// The Abstract Syntax Tree (AST) for the unified policy language.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Eq, Clone)]
 pub enum Expression {
     Auth(Auth),
     Pcr {
@@ -664,6 +664,69 @@ pub enum Expression {
     And(Vec<Expression>),
     Or(Vec<Expression>),
     Handle(Handle),
+}
+
+/// Compares two password expressions semantically, treating `None` as equal to
+/// an empty password.
+fn compare_passwords(left: &Option<Box<Expression>>, right: &Option<Box<Expression>>) -> bool {
+    enum Pw<'a> {
+        None,
+        Some(&'a [u8]),
+        NotAPassword,
+    }
+
+    fn get_pw(expr_opt: &Option<Box<Expression>>) -> Pw<'_> {
+        match expr_opt {
+            None => Pw::None,
+            Some(expr) => match &**expr {
+                Expression::Auth(Auth::Password(p)) => Pw::Some(p),
+                _ => Pw::NotAPassword,
+            },
+        }
+    }
+
+    match (get_pw(left), get_pw(right)) {
+        (Pw::Some(l_bytes), Pw::Some(r_bytes)) => l_bytes == r_bytes,
+        (Pw::Some(bytes), Pw::None) | (Pw::None, Pw::Some(bytes)) => bytes.is_empty(),
+        (Pw::None, Pw::None) => true,
+        _ => false,
+    }
+}
+
+impl PartialEq for Expression {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Secret {
+                    auth_handle: l_ah,
+                    password: l_pw,
+                    cp_hash: l_cph,
+                },
+                Self::Secret {
+                    auth_handle: r_ah,
+                    password: r_pw,
+                    cp_hash: r_cph,
+                },
+            ) => l_ah == r_ah && l_cph == r_cph && compare_passwords(l_pw, r_pw),
+            (Self::Auth(l), Self::Auth(r)) => l == r,
+            (
+                Self::Pcr {
+                    selections: l_s,
+                    digest: l_d,
+                    count: l_c,
+                },
+                Self::Pcr {
+                    selections: r_s,
+                    digest: r_d,
+                    count: r_c,
+                },
+            ) => l_s == r_s && l_d == r_d && l_c == r_c,
+            (Self::And(l), Self::And(r)) => l == r,
+            (Self::Or(l), Self::Or(r)) => l == r,
+            (Self::Handle(l), Self::Handle(r)) => l == r,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Expression {
@@ -710,7 +773,9 @@ impl fmt::Display for Expression {
             } => {
                 write!(f, "secret({auth_handle}")?;
                 if let Some(p) = password {
-                    write!(f, ", {p}")?;
+                    if !matches!(&**p, Expression::Auth(Auth::Password(pw)) if pw.is_empty()) {
+                        write!(f, ", {p}")?;
+                    }
                 }
                 if let Some(c) = cp_hash {
                     write!(f, ", {c}")?;
