@@ -1166,13 +1166,13 @@ impl Expression {
             expiration: 0,
         };
 
-        let full_cmd = if let Some(p) = password {
-            let password_bytes = expression_to_bytes(p)?;
-            let auth_session = build_password_session(&password_bytes)?;
-            build_full_command(&cmd, TpmSt::Sessions, &[auth_session])?
+        let password_bytes = if let Some(p) = password {
+            expression_to_bytes(p)?
         } else {
-            build_full_command(&cmd, TpmSt::NoSessions, &[])?
+            Vec::new()
         };
+        let auth_session = build_password_session(&password_bytes)?;
+        let full_cmd = build_full_command(&cmd, TpmSt::Sessions, &[auth_session])?;
 
         command_list.push(full_cmd);
         software_session.policy_secret(&cmd, name)?;
