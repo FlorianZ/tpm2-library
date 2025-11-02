@@ -346,12 +346,12 @@ fn parse_tpml_pcr_selection_str(
             pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
         }
 
-        list.try_push(TpmsPcrSelection {
+        list.push(TpmsPcrSelection {
             hash: alg,
             pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
                 .map_err(|_| PcrError::InvalidDigestSize(pcr_select_bytes.len()))?,
         })
-        .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
+        .map_err(|_| CommandError::BuildFailed("Failed to push PCR selection".to_string()))?;
     }
     Ok(list)
 }
@@ -1201,9 +1201,9 @@ impl Expression {
 
             let digest = branch.to_command_list_walk(command_list, software_session, context)?;
 
-            digest_list
-                .try_push(digest)
-                .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
+            digest_list.push(digest).map_err(|_| {
+                CommandError::BuildFailed("Failed to push digest to list".to_string())
+            })?;
         }
 
         let or_cmd = TpmPolicyOrCommand {
