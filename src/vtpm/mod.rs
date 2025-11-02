@@ -7,6 +7,7 @@
 use crate::{
     device::{Device, DeviceError},
     key::Tpm2shAlgId,
+    write_object,
 };
 use std::{
     any::Any,
@@ -369,23 +370,29 @@ impl<'a> VtpmCache<'a> {
         dev: &mut Device,
         first_public: &TpmtPublic,
     ) -> Result<Vec<u32>, VtpmError> {
+        let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
+        for (vhandle, key) in self.key_iter() {
+            let parent_key_bytes = write_object(&key.parent.inner)?;
+            parent_to_children
+                .entry(parent_key_bytes)
+                .or_default()
+                .push((*vhandle, key.public.inner.clone()));
+        }
+
         let mut ancestor_list = VecDeque::new();
         ancestor_list.push_back(first_public.clone());
         let mut deleted_children = Vec::new();
 
         while let Some(parent_public) = ancestor_list.pop_front() {
-            let children_to_process: Vec<(u32, TpmtPublic)> = self
-                .key_iter()
-                .filter(|(_, key)| key.parent.inner == parent_public)
-                .map(|(vhandle, key)| (*vhandle, key.public.inner.clone()))
-                .collect();
-
-            for (child_vhandle, child_public) in children_to_process {
-                if let Some(context) = self.contexts.remove(&child_vhandle) {
-                    context.delete(dev, self.cache_dir(), child_vhandle)?;
-                    self.dirty.remove(&child_vhandle);
-                    deleted_children.push(child_vhandle);
-                    ancestor_list.push_back(child_public);
+            let parent_key_bytes = write_object(&parent_public)?;
+            if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
+                for (child_vhandle, child_public) in children_to_process.clone() {
+                    if let Some(context) = self.contexts.remove(&child_vhandle) {
+                        context.delete(dev, self.cache_dir(), child_vhandle)?;
+                        self.dirty.remove(&child_vhandle);
+                        deleted_children.push(child_vhandle);
+                        ancestor_list.push_back(child_public);
+                    }
                 }
             }
         }
