@@ -32,7 +32,7 @@ pub const KDF_LABEL_DUPLICATE: &str = "DUPLICATE";
 pub const KDF_LABEL_INTEGRITY: &str = "INTEGRITY";
 pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum CryptoError {
     #[error("big number conversion failed")]
     BigNumConversion,
