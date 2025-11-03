@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{cli::LogFormat, print::TpmPrint, spinner::Spinner, TEARDOWN};
 use log::trace;
@@ -30,7 +30,7 @@ use tpm2_protocol::{
         TpmContextSaveCommand, TpmEvictControlCommand, TpmFlushContextCommand, TpmFrame,
         TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponseBody,
     },
-    TpmError, TpmHandle, TpmWriter,
+    TpmHandle, TpmMarshalError, TpmUnmarshalError, TpmWriter,
 };
 
 /// A type-erased object safe TPM command object
@@ -59,15 +59,23 @@ pub enum DeviceError {
     Io(#[from] std::io::Error),
     #[error("syscall: {0}")]
     Nix(#[from] nix::Error),
-    #[error("protocol: {0}")]
-    TpmProtocol(TpmError),
+    #[error("protocol marshal: {0}")]
+    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
+    #[error("protocol unmarshal: {0}")]
+    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
     #[error("TPM return code: {0}")]
     TpmRc(TpmRc),
 }
 
-impl From<TpmError> for DeviceError {
-    fn from(err: TpmError) -> Self {
-        Self::TpmProtocol(err)
+impl From<TpmMarshalError> for DeviceError {
+    fn from(err: TpmMarshalError) -> Self {
+        Self::ProtocolMarshal(err)
+    }
+}
+
+impl From<TpmUnmarshalError> for DeviceError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::ProtocolUnmarshal(err)
     }
 }
 

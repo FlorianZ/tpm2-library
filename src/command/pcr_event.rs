@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
 
 use crate::{
     cli::Job,
@@ -47,7 +47,8 @@ impl Job for PcrEvent {
 
             let data_bytes = read_file_input(self.input_args.input.as_deref())?;
 
-            let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())?;
+            let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())
+                .map_err(|_| CommandError::CapacityExceeded)?;
             let command = TpmPcrEventCommand {
                 pcr_handle: handles[0].into(),
                 event_data,

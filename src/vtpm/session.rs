@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{RefreshAction, VtpmContext, VtpmError};
 use crate::{
@@ -19,7 +19,7 @@ use tpm2_protocol::{
         TpmsAuthCommand, TpmsContext,
     },
     frame::TpmStartAuthSessionResponse,
-    TpmError, TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
+    TpmHandle, TpmMarshal, TpmMarshalError, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
 /// Manages the state of an active authorization session.
@@ -73,7 +73,8 @@ impl VtpmSession {
             },
             nonce_tpm: resp.nonce_tpm,
             attributes: TpmaSession::CONTINUE_SESSION,
-            hmac_key: Tpm2bAuth::try_from(hmac_key_bytes.as_slice())?,
+            hmac_key: Tpm2bAuth::try_from(hmac_key_bytes.as_slice())
+                .map_err(|_| VtpmError::CapacityExceeded)?,
             auth_hash,
         })
     }
@@ -81,11 +82,20 @@ impl VtpmSession {
     /// Loads a session from a binary file.
     pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
         let session_bytes = fs::read(path)?;
-        let (context, remainder) = TpmsContext::unmarshal(&session_bytes)?;
-        let (nonce_tpm, remainder) = Tpm2bNonce::unmarshal(remainder)?;
-        let (attributes, remainder) = TpmaSession::unmarshal(remainder)?;
-        let (hmac_key, remainder) = Tpm2bAuth::unmarshal(remainder)?;
-        let (auth_hash, _) = TpmAlgId::unmarshal(remainder)?;
+        let (context, remainder) =
+            TpmsContext::unmarshal(&session_bytes).map_err(VtpmError::ProtocolUnmarshal)?;
+        let (nonce_tpm, remainder) =
+            Tpm2bNonce::unmarshal(remainder).map_err(VtpmError::ProtocolUnmarshal)?;
+        let (attributes, remainder) =
+            TpmaSession::unmarshal(remainder).map_err(VtpmError::ProtocolUnmarshal)?;
+        let (hmac_key, remainder) =
+            Tpm2bAuth::unmarshal(remainder).map_err(VtpmError::ProtocolUnmarshal)?;
+        let (auth_hash, _) =
+            TpmAlgId::unmarshal(remainder).map_err(VtpmError::ProtocolUnmarshal)?;
+
+        if !remainder.is_empty() {
+            log::warn!("trailing data");
+        }
 
         Ok(Self {
             context,
@@ -123,7 +133,7 @@ impl VtpmContext for VtpmSession {
     }
 
     fn save(&self, path: &Path) -> Result<(), VtpmError> {
-        let bytes = write_object(self)?;
+        let bytes = write_object(self).map_err(VtpmError::ProtocolMarshal)?;
         fs::write(path, bytes)?;
         Ok(())
     }
@@ -188,7 +198,7 @@ impl TpmSized for VtpmSession {
 }
 
 impl TpmMarshal for VtpmSession {
-    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmMarshalError> {
         self.context.marshal(writer)?;
         self.nonce_tpm.marshal(writer)?;
         self.attributes.marshal(writer)?;
@@ -207,7 +217,7 @@ pub fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand, VtpmEr
         session_handle: (tpm2_protocol::data::TpmRh::Pw as u32).into(),
         nonce: Tpm2bNonce::default(),
         session_attributes: TpmaSession::empty(),
-        hmac: Tpm2bAuth::try_from(password)?,
+        hmac: Tpm2bAuth::try_from(password).map_err(|_| VtpmError::CapacityExceeded)?,
     })
 }
 
@@ -234,16 +244,23 @@ pub fn create_auth(
         .map(|&handle| {
             let handle_type = (handle >> 24) as u8;
             if handle_type == TpmHt::Transient as u8 || handle_type == TpmHt::Persistent as u8 {
-                device.read_public(handle.into()).map(|(_, name)| name)
+                device
+                    .read_public(handle.into())
+                    .map(|(_, name)| name)
+                    .map_err(VtpmError::Device)
             } else {
                 let mut buf = [0u8; TpmHandle::SIZE];
                 let mut writer = TpmWriter::new(&mut buf);
                 TpmHandle(handle).marshal(&mut writer)?;
                 let len = writer.len();
-                Tpm2bName::try_from(&buf[..len]).map_err(DeviceError::from)
+                if let Ok(name) = Tpm2bName::try_from(&buf[..len]) {
+                    Ok(name)
+                } else {
+                    Err(VtpmError::CapacityExceeded)
+                }
             }
         })
-        .collect::<Result<_, DeviceError>>()?;
+        .collect::<Result<_, VtpmError>>()?;
 
     let command_code_bytes = (command_code as u32).to_be_bytes();
 
@@ -293,6 +310,7 @@ pub fn create_auth(
         session_handle: session.context.saved_handle,
         nonce: *nonce_caller,
         session_attributes: session.attributes,
-        hmac: Tpm2bAuth::try_from(hmac_bytes.as_slice())?,
+        hmac: Tpm2bAuth::try_from(hmac_bytes.as_slice())
+            .map_err(|_| VtpmError::CapacityExceeded)?,
     })
 }

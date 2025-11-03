@@ -1,15 +1,13 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! This module contains the executor for the unified policy language.
 
-mod software;
 mod tpm;
 
-pub use software::*;
 pub use tpm::*;
-use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Expression, HandleClass};
+use tpm2_policy_language::{Error as PolicyLanguageError, Expression, HandleClass, PolicyAlgId};
 
 use crate::{
     device::DeviceError,
@@ -23,11 +21,13 @@ use thiserror::Error;
 use tpm2_crypto::CryptoError;
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
-    TpmError,
+    TpmMarshalError, TpmUnmarshalError,
 };
 
 #[derive(Debug, Error)]
 pub enum PolicyError {
+    #[error("capacity exceeded")]
+    CapacityExceeded,
     #[error("cache: {0}")]
     Vtpm(#[from] VtpmError),
     #[error("crypto: {0}")]
@@ -52,17 +52,27 @@ pub enum PolicyError {
     NoValidPolicyOrBranch,
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
+    #[error("pcr index too large: {0}")]
+    PcrIndexTooLarge(usize),
     #[error("PCR value for selection '{0}' not provided")]
     PcrValueMissing(String),
     #[error("policy language: {0}")]
     PolicyLanguage(#[from] PolicyLanguageError),
-    #[error("protocol: {0}")]
-    TpmProtocol(TpmError),
+    #[error("protocol marshal: {0}")]
+    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
+    #[error("protocol unmarshal: {0}")]
+    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
 }
 
-impl From<TpmError> for PolicyError {
-    fn from(err: TpmError) -> Self {
-        Self::TpmProtocol(err)
+impl From<TpmMarshalError> for PolicyError {
+    fn from(err: TpmMarshalError) -> Self {
+        Self::ProtocolMarshal(err)
+    }
+}
+
+impl From<TpmUnmarshalError> for PolicyError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::ProtocolUnmarshal(err)
     }
 }
 
@@ -133,7 +143,7 @@ pub trait PolicySession {
 /// cannot be read.
 pub fn expression_to_bytes(expression: &Expression) -> Result<Vec<u8>, PolicyError> {
     match expression {
-        Expression::Auth(Auth::Password(value)) => Ok(value.clone()),
+        Expression::Auth(tpm2_policy_language::Auth::Password(value)) => Ok(value.clone()),
         _ => Err(PolicyError::InvalidSecret(format!(
             "{expression:?}: expected 'password:<hex>'"
         ))),
@@ -161,9 +171,9 @@ pub fn execute_policy(
                 hex::decode(digest.as_ref().ok_or(PolicyError::InvalidExpression(
                     "expected a hex string for optional digest in pcr()".to_string(),
                 ))?)?;
-            let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())?;
-            let pcrs = pcr::pcr_selection_vec_to_tpml(selections, &context.banks)?;
-            session.policy_pcr(&pcr_digest, pcrs)?;
+            let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
+                .map_err(|_| PolicyError::CapacityExceeded)?;
+            session.policy_pcr(&pcr_digest, *selections)?;
             session.get_digest()
         }
         Expression::Secret {
@@ -203,7 +213,8 @@ pub fn execute_policy(
                 .as_ref()
                 .map(|hex_str| -> Result<Tpm2bDigest, PolicyError> {
                     let bytes = hex::decode(hex_str)?;
-                    Ok(Tpm2bDigest::try_from(bytes.as_slice())?)
+                    Tpm2bDigest::try_from(bytes.as_slice())
+                        .map_err(|_| PolicyError::CapacityExceeded)
                 })
                 .transpose()?;
 
@@ -227,8 +238,8 @@ pub fn execute_policy(
                 session.policy_restart()?;
                 let digest = execute_policy(branch, session, context)?;
                 digest_list
-                    .try_push(digest)
-                    .map_err(|e| PolicyError::InvalidExpression(e.to_string()))?;
+                    .push(digest)
+                    .map_err(|_| PolicyError::InvalidExpression(ast.to_string()))?;
             }
             session.policy_or(&digest_list)?;
             session.get_digest()
@@ -253,11 +264,28 @@ pub fn populate_pcr_digests<S: BuildHasher>(
             selections, digest, ..
         } => {
             if digest.is_none() {
-                let selection_str = selections
+                let selection_strings: Vec<String> = selections
                     .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("+");
+                    .map(|tpms| {
+                        let alg_str = PolicyAlgId(tpms.hash).to_string();
+                        let mut indices = Vec::new();
+                        for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
+                            for bit_index in 0..8 {
+                                if (byte & (1 << bit_index)) != 0 {
+                                    let pcr_index_usize = byte_index * 8 + bit_index;
+                                    let pcr_index =
+                                        u32::try_from(pcr_index_usize).map_err(|_| {
+                                            PolicyError::PcrIndexTooLarge(pcr_index_usize)
+                                        })?;
+                                    indices.push(pcr_index.to_string());
+                                }
+                            }
+                        }
+                        Ok(format!("{}:{}", alg_str, indices.join(",")))
+                    })
+                    .collect::<Result<Vec<String>, PolicyError>>()?;
+                let selection_str = selection_strings.join("+");
+
                 let digest_bytes = pcr_map
                     .get(&selection_str)
                     .ok_or(PolicyError::PcrValueMissing(selection_str))?;

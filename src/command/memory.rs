@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
     cli::Job,
@@ -16,6 +16,7 @@ use crate::{
 };
 use clap::Args;
 use num_bigint::ToBigInt;
+use pem;
 use rasn::{
     types::{BitString, Integer, ObjectIdentifier, SequenceOf},
     AsnType, Decode, Decoder,

@@ -1,13 +1,13 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2024-2025 Jarkko Sakkinen
-// Copyright (c) 2025 Opinsys Oy
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
+//! Copyright (c) 2025 Opinsys Oy
 
 use crate::{
     cli::Job,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::{read_file_input, write_key_data},
-    key::{AnyKey, ExternalKey, TpmKey, OID_IMPORTABLE_KEY},
+    key::{ExternalKey, KeyError},
     session::Session,
     write_object,
 };
@@ -24,7 +24,7 @@ use tpm2_crypto::{
     ecdh as crypto_ecdh, hash_size as crypto_hash_size, hmac as crypto_hmac, kdfa as crypto_kdfa,
     make_name as crypto_make_name, CryptoError, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
-use tpm2_policy_language::{Handle, HandleClass};
+use tpm2_policy_language::{Handle, HandleClass, PolicyState};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -36,6 +36,7 @@ use tpm2_protocol::{
     frame::TpmImportCommand,
     TpmHandle, TpmMarshal, TpmWriter,
 };
+use tpm2_tpmkey::TpmKey;
 
 /// Convert external keys to TPM keys.
 #[derive(Args, Debug)]
@@ -89,6 +90,7 @@ impl Job for Convert {
                 &tpm_key,
                 self.output_args.output.as_deref(),
                 self.output_encoding_args.output_encoding,
+                &PolicyState::default(),
             )
         })
     }
@@ -147,7 +149,8 @@ impl Convert {
         let encrypted_seed = result
             .map_err(|e| CommandError::InvalidInput(format!("RSA-OAEP encryption failed: {e}")))?;
 
-        Tpm2bEncryptedSecret::try_from(encrypted_seed.as_slice()).map_err(CommandError::TpmProtocol)
+        Tpm2bEncryptedSecret::try_from(encrypted_seed.as_slice())
+            .map_err(|_| CommandError::CapacityExceeded)
     }
 
     /// Derives a `seed` and an ephemeral public key using ECDH with the parent's ECC public key.
@@ -165,7 +168,7 @@ impl Convert {
         }?;
 
         crypto_ecdh(curve_id, parent_point, parent_public.name_alg, rng).map_err(|e| {
-            if let CryptoError::UnsupportedEccCurve = e {
+            if let CryptoError::Rc(TpmRcBase::Curve) = e {
                 CommandError::InvalidInput(format!(
                     "Unsupported ECC curve specified by parent key: {curve_id:?}"
                 ))
@@ -184,7 +187,7 @@ impl Convert {
         match parent_key_type {
             TpmAlgId::Rsa => {
                 let parent_name_alg = parent_public.name_alg;
-                let seed_size = crypto_hash_size(parent_name_alg)?;
+                let seed_size = crypto_hash_size(parent_name_alg)? as usize;
                 let mut seed = vec![0u8; seed_size];
                 rng.fill_bytes(&mut seed);
                 let encrypted_seed = Self::create_import_seed_rsa(parent_public, &seed, rng)?;
@@ -193,10 +196,9 @@ impl Convert {
             TpmAlgId::Ecc => {
                 let (derived_seed, ephemeral_point) =
                     Self::create_import_seed_ecc(parent_public, rng)?;
-                let point_bytes =
-                    write_object(&ephemeral_point).map_err(CommandError::TpmProtocol)?;
+                let point_bytes = write_object(&ephemeral_point)?;
                 let secret = Tpm2bEncryptedSecret::try_from(point_bytes.as_slice())
-                    .map_err(CommandError::TpmProtocol)?;
+                    .map_err(|_| CommandError::CapacityExceeded)?;
                 Ok((derived_seed, secret))
             }
             _ => Err(CommandError::InvalidInput(format!(
@@ -246,16 +248,19 @@ impl Convert {
         let object_key_type = object_public.object_type;
         let sensitive_composite = match object_key_type {
             TpmAlgId::Rsa => TpmuSensitiveComposite::Rsa(
-                Tpm2bPrivateKeyRsa::try_from(private_bytes).map_err(CommandError::TpmProtocol)?,
+                Tpm2bPrivateKeyRsa::try_from(private_bytes)
+                    .map_err(|_| CommandError::CapacityExceeded)?,
             ),
             TpmAlgId::Ecc => TpmuSensitiveComposite::Ecc(
-                Tpm2bEccParameter::try_from(private_bytes).map_err(CommandError::TpmProtocol)?,
+                Tpm2bEccParameter::try_from(private_bytes)
+                    .map_err(|_| CommandError::CapacityExceeded)?,
             ),
             TpmAlgId::KeyedHash => TpmuSensitiveComposite::Bits(
-                Tpm2bSensitiveData::try_from(private_bytes).map_err(CommandError::TpmProtocol)?,
+                Tpm2bSensitiveData::try_from(private_bytes)
+                    .map_err(|_| CommandError::CapacityExceeded)?,
             ),
             TpmAlgId::SymCipher => TpmuSensitiveComposite::Sym(
-                Tpm2bSymKey::try_from(private_bytes).map_err(CommandError::TpmProtocol)?,
+                Tpm2bSymKey::try_from(private_bytes).map_err(|_| CommandError::CapacityExceeded)?,
             ),
             _ => {
                 return Err(CommandError::InvalidInput(format!(
@@ -270,7 +275,7 @@ impl Convert {
             sensitive: sensitive_composite,
         };
         let sensitive_tpm2b = Tpm2bSensitive::from(sensitive);
-        let mut enc_data = write_object(&sensitive_tpm2b).map_err(CommandError::TpmProtocol)?;
+        let mut enc_data = write_object(&sensitive_tpm2b)?;
 
         let iv = [0u8; 16];
         let cipher = Encryptor::<Aes128>::new(sym_key.into(), &iv.into());
@@ -298,7 +303,7 @@ impl Convert {
             let len = {
                 let mut writer = TpmWriter::new(&mut duplicate_blob_buf);
                 Tpm2bDigest::try_from(final_mac.as_slice())
-                    .map_err(CommandError::TpmProtocol)?
+                    .map_err(|_| CommandError::CapacityExceeded)?
                     .marshal(&mut writer)?;
                 writer.write_bytes(encrypted_sensitive_data)?;
                 writer.len()
@@ -306,7 +311,8 @@ impl Convert {
             duplicate_blob_buf[..len].to_vec()
         };
 
-        Tpm2bPrivate::try_from(duplicate_blob.as_slice()).map_err(CommandError::TpmProtocol)
+        Tpm2bPrivate::try_from(duplicate_blob.as_slice())
+            .map_err(|_| CommandError::CapacityExceeded)
     }
 
     /// Creates the import blob components (`duplicate`, `in_sym_seed`, `encryption_key`).
@@ -343,12 +349,24 @@ impl Convert {
         input_bytes: &[u8],
         auth_args: &AuthArgs,
     ) -> Result<TpmKey, CommandError> {
-        let external_key = match AnyKey::try_from(input_bytes)? {
-            AnyKey::Tpm(_) => {
-                return Err(CommandError::InvalidFormat);
-            }
-            AnyKey::External(key) => key,
+        let der_bytes = if let Ok(pems) = pem::parse_many(input_bytes) {
+            pems.into_iter()
+                .find(|p| {
+                    matches!(
+                        p.tag(),
+                        "PRIVATE KEY" | "RSA PRIVATE KEY" | "EC PRIVATE KEY"
+                    )
+                })
+                .map(|p| p.contents().to_vec())
+                .ok_or(CommandError::InvalidFormat)?
+        } else {
+            input_bytes.to_vec()
         };
+
+        let external_key = ExternalKey::from_der(&der_bytes).map_err(|e| match e {
+            KeyError::InvalidFormat => CommandError::InvalidFormat,
+            e => e.into(),
+        })?;
         let mut rng = rand::thread_rng();
 
         let (parent_public, _) = match device.read_public(parent_handle) {
@@ -403,31 +421,16 @@ impl Convert {
             inner: parent_public,
         };
 
-        let key_type = match external_key.as_ref() {
-            ExternalKey::Rsa2048(_)
-            | ExternalKey::Rsa3072(_)
-            | ExternalKey::Rsa4096(_)
-            | ExternalKey::EccP256(_)
-            | ExternalKey::EccP384(_)
-            | ExternalKey::EccP521(_) => OID_IMPORTABLE_KEY,
-        };
-
         let tpm_key = TpmKey {
-            key_type,
+            public: Tpm2bPublic {
+                inner: public.clone(),
+            },
+            private: out_private,
+            parent_handle,
+            parent_public: Some(parent_public_2b),
+            key_type: public.object_type,
             empty_auth: Some(true),
             policy: None,
-            secret: None,
-            auth_policy: None,
-            description: None,
-            rsa_parent: Some(parent_public_2b.inner.object_type == TpmAlgId::Rsa),
-            parent_pub_key: Some(rasn::types::OctetString::copy_from_slice(&write_object(
-                &parent_public_2b,
-            )?)),
-            parent: parent_handle.0,
-            pub_key: rasn::types::OctetString::copy_from_slice(&write_object(&Tpm2bPublic {
-                inner: public,
-            })?),
-            priv_key: rasn::types::OctetString::copy_from_slice(&write_object(&out_private)?),
         };
 
         Ok(tpm_key)

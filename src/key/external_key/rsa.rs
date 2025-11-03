@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
 
 #![allow(clippy::no_effect_underscore_binding)]
 
@@ -158,8 +158,9 @@ pub fn rsa_to_public(
             key_bits,
             exponent: 0,
         }),
-        unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::try_from(
-            key.n().to_bytes_be().as_slice(),
-        )?),
+        unique: TpmuPublicId::Rsa(
+            Tpm2bPublicKeyRsa::try_from(key.n().to_bytes_be().as_slice())
+                .map_err(|_| KeyError::CapacityExceeded)?,
+        ),
     })
 }

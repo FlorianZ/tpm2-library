@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
     cli::Job,
@@ -13,8 +13,8 @@ use crate::{
 use clap::Args;
 use tpm2_protocol::{
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
-        TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc,
+        TpmRh, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::TpmCreatePrimaryCommand,
 };
@@ -44,9 +44,9 @@ impl Job for CreatePrimary {
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
             let handles = [primary_handle as u32];
 
-            let (object_attributes, user_auth, auth_policy) =
-                self.creation_args.parse(&self.algorithm)?;
-            let public_template = build_public(&self.algorithm, auth_policy, object_attributes);
+            let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
+            let public_template =
+                build_public(&self.algorithm, Tpm2bDigest::default(), object_attributes);
 
             let cmd = TpmCreatePrimaryCommand {
                 primary_handle: (primary_handle as u32).into(),
@@ -76,6 +76,7 @@ impl Job for CreatePrimary {
                 object_handle,
                 &resp.out_public,
                 &Tpm2bPublic::default(),
+                &None,
             )?;
             writeln!(job.writer, "vtpm:{vhandle:08x}")?;
             Ok(())

@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! Manages caching for TPM keys and sessions.
 
@@ -19,11 +19,12 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
-use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Handle, HandleClass};
+use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
+    basic::{TpmBuffer, TpmList},
+    constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
-    frame::TpmAuthResponses,
-    TpmError, TpmHandle,
+    TpmHandle, TpmMarshalError, TpmUnmarshalError,
 };
 
 mod key;
@@ -32,10 +33,15 @@ mod session;
 pub use key::*;
 pub use session::*;
 
+/// A local constant for the max commands, as tpm2-protocol 0.12 does not export this.
+type TpmPolicyCommandBlob = TpmBuffer<{ TPM_MAX_COMMAND_SIZE as usize }>;
+
 #[derive(Debug, Error)]
 pub enum VtpmError {
     #[error("already tracked: {0}")]
     AlreadyTracked(TpmHandle),
+    #[error("capacity exceeded")]
+    CapacityExceeded,
     #[error("handle not found: {0}{1:08x}")]
     HandleNotFound(&'static str, u32),
     #[error("invalid auth")]
@@ -59,18 +65,26 @@ pub enum VtpmError {
     #[error("device: {0}")]
     Device(#[from] DeviceError),
     #[error("policy language: {0}")]
-    PolicyLanguage(#[from] PolicyLanguageError),
+    PolicyLanguage(#[from] tpm2_policy_language::Error),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
-    #[error("TPM: {0}")]
-    Tpm(TpmError),
+    #[error("protocol marshal: {0}")]
+    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
+    #[error("protocol unmarshal: {0}")]
+    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
 }
 
-impl From<TpmError> for VtpmError {
-    fn from(err: TpmError) -> Self {
-        Self::Device(DeviceError::from(err))
+impl From<TpmMarshalError> for VtpmError {
+    fn from(err: TpmMarshalError) -> Self {
+        Self::ProtocolMarshal(err)
+    }
+}
+
+impl From<TpmUnmarshalError> for VtpmError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::ProtocolUnmarshal(err)
     }
 }
 
@@ -372,7 +386,8 @@ impl<'a> VtpmCache<'a> {
     ) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
         for (vhandle, key) in self.key_iter() {
-            let parent_key_bytes = write_object(&key.parent.inner)?;
+            let parent_key_bytes =
+                write_object(&key.parent.inner).map_err(VtpmError::ProtocolMarshal)?;
             parent_to_children
                 .entry(parent_key_bytes)
                 .or_default()
@@ -384,7 +399,8 @@ impl<'a> VtpmCache<'a> {
         let mut deleted_children = Vec::new();
 
         while let Some(parent_public) = ancestor_list.pop_front() {
-            let parent_key_bytes = write_object(&parent_public)?;
+            let parent_key_bytes =
+                write_object(&parent_public).map_err(VtpmError::ProtocolMarshal)?;
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_vhandle, child_public) in children_to_process.clone() {
                     if let Some(context) = self.contexts.remove(&child_vhandle) {
@@ -454,15 +470,28 @@ impl<'a> VtpmCache<'a> {
         handle: TpmHandle,
         public: &Tpm2bPublic,
         parent_public: &Tpm2bPublic,
+        policy: &Option<Vec<Vec<u8>>>,
     ) -> Result<u32, VtpmError> {
         let context = device.save_context(handle)?;
         for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
             if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
+                let mut policy_list = TpmList::new();
+                if let Some(blobs) = policy {
+                    for blob in blobs {
+                        let buffer = TpmPolicyCommandBlob::try_from(blob.as_slice())
+                            .map_err(|_| VtpmError::CapacityExceeded)?;
+                        policy_list
+                            .push(buffer)
+                            .map_err(|_| VtpmError::CapacityExceeded)?;
+                    }
+                }
+
                 let key = VtpmKey {
                     context,
                     handle: TpmHandle(vhandle),
                     public: public.clone(),
                     parent: parent_public.clone(),
+                    policy: policy_list,
                 };
                 e.insert(Box::new(key));
                 self.dirty.insert(vhandle);
@@ -540,7 +569,7 @@ impl<'a> VtpmCache<'a> {
         &mut self,
         device: &mut Device,
         session_vhandles: &HashSet<u32>,
-        auth_responses: &TpmAuthResponses,
+        auth_responses: &tpm2_protocol::frame::TpmAuthResponses,
     ) -> Result<(), VtpmError> {
         for (i, vhandle) in session_vhandles.iter().enumerate() {
             let session_handle = self

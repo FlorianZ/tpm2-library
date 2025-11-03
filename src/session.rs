@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
     device::{Device, DeviceError, TpmCommandObject},
@@ -22,11 +22,13 @@ use tpm2_protocol::{
         TpmAuthResponses, TpmEvictControlCommand, TpmFrame, TpmResponseBody,
         TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
-    TpmError, TpmHandle,
+    TpmHandle,
 };
 
 #[derive(Debug, Error)]
 pub enum SessionError {
+    #[error("capacity exceeded")]
+    CapacityExceeded,
     #[error("handle not found: {0}{1:08x}")]
     HandleNotFound(&'static str, u32),
     #[error("invalid auth")]
@@ -55,12 +57,6 @@ pub enum SessionError {
     Crypto(#[from] CryptoError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
-}
-
-impl From<TpmError> for SessionError {
-    fn from(err: TpmError) -> Self {
-        Self::Device(DeviceError::from(err))
-    }
 }
 
 pub struct Session<'a> {
@@ -217,7 +213,7 @@ impl<'a> Session<'a> {
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
-                        .map_err(DeviceError::TpmProtocol)?;
+                        .map_err(|_| SessionError::CapacityExceeded)?;
                     let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
                         (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
                     } else {
@@ -379,7 +375,8 @@ impl<'a> Session<'a> {
         let digest_len = crypto_hash_size(auth_hash)?;
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())?;
+        let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
+            .map_err(|_| VtpmError::CapacityExceeded)?;
 
         let cmd = TpmStartAuthSessionCommand {
             tpm_key: (TpmRh::Null as u32).into(),

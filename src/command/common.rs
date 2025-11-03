@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
     cli::Hierarchy,
@@ -11,7 +11,7 @@ use clap::{Args, ValueEnum};
 use std::{borrow::Cow, path::PathBuf};
 use strum::{Display, EnumString};
 use tpm2_policy_language::Auth;
-use tpm2_protocol::data::{Tpm2bAuth, Tpm2bDigest, TpmaObject};
+use tpm2_protocol::data::{Tpm2bAuth, TpmaObject};
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AuthArgs {
@@ -78,9 +78,9 @@ pub struct CreationArgs {
     #[arg(long = "password")]
     pub password: Option<String>,
 
-    /// Policy digest: '<hex string>'
+    /// Policy expression: e.g., 'pcr(sha256:7)'
     #[arg(long = "policy")]
-    pub policy: Option<String>,
+    pub policy_expression: Option<String>,
 }
 
 impl CreationArgs {
@@ -89,15 +89,11 @@ impl CreationArgs {
     /// # Errors
     ///
     /// Returns a `CommandError` if parsing fails.
-    pub fn parse(&self, alg: &Alg) -> Result<(TpmaObject, Tpm2bAuth, Tpm2bDigest), CommandError> {
+    pub fn parse(&self, alg: &Alg) -> Result<(TpmaObject, Tpm2bAuth), CommandError> {
         let user_auth = match &self.password {
-            Some(hex_str) => Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())?,
+            Some(hex_str) => Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())
+                .map_err(|_| CommandError::CapacityExceeded)?,
             None => Tpm2bAuth::default(),
-        };
-
-        let auth_policy = match &self.policy {
-            Some(hex_str) => Tpm2bDigest::try_from(hex::decode(hex_str)?.as_slice())?,
-            None => Tpm2bDigest::default(),
         };
 
         let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
@@ -107,13 +103,13 @@ impl CreationArgs {
                 TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
         }
 
-        if !user_auth.is_empty() || auth_policy.is_empty() {
+        if !user_auth.is_empty() || self.policy_expression.is_none() {
             attributes |= TpmaObject::USER_WITH_AUTH;
         }
-        if !auth_policy.is_empty() {
+        if self.policy_expression.is_some() {
             attributes |= TpmaObject::ADMIN_WITH_POLICY;
         }
 
-        Ok((attributes, user_auth, auth_policy))
+        Ok((attributes, user_auth))
     }
 }

@@ -1,13 +1,13 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 #![allow(clippy::doc_markdown)]
 
 use crate::{
     command::{
         Algorithm, Cache, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load,
-        Memory, PcrEvent, Policy, ResetLock, ReturnCode, Unseal,
+        Memory, PcrEvent, ResetLock, ReturnCode, Unseal,
     },
     session::Session,
 };
@@ -77,7 +77,6 @@ pub enum Command {
     Load(Load),
     Memory(Memory),
     PcrEvent(PcrEvent),
-    Policy(Policy),
     ReturnCode(ReturnCode),
     ResetLock(ResetLock),
     Unseal(Unseal),
@@ -96,7 +95,6 @@ impl Command {
             Self::Load(cmd) => cmd,
             Self::Memory(cmd) => cmd,
             Self::PcrEvent(cmd) => cmd,
-            Self::Policy(cmd) => cmd,
             Self::ReturnCode(cmd) => cmd,
             Self::ResetLock(cmd) => cmd,
             Self::Unseal(cmd) => cmd,

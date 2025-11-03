@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2024-2025 Jarkko Sakkinen
-// Copyright (c) 2025 Opinsys Oy
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
+//! Copyright (c) 2025 Opinsys Oy
 
 #![allow(clippy::doc_markdown)]
 
@@ -15,7 +15,6 @@ pub mod evict;
 pub mod load;
 pub mod memory;
 pub mod pcr_event;
-pub mod policy;
 pub mod reset_lock;
 pub mod return_code;
 pub mod unseal;
@@ -31,7 +30,6 @@ pub use evict::*;
 pub use load::*;
 pub use memory::*;
 pub use pcr_event::*;
-pub use policy::*;
 pub use reset_lock::*;
 pub use return_code::*;
 pub use unseal::*;
@@ -50,7 +48,7 @@ use thiserror::Error;
 use tpm2_crypto::CryptoError;
 use tpm2_protocol::{
     data::{TpmCc, TpmRcBase},
-    TpmError,
+    TpmMarshalError, TpmUnmarshalError,
 };
 
 /// A trait for data structures that can be represented as a table row.
@@ -131,6 +129,8 @@ pub fn deny_keyedhash(algorithm: &crate::key::Alg) -> Result<(), CommandError> {
 pub enum CommandError {
     #[error("authentication denied")]
     AuthenticationDenied,
+    #[error("capacity exceeded")]
+    CapacityExceeded,
     #[error("dictionary attack lockout is active")]
     DictionaryAttackLocked,
     #[error("invalid key format")]
@@ -178,15 +178,17 @@ pub enum CommandError {
     #[error("policy: {0}")]
     Policy(#[from] PolicyError),
     #[error("policy parse: {0}")]
-    PolicyLanguageError(#[from] tpm2_policy_language::Error),
+    PolicyLanguage(#[from] tpm2_policy_language::Error),
     #[error("ECDH private key generation failed")]
     HexDecode(#[from] hex::FromHexError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[error("protocol: {0}")]
-    TpmProtocol(TpmError),
+    #[error("protocol marshal: {0}")]
+    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
+    #[error("protocol unmarshal: {0}")]
+    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
 }
 
 impl From<SessionError> for CommandError {
@@ -228,8 +230,14 @@ impl From<DeviceError> for CommandError {
     }
 }
 
-impl From<TpmError> for CommandError {
-    fn from(err: TpmError) -> Self {
-        Self::TpmProtocol(err)
+impl From<TpmMarshalError> for CommandError {
+    fn from(err: TpmMarshalError) -> Self {
+        Self::ProtocolMarshal(err)
+    }
+}
+
+impl From<TpmUnmarshalError> for CommandError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::ProtocolUnmarshal(err)
     }
 }

@@ -1,28 +1,26 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 #![allow(clippy::no_effect_underscore_binding)]
 
 mod external_key;
-mod tpm_key;
 
 pub use external_key::*;
-pub use tpm_key::*;
 
-use rasn::{
-    types::{Integer, ObjectIdentifier},
-    AsnType, Decode, Decoder, Encode,
-};
+use rasn::error::DecodeError;
 use strum::{Display, EnumString};
 use thiserror::Error;
 use tpm2_protocol::{
     data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms},
-    TpmError,
+    TpmMarshalError, TpmUnmarshalError,
 };
+use tpm2_tpmkey::Error as TpmKeyError;
 
 #[derive(Debug, Error)]
 pub enum KeyError {
+    #[error("capacity exceeded")]
+    CapacityExceeded,
     #[error("unsupported name algorithm: {0}")]
     InvalidAlgorithm(String),
     #[error("invalid algorithm format: '{0}'")]
@@ -37,8 +35,6 @@ pub enum KeyError {
     InvalidRsaExponent,
     #[error("invalid RSA key bits: {0}")]
     InvalidRsaKeyBits(String),
-    #[error("pem: {0}")]
-    Pem(#[from] pem::PemError),
     #[error("unsupported file format")]
     UnsupportedFileFormat,
     #[error("unsupported OID: {0}")]
@@ -47,73 +43,27 @@ pub enum KeyError {
     UnsupportedPemTag(String),
     #[error("value conversion failed: {0}")]
     ValueConversionFailed(String),
-    #[error("protocol: {0}")]
-    TpmProtocol(TpmError),
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
+    #[error("tpm key: {0}")]
+    TpmKey(#[from] TpmKeyError),
     #[error("rasn decode: {0}")]
-    RasnDecode(#[from] rasn::error::DecodeError),
-    #[error("rasn encode: {0}")]
-    RasnEncode(#[from] rasn::error::EncodeError),
+    RasnDecode(#[from] DecodeError),
+    #[error("protocol marshal: {0}")]
+    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
+    #[error("protocol unmarshal: {0}")]
+    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
 }
 
-impl From<TpmError> for KeyError {
-    fn from(err: TpmError) -> Self {
-        Self::TpmProtocol(err)
+impl From<TpmMarshalError> for KeyError {
+    fn from(err: TpmMarshalError) -> Self {
+        Self::ProtocolMarshal(err)
     }
 }
 
-pub enum AnyKey {
-    Tpm(Box<TpmKey>),
-    External(Box<ExternalKey>),
-}
-
-/// Helper types for peeking at the DER structure to determine the key type.
-#[derive(AsnType, Decode, Encode)]
-#[rasn(choice)]
-enum FirstElement {
-    Oid(ObjectIdentifier),
-    Int(Integer),
-}
-
-#[derive(AsnType, Decode, Encode)]
-struct KeyPeek {
-    first: FirstElement,
-}
-
-impl TryFrom<&[u8]> for AnyKey {
-    type Error = KeyError;
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if let Ok(pems) = pem::parse_many(bytes) {
-            if let Some(pem) = pems.into_iter().find(|p| {
-                matches!(
-                    p.tag(),
-                    "TSS2 PRIVATE KEY" | "PRIVATE KEY" | "RSA PRIVATE KEY" | "EC PRIVATE KEY"
-                )
-            }) {
-                let contents = pem.contents();
-                let tag = pem.tag();
-                return match tag {
-                    "TSS2 PRIVATE KEY" => {
-                        TpmKey::from_der(contents).map(|k| AnyKey::Tpm(Box::new(k)))
-                    }
-                    "PRIVATE KEY" | "RSA PRIVATE KEY" | "EC PRIVATE KEY" => {
-                        ExternalKey::from_der(contents).map(|k| AnyKey::External(Box::new(k)))
-                    }
-                    _ => Err(KeyError::UnsupportedPemTag(tag.to_string())),
-                };
-            }
-        }
-
-        match rasn::der::decode::<KeyPeek>(bytes)
-            .map_err(|_| KeyError::InvalidFormat)?
-            .first
-        {
-            FirstElement::Oid(..) => TpmKey::from_der(bytes).map(|k| AnyKey::Tpm(Box::new(k))),
-            FirstElement::Int(..) => {
-                ExternalKey::from_der(bytes).map(|k| AnyKey::External(Box::new(k)))
-            }
-        }
+impl From<TpmUnmarshalError> for KeyError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::ProtocolUnmarshal(err)
     }
 }
 

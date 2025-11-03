@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
 
 use crate::key::{Alg, AlgInfo};
 use tpm2_protocol::{

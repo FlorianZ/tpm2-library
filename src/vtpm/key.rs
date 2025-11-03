@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{RefreshAction, VtpmContext, VtpmError};
 use crate::{
@@ -10,9 +10,15 @@ use crate::{
 };
 use std::{any::Any, fs, path::Path};
 use tpm2_protocol::{
+    basic::{TpmBuffer, TpmList},
+    constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPublic, TpmRcBase, TpmsContext},
-    TpmError, TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
+    TpmHandle, TpmMarshal, TpmMarshalError, TpmSized, TpmUnmarshal, TpmUnmarshalError, TpmWriter,
 };
+
+/// A local constant for the max commands, as tpm2-protocol 0.12 does not export this.
+const MAX_POLICY_COMMANDS: usize = 32;
+type TpmPolicyCommandBlob = TpmBuffer<{ TPM_MAX_COMMAND_SIZE as usize }>;
 
 #[derive(Debug, Clone)]
 pub struct VtpmKey {
@@ -20,12 +26,13 @@ pub struct VtpmKey {
     pub handle: TpmHandle,
     pub public: Tpm2bPublic,
     pub parent: Tpm2bPublic,
+    pub policy: TpmList<TpmPolicyCommandBlob, MAX_POLICY_COMMANDS>,
 }
 
 impl VtpmKey {
     pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
         let content = fs::read(path)?;
-        let (key, remainder) = Self::unmarshal(&content)?;
+        let (key, remainder) = Self::unmarshal(&content).map_err(VtpmError::ProtocolUnmarshal)?;
         if !remainder.is_empty() {
             log::warn!("trailing data");
         }
@@ -36,31 +43,39 @@ impl VtpmKey {
 impl TpmSized for VtpmKey {
     const SIZE: usize = 0;
     fn len(&self) -> usize {
-        self.context.len() + self.public.len() + self.parent.len()
+        self.context.len()
+            + self.handle.len()
+            + self.public.len()
+            + self.parent.len()
+            + self.policy.len()
     }
 }
 
 impl TpmMarshal for VtpmKey {
-    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmMarshalError> {
         self.context.marshal(writer)?;
         self.handle.marshal(writer)?;
         self.public.marshal(writer)?;
-        self.parent.marshal(writer)
+        self.parent.marshal(writer)?;
+        self.policy.marshal(writer)
     }
 }
 
 impl TpmUnmarshal for VtpmKey {
-    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmError> {
+    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmUnmarshalError> {
         let (context, remainder) = TpmsContext::unmarshal(buffer)?;
         let (handle, remainder) = TpmHandle::unmarshal(remainder)?;
         let (public, remainder) = Tpm2bPublic::unmarshal(remainder)?;
         let (parent, remainder) = Tpm2bPublic::unmarshal(remainder)?;
+        let (policy, remainder) =
+            TpmList::<TpmPolicyCommandBlob, MAX_POLICY_COMMANDS>::unmarshal(remainder)?;
         Ok((
             Self {
                 context,
                 handle,
                 public,
                 parent,
+                policy,
             },
             remainder,
         ))
@@ -89,7 +104,7 @@ impl VtpmContext for VtpmKey {
     }
 
     fn save(&self, path: &Path) -> Result<(), VtpmError> {
-        let bytes = write_object(self)?;
+        let bytes = write_object(self).map_err(VtpmError::ProtocolMarshal)?;
         fs::write(path, bytes)?;
         Ok(())
     }

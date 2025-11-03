@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: GPL-3-0-or-later
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! Handles the `create` command, which creates secondary keys or sealed objects.
 
@@ -9,26 +9,28 @@ use crate::{
     command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::write_key_data,
-    key::{Alg, AlgInfo, TpmKey, TpmPolicy, OID_LOADABLE_KEY, OID_SEALED_DATA},
+    key::{Alg, AlgInfo},
+    pcr::{pcr_get_bank_list, resolve_pcr_digests},
+    policy::visit_secret_handles,
     session::{Session, SessionError},
-    template, write_object,
+    template,
 };
 use clap::Args;
-use rasn::types::OctetString;
-use tpm2_policy_language::Handle;
+use std::collections::{HashMap, HashSet};
+use tpm2_policy_language::{Expression, Handle};
 use tpm2_protocol::{
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRcBase,
-        TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
+        TpmCc, TpmRcBase, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::TpmCreateCommand,
 };
+use tpm2_tpmkey::TpmKey;
 
 /// A template for creating a new TPM key object.
 pub struct TpmKeyTemplate<'a> {
     pub alg_desc: &'a Alg,
     pub sensitive_data: Tpm2bSensitiveData,
-    pub key_type_oid: rasn::prelude::ObjectIdentifier,
 }
 
 /// Creates secondary keys or sealed data objects.
@@ -74,24 +76,19 @@ impl Create {
     fn create_object(&self, job: &mut Session, device: &mut Device) -> Result<(), CommandError> {
         let parent_handle = job.load_context(device, &self.parent)?;
 
-        let (object_attributes, user_auth, auth_policy) =
-            self.creation_args.parse(&self.algorithm)?;
+        let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
 
-        let (sensitive_data, key_type_oid) = match (&self.data, &self.algorithm.params) {
+        let sensitive_data = match (&self.data, &self.algorithm.params) {
             (Some(hex_data), AlgInfo::KeyedHash) => {
                 let bytes = hex::decode(hex_data)?;
                 if bytes.is_empty() {
                     Err(CommandError::SensitiveDataMissing)
                 } else {
-                    Ok((
-                        Tpm2bSensitiveData::try_from(bytes.as_slice())?,
-                        OID_SEALED_DATA,
-                    ))
+                    Ok(Tpm2bSensitiveData::try_from(bytes.as_slice())
+                        .map_err(|_| CommandError::CapacityExceeded)?)
                 }
             }
-            (None, AlgInfo::Rsa { .. } | AlgInfo::Ecc { .. }) => {
-                Ok((Tpm2bSensitiveData::default(), OID_LOADABLE_KEY))
-            }
+            (None, AlgInfo::Rsa { .. } | AlgInfo::Ecc { .. }) => Ok(Tpm2bSensitiveData::default()),
             (Some(_), _) => Err(CommandError::SensitiveDataDenied),
             (None, AlgInfo::KeyedHash) => Err(CommandError::SensitiveDataMissing),
         }?;
@@ -99,12 +96,57 @@ impl Create {
         let template = TpmKeyTemplate {
             alg_desc: &self.algorithm,
             sensitive_data,
-            key_type_oid,
+        };
+
+        let (auth_policy_digest, policy_blobs, policy_context) = if let Some(expression) =
+            &self.creation_args.policy_expression
+        {
+            let banks = pcr_get_bank_list(device)?;
+            let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
+
+            let static_pcr_banks: Vec<TpmAlgId> = banks.iter().map(|b| b.alg).collect();
+
+            let tmp_policy_context = tpm2_policy_language::PolicyState {
+                pcr_count,
+                pcr_banks: static_pcr_banks.clone(),
+                names: HashMap::new(),
+            };
+
+            let tmp_ast = Expression::new(expression, &tmp_policy_context)?;
+            let mut handles = HashSet::new();
+            visit_secret_handles(&tmp_ast, &mut handles)?;
+
+            let mut names = HashMap::new();
+            for &handle in &handles {
+                let (_, name) = device.read_public(handle.into())?;
+                names.insert(handle, name);
+            }
+
+            let policy_context = tpm2_policy_language::PolicyState {
+                pcr_count,
+                pcr_banks: static_pcr_banks,
+                names,
+            };
+
+            let mut ast = Expression::new(expression, &policy_context)?;
+            let session_hash_alg = self.algorithm.name_alg;
+
+            resolve_pcr_digests(job, device, &mut ast, session_hash_alg, &banks)?;
+
+            let (blobs, final_digest) = ast.to_command_list(session_hash_alg, &policy_context)?;
+
+            (final_digest, Some(blobs), policy_context)
+        } else {
+            (
+                Tpm2bDigest::default(),
+                None,
+                tpm2_policy_language::PolicyState::default(),
+            )
         };
 
         let tpm_key = {
             let public_template =
-                template::build_public(template.alg_desc, auth_policy, object_attributes);
+                template::build_public(template.alg_desc, auth_policy_digest, object_attributes);
 
             let create_cmd = TpmCreateCommand {
                 parent_handle: parent_handle.0.into(),
@@ -149,35 +191,15 @@ impl Create {
             };
 
             let empty_auth_flag = user_auth.is_empty();
-            let key_type = template.key_type_oid.clone();
-
-            let policy = if auth_policy.is_empty() {
-                None
-            } else {
-                Some(vec![TpmPolicy {
-                    command_code: 0,
-                    command_policy: OctetString::copy_from_slice(auth_policy.as_ref()),
-                }])
-            };
 
             TpmKey {
-                key_type,
+                public: create_resp.out_public,
+                private: create_resp.out_private,
+                parent_handle,
+                parent_public: Some(parent_public_2b),
+                key_type: template.alg_desc.object_type,
                 empty_auth: empty_auth_flag.then_some(true),
-                policy,
-                secret: None,
-                auth_policy: None,
-                description: None,
-                rsa_parent: None,
-                parent_pub_key: Some(OctetString::copy_from_slice(
-                    &write_object(&parent_public_2b).map_err(DeviceError::TpmProtocol)?,
-                )),
-                parent: parent_handle.0,
-                pub_key: OctetString::copy_from_slice(
-                    &write_object(&create_resp.out_public).map_err(DeviceError::TpmProtocol)?,
-                ),
-                priv_key: OctetString::copy_from_slice(
-                    &write_object(&create_resp.out_private).map_err(DeviceError::TpmProtocol)?,
-                ),
+                policy: policy_blobs,
             }
         };
 
@@ -186,6 +208,7 @@ impl Create {
             &tpm_key,
             self.output_args.output.as_deref(),
             self.output_encoding_args.output_encoding,
+            &policy_context,
         )
     }
 }
