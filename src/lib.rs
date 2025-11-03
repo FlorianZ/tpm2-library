@@ -1,9 +1,6 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
-
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
+//! SPDX-License-Identifier: MIT OR Apache-2.0
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! A parser for the TPM 2.0 policy language.
 //!
@@ -17,23 +14,28 @@
 //! [`Expression::from_command_list()`] function to perform the reverse
 //! operation.
 
+#![deny(clippy::all)]
+#![deny(clippy::pedantic)]
+
+pub mod auth;
 pub mod error;
+pub mod expression;
+pub mod handle;
 
 pub use self::error::*;
+pub use auth::*;
+pub use expression::*;
+pub use handle::*;
 
-use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter, str::FromStr};
+use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
 use tpm2_crypto::{digest as crypto_digest, hash_size as crypto_hash_size};
 use tpm2_protocol::{
     constant::{TPM_MAX_COMMAND_SIZE, TPM_PCR_SELECT_MAX},
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSt,
-        TpmaSession, TpmlDigest, TpmlPcrSelection, TpmsAuthCommand, TpmsPcrSelect,
-        TpmsPcrSelection,
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmRh, TpmSt, TpmaSession,
+        TpmlPcrSelection, TpmsAuthCommand, TpmsPcrSelect, TpmsPcrSelection,
     },
-    frame::{
-        tpm_marshal_command, tpm_unmarshal_command, TpmCommandBody, TpmFrame, TpmPolicyOrCommand,
-        TpmPolicyPcrCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
-    },
+    frame::{tpm_marshal_command, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand},
     TpmMarshal, TpmSized, TpmWriter,
 };
 
@@ -51,231 +53,6 @@ pub struct PolicyState {
     pub names: HashMap<u32, Tpm2bName>,
 }
 
-/// Maximum size for password or policy authorization data.
-const MAX_AUTH_SIZE: usize = 64;
-
-/// Authorization data.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Auth {
-    Password(Vec<u8>),
-    Policy(Vec<u8>),
-    Session(u32),
-}
-
-fn parse_auth_hex(s: &str) -> Result<Vec<u8>, AuthError> {
-    let bytes = hex::decode(s).map_err(|_| AuthError::InvalidHex)?;
-    if bytes.len() > MAX_AUTH_SIZE {
-        return Err(AuthError::SizeTooLarge(bytes.len()));
-    }
-    Ok(bytes)
-}
-
-impl Default for Auth {
-    /// Creates a default `Auth` instance with an empty password.
-    fn default() -> Self {
-        Self::Password(Vec::new())
-    }
-}
-
-impl std::fmt::Display for Auth {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Password(data) if data.is_empty() => write!(f, "empty"),
-            Self::Password(_) => write!(f, "password:<sensitive>"),
-            Self::Policy(data) => write!(f, "policy:{}", hex::encode(data)),
-            Self::Session(handle) => write!(f, "vtpm:{handle:08x}"),
-        }
-    }
-}
-
-impl FromStr for Auth {
-    type Err = AuthError;
-
-    fn from_str(auth_str: &str) -> Result<Self, Self::Err> {
-        if auth_str == "empty" {
-            return Ok(Self::default());
-        }
-
-        let (prefix, value) = auth_str.split_once(':').ok_or(AuthError::InvalidPrefix)?;
-
-        match prefix {
-            "password" => Ok(Self::Password(parse_auth_hex(value)?)),
-            "policy" => Ok(Self::Policy(parse_auth_hex(value)?)),
-            "vtpm" => {
-                let handle_val = u32::from_str_radix(value, 16)
-                    .map_err(|_| AuthError::InvalidHandleString(value.to_string()))?;
-                let ht_byte = (handle_val >> 24) as u8;
-                let ht =
-                    TpmHt::try_from(ht_byte).map_err(|()| AuthError::InvalidHandleType(ht_byte))?;
-
-                match ht {
-                    TpmHt::PolicySession | TpmHt::HmacSession => Ok(Self::Session(handle_val)),
-                    _ => Err(AuthError::InvalidPrefix),
-                }
-            }
-            _ => Err(AuthError::InvalidPrefix),
-        }
-    }
-}
-
-/// Handle classes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HandleClass {
-    Tpm,
-    Vtpm,
-}
-
-/// TPM and vTPM handles, with support for pattern matching.
-///
-/// A `Handle` can represent either a single, specific handle value (e.g.,
-/// `tpm:81000001`) or a pattern for matching multiple handles (e.g., `tpm:81*`,
-/// `vtpm:????????`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Handle {
-    class: HandleClass,
-    mask: u32,
-    value: u32,
-}
-
-impl Handle {
-    /// Creates a new `Handle` that represents a single, specific handle value.
-    #[must_use]
-    pub fn new(class: HandleClass, value: u32) -> Self {
-        Self {
-            class,
-            mask: 0xFFFF_FFFF,
-            value,
-        }
-    }
-
-    /// Returns the class of the handle (`Tpm` or `Vtpm`).
-    #[must_use]
-    pub fn class(&self) -> HandleClass {
-        self.class
-    }
-
-    /// Returns the value of the handle if it represents a single handle.
-    ///
-    /// Returns `Some(value)` when the handle was created without wildcards.
-    /// Returns `None` when the handle is a pattern.
-    #[must_use]
-    pub fn value(&self) -> Option<u32> {
-        if self.mask == 0xFFFF_FFFF {
-            Some(self.value)
-        } else {
-            None
-        }
-    }
-
-    /// Checks if a given handle value matches the handle's pattern.
-    #[must_use]
-    pub fn matches(&self, handle: u32) -> bool {
-        (handle & self.mask) == self.value
-    }
-}
-
-impl std::fmt::Display for Handle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let scheme = match self.class {
-            HandleClass::Tpm => "tpm",
-            HandleClass::Vtpm => "vtpm",
-        };
-        write!(f, "{scheme}:")?;
-        if self.mask == 0 {
-            write!(f, "*")
-        } else if self.mask == 0xFFFF_FFFF {
-            write!(f, "{:08x}", self.value)
-        } else {
-            let mut out = [b'?'; 8];
-            for (pos, item) in out.iter_mut().enumerate() {
-                let i = 7usize.saturating_sub(pos);
-                let nibble_mask = (self.mask >> (i * 4)) & 0xF;
-                if nibble_mask == 0xF {
-                    let nibble_val = (self.value >> (i * 4)) & 0xF;
-                    *item = b"0123456789abcdef"[nibble_val as usize];
-                }
-            }
-            let s = std::str::from_utf8(&out).map_err(|_| fmt::Error)?;
-            write!(f, "{s}")
-        }
-    }
-}
-
-impl FromStr for Handle {
-    type Err = HandleError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (scheme_str, value_str) = s
-            .split_once(':')
-            .ok_or_else(|| HandleError::InvalidString(s.to_string()))?;
-
-        let class = match scheme_str {
-            "tpm" => HandleClass::Tpm,
-            "vtpm" => HandleClass::Vtpm,
-            _ => return Err(HandleError::InvalidScheme),
-        };
-
-        if value_str == "*" {
-            return Ok(Self {
-                class,
-                mask: 0,
-                value: 0,
-            });
-        }
-
-        let mut normalized_str = String::with_capacity(8);
-        if let Some((prefix, suffix)) = value_str.split_once('*') {
-            if suffix.contains('*') {
-                return Err(HandleError::TooManyAsterisks);
-            }
-            if prefix.len() + suffix.len() > 8 {
-                return Err(HandleError::TooManyDigits);
-            }
-            normalized_str.push_str(prefix);
-            normalized_str.extend(
-                std::iter::repeat('?').take(8_usize.saturating_sub(prefix.len() + suffix.len())),
-            );
-            normalized_str.push_str(suffix);
-        } else {
-            if value_str.len() < 8 {
-                return Err(HandleError::TooFewDigits);
-            }
-            if value_str.len() > 8 {
-                return Err(HandleError::TooManyDigits);
-            }
-            normalized_str.push_str(value_str);
-        }
-
-        let mut mask: u32 = 0;
-        let mut value: u32 = 0;
-
-        for (i, c) in normalized_str.chars().enumerate() {
-            #[allow(clippy::cast_possible_truncation)]
-            let shift = ((7 - i) * 4) as u32;
-            match c.to_digit(16) {
-                Some(v) => {
-                    mask |= 0xF << shift;
-                    value |= v << shift;
-                }
-                None if c == '?' => {}
-                None => return Err(HandleError::InvalidString(value_str.to_string())),
-            }
-        }
-
-        Ok(Self { class, mask, value })
-    }
-}
-
-impl TryFrom<Handle> for TpmHt {
-    type Error = HandleError;
-
-    fn try_from(handle: Handle) -> Result<Self, Self::Error> {
-        let raw_handle = handle.value().ok_or(HandleError::PatternNotAllowed)?;
-        let ht_byte = (raw_handle >> 24) as u8;
-        TpmHt::try_from(ht_byte).map_err(|()| HandleError::InvalidType(ht_byte))
-    }
-}
-
 /// Provides a [`Display`](std::fmt::Display) implementation for
 /// [`TpmAlgId`](tpm2_protocol::data::TpmAlgId).
 #[derive(Debug, Clone, Copy)]
@@ -290,14 +67,14 @@ impl TryFrom<&str> for PolicyAlgId {
             "sha256" => TpmAlgId::Sha256,
             "sha384" => TpmAlgId::Sha384,
             "sha512" => TpmAlgId::Sha512,
-            _ => return Err(CommandError::UnsupportedHashAlgorithm(s.to_string()).into()),
+            _ => return Err(CommandError::InvalidAlgorithm(s.to_string()).into()),
         };
         Ok(Self(alg_id))
     }
 }
 
 impl std::fmt::Display for PolicyAlgId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let s = match self.0 {
             TpmAlgId::Sha1 => "sha1",
             TpmAlgId::Sha256 => "sha256",
@@ -318,7 +95,7 @@ fn parse_tpml_pcr_selection_str(
     let mut list = TpmlPcrSelection::new();
     let pcr_select_size = context.pcr_count.div_ceil(8);
     if pcr_select_size > TPM_PCR_SELECT_MAX as usize {
-        return Err(PcrError::SelectionTooLarge(pcr_select_size).into());
+        return Err(PcrError::TooLargeSelection(pcr_select_size).into());
     }
 
     for part in selection_str.split('+') {
@@ -328,7 +105,7 @@ fn parse_tpml_pcr_selection_str(
 
         let alg = PolicyAlgId::try_from(alg_str)?.0;
         if !context.pcr_banks.contains(&alg) {
-            return Err(PcrError::BankMissing(alg).into());
+            return Err(PcrError::MissingBank(alg).into());
         }
 
         let indices: Vec<u32> = indices_str
@@ -341,7 +118,7 @@ fn parse_tpml_pcr_selection_str(
         for &pcr_index in &indices {
             let pcr_index = pcr_index as usize;
             if pcr_index >= context.pcr_count {
-                return Err(PcrError::IndexOverflow(pcr_index).into());
+                return Err(PcrError::TooLargeIndex(pcr_index).into());
             }
             pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
         }
@@ -349,9 +126,9 @@ fn parse_tpml_pcr_selection_str(
         list.push(TpmsPcrSelection {
             hash: alg,
             pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
-                .map_err(|_| PcrError::InvalidDigestSize(pcr_select_bytes.len()))?,
+                .map_err(|_| PcrError::TooLargeSelection(pcr_select_bytes.len()))?,
         })
-        .map_err(|_| CommandError::BuildFailed("Failed to push PCR selection".to_string()))?;
+        .map_err(|_| PcrError::TooLargeSelection(list.len()))?;
     }
     Ok(list)
 }
@@ -505,6 +282,7 @@ fn parse_primary<'a>(
 }
 
 fn parse_literal(s: &str) -> Result<Expression, ExpressionError> {
+    use std::str::FromStr;
     if let Ok(auth) = Auth::from_str(s) {
         Ok(Expression::Auth(auth))
     } else if let Ok(handle) = Handle::from_str(s) {
@@ -520,10 +298,8 @@ fn parse_call_args<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
     context: &PolicyState,
 ) -> Result<Vec<Expression>, ExpressionError> {
-    match tokens.peek() {
-        Some(&&Token::LParen) => {
-            tokens.next();
-        }
+    match tokens.next() {
+        Some(Token::LParen) => {}
         Some(actual_token) => {
             return Err(ExpressionError::UnexpectedToken(format!(
                 "Expected '(' to start argument list, found {actual_token}"
@@ -543,14 +319,9 @@ fn parse_call_args<'a>(
     loop {
         args.push(parse_or(tokens, context)?);
 
-        match tokens.peek() {
-            Some(&&Token::RParen) => {
-                tokens.next();
-                break;
-            }
-            Some(&&Token::Comma) => {
-                tokens.next();
-            }
+        match tokens.next() {
+            Some(Token::RParen) => break,
+            Some(Token::Comma) => {}
             Some(actual_token) => {
                 return Err(ExpressionError::UnexpectedToken(format!(
                     "Expected ',' or ')' in argument list, found {actual_token}"
@@ -587,9 +358,9 @@ fn parse_pcr_call<'a>(
         }
     }
 
-    let selection_only_result = parse_tpml_pcr_selection_str(&buf, context);
+    let mut selection_result = parse_tpml_pcr_selection_str(&buf, context);
 
-    if let Ok(selections) = selection_only_result {
+    if let Ok(selections) = selection_result {
         return Ok(Expression::Pcr {
             selections,
             digest: None,
@@ -601,9 +372,8 @@ fn parse_pcr_call<'a>(
         let selection_with_digest_result = parse_tpml_pcr_selection_str(selection_part, context);
 
         if let Ok(selections) = selection_with_digest_result {
-            if hex::decode(digest_part).is_err() {
-                return Err(ExpressionError::InvalidDigestFormat);
-            }
+            hex::decode(digest_part)
+                .map_err(|_| ExpressionError::InvalidDigestString(digest_part.to_string()))?;
 
             return Ok(Expression::Pcr {
                 selections,
@@ -611,11 +381,13 @@ fn parse_pcr_call<'a>(
                 count: None,
             });
         }
+        selection_result = selection_with_digest_result;
     }
 
-    Err(ExpressionError::UnexpectedToken(
-        selection_only_result.unwrap_err().to_string(),
-    ))
+    Err(match selection_result.unwrap_err() {
+        Error::Pcr(pcr_err) => pcr_err.into(),
+        other => ExpressionError::UnexpectedToken(other.to_string()),
+    })
 }
 
 fn parse_secret_call<'a>(
@@ -624,18 +396,14 @@ fn parse_secret_call<'a>(
 ) -> Result<Expression, ExpressionError> {
     let args = parse_call_args(tokens, context)?;
     if args.is_empty() || args.len() > 3 {
-        return Err(ExpressionError::UnexpectedToken(
-            SecretError::ArgumentCount.to_string(),
-        ));
+        return Err(SecretError::ArgumentCount.into());
     }
 
     let mut arg_iter = args.into_iter();
     let auth_handle = if let Some(handle) = arg_iter.next() {
         Box::new(handle)
     } else {
-        return Err(ExpressionError::UnexpectedToken(
-            SecretError::ArgumentCount.to_string(),
-        ));
+        return Err(SecretError::ArgumentCount.into());
     };
     let password = arg_iter.next().map(Box::new);
     let cp_hash = arg_iter.next().map(|expr| expr.to_string());
@@ -645,154 +413,6 @@ fn parse_secret_call<'a>(
         password,
         cp_hash,
     })
-}
-
-/// The Abstract Syntax Tree (AST) for the unified policy language.
-#[derive(Debug, Eq, Clone)]
-pub enum Expression {
-    Auth(Auth),
-    Pcr {
-        selections: TpmlPcrSelection,
-        digest: Option<String>,
-        count: Option<u32>,
-    },
-    Secret {
-        auth_handle: Box<Expression>,
-        password: Option<Box<Expression>>,
-        cp_hash: Option<String>,
-    },
-    And(Vec<Expression>),
-    Or(Vec<Expression>),
-    Handle(Handle),
-}
-
-/// Compares two password expressions semantically, treating `None` as equal to
-/// an empty password.
-fn compare_passwords(left: &Option<Box<Expression>>, right: &Option<Box<Expression>>) -> bool {
-    enum Pw<'a> {
-        None,
-        Some(&'a [u8]),
-        NotAPassword,
-    }
-
-    fn get_pw(expr_opt: &Option<Box<Expression>>) -> Pw<'_> {
-        match expr_opt {
-            None => Pw::None,
-            Some(expr) => match &**expr {
-                Expression::Auth(Auth::Password(p)) => Pw::Some(p),
-                _ => Pw::NotAPassword,
-            },
-        }
-    }
-
-    match (get_pw(left), get_pw(right)) {
-        (Pw::Some(l_bytes), Pw::Some(r_bytes)) => l_bytes == r_bytes,
-        (Pw::Some(bytes), Pw::None) | (Pw::None, Pw::Some(bytes)) => bytes.is_empty(),
-        (Pw::None, Pw::None) => true,
-        _ => false,
-    }
-}
-
-impl PartialEq for Expression {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                Self::Secret {
-                    auth_handle: l_ah,
-                    password: l_pw,
-                    cp_hash: l_cph,
-                },
-                Self::Secret {
-                    auth_handle: r_ah,
-                    password: r_pw,
-                    cp_hash: r_cph,
-                },
-            ) => l_ah == r_ah && l_cph == r_cph && compare_passwords(l_pw, r_pw),
-            (Self::Auth(l), Self::Auth(r)) => l == r,
-            (
-                Self::Pcr {
-                    selections: l_s,
-                    digest: l_d,
-                    count: l_c,
-                },
-                Self::Pcr {
-                    selections: r_s,
-                    digest: r_d,
-                    count: r_c,
-                },
-            ) => l_s == r_s && l_d == r_d && l_c == r_c,
-            (Self::And(l), Self::And(r)) => l == r,
-            (Self::Or(l), Self::Or(r)) => l == r,
-            (Self::Handle(l), Self::Handle(r)) => l == r,
-            _ => false,
-        }
-    }
-}
-
-impl fmt::Display for Expression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Expression::Auth(auth) => write!(f, "{auth}"),
-            Expression::Pcr {
-                selections,
-                digest,
-                count,
-            } => {
-                let selection_strings: Vec<String> = selections
-                    .iter()
-                    .map(|tpms| {
-                        let alg_str = PolicyAlgId(tpms.hash).to_string();
-                        let mut indices = Vec::new();
-                        for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
-                            for bit_index in 0..8 {
-                                if (byte & (1 << bit_index)) != 0 {
-                                    #[allow(clippy::cast_possible_truncation)]
-                                    let pcr_index = (byte_index * 8 + bit_index) as u32;
-                                    indices.push(pcr_index.to_string());
-                                }
-                            }
-                        }
-                        format!("{}:{}", alg_str, indices.join(","))
-                    })
-                    .collect();
-
-                write!(f, "pcr({})", selection_strings.join("+"))?;
-
-                if let Some(d) = digest {
-                    write!(f, ":{d}")?;
-                }
-                if let Some(c) = count {
-                    write!(f, ", count={c}")?;
-                }
-                write!(f, ")")
-            }
-            Expression::Secret {
-                auth_handle,
-                password,
-                cp_hash,
-            } => {
-                write!(f, "secret({auth_handle}")?;
-                if let Some(p) = password {
-                    if !matches!(&**p, Expression::Auth(Auth::Password(pw)) if pw.is_empty()) {
-                        write!(f, ", {p}")?;
-                    }
-                }
-                if let Some(c) = cp_hash {
-                    write!(f, ", {c}")?;
-                }
-                write!(f, ")")
-            }
-            Expression::And(expressions) => {
-                let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
-                write!(f, "({})", s.join(" and "))
-            }
-            Expression::Or(expressions) => {
-                let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
-                write!(f, "({})", s.join(" or "))
-            }
-            Expression::Handle(handle) => write!(f, "{handle}"),
-        }
-    }
 }
 
 /// A session that simulates TPM policy digest calculations in software.
@@ -816,8 +436,7 @@ fn update_policy_digest(
     chunks.push(&cc_bytes);
     chunks.extend(params.iter());
 
-    let new_digest_bytes = crypto_digest(hash_alg, &chunks)
-        .map_err(|e| CommandError::UnsupportedHashAlgorithm(e.to_string()))?;
+    let new_digest_bytes = crypto_digest(hash_alg, &chunks).map_err(CommandError::from)?;
     *current_digest = Tpm2bDigest::try_from(new_digest_bytes.as_slice())
         .map_err(|_| CommandError::InvalidDigestSize(new_digest_bytes.len()))?;
     Ok(())
@@ -826,8 +445,7 @@ fn update_policy_digest(
 impl SoftwarePolicySession {
     /// Creates a new software policy session.
     fn new(hash_alg: TpmAlgId) -> Result<Self, Error> {
-        let digest_size = crypto_hash_size(hash_alg)
-            .map_err(|e| CommandError::UnsupportedHashAlgorithm(e.to_string()))?;
+        let digest_size = crypto_hash_size(hash_alg).map_err(CommandError::from)?;
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
             .map_err(|_| CommandError::InvalidDigestSize(digest_size))?;
         Ok(Self {
@@ -842,9 +460,7 @@ impl SoftwarePolicySession {
         let mut pcrs_bytes = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
         let pcrs_bytes_len = {
             let mut writer = TpmWriter::new(&mut pcrs_bytes);
-            cmd.pcrs
-                .marshal(&mut writer)
-                .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
+            cmd.pcrs.marshal(&mut writer).map_err(PcrError::from)?;
             writer.len()
         };
         pcrs_bytes.truncate(pcrs_bytes_len);
@@ -876,25 +492,26 @@ impl SoftwarePolicySession {
     }
 
     /// Applies a `TPM2_PolicySecret` action to the session.
-    fn policy_secret(
-        &mut self,
-        cmd: &TpmPolicySecretCommand,
-        auth_handle_name: &Tpm2bName,
-    ) -> Result<(), Error> {
-        let expiration_bytes = cmd.expiration.to_be_bytes();
+    fn policy_secret(&mut self, auth_handle_name: &Tpm2bName) -> Result<(), Error> {
+        let policy_ref = Tpm2bNonce::default();
+        let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
 
-        update_policy_digest(
-            &mut self.digest,
+        let intermediate_digest_bytes = crypto_digest(
             self.hash_alg,
-            TpmCc::PolicySecret,
-            &[
-                auth_handle_name.as_ref(),
-                cmd.nonce_tpm.as_ref(),
-                cmd.cp_hash_a.as_ref(),
-                cmd.policy_ref.as_ref(),
-                &expiration_bytes,
-            ],
+            &[self.digest.as_ref(), &cc_bytes, auth_handle_name.as_ref()],
         )
+        .map_err(CommandError::from)?;
+
+        let final_digest_bytes = crypto_digest(
+            self.hash_alg,
+            &[&intermediate_digest_bytes, policy_ref.as_ref()],
+        )
+        .map_err(CommandError::from)?;
+
+        self.digest = Tpm2bDigest::try_from(final_digest_bytes.as_slice())
+            .map_err(|_| CommandError::InvalidDigestSize(final_digest_bytes.len()))?;
+
+        Ok(())
     }
 
     /// Applies a `TPM2_PolicyRestart` action to the session.
@@ -917,7 +534,7 @@ fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand, Error> {
         nonce: Tpm2bNonce::default(),
         session_attributes: TpmaSession::empty(),
         hmac: Tpm2bAuth::try_from(password)
-            .map_err(|_| AuthError::InvalidDigestSize(password.len()))?,
+            .map_err(|_| AuthError::TooLargeDigest(password.len()))?,
     })
 }
 
@@ -931,21 +548,12 @@ fn build_full_command<C: TpmFrame>(
 
     let cmd_len = {
         let mut writer = TpmWriter::new(&mut cmd_buf);
-        tpm_marshal_command(command, tag, sessions, &mut writer)
-            .map_err(|e| CommandError::BuildFailed(e.to_string()))?;
+        tpm_marshal_command(command, tag, sessions, &mut writer).map_err(CommandError::from)?;
         writer.len()
     };
     cmd_buf.truncate(cmd_len);
 
     Ok(cmd_buf)
-}
-
-/// Converts a policy expression into raw bytes for auth/secret.
-fn expression_to_bytes(expression: &Expression) -> Result<Vec<u8>, AuthError> {
-    match expression {
-        Expression::Auth(Auth::Password(value)) => Ok(value.clone()),
-        _ => Err(AuthError::ExpectedPassword),
-    }
 }
 
 /// Conditionally wraps a list of expressions in `Expression::And`.
@@ -958,327 +566,5 @@ fn build_and_branch(mut branch: Vec<Expression>) -> Expression {
         }
     } else {
         Expression::And(branch)
-    }
-}
-
-impl Expression {
-    /// Parses a policy expression string into an
-    /// [`Expression`](crate::Expression) AST.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`Error`] variant if parsing fails due to syntactic errors,
-    /// malformed literals (handles, auth strings, PCR selections), or other
-    /// structural problems in the input string.
-    pub fn new(input: &str, context: &PolicyState) -> Result<Expression, Error> {
-        let tokens = tokenize(input);
-        let mut iter = tokens.iter().peekable();
-        let expr = parse_expression(&mut iter, context)?;
-
-        if iter.peek().is_none() {
-            Ok(expr)
-        } else {
-            Err(ExpressionError::TrailingData.into())
-        }
-    }
-
-    /// Reconstructs a policy AST from a list of serialized TPM policy
-    /// commands.
-    ///
-    /// This function performs the inverse of [`to_command_list`]. It parses a
-    /// sequence of command blobs and rebuilds the logical `Expression` tree
-    /// that represents the policy.
-    ///
-    /// This is useful for analyzing or replaying policy command streams
-    /// generated by other tools.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`Error`] variant if any command blob is malformed, an
-    /// unexpected command is found, or if the sequence of commands is
-    /// logically inconsistent (e.g., mismatched policy branches).
-    pub fn from_command_list(command_list: &[Vec<u8>]) -> Result<Expression, Error> {
-        let mut stack: Vec<Vec<Expression>> = vec![vec![]];
-
-        for cmd_blob in command_list {
-            let (_handles, command_body, auth_sessions) = tpm_unmarshal_command(cmd_blob)
-                .map_err(|e| CommandError::ParseFailed(e.to_string()))?;
-
-            let current_branch = stack.last_mut().ok_or(ExpressionError::MalformedState)?;
-
-            match command_body {
-                TpmCommandBody::PolicyRestart(_) => {
-                    stack.push(vec![]);
-                }
-                TpmCommandBody::PolicyPcr(cmd) => {
-                    let selections = cmd.pcrs;
-                    let digest = Some(hex::encode(cmd.pcr_digest.as_ref()));
-                    let expr = Expression::Pcr {
-                        selections,
-                        digest,
-                        count: None,
-                    };
-                    current_branch.push(expr);
-                }
-                TpmCommandBody::PolicySecret(cmd) => {
-                    let auth_handle = Box::new(Expression::Handle(Handle::new(
-                        HandleClass::Tpm,
-                        cmd.auth_handle.into(),
-                    )));
-
-                    let cp_hash_bytes = cmd.cp_hash_a.as_ref();
-                    let cp_hash = if cp_hash_bytes.is_empty() {
-                        None
-                    } else {
-                        Some(hex::encode(cp_hash_bytes))
-                    };
-
-                    let password = auth_sessions.iter().find_map(|auth| {
-                        if auth.session_handle.0 == TpmRh::Pw as u32 {
-                            Some(Box::new(Expression::Auth(Auth::Password(
-                                auth.hmac.as_ref().to_vec(),
-                            ))))
-                        } else {
-                            None
-                        }
-                    });
-
-                    let expr = Expression::Secret {
-                        auth_handle,
-                        password,
-                        cp_hash,
-                    };
-                    current_branch.push(expr);
-                }
-                TpmCommandBody::PolicyOr(cmd) => {
-                    let num_branches = cmd.p_hash_list.iter().len();
-                    if stack.len() < num_branches {
-                        return Err(ExpressionError::MalformedState.into());
-                    }
-
-                    let mut branches = Vec::with_capacity(num_branches);
-                    for _ in 0..num_branches {
-                        if let Some(branch_vec) = stack.pop() {
-                            branches.push(build_and_branch(branch_vec));
-                        } else {
-                            return Err(ExpressionError::MalformedState.into());
-                        }
-                    }
-
-                    branches.reverse();
-                    let expr = Expression::Or(branches);
-
-                    if let Some(branch_to_push_to) = stack.last_mut() {
-                        branch_to_push_to.push(expr);
-                    } else {
-                        return Err(ExpressionError::MalformedState.into());
-                    }
-                }
-                _ => return Err(CommandError::UnexpectedCommand(command_body.cc()).into()),
-            }
-        }
-
-        if stack.len() != 1 {
-            return Err(ExpressionError::MalformedState.into());
-        }
-
-        if let Some(final_branch) = stack.pop() {
-            Ok(build_and_branch(final_branch))
-        } else {
-            Err(ExpressionError::MalformedState.into())
-        }
-    }
-
-    /// Converts a parsed policy AST into a list of serialized TPM policy
-    /// commands.
-    ///
-    /// This function performs an iterative, stack-based traversal of the
-    /// `Expression` tree and generates a `Vec<Vec<u8>>`. Each inner `Vec<u8>`
-    /// is a complete, serialized TPM command, including the header, tag, body,
-    /// and auth area.
-    ///
-    /// Commands that require authorization, like `PolicySecret`, have their
-    /// authorization (e.g., password) serialized directly into the auth area
-    /// of the command blob.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`Error`] variant if the expression tree is invalid for
-    /// command generation (e.g., containing a standalone `Auth` node), if
-    /// required context from `PolicyState` is missing (e.g., a handle name),
-    /// or if any part of the TPM command construction fails.
-    pub fn to_command_list(
-        &self,
-        session_hash_alg: TpmAlgId,
-        context: &PolicyState,
-    ) -> Result<(Vec<Vec<u8>>, Tpm2bDigest), Error> {
-        let mut command_list = Vec::new();
-        let mut software_session = SoftwarePolicySession::new(session_hash_alg)?;
-
-        let final_digest =
-            self.to_command_list_walk(&mut command_list, &mut software_session, context)?;
-        Ok((command_list, final_digest))
-    }
-
-    fn to_command_list_walk<'a>(
-        &'a self,
-        command_list: &mut Vec<Vec<u8>>,
-        software_session: &mut SoftwarePolicySession,
-        context: &'a PolicyState,
-    ) -> Result<Tpm2bDigest, Error> {
-        match self {
-            Expression::And(branches) => {
-                for branch in branches {
-                    branch.to_command_list_walk(command_list, software_session, context)?;
-                }
-                Ok(software_session.get_digest())
-            }
-            expr @ Expression::Or { .. } => {
-                expr.to_command_list_walk_or(command_list, software_session, context)
-            }
-            expr @ Expression::Pcr { .. } => {
-                expr.to_command_list_walk_pcr(command_list, software_session)
-            }
-            expr @ Expression::Secret { .. } => {
-                expr.to_command_list_walk_secret(command_list, software_session, context)
-            }
-            expr @ (Expression::Auth { .. } | Expression::Handle { .. }) => {
-                Err(ExpressionError::InvalidNode(expr.to_string()).into())
-            }
-        }
-    }
-
-    fn to_command_list_walk_pcr(
-        &self,
-        command_list: &mut Vec<Vec<u8>>,
-        software_session: &mut SoftwarePolicySession,
-    ) -> Result<Tpm2bDigest, Error> {
-        let (selections, digest) = match self {
-            Expression::Pcr {
-                selections, digest, ..
-            } => (selections, digest),
-            expr => return Err(ExpressionError::InvalidNode(expr.to_string()).into()),
-        };
-
-        let digest_bytes = hex::decode(digest.as_ref().ok_or(PcrError::ValueMissing)?)
-            .map_err(|_| PcrError::InvalidDigestFormat)?;
-
-        if digest_bytes.len() != software_session.digest_size {
-            return Err(PcrError::InvalidDigestSize(digest_bytes.len()).into());
-        }
-
-        let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
-            .map_err(|_| PcrError::InvalidDigestSize(digest_bytes.len()))?;
-
-        let cmd = TpmPolicyPcrCommand {
-            policy_session: 0.into(),
-            pcr_digest,
-            pcrs: *selections,
-        };
-
-        let full_cmd = build_full_command(&cmd, TpmSt::NoSessions, &[])?;
-        command_list.push(full_cmd);
-        software_session.policy_pcr(&cmd)?;
-
-        Ok(software_session.get_digest())
-    }
-
-    fn to_command_list_walk_secret<'a>(
-        &'a self,
-        command_list: &mut Vec<Vec<u8>>,
-        software_session: &mut SoftwarePolicySession,
-        context: &'a PolicyState,
-    ) -> Result<Tpm2bDigest, Error> {
-        let (auth_handle, password, cp_hash) = match self {
-            Expression::Secret {
-                auth_handle,
-                password,
-                cp_hash,
-            } => (auth_handle, password, cp_hash),
-            expr => return Err(ExpressionError::InvalidNode(expr.to_string()).into()),
-        };
-
-        let h_val = if let Expression::Handle(handle) = &**auth_handle {
-            handle.value().ok_or(HandleError::PatternNotAllowed)?
-        } else {
-            return Err(ExpressionError::InvalidNode(auth_handle.to_string()).into());
-        };
-
-        if (h_val >> 24) as u8 != TpmHt::Persistent as u8 {
-            return Err(HandleError::MustBePersistent.into());
-        }
-
-        let name = context
-            .names
-            .get(&h_val)
-            .ok_or(SecretError::HandleNameMissing(h_val))?;
-
-        let cp_hash_digest = match cp_hash.as_ref().map(String::as_str) {
-            None | Some("") => Ok(Tpm2bDigest::default()),
-            Some(hex_str) => {
-                let bytes = hex::decode(hex_str).map_err(|_| SecretError::InvalidDigestFormat)?;
-                Tpm2bDigest::try_from(bytes.as_slice())
-                    .map_err(|_| SecretError::InvalidDigestSize(bytes.len()))
-            }
-        }?;
-
-        let cmd = TpmPolicySecretCommand {
-            auth_handle: h_val.into(),
-            policy_session: 0.into(),
-            nonce_tpm: Tpm2bNonce::default(),
-            cp_hash_a: cp_hash_digest,
-            policy_ref: Tpm2bNonce::default(),
-            expiration: 0,
-        };
-
-        let password_bytes = if let Some(p) = password {
-            expression_to_bytes(p)?
-        } else {
-            Vec::new()
-        };
-        let auth_session = build_password_session(&password_bytes)?;
-        let full_cmd = build_full_command(&cmd, TpmSt::Sessions, &[auth_session])?;
-
-        command_list.push(full_cmd);
-        software_session.policy_secret(&cmd, name)?;
-        Ok(software_session.get_digest())
-    }
-
-    fn to_command_list_walk_or<'a>(
-        &'a self,
-        command_list: &mut Vec<Vec<u8>>,
-        software_session: &mut SoftwarePolicySession,
-        context: &'a PolicyState,
-    ) -> Result<Tpm2bDigest, Error> {
-        let branches = match self {
-            Expression::Or(branches) => branches,
-            expr => return Err(ExpressionError::InvalidNode(expr.to_string()).into()),
-        };
-
-        let mut digest_list = TpmlDigest::new();
-        for branch in branches {
-            let restart_cmd = TpmPolicyRestartCommand {
-                session_handle: 0.into(),
-            };
-            let full_cmd = build_full_command(&restart_cmd, TpmSt::NoSessions, &[])?;
-            command_list.push(full_cmd);
-            software_session.policy_restart()?;
-
-            let digest = branch.to_command_list_walk(command_list, software_session, context)?;
-
-            digest_list.push(digest).map_err(|_| {
-                CommandError::BuildFailed("Failed to push digest to list".to_string())
-            })?;
-        }
-
-        let or_cmd = TpmPolicyOrCommand {
-            policy_session: 0.into(),
-            p_hash_list: digest_list,
-        };
-        let full_cmd = build_full_command(&or_cmd, TpmSt::NoSessions, &[])?;
-        command_list.push(full_cmd);
-        software_session.policy_or(&or_cmd)?;
-
-        Ok(software_session.get_digest())
     }
 }

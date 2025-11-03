@@ -1,66 +1,100 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: MIT OR Apache-2.0
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use thiserror::Error;
-use tpm2_protocol::data::{TpmAlgId, TpmCc};
+use tpm2_crypto::CryptoError;
+use tpm2_protocol::data::{TpmAlgId, TpmCc, TpmRcBase};
+use tpm2_protocol::{TpmMarshalError, TpmUnmarshalError};
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum AuthError {
-    #[error("invalid authorization string prefix (expected 'password:', 'policy:', or 'vtpm:')")]
-    InvalidPrefix,
-    #[error("authorization data size too large: {0}")]
-    SizeTooLarge(usize),
-    #[error("invalid hex string for password or policy")]
-    InvalidHex,
-    #[error("invalid handle string for session: {0}")]
-    InvalidHandleString(String),
-    #[error("invalid handle type for session: 0x{0:02x}")]
-    InvalidHandleType(u8),
     #[error("expected 'password:<hex>'")]
     ExpectedPassword,
-    #[error("invalid digest size: {0}")]
-    InvalidDigestSize(usize),
+    #[error("invalid password string")]
+    InvalidPasswordString,
+    #[error("invalid handle string: {0}")]
+    InvalidHandleString(String),
+    #[error("invalid handle type: 0x{0:02x}")]
+    InvalidHandleType(u8),
+    #[error("invalid policy string: {0}")]
+    InvalidPolicyString(String),
+    #[error("invalid prefix, expected 'password:', 'policy:', or 'vtpm:'")]
+    InvalidPrefix,
+    #[error("too large digest size: {0}")]
+    TooLargeDigest(usize),
+    #[error("too large auth size: {0}")]
+    TooLargeAuth(usize),
+    #[error("unmarshal error: {0}")]
+    Unmarshal(TpmUnmarshalError),
+}
+
+impl From<TpmUnmarshalError> for AuthError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::Unmarshal(err)
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum HandleError {
-    #[error("handle has less than eight characters")]
-    TooFewDigits,
-    #[error("handle has more than one '*")]
-    TooManyAsterisks,
-    #[error("handle has more than eight characters")]
-    TooManyDigits,
+    #[error("invalid prefix, expected 'tpm:' or 'vtpm:'")]
+    InvalidPrefix,
     #[error("invalid handle string: {0}")]
     InvalidString(String),
     #[error("invalid handle type: 0x{0:02x}")]
     InvalidType(u8),
-    #[error("handle must be a persistent TPM handle ('tpm:81xxxxxx')")]
-    MustBePersistent,
-    #[error("handle is a pattern but a concrete value is required")]
-    PatternNotAllowed,
     #[error("invalid handle value: {0:08x}")]
     InvalidValue(u32),
-    #[error("invalid handle scheme (expected 'tpm:' or 'vtpm:')")]
-    InvalidScheme,
+    #[error("handle pattern is not allowed")]
+    PatternNotAllowed,
+    #[error("handle has less than eight characters")]
+    TooFewDigits,
+    #[error("handle has more than one asterisk")]
+    TooManyAsterisks,
+    #[error("handle has more than eight characters")]
+    TooManyDigits,
+    #[error("protocol unmarshal error: {0}")]
+    Unmarshal(TpmUnmarshalError),
+}
+
+impl From<TpmUnmarshalError> for HandleError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::Unmarshal(err)
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PcrError {
-    #[error("PCR selection string is not valid: {0}")]
+    #[error("invalid digest string: {0}")]
+    InvalidDigestString(String),
+    #[error("invalid PCR selection string: {0}")]
     InvalidSelectionString(String),
-    #[error("PCR selection index overflow: {0}")]
-    IndexOverflow(usize),
-    #[error("PCR selection size too large: {0}")]
-    SelectionTooLarge(usize),
-    #[error("PCR value (digest) is missing")]
-    ValueMissing,
-    #[error("PCR bank not available: {0:?}")]
-    BankMissing(TpmAlgId),
     #[error("invalid digest size: {0}")]
-    InvalidDigestSize(usize),
-    #[error("invalid hex digest format")]
-    InvalidDigestFormat,
+    Marshal(TpmMarshalError),
+    #[error("PCR bank not available: {0:?}")]
+    MissingBank(TpmAlgId),
+    #[error("missing PCR digest")]
+    MissingPcrDigest,
+    #[error("too large digest size: {0}")]
+    TooLargeDigest(usize),
+    #[error("PCR index too large: {0}")]
+    TooLargeIndex(usize),
+    #[error("PCR selection size too large: {0}")]
+    TooLargeSelection(usize),
+    #[error("protocol unmarshal error: {0}")]
+    Unmarshal(TpmUnmarshalError),
+}
+
+impl From<TpmMarshalError> for PcrError {
+    fn from(err: TpmMarshalError) -> Self {
+        Self::Marshal(err)
+    }
+}
+
+impl From<TpmUnmarshalError> for PcrError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::Unmarshal(err)
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -71,14 +105,20 @@ pub enum SecretError {
     HandleNameMissing(u32),
     #[error("invalid digest size: {0}")]
     InvalidDigestSize(usize),
-    #[error("invalid hex digest format")]
-    InvalidDigestFormat,
+    #[error("invalid digest string: {0}")]
+    InvalidDigestString(String),
+    #[error("protocol unmarshal error: {0}")]
+    Unmarshal(TpmUnmarshalError),
+}
+
+impl From<TpmUnmarshalError> for SecretError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::Unmarshal(err)
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ExpressionError {
-    #[error("malformed policy command: {0}")]
-    MalformedPolicyCommand(String),
     #[error("parser state is malformed")]
     MalformedState,
     #[error("unexpected end of expression")]
@@ -93,22 +133,50 @@ pub enum ExpressionError {
     InvalidNode(String),
     #[error(transparent)]
     Pcr(#[from] PcrError),
-    #[error("invalid hex digest format")]
-    InvalidDigestFormat,
+    #[error(transparent)]
+    Secret(#[from] SecretError),
+    #[error("invalid digest string: {0}")]
+    InvalidDigestString(String),
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum CommandError {
-    #[error("unexpected non-policy command: {0:?}")]
-    UnexpectedCommand(TpmCc),
-    #[error("failed to build command: {0}")]
-    BuildFailed(String),
-    #[error("failed to parse command: {0}")]
-    ParseFailed(String),
-    #[error("unsupported hash algorithm: {0}")]
-    UnsupportedHashAlgorithm(String),
+    #[error("crypto error: {0}")]
+    Crypto(TpmRcBase),
+    #[error("invalid algorithm: {0}")]
+    InvalidAlgorithm(String),
     #[error("invalid digest size: {0}")]
     InvalidDigestSize(usize),
+    #[error("protocol marshal error: {0}")]
+    Marshal(TpmMarshalError),
+    #[error("protocol unmarshal error: {0}")]
+    Unmarshal(TpmUnmarshalError),
+    #[error("too many or-branches: {0}")]
+    TooManyOrBranches(usize),
+    #[error("unexpected non-policy command: {0:?}")]
+    UnexpectedCommand(TpmCc),
+}
+
+impl From<CryptoError> for CommandError {
+    fn from(err: CryptoError) -> Self {
+        match err {
+            CryptoError::Rc(rc) => Self::Crypto(rc),
+            CryptoError::Marshal(e) => Self::Marshal(e),
+            CryptoError::Unmarshal(e) => Self::Unmarshal(e),
+        }
+    }
+}
+
+impl From<TpmMarshalError> for CommandError {
+    fn from(err: TpmMarshalError) -> Self {
+        Self::Marshal(err)
+    }
+}
+
+impl From<TpmUnmarshalError> for CommandError {
+    fn from(err: TpmUnmarshalError) -> Self {
+        Self::Unmarshal(err)
+    }
 }
 
 /// The primary error type for this crate.
