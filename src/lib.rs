@@ -64,7 +64,8 @@ pub enum CryptoError {
 fn map_tpm_alg_to_md(alg: TpmAlgId) -> Result<MessageDigest, CryptoError> {
     match alg {
         TpmAlgId::Sha1 => Ok(MessageDigest::sha1()),
-        TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => Ok(MessageDigest::sha256()),
+        TpmAlgId::Sha256 => Ok(MessageDigest::sha256()),
+        TpmAlgId::Sm3_256 => Ok(MessageDigest::sm3()),
         TpmAlgId::Sha384 => Ok(MessageDigest::sha384()),
         TpmAlgId::Sha512 => Ok(MessageDigest::sha512()),
         _ => Err(CryptoError::InvalidHashAlgorithm),
