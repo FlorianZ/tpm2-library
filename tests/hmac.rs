@@ -9,16 +9,8 @@ use tpm2_crypto::{digest, hmac, hmac_verify};
 use tpm2_protocol::data::TpmAlgId;
 
 fn hex_to_bytes(s: &str) -> Vec<u8> {
-    let mut v = Vec::with_capacity(s.len() / 2);
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let hi = (bytes[i] as char).to_digit(16).unwrap();
-        let lo = (bytes[i + 1] as char).to_digit(16).unwrap();
-        v.push(((hi << 4) | lo) as u8);
-        i += 2;
-    }
-    v
+    let s_no_whitespace: String = s.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    hex::decode(s_no_whitespace).expect("invalid hex string")
 }
 
 #[test]

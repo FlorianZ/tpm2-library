@@ -20,3 +20,6 @@ tpm2-protocol = "0.13"
 name = "hmac"
 path = "tests/hmac.rs"
 harness = true
+
+[dev-dependencies]
+hex = "0.4"
