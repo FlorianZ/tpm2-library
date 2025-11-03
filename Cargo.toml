@@ -19,9 +19,6 @@ name = "tpm2sh"
 path = "src/main.rs"
 
 [dependencies]
-aes = "0.8"
-cfb-mode = "0.8"
-cipher = "0.4"
 clap = { version = "4.5", features = ["derive"] }
 ctrlc = "3.4"
 directories = "5.0"
@@ -31,16 +28,11 @@ log = "0.4"
 nix = { version = "0.29", features = ["fs", "poll"] }
 num-bigint = "0.4"
 num-traits = "0.2"
-p256 = { version = "0.13" }
-p384 = { version = "0.13" }
-p521 = { version = "0.13" }
+openssl = "0.10"
 pem = "3.0"
 rand = "0.8"
 rasn = "0.26"
 rasn-derive = "0.26"
-rsa = { version = "0.9", features = ["sha1", "sha2"] }
-sha1 = "0.10"
-sha2 = "0.10"
 strum = { version = "0.26", features = ["derive"] }
 thiserror = "1.0"
 tpm2-crypto = "0.4.0"

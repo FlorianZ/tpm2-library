@@ -4,11 +4,20 @@
 
 #![allow(clippy::no_effect_underscore_binding)]
 
-mod external_key;
+pub mod ecc;
+pub mod rsa;
 
-pub use external_key::*;
+pub use ecc::{ecc_to_public_id, OID_EC_PUBLIC_KEY, SECP_256_R_1, SECP_384_R_1, SECP_521_R_1};
+pub use rsa::{rsa_to_public_id, OID_RSA_ENCRYPTION};
 
-use rasn::error::DecodeError;
+use crate::key::{ecc::parse_ecc_from_der, rsa::parse_rsa_from_der};
+use openssl::error::ErrorStack;
+use rasn::{
+    error::DecodeError,
+    types::{Any, Integer, ObjectIdentifier, OctetString, SetOf},
+    AsnType, Decode, Decoder, Encode,
+};
+use std::{borrow::Cow, fmt, num::TryFromIntError};
 use strum::{Display, EnumString};
 use thiserror::Error;
 use tpm2_protocol::{
@@ -16,6 +25,21 @@ use tpm2_protocol::{
     TpmMarshalError, TpmUnmarshalError,
 };
 use tpm2_tpmkey::Error as TpmKeyError;
+
+pub const OID_SHA1_WITH_RSA_ENCRYPTION: ObjectIdentifier =
+    ObjectIdentifier::new_unchecked(Cow::Borrowed(&[1, 2, 840, 113_549, 1, 1, 5]));
+pub const OID_SHA256_WITH_RSA_ENCRYPTION: ObjectIdentifier =
+    ObjectIdentifier::new_unchecked(Cow::Borrowed(&[1, 2, 840, 113_549, 1, 1, 11]));
+pub const OID_SHA384_WITH_RSA_ENCRYPTION: ObjectIdentifier =
+    ObjectIdentifier::new_unchecked(Cow::Borrowed(&[1, 2, 840, 113_549, 1, 1, 12]));
+pub const OID_SHA512_WITH_RSA_ENCRYPTION: ObjectIdentifier =
+    ObjectIdentifier::new_unchecked(Cow::Borrowed(&[1, 2, 840, 113_549, 1, 1, 13]));
+pub const OID_ECDSA_WITH_SHA256: ObjectIdentifier =
+    ObjectIdentifier::new_unchecked(Cow::Borrowed(&[1, 2, 840, 10045, 4, 3, 2]));
+pub const OID_ECDSA_WITH_SHA384: ObjectIdentifier =
+    ObjectIdentifier::new_unchecked(Cow::Borrowed(&[1, 2, 840, 10045, 4, 3, 3]));
+pub const OID_ECDSA_WITH_SHA512: ObjectIdentifier =
+    ObjectIdentifier::new_unchecked(Cow::Borrowed(&[1, 2, 840, 10045, 4, 3, 4]));
 
 #[derive(Debug, Error)]
 pub enum KeyError {
@@ -45,10 +69,14 @@ pub enum KeyError {
     ValueConversionFailed(String),
     #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
+    #[error("int decode: {0}")]
+    IntDecode(#[from] TryFromIntError),
     #[error("tpm key: {0}")]
     TpmKey(#[from] TpmKeyError),
     #[error("rasn decode: {0}")]
     RasnDecode(#[from] DecodeError),
+    #[error("openssl: {0}")]
+    Openssl(#[from] ErrorStack),
     #[error("protocol marshal: {0}")]
     ProtocolMarshal(tpm2_protocol::TpmMarshalError),
     #[error("protocol unmarshal: {0}")]
@@ -64,6 +92,110 @@ impl From<TpmMarshalError> for KeyError {
 impl From<TpmUnmarshalError> for KeyError {
     fn from(err: TpmUnmarshalError) -> Self {
         Self::ProtocolUnmarshal(err)
+    }
+}
+
+#[derive(AsnType, Decode, Encode, Debug)]
+pub struct Pkcs8AlgorithmIdentifier {
+    pub algorithm: ObjectIdentifier,
+    pub parameters: Option<Any>,
+}
+
+#[derive(AsnType, Decode, Encode, Debug)]
+pub struct Pkcs8PrivateKeyInfo {
+    pub version: Integer,
+    pub private_key_algorithm: Pkcs8AlgorithmIdentifier,
+    pub private_key: OctetString,
+    #[rasn(tag(context, 0))]
+    pub attributes: Option<SetOf<Any>>,
+}
+
+/// A crypto-agnostic container for raw RSA private key components.
+#[derive(Clone)]
+pub struct RsaKey {
+    pub n: Vec<u8>,
+    pub e: Vec<u8>,
+    pub p: Vec<u8>,
+    pub q: Vec<u8>,
+}
+
+/// A crypto-agnostic container for raw ECC private key components.
+#[derive(Clone)]
+pub struct EccKey {
+    pub curve_oid: ObjectIdentifier,
+    pub d: Vec<u8>,
+}
+
+#[derive(Clone)]
+pub enum ExternalKey {
+    Rsa(RsaKey),
+    Ecc(EccKey),
+}
+
+impl fmt::Debug for RsaKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RsaKey")
+            .field("n", &"<sensitive>")
+            .field("e", &"<sensitive>")
+            .field("p", &"<sensitive>")
+            .field("q", &"<sensitive>")
+            .finish()
+    }
+}
+
+impl fmt::Debug for EccKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EccKey")
+            .field("curve_oid", &self.curve_oid)
+            .field("d", &"<sensitive>")
+            .finish()
+    }
+}
+
+impl fmt::Debug for ExternalKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Rsa(key) => f.debug_tuple("Rsa").field(key).finish(),
+            Self::Ecc(key) => f.debug_tuple("Ecc").field(key).finish(),
+        }
+    }
+}
+
+impl ExternalKey {
+    /// Load and parse a DER-encoded private key from a byte slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError` on parsing failure.
+    pub fn from_der(der_bytes: &[u8]) -> Result<ExternalKey, KeyError> {
+        if let Ok(pkcs8_key) = rasn::der::decode::<Pkcs8PrivateKeyInfo>(der_bytes) {
+            let oid = &pkcs8_key.private_key_algorithm.algorithm;
+            let inner_key_bytes = pkcs8_key.private_key.as_ref();
+
+            if oid == &OID_RSA_ENCRYPTION {
+                return parse_rsa_from_der(inner_key_bytes).map(ExternalKey::Rsa);
+            }
+            if oid == &OID_EC_PUBLIC_KEY {
+                let params_any = pkcs8_key.private_key_algorithm.parameters.as_ref().ok_or(
+                    KeyError::ValueConversionFailed(
+                        "missing curve OID in AlgorithmIdentifier".to_string(),
+                    ),
+                )?;
+                let curve_oid: ObjectIdentifier = rasn::der::decode(params_any.as_ref())?;
+                return parse_ecc_from_der(inner_key_bytes, Some(curve_oid)).map(ExternalKey::Ecc);
+            }
+            return Err(KeyError::UnsupportedOid(oid.to_string()));
+        }
+
+        if let Ok(key) = parse_rsa_from_der(der_bytes) {
+            return Ok(ExternalKey::Rsa(key));
+        }
+
+        if let Ok(key) = parse_ecc_from_der(der_bytes, None) {
+            return Ok(ExternalKey::Ecc(key));
+        }
+
+        Err(KeyError::InvalidFormat)
     }
 }
 

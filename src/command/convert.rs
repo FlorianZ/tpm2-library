@@ -7,19 +7,23 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::{read_file_input, write_key_data},
-    key::{ExternalKey, KeyError},
+    key::{ecc_to_public_id, rsa_to_public_id, ExternalKey, KeyError},
     session::Session,
     write_object,
 };
-use aes::Aes128;
-use cfb_mode::Encryptor;
-use cipher::{AsyncStreamCipher, KeyIvInit};
 use clap::Args;
-use num_traits::FromPrimitive;
-use rand::{CryptoRng, RngCore};
-use rsa::{Oaep, RsaPublicKey};
-use sha1::Sha1;
-use sha2::{Sha256, Sha384, Sha512};
+use openssl::{
+    bn::{BigNum, BigNumContext},
+    ec::{EcGroup, EcKey},
+    md::{Md, MdRef},
+    nid::Nid,
+    pkey::{PKey, Private},
+    pkey_ctx::PkeyCtx,
+    rand::rand_bytes,
+    rsa::{Padding, Rsa},
+    symm::{encrypt, Cipher},
+};
+use rand;
 use tpm2_crypto::{
     ecdh as crypto_ecdh, hash_size as crypto_hash_size, hmac as crypto_hmac, kdfa as crypto_kdfa,
     make_name as crypto_make_name, CryptoError, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
@@ -29,9 +33,9 @@ use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
-        Tpm2bPrivate, Tpm2bPrivateKeyRsa, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData,
-        Tpm2bSymKey, TpmAlgId, TpmCc, TpmRcBase, TpmsEccPoint, TpmtPublic, TpmtSensitive,
-        TpmtSymDefObject, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+        Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
+        TpmCc, TpmRcBase, TpmsEccPoint, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuPublicId,
+        TpmuPublicParms, TpmuSensitiveComposite,
     },
     frame::TpmImportCommand,
     TpmHandle, TpmMarshal, TpmWriter,
@@ -97,13 +101,24 @@ impl Job for Convert {
 }
 
 impl Convert {
+    fn tpm_alg_to_openssl_md(alg: TpmAlgId) -> Result<&'static MdRef, CommandError> {
+        match alg {
+            TpmAlgId::Sha1 => Ok(Md::sha1()),
+            TpmAlgId::Sha256 => Ok(Md::sha256()),
+            TpmAlgId::Sha384 => Ok(Md::sha384()),
+            TpmAlgId::Sha512 => Ok(Md::sha512()),
+            _ => Err(CommandError::InvalidInput(format!(
+                "Unsupported hash algorithm for RSA OAEP: {alg}",
+            ))),
+        }
+    }
+
     /// Encrypts a seed using the parent's RSA public key for duplication.
     fn create_import_seed_rsa(
         parent_public: &TpmtPublic,
         seed: &[u8],
-        rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<Tpm2bEncryptedSecret, CommandError> {
-        let n = match &parent_public.unique {
+        let n_bytes = match &parent_public.unique {
             TpmuPublicId::Rsa(data) => Ok(data.as_ref()),
             _ => Err(CommandError::InvalidInput(
                 "Parent key is not an RSA key".to_string(),
@@ -115,39 +130,25 @@ impl Convert {
                 "Parent key is not an RSA key".to_string(),
             )),
         }?;
-        let e = if e_raw == 0 { 65537 } else { e_raw };
-        let rsa_pub_key = RsaPublicKey::new(
-            rsa::BigUint::from_bytes_be(n),
-            rsa::BigUint::from_u32(e).ok_or(CommandError::InvalidInput(
-                "Invalid RSA exponent".to_string(),
-            ))?,
-        )
-        .map_err(|_| CommandError::InvalidInput("Invalid RSA parameters".to_string()))?;
 
-        let label = "DUPLICATE\0";
+        let e_val = if e_raw == 0 { 65537 } else { e_raw };
+        let n = BigNum::from_slice(n_bytes)?;
+        let e = BigNum::from_u32(e_val)?;
+        let rsa = Rsa::from_public_components(n, e)?;
+        let pkey = PKey::from_rsa(rsa)?;
 
-        let result = match parent_public.name_alg {
-            TpmAlgId::Sha1 => {
-                rsa_pub_key.encrypt(rng, Oaep::new_with_label::<Sha1, _>(label), seed)
-            }
-            TpmAlgId::Sha256 => {
-                rsa_pub_key.encrypt(rng, Oaep::new_with_label::<Sha256, _>(label), seed)
-            }
-            TpmAlgId::Sha384 => {
-                rsa_pub_key.encrypt(rng, Oaep::new_with_label::<Sha384, _>(label), seed)
-            }
-            TpmAlgId::Sha512 => {
-                rsa_pub_key.encrypt(rng, Oaep::new_with_label::<Sha512, _>(label), seed)
-            }
-            _ => {
-                return Err(CommandError::InvalidInput(format!(
-                    "Unsupported hash algorithm for RSA OAEP: {}",
-                    parent_public.name_alg
-                )))
-            }
-        };
-        let encrypted_seed = result
-            .map_err(|e| CommandError::InvalidInput(format!("RSA-OAEP encryption failed: {e}")))?;
+        let oaep_md = Self::tpm_alg_to_openssl_md(parent_public.name_alg)?;
+
+        let mut ctx = PkeyCtx::new(&pkey)?;
+        ctx.encrypt_init()?;
+        ctx.set_rsa_padding(Padding::PKCS1_OAEP)?;
+        ctx.set_rsa_oaep_md(oaep_md)?;
+        ctx.set_rsa_mgf1_md(oaep_md)?;
+        ctx.set_rsa_oaep_label("DUPLICATE\0".as_bytes())?;
+
+        let mut encrypted_seed = vec![0; pkey.size()];
+        let len = ctx.encrypt(seed, Some(encrypted_seed.as_mut_slice()))?;
+        encrypted_seed.truncate(len);
 
         Tpm2bEncryptedSecret::try_from(encrypted_seed.as_slice())
             .map_err(|_| CommandError::CapacityExceeded)
@@ -156,7 +157,7 @@ impl Convert {
     /// Derives a `seed` and an ephemeral public key using ECDH with the parent's ECC public key.
     fn create_import_seed_ecc(
         parent_public: &TpmtPublic,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut (impl rand::RngCore + rand::CryptoRng),
     ) -> Result<(Vec<u8>, TpmsEccPoint), CommandError> {
         let (parent_point, curve_id) = match (&parent_public.unique, &parent_public.parameters) {
             (TpmuPublicId::Ecc(point), TpmuPublicParms::Ecc(params)) => {
@@ -181,7 +182,7 @@ impl Convert {
     /// Generates the appropriate seed and encrypted seed based on parent key type.
     fn create_import_seed(
         parent_public: &TpmtPublic,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut (impl rand::RngCore + rand::CryptoRng),
     ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), CommandError> {
         let parent_key_type = parent_public.object_type;
         match parent_key_type {
@@ -189,8 +190,8 @@ impl Convert {
                 let parent_name_alg = parent_public.name_alg;
                 let seed_size = crypto_hash_size(parent_name_alg)? as usize;
                 let mut seed = vec![0u8; seed_size];
-                rng.fill_bytes(&mut seed);
-                let encrypted_seed = Self::create_import_seed_rsa(parent_public, &seed, rng)?;
+                rand_bytes(&mut seed)?;
+                let encrypted_seed = Self::create_import_seed_rsa(parent_public, &seed)?;
                 Ok((seed, encrypted_seed))
             }
             TpmAlgId::Ecc => {
@@ -248,7 +249,7 @@ impl Convert {
         let object_key_type = object_public.object_type;
         let sensitive_composite = match object_key_type {
             TpmAlgId::Rsa => TpmuSensitiveComposite::Rsa(
-                Tpm2bPrivateKeyRsa::try_from(private_bytes)
+                Tpm2bSensitiveData::try_from(private_bytes)
                     .map_err(|_| CommandError::CapacityExceeded)?,
             ),
             TpmAlgId::Ecc => TpmuSensitiveComposite::Ecc(
@@ -275,11 +276,10 @@ impl Convert {
             sensitive: sensitive_composite,
         };
         let sensitive_tpm2b = Tpm2bSensitive::from(sensitive);
-        let mut enc_data = write_object(&sensitive_tpm2b)?;
-
+        let enc_data_in = write_object(&sensitive_tpm2b)?;
         let iv = [0u8; 16];
-        let cipher = Encryptor::<Aes128>::new(sym_key.into(), &iv.into());
-        cipher.encrypt(&mut enc_data);
+
+        let enc_data = encrypt(Cipher::aes_128_cfb128(), sym_key, Some(&iv), &enc_data_in)?;
 
         Ok(enc_data)
     }
@@ -321,7 +321,7 @@ impl Convert {
         object_public: &tpm2_protocol::data::TpmtPublic,
         private_bytes: &[u8],
         object_name: &Tpm2bName,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut (impl rand::RngCore + rand::CryptoRng),
     ) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData), CommandError> {
         let parent_name_alg = parent_public.name_alg;
 
@@ -340,6 +340,77 @@ impl Convert {
         )?;
 
         Ok((duplicate, in_sym_seed, Tpm2bData::default()))
+    }
+
+    fn build_tpm_public_from_openssl(
+        pkey: &PKey<Private>,
+        hash_alg: TpmAlgId,
+    ) -> Result<TpmtPublic, KeyError> {
+        let symmetric = TpmtSymDefObject::default();
+
+        if pkey.rsa().is_ok() {
+            rsa_to_public_id(pkey, hash_alg, symmetric)
+        } else if pkey.ec_key().is_ok() {
+            ecc_to_public_id(pkey, hash_alg, symmetric)
+        } else {
+            Err(KeyError::InvalidFormat)
+        }
+    }
+
+    fn get_openssl_pkey_from_logical(
+        external_key: &ExternalKey,
+    ) -> Result<PKey<Private>, KeyError> {
+        match external_key {
+            ExternalKey::Rsa(key) => {
+                let n = BigNum::from_slice(&key.n)?;
+                let e = BigNum::from_slice(&key.e)?;
+                let p = BigNum::from_slice(&key.p)?;
+                let q = BigNum::from_slice(&key.q)?;
+                let rsa = Rsa::from_private_components(
+                    n,
+                    e,
+                    BigNum::new()?,
+                    p,
+                    q,
+                    BigNum::new()?,
+                    BigNum::new()?,
+                    BigNum::new()?,
+                )?;
+                Ok(PKey::from_rsa(rsa)?)
+            }
+            ExternalKey::Ecc(key) => {
+                let curve_nid = if key.curve_oid == crate::key::SECP_256_R_1 {
+                    Nid::X9_62_PRIME256V1
+                } else if key.curve_oid == crate::key::SECP_384_R_1 {
+                    Nid::SECP384R1
+                } else if key.curve_oid == crate::key::SECP_521_R_1 {
+                    Nid::SECP521R1
+                } else {
+                    return Err(KeyError::UnsupportedOid(key.curve_oid.to_string()));
+                };
+
+                let group = EcGroup::from_curve_name(curve_nid)?;
+                let d = BigNum::from_slice(&key.d)?;
+                let ctx = BigNumContext::new()?;
+                let mut pub_point = openssl::ec::EcPoint::new(&group)?;
+                pub_point.mul_generator(&group, &d, &ctx)?;
+
+                let ec_key = EcKey::from_private_components(&group, &d, &pub_point)?;
+                Ok(PKey::from_ec_key(ec_key)?)
+            }
+        }
+    }
+
+    fn get_sensitive_blob_from_openssl_pkey(pkey: &PKey<Private>) -> Result<Vec<u8>, KeyError> {
+        if let Ok(rsa) = pkey.rsa() {
+            let p = rsa.p().ok_or(KeyError::InvalidFormat)?.to_vec();
+            Ok(p)
+        } else if let Ok(ec_key) = pkey.ec_key() {
+            let d = ec_key.private_key().to_vec();
+            Ok(d)
+        } else {
+            Err(KeyError::InvalidFormat)
+        }
     }
 
     fn create_external_key(
@@ -384,11 +455,10 @@ impl Convert {
             Err(e) => return Err(e.into()),
         };
 
-        let public = external_key
-            .to_public(parent_public.name_alg)
-            .map_err(CommandError::Key)?;
+        let pkey = Self::get_openssl_pkey_from_logical(&external_key)?;
+        let public = Self::build_tpm_public_from_openssl(&pkey, parent_public.name_alg)?;
         let object_name = crypto_make_name(&public).map_err(CommandError::Crypto)?;
-        let sensitive_blob = external_key.sensitive_blob();
+        let sensitive_blob = Self::get_sensitive_blob_from_openssl_pkey(&pkey)?;
 
         let (duplicate, in_sym_seed, encryption_key) = Self::create_import_blob_internal(
             &parent_public,

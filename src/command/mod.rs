@@ -43,6 +43,7 @@ use crate::{
     vtpm::VtpmError,
 };
 use clap::builder::styling::Style as AnsiStyle;
+use openssl::error::ErrorStack;
 use std::{io::Write, num::TryFromIntError};
 use thiserror::Error;
 use tpm2_crypto::CryptoError;
@@ -185,6 +186,8 @@ pub enum CommandError {
     IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
+    #[error("openssl: {0}")]
+    Openssl(#[from] ErrorStack),
     #[error("protocol marshal: {0}")]
     ProtocolMarshal(tpm2_protocol::TpmMarshalError),
     #[error("protocol unmarshal: {0}")]
