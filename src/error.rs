@@ -3,9 +3,8 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use thiserror::Error;
-use tpm2_crypto::CryptoError;
 use tpm2_policy_language::Error as PolicyLanguageError;
-use tpm2_protocol::{data::TpmRcBase, TpmMarshalError, TpmUnmarshalError};
+use tpm2_protocol::{TpmMarshalError, TpmUnmarshalError};
 
 #[derive(Debug, Error)]
 pub enum KeyError {
@@ -47,20 +46,8 @@ pub enum Error {
     Marshal(TpmMarshalError),
     #[error("unmarshal error: {0}")]
     Unmarshal(TpmUnmarshalError),
-    #[error("crypto error: {0}")]
-    Crypto(TpmRcBase),
     #[error("policy language: {0}")]
     PolicyLanguage(#[from] PolicyLanguageError),
-}
-
-impl From<CryptoError> for Error {
-    fn from(err: CryptoError) -> Self {
-        match err {
-            CryptoError::Rc(rc) => Self::Crypto(rc),
-            CryptoError::Marshal(e) => Self::Marshal(e),
-            CryptoError::Unmarshal(e) => Self::Unmarshal(e),
-        }
-    }
 }
 
 impl From<TpmMarshalError> for Error {

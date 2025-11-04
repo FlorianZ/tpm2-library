@@ -23,8 +23,10 @@ use rasn::{
 use tpm2_policy_language::{Expression, PolicyState};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
-    frame::{tpm_unmarshal_command, TpmCommandBody, TpmFrame},
+    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmSt},
+    frame::{
+        tpm_marshal_command, tpm_unmarshal_command, TpmAuthCommands, TpmCommandBody, TpmFrame,
+    },
     TpmHandle, TpmMarshal, TpmMarshalError, TpmUnmarshal, TpmWriter,
 };
 
@@ -49,81 +51,61 @@ pub const OID_SEALED_DATA: ObjectIdentifier =
 
 /// A single policy command step, directly compatible with ASN.1 DER encoding.
 #[derive(AsnType, Decode, Encode, Clone, Debug, Eq, PartialEq)]
-pub struct TpmPolicyCommand {
+struct TpmPolicyCommandAsn1 {
     #[rasn(tag(explicit(context, 0)))]
     pub command_code: u32,
     #[rasn(tag(explicit(context, 1)))]
     pub command_policy: OctetString,
 }
 
-impl TryFrom<&[u8]> for TpmPolicyCommand {
-    type Error = Error;
+impl TpmPolicyCommandAsn1 {
+    /// Marshals a command and auth session into an ASN.1-compatible struct.
+    fn from_command(
+        command: &TpmCommandBody,
+        sessions: &TpmAuthCommands,
+    ) -> Result<Self, TpmMarshalError> {
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let tag = if sessions.is_empty() {
+            TpmSt::NoSessions
+        } else {
+            TpmSt::Sessions
+        };
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            tpm_marshal_command(command, tag, sessions, &mut writer)?;
+            writer.len()
+        };
+        buf.truncate(len);
 
-    fn try_from(blob: &[u8]) -> Result<Self, Self::Error> {
-        let (_, cmd, _) = tpm_unmarshal_command(blob)?;
-
-        match cmd {
-            TpmCommandBody::PolicyPcr(_)
-            | TpmCommandBody::PolicySecret(_)
-            | TpmCommandBody::PolicyOr(_)
-            | TpmCommandBody::PolicyRestart(_) => (),
-            _ => {
-                return Err(Error::Key(KeyError::UnsupportedPolicyCommand(
-                    cmd.cc() as u32
-                )))
-            }
-        }
-
-        Ok(TpmPolicyCommand {
-            command_code: cmd.cc() as u32,
-            command_policy: OctetString::copy_from_slice(blob),
+        Ok(Self {
+            command_code: command.cc() as u32,
+            command_policy: OctetString::copy_from_slice(&buf),
         })
-    }
-}
-
-impl TpmPolicyCommand {
-    /// Converts a sequence of `TpmPolicyCommand`s into an `Expression` AST.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the
-    /// command body bytes cannot be umarshaled, when the policy sequence is empty,
-    /// or when an invalid PCR index is found.
-    /// Returns [`UnsupportedPolicyCommand`](crate::TpmKeyError::UnsupportedPolicyCommand)
-    /// when a command code is encountered that is not supported by the
-    /// `Expression` AST representation.
-    pub fn to_expression(commands: Vec<Self>) -> Result<Expression, Error> {
-        let blobs: Vec<Vec<u8>> = commands
-            .into_iter()
-            .map(|cmd| cmd.command_policy.to_vec())
-            .collect();
-
-        Ok(Expression::from_command_list(&blobs)?)
     }
 }
 
 /// A TPM authorization policy struct that is directly compatible with ASN.1 DER
 /// encoding.
 #[derive(AsnType, Decode, Encode, Clone, Debug, Eq, PartialEq)]
-pub struct TpmAuthPolicy {
+struct TpmAuthPolicyAsn1 {
     #[rasn(tag(explicit(context, 0)))]
     pub name: Option<Utf8String>,
     #[rasn(tag(explicit(context, 1)))]
-    pub policy: Vec<TpmPolicyCommand>,
+    pub policy: Vec<TpmPolicyCommandAsn1>,
 }
 
 /// A TPM key struct that is directly compatible with ASN.1 DER encoding.
 #[derive(AsnType, Decode, Encode, Clone, Debug, Eq, PartialEq)]
-pub struct TpmKeyAsn1 {
+struct TpmKeyAsn1 {
     pub key_type: ObjectIdentifier,
     #[rasn(tag(explicit(context, 0)))]
     pub empty_auth: Option<bool>,
     #[rasn(tag(explicit(context, 1)))]
-    pub policy: Option<Vec<TpmPolicyCommand>>,
+    pub policy: Option<Vec<TpmPolicyCommandAsn1>>,
     #[rasn(tag(explicit(context, 2)))]
     pub secret: Option<OctetString>,
     #[rasn(tag(explicit(context, 3)))]
-    pub auth_policy: Option<Vec<TpmAuthPolicy>>,
+    pub auth_policy: Option<Vec<TpmAuthPolicyAsn1>>,
     #[rasn(tag(explicit(context, 4)))]
     pub description: Option<Utf8String>,
     #[rasn(tag(explicit(context, 5)))]
@@ -135,67 +117,6 @@ pub struct TpmKeyAsn1 {
     pub privkey: OctetString,
 }
 
-impl TpmKeyAsn1 {
-    /// Parses and returns the public area of the key.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the
-    /// public key bytes cannot be umarshaled.
-    pub fn public(&self) -> Result<Tpm2bPublic, Error> {
-        let (public, _) = Tpm2bPublic::unmarshal(&self.pubkey)?;
-        Ok(public)
-    }
-
-    /// Serialize TPM key to PEM.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
-    /// fields cannot be encoded to DER.
-    pub fn to_pem(&self) -> Result<String, Error> {
-        Ok(pem::encode(&Pem::new("TSS2 PRIVATE KEY", self.to_der()?)))
-    }
-
-    /// Serialize TPM key to DER bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
-    /// fields cannot be encoded to DER.
-    pub fn to_der(&self) -> Result<Vec<u8>, Error> {
-        rasn::der::encode(self).map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))
-    }
-
-    /// Parse TPM key from PEM bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the PEM
-    /// or inner DER bytes cannot be umarshaled.
-    /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
-    /// tag is not 'TSS2 PRIVATE KEY'.
-    pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, Error> {
-        let pem = pem::parse(pem_bytes)
-            .map_err(|e| Error::Pem(PemError::MalformedData(e.to_string())))?;
-        if pem.tag() == "TSS2 PRIVATE KEY" {
-            Self::from_der(pem.contents())
-        } else {
-            Err(Error::Pem(PemError::InvalidTag(pem.tag().to_string())))
-        }
-    }
-
-    /// Parse TPM key from DER bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
-    /// bytes cannot be umarshaled.
-    pub fn from_der(der_bytes: &[u8]) -> Result<Self, Error> {
-        rasn::der::decode(der_bytes).map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))
-    }
-}
-
 /// A high-level runtime representation of a TPM key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmKey {
@@ -205,7 +126,7 @@ pub struct TpmKey {
     pub parent_public: Option<Tpm2bPublic>,
     pub key_type: TpmAlgId,
     pub empty_auth: Option<bool>,
-    pub policy: Option<Vec<Vec<u8>>>,
+    pub policy: Option<Vec<(TpmCommandBody, TpmAuthCommands)>>,
 }
 
 fn oid_to_key_type(oid: &ObjectIdentifier) -> Result<TpmAlgId, Error> {
@@ -258,8 +179,10 @@ impl TpmKey {
     /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
     /// fields cannot be encoded to DER.
     pub fn to_pem(&self, context: &PolicyState) -> Result<String, Error> {
-        let asn1 = self.to_asn1(context)?;
-        asn1.to_pem()
+        Ok(pem::encode(&Pem::new(
+            "TSS2 PRIVATE KEY",
+            self.to_der(context)?,
+        )))
     }
 
     /// Serialize TPM key to DER bytes.
@@ -270,7 +193,7 @@ impl TpmKey {
     /// fields cannot be encoded to DER.
     pub fn to_der(&self, context: &PolicyState) -> Result<Vec<u8>, Error> {
         let asn1 = self.to_asn1(context)?;
-        asn1.to_der()
+        rasn::der::encode(&asn1).map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))
     }
 
     /// Parse TPM key from PEM bytes.
@@ -282,8 +205,13 @@ impl TpmKey {
     /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
     /// tag is not 'TSS2 PRIVATE KEY'.
     pub fn from_pem(pem_bytes: &[u8], context: &PolicyState) -> Result<Self, Error> {
-        let asn1 = TpmKeyAsn1::from_pem(pem_bytes)?;
-        Self::from_asn1(asn1, context)
+        let pem = pem::parse(pem_bytes)
+            .map_err(|e| Error::Pem(PemError::MalformedData(e.to_string())))?;
+        if pem.tag() == "TSS2 PRIVATE KEY" {
+            Self::from_der(pem.contents(), context)
+        } else {
+            Err(Error::Pem(PemError::InvalidTag(pem.tag().to_string())))
+        }
     }
 
     /// Parse TPM key from DER bytes.
@@ -293,7 +221,8 @@ impl TpmKey {
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
     /// bytes cannot be umarshaled.
     pub fn from_der(der_bytes: &[u8], context: &PolicyState) -> Result<Self, Error> {
-        let asn1 = TpmKeyAsn1::from_der(der_bytes)?;
+        let asn1: TpmKeyAsn1 = rasn::der::decode(der_bytes)
+            .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
         Self::from_asn1(asn1, context)
     }
 
@@ -317,21 +246,26 @@ impl TpmKey {
         };
         let key_type_oid = key_type_to_oid(resolved_key_type)?;
 
-        let (policy, auth_policy) = if let Some(blobs) = &self.policy {
-            let expr = Expression::from_command_list(blobs)?;
+        let (policy, auth_policy) = if let Some(commands) = &self.policy {
+            let expr = Expression::from_command_list(commands)?;
 
             let (policy, auth_policy) = match expr {
                 Expression::Or(branches) => {
                     let auth_policies = branches
                         .iter()
                         .map(|branch| {
-                            let (branch_blobs, _) =
+                            let (branch_commands, _) =
                                 branch.to_command_list(self.public.inner.name_alg, context)?;
-                            let commands = branch_blobs
+
+                            let commands = branch_commands
                                 .iter()
-                                .map(|blob| TpmPolicyCommand::try_from(blob.as_slice()))
+                                .map(|(cmd, auth)| {
+                                    TpmPolicyCommandAsn1::from_command(cmd, auth)
+                                        .map_err(Error::from)
+                                })
                                 .collect::<Result<_, _>>()?;
-                            Ok::<_, Error>(TpmAuthPolicy {
+
+                            Ok::<_, Error>(TpmAuthPolicyAsn1 {
                                 name: None,
                                 policy: commands,
                             })
@@ -341,10 +275,12 @@ impl TpmKey {
                 }
                 _ => (
                     Some(
-                        blobs
+                        commands
                             .iter()
-                            .map(|blob| TpmPolicyCommand::try_from(blob.as_slice()))
-                            .collect::<Result<_, _>>()?,
+                            .map(|(cmd, auth)| {
+                                TpmPolicyCommandAsn1::from_command(cmd, auth).map_err(Error::from)
+                            })
+                            .collect::<Result<_, Error>>()?,
                     ),
                     None,
                 ),
@@ -370,7 +306,7 @@ impl TpmKey {
     }
 
     /// Converts the ASN.1 `TpmKeyAsn1` into the runtime representation.
-    fn from_asn1(asn1: TpmKeyAsn1, context: &PolicyState) -> Result<Self, Error> {
+    fn from_asn1(asn1: TpmKeyAsn1, _context: &PolicyState) -> Result<Self, Error> {
         let (public, _) = Tpm2bPublic::unmarshal(&asn1.pubkey)?;
         let (private, _) = Tpm2bPrivate::unmarshal(&asn1.privkey)?;
         let parent_public = if let Some(parent_bytes) = &asn1.parent_pubkey {
@@ -385,21 +321,24 @@ impl TpmKey {
             key_type = public.inner.object_type;
         }
 
-        let temp_expr = match (asn1.auth_policy, asn1.policy) {
-            (Some(auth_policies), _) if !auth_policies.is_empty() => {
-                let branches: Result<Vec<_>, _> = auth_policies
-                    .into_iter()
-                    .map(|p| TpmPolicyCommand::to_expression(p.policy))
-                    .collect();
-                Some(Expression::Or(branches?))
+        let policy_commands = if let Some(auth_policies) = asn1.auth_policy {
+            let mut commands = Vec::new();
+            for branch in auth_policies {
+                for cmd in branch.policy {
+                    let (_, body, auth) = tpm_unmarshal_command(cmd.command_policy.as_ref())?;
+                    commands.push((body, auth));
+                }
             }
-            (_, Some(policy_commands)) => Some(TpmPolicyCommand::to_expression(policy_commands)?),
-            _ => None,
-        };
-
-        let policy_blobs = if let Some(expr) = temp_expr {
-            let (blobs, _) = expr.to_command_list(public.inner.name_alg, context)?;
-            Some(blobs)
+            Some(commands)
+        } else if let Some(policy) = asn1.policy {
+            let commands = policy
+                .iter()
+                .map(|cmd| {
+                    let (_, body, auth) = tpm_unmarshal_command(cmd.command_policy.as_ref())?;
+                    Ok((body, auth))
+                })
+                .collect::<Result<_, Error>>()?;
+            Some(commands)
         } else {
             None
         };
@@ -411,7 +350,7 @@ impl TpmKey {
             parent_public,
             key_type,
             empty_auth: asn1.empty_auth,
-            policy: policy_blobs,
+            policy: policy_commands,
         })
     }
 }
