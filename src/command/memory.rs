@@ -6,21 +6,12 @@ use crate::{
     cli::Job,
     command::{print_table, AuthArgs, CommandError, Tabled},
     device::{self, Device, DeviceError},
-    key::{
-        Alg, AlgInfo, Tpm2shAlgId, OID_ECDSA_WITH_SHA256, OID_ECDSA_WITH_SHA384,
-        OID_ECDSA_WITH_SHA512, OID_EC_PUBLIC_KEY, OID_RSA_ENCRYPTION, OID_SHA1_WITH_RSA_ENCRYPTION,
-        OID_SHA256_WITH_RSA_ENCRYPTION, OID_SHA384_WITH_RSA_ENCRYPTION,
-        OID_SHA512_WITH_RSA_ENCRYPTION, SECP_256_R_1, SECP_384_R_1, SECP_521_R_1,
-    },
+    key::{Alg, AlgInfo, Tpm2shAlgId},
     session::Session,
 };
 use clap::Args;
-use num_bigint::ToBigInt;
+use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
-use rasn::{
-    types::{BitString, Integer, ObjectIdentifier, SequenceOf},
-    AsnType, Decode, Decoder,
-};
 use strum::Display;
 use tpm2_policy_language::{Auth, Handle};
 use tpm2_protocol::{
@@ -84,61 +75,6 @@ impl Job for Memory {
             Self::list_all_memory(session, &self.auth_args)
         }
     }
-}
-
-fn default_bool_false() -> bool {
-    false
-}
-
-#[derive(AsnType, Decode, Debug)]
-struct AlgorithmIdentifier {
-    algorithm: ObjectIdentifier,
-    parameters: Option<rasn::types::Any>,
-}
-
-#[derive(AsnType, Decode, Debug)]
-struct SubjectPublicKeyInfo {
-    algorithm: AlgorithmIdentifier,
-    subject_public_key: BitString,
-}
-
-#[derive(AsnType, Decode, Debug)]
-struct RsaPublicKey {
-    modulus: Integer,
-    _public_exponent: Integer,
-}
-
-#[derive(AsnType, Decode, Debug)]
-struct Extension {
-    _extn_id: ObjectIdentifier,
-    #[rasn(default = "default_bool_false")]
-    _critical: bool,
-    _extn_value: rasn::types::OctetString,
-}
-
-#[derive(AsnType, Decode, Debug)]
-struct TbsCertificate {
-    #[rasn(tag(explicit(context, 0)))]
-    _version: Option<Integer>,
-    _serial_number: Integer,
-    signature: AlgorithmIdentifier,
-    _issuer: rasn::types::Any,
-    _validity: rasn::types::Any,
-    _subject: rasn::types::Any,
-    subject_public_key_info: SubjectPublicKeyInfo,
-    #[rasn(tag(context, 1))]
-    _issuer_unique_id: Option<BitString>,
-    #[rasn(tag(context, 2))]
-    _subject_unique_id: Option<BitString>,
-    #[rasn(tag(explicit(context, 3)))]
-    _extensions: Option<SequenceOf<Extension>>,
-}
-
-#[derive(AsnType, Decode, Debug)]
-struct Certificate {
-    tbs_cert: TbsCertificate,
-    _signature_algorithm: AlgorithmIdentifier,
-    _signature_value: BitString,
 }
 
 impl Memory {
@@ -384,94 +320,64 @@ impl Memory {
         }
     }
 
-    /// Creates a placeholder Alg struct for error reporting.
-    fn oid_to_placeholder_alg(oid: &ObjectIdentifier) -> Alg {
-        Alg {
-            name: oid.to_string(),
-            object_type: TpmAlgId::Null,
-            name_alg: TpmAlgId::Null,
-            params: AlgInfo::KeyedHash,
+    fn fetch_hash_alg(oid_nid: Nid) -> Result<TpmAlgId, CommandError> {
+        match oid_nid {
+            Nid::SHA1WITHRSAENCRYPTION => Ok(TpmAlgId::Sha1),
+            Nid::ECDSA_WITH_SHA256 | Nid::SHA256WITHRSAENCRYPTION => Ok(TpmAlgId::Sha256),
+            Nid::ECDSA_WITH_SHA384 | Nid::SHA384WITHRSAENCRYPTION => Ok(TpmAlgId::Sha384),
+            Nid::ECDSA_WITH_SHA512 | Nid::SHA512WITHRSAENCRYPTION => Ok(TpmAlgId::Sha512),
+            _ => Err(CommandError::UnsupportedSignatureAlgorithm(Alg {
+                name: oid_nid.long_name().unwrap_or("unknown").to_string(),
+                object_type: TpmAlgId::Null,
+                name_alg: TpmAlgId::Null,
+                params: AlgInfo::KeyedHash,
+            })),
         }
-    }
-
-    fn fetch_hash_alg(oid: &ObjectIdentifier) -> Result<TpmAlgId, CommandError> {
-        match oid {
-            oid if oid == &OID_SHA1_WITH_RSA_ENCRYPTION => Ok(TpmAlgId::Sha1),
-            oid if oid == &OID_SHA256_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA256 => {
-                Ok(TpmAlgId::Sha256)
-            }
-            oid if oid == &OID_SHA384_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA384 => {
-                Ok(TpmAlgId::Sha384)
-            }
-            oid if oid == &OID_SHA512_WITH_RSA_ENCRYPTION || oid == &OID_ECDSA_WITH_SHA512 => {
-                Ok(TpmAlgId::Sha512)
-            }
-            _ => Err(CommandError::UnsupportedSignatureAlgorithm(
-                Self::oid_to_placeholder_alg(oid),
-            )),
-        }
-    }
-
-    fn parse_rsa_details(
-        spki: &SubjectPublicKeyInfo,
-        sig_alg_str: &str,
-    ) -> Result<String, CommandError> {
-        let key: RsaPublicKey =
-            rasn::der::decode(spki.subject_public_key.as_raw_slice()).map_err(|e| {
-                CommandError::InvalidInput(format!("DER RSA public key decode failed: {e}"))
-            })?;
-        let modulus = key.modulus.to_bigint().ok_or_else(|| {
-            CommandError::InvalidInput(format!("Invalid RSA modulus value: {}", key.modulus))
-        })?;
-        let key_bits = u16::try_from(modulus.bits()).map_err(|_| {
-            CommandError::InvalidInput(format!(
-                "RSA modulus bit size calculation failed for: {modulus}"
-            ))
-        })?;
-        Ok(format!("rsa-{key_bits}:{sig_alg_str}"))
-    }
-
-    fn parse_ecc_details(
-        spki: &SubjectPublicKeyInfo,
-        sig_alg_str: &str,
-    ) -> Result<String, CommandError> {
-        let curve_param_oid = spki
-            .algorithm
-            .parameters
-            .as_ref()
-            .and_then(|any| rasn::der::decode::<ObjectIdentifier>(any.as_ref()).ok());
-
-        let curve_str = match curve_param_oid.as_ref() {
-            Some(oid) if oid == &SECP_256_R_1 => "nist-p256",
-            Some(oid) if oid == &SECP_384_R_1 => "nist-p384",
-            Some(oid) if oid == &SECP_521_R_1 => "nist-p521",
-            Some(oid) => {
-                return Err(CommandError::UnsupportedKeyAlgorithm(
-                    Self::oid_to_placeholder_alg(oid),
-                ));
-            }
-            None => return Err(CommandError::MissingEccCurveParameters),
-        };
-        Ok(format!("ecc-{curve_str}:{sig_alg_str}"))
     }
 
     fn fetch_alg_name(cert_der: &[u8]) -> Result<String, CommandError> {
-        let cert: Certificate = rasn::der::decode(cert_der).map_err(|e| {
+        let cert = X509::from_der(cert_der).map_err(|e| {
             CommandError::InvalidInput(format!("DER certificate decode failed: {e}"))
         })?;
 
-        let tbs = cert.tbs_cert;
-        let spki = tbs.subject_public_key_info;
-        let sig_alg = Self::fetch_hash_alg(&tbs.signature.algorithm)?;
+        let sig_nid = cert.signature_algorithm().object().nid();
+        let sig_alg = Self::fetch_hash_alg(sig_nid)?;
         let sig_alg_str = Tpm2shAlgId(sig_alg).to_string();
 
-        let key_oid = &spki.algorithm.algorithm;
-        match key_oid {
-            oid if oid == &OID_RSA_ENCRYPTION => Self::parse_rsa_details(&spki, &sig_alg_str),
-            oid if oid == &OID_EC_PUBLIC_KEY => Self::parse_ecc_details(&spki, &sig_alg_str),
-            _ => Err(CommandError::UnsupportedKeyAlgorithm(
-                Self::oid_to_placeholder_alg(key_oid),
-            )),
+        let pkey = cert.public_key()?;
+        match pkey.id() {
+            PKeyId::RSA => {
+                let rsa = pkey.rsa()?;
+                let key_bits = u16::try_from(rsa.size() * 8)?;
+                Ok(format!("rsa-{key_bits}:{sig_alg_str}"))
+            }
+            PKeyId::EC => {
+                let ec_key = pkey.ec_key()?;
+                let curve_nid = ec_key.group().curve_name();
+                let curve_str = match curve_nid {
+                    Some(Nid::X9_62_PRIME256V1) => "nist-p256",
+                    Some(Nid::SECP384R1) => "nist-p384",
+                    Some(Nid::SECP521R1) => "nist-p521",
+                    _ => {
+                        let name = curve_nid
+                            .and_then(|n| n.long_name().ok())
+                            .unwrap_or("unknown");
+                        return Err(CommandError::UnsupportedKeyAlgorithm(Alg {
+                            name: name.to_string(),
+                            object_type: TpmAlgId::Null,
+                            name_alg: TpmAlgId::Null,
+                            params: AlgInfo::KeyedHash,
+                        }));
+                    }
+                };
+                Ok(format!("ecc-{curve_str}:{sig_alg_str}"))
+            }
+            _ => Err(CommandError::UnsupportedKeyAlgorithm(Alg {
+                name: format!("{:?}", pkey.id()),
+                object_type: TpmAlgId::Null,
+                name_alg: TpmAlgId::Null,
+                params: AlgInfo::KeyedHash,
+            })),
         }
     }
 }

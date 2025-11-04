@@ -7,16 +7,14 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::{read_file_input, write_key_data},
-    key::{ecc_to_public_id, rsa_to_public_id, ExternalKey, KeyError},
+    key::{ecc_to_public_id, rsa_to_public_id, KeyError},
     session::Session,
     write_object,
 };
 use clap::Args;
 use openssl::{
-    bn::{BigNum, BigNumContext},
-    ec::{EcGroup, EcKey},
+    bn::BigNum,
     md::{Md, MdRef},
-    nid::Nid,
     pkey::{PKey, Private},
     pkey_ctx::PkeyCtx,
     rand::rand_bytes,
@@ -357,50 +355,6 @@ impl Convert {
         }
     }
 
-    fn get_openssl_pkey_from_logical(
-        external_key: &ExternalKey,
-    ) -> Result<PKey<Private>, KeyError> {
-        match external_key {
-            ExternalKey::Rsa(key) => {
-                let n = BigNum::from_slice(&key.n)?;
-                let e = BigNum::from_slice(&key.e)?;
-                let p = BigNum::from_slice(&key.p)?;
-                let q = BigNum::from_slice(&key.q)?;
-                let rsa = Rsa::from_private_components(
-                    n,
-                    e,
-                    BigNum::new()?,
-                    p,
-                    q,
-                    BigNum::new()?,
-                    BigNum::new()?,
-                    BigNum::new()?,
-                )?;
-                Ok(PKey::from_rsa(rsa)?)
-            }
-            ExternalKey::Ecc(key) => {
-                let curve_nid = if key.curve_oid == crate::key::SECP_256_R_1 {
-                    Nid::X9_62_PRIME256V1
-                } else if key.curve_oid == crate::key::SECP_384_R_1 {
-                    Nid::SECP384R1
-                } else if key.curve_oid == crate::key::SECP_521_R_1 {
-                    Nid::SECP521R1
-                } else {
-                    return Err(KeyError::UnsupportedOid(key.curve_oid.to_string()));
-                };
-
-                let group = EcGroup::from_curve_name(curve_nid)?;
-                let d = BigNum::from_slice(&key.d)?;
-                let ctx = BigNumContext::new()?;
-                let mut pub_point = openssl::ec::EcPoint::new(&group)?;
-                pub_point.mul_generator(&group, &d, &ctx)?;
-
-                let ec_key = EcKey::from_private_components(&group, &d, &pub_point)?;
-                Ok(PKey::from_ec_key(ec_key)?)
-            }
-        }
-    }
-
     fn get_sensitive_blob_from_openssl_pkey(pkey: &PKey<Private>) -> Result<Vec<u8>, KeyError> {
         if let Ok(rsa) = pkey.rsa() {
             let p = rsa.p().ok_or(KeyError::InvalidFormat)?.to_vec();
@@ -434,10 +388,7 @@ impl Convert {
             input_bytes.to_vec()
         };
 
-        let external_key = ExternalKey::from_der(&der_bytes).map_err(|e| match e {
-            KeyError::InvalidFormat => CommandError::InvalidFormat,
-            e => e.into(),
-        })?;
+        let pkey = PKey::private_key_from_der(&der_bytes).map_err(KeyError::from)?;
         let mut rng = rand::thread_rng();
 
         let (parent_public, _) = match device.read_public(parent_handle) {
@@ -455,7 +406,6 @@ impl Convert {
             Err(e) => return Err(e.into()),
         };
 
-        let pkey = Self::get_openssl_pkey_from_logical(&external_key)?;
         let public = Self::build_tpm_public_from_openssl(&pkey, parent_public.name_alg)?;
         let object_name = crypto_make_name(&public).map_err(CommandError::Crypto)?;
         let sensitive_blob = Self::get_sensitive_blob_from_openssl_pkey(&pkey)?;
