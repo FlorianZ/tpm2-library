@@ -3,15 +3,17 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    build_and_branch, build_full_command, build_password_session, Auth, CommandError, Error,
-    ExpressionError, Handle, HandleClass, HandleError, PcrError, PolicyAlgId, PolicyState,
-    SecretError, SoftwarePolicySession,
+    build_and_branch, Auth, AuthError, CommandError, Error, ExpressionError, Handle, HandleClass,
+    HandleError, PcrError, PolicyAlgId, PolicyState, SecretError, SoftwarePolicySession,
 };
 use std::fmt;
 use tpm2_protocol::{
-    data::{Tpm2bDigest, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmSt, TpmlDigest, TpmlPcrSelection},
+    data::{
+        Tpm2bAuth, Tpm2bDigest, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmaSession, TpmlDigest,
+        TpmlPcrSelection, TpmsAuthCommand,
+    },
     frame::{
-        tpm_unmarshal_command, TpmCommandBody, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
+        TpmAuthCommands, TpmCommandBody, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
         TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
     TpmSized,
@@ -201,16 +203,15 @@ impl Expression {
     /// Returns a [`Error`] variant if any command blob is malformed, an
     /// unexpected command is found, or if the sequence of commands is
     /// logically inconsistent (e.g., mismatched policy branches).
-    pub fn from_command_list(command_list: &[Vec<u8>]) -> Result<Expression, Error> {
+    pub fn from_command_list(
+        command_list: &[(TpmCommandBody, TpmAuthCommands)],
+    ) -> Result<Expression, Error> {
         let mut stack: Vec<Vec<Expression>> = vec![vec![]];
 
-        for cmd_blob in command_list {
-            let (_handles, command_body, auth_sessions) =
-                tpm_unmarshal_command(cmd_blob).map_err(CommandError::from)?;
-
+        for (command_body, auth_sessions) in command_list {
             let current_branch = stack.last_mut().ok_or(ExpressionError::MalformedState)?;
 
-            match command_body {
+            match command_body.clone() {
                 TpmCommandBody::PolicyRestart(_) => {
                     stack.push(vec![]);
                 }
@@ -315,8 +316,8 @@ impl Expression {
         &self,
         session_hash_alg: TpmAlgId,
         context: &PolicyState,
-    ) -> Result<(Vec<Vec<u8>>, Tpm2bDigest), Error> {
-        let mut command_list = Vec::new();
+    ) -> Result<(Vec<(TpmCommandBody, TpmAuthCommands)>, Tpm2bDigest), Error> {
+        let mut command_list: Vec<(TpmCommandBody, TpmAuthCommands)> = Vec::new();
         let mut software_session = SoftwarePolicySession::new(session_hash_alg)?;
 
         let final_digest =
@@ -326,7 +327,7 @@ impl Expression {
 
     fn to_command_list_walk<'a>(
         &'a self,
-        command_list: &mut Vec<Vec<u8>>,
+        command_list: &mut Vec<(TpmCommandBody, TpmAuthCommands)>,
         software_session: &mut SoftwarePolicySession,
         context: &'a PolicyState,
     ) -> Result<Tpm2bDigest, Error> {
@@ -354,7 +355,7 @@ impl Expression {
 
     fn to_command_list_walk_pcr(
         &self,
-        command_list: &mut Vec<Vec<u8>>,
+        command_list: &mut Vec<(TpmCommandBody, TpmAuthCommands)>,
         software_session: &mut SoftwarePolicySession,
     ) -> Result<Tpm2bDigest, Error> {
         let (selections, digest) = match self {
@@ -380,8 +381,10 @@ impl Expression {
             pcrs: *selections,
         };
 
-        let full_cmd = build_full_command(&cmd, TpmSt::NoSessions, &[])?;
-        command_list.push(full_cmd);
+        command_list.push((
+            TpmCommandBody::PolicyPcr(cmd.clone()),
+            TpmAuthCommands::new(),
+        ));
         software_session.policy_pcr(&cmd)?;
 
         Ok(software_session.get_digest())
@@ -389,7 +392,7 @@ impl Expression {
 
     fn to_command_list_walk_secret<'a>(
         &'a self,
-        command_list: &mut Vec<Vec<u8>>,
+        command_list: &mut Vec<(TpmCommandBody, TpmAuthCommands)>,
         software_session: &mut SoftwarePolicySession,
         context: &'a PolicyState,
     ) -> Result<Tpm2bDigest, Error> {
@@ -446,17 +449,26 @@ impl Expression {
             Vec::new()
         };
 
-        let auth_session = build_password_session(&password_bytes)?;
-        let full_cmd = build_full_command(&cmd, TpmSt::Sessions, &[auth_session])?;
+        let auth_session = TpmsAuthCommand {
+            session_handle: (TpmRh::Pw as u32).into(),
+            nonce: Tpm2bNonce::default(),
+            session_attributes: TpmaSession::empty(),
+            hmac: Tpm2bAuth::try_from(password_bytes.as_slice())
+                .map_err(|_| AuthError::TooLargeDigest(password_bytes.len()))?,
+        };
+        let mut auth_commands = TpmAuthCommands::new();
+        auth_commands
+            .push(auth_session)
+            .map_err(|_| AuthError::TooLargeAuth(1))?;
 
-        command_list.push(full_cmd);
+        command_list.push((TpmCommandBody::PolicySecret(cmd), auth_commands));
         software_session.policy_secret(name)?;
         Ok(software_session.get_digest())
     }
 
     fn to_command_list_walk_or<'a>(
         &'a self,
-        command_list: &mut Vec<Vec<u8>>,
+        command_list: &mut Vec<(TpmCommandBody, TpmAuthCommands)>,
         software_session: &mut SoftwarePolicySession,
         context: &'a PolicyState,
     ) -> Result<Tpm2bDigest, Error> {
@@ -470,8 +482,10 @@ impl Expression {
             let restart_cmd = TpmPolicyRestartCommand {
                 session_handle: 0.into(),
             };
-            let full_cmd = build_full_command(&restart_cmd, TpmSt::NoSessions, &[])?;
-            command_list.push(full_cmd);
+            command_list.push((
+                TpmCommandBody::PolicyRestart(restart_cmd),
+                TpmAuthCommands::new(),
+            ));
             software_session.policy_restart()?;
 
             let digest = branch.to_command_list_walk(command_list, software_session, context)?;
@@ -485,8 +499,10 @@ impl Expression {
             policy_session: 0.into(),
             p_hash_list: digest_list,
         };
-        let full_cmd = build_full_command(&or_cmd, TpmSt::NoSessions, &[])?;
-        command_list.push(full_cmd);
+        command_list.push((
+            TpmCommandBody::PolicyOr(or_cmd.clone()),
+            TpmAuthCommands::new(),
+        ));
         software_session.policy_or(&or_cmd)?;
 
         Ok(software_session.get_digest())

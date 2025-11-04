@@ -30,12 +30,12 @@ pub use handle::*;
 use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
 use tpm2_crypto::{digest as crypto_digest, hash_size as crypto_hash_size};
 use tpm2_protocol::{
-    constant::{TPM_MAX_COMMAND_SIZE, TPM_PCR_SELECT_MAX},
+    constant::TPM_PCR_SELECT_MAX,
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmRh, TpmSt, TpmaSession,
-        TpmlPcrSelection, TpmsAuthCommand, TpmsPcrSelect, TpmsPcrSelection,
+        Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlPcrSelection, TpmsPcrSelect,
+        TpmsPcrSelection,
     },
-    frame::{tpm_marshal_command, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand},
+    frame::{TpmPolicyOrCommand, TpmPolicyPcrCommand},
     TpmMarshal, TpmSized, TpmWriter,
 };
 
@@ -457,7 +457,7 @@ impl SoftwarePolicySession {
 
     /// Applies a `TPM2_PolicyPCR` action to the session.
     fn policy_pcr(&mut self, cmd: &TpmPolicyPcrCommand) -> Result<(), Error> {
-        let mut pcrs_bytes = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let mut pcrs_bytes = vec![0u8; TpmlPcrSelection::SIZE];
         let pcrs_bytes_len = {
             let mut writer = TpmWriter::new(&mut pcrs_bytes);
             cmd.pcrs.marshal(&mut writer).map_err(PcrError::from)?;
@@ -525,35 +525,6 @@ impl SoftwarePolicySession {
     fn get_digest(&self) -> Tpm2bDigest {
         self.digest
     }
-}
-
-/// Creates a password authorization session command structure.
-fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand, Error> {
-    Ok(TpmsAuthCommand {
-        session_handle: (TpmRh::Pw as u32).into(),
-        nonce: Tpm2bNonce::default(),
-        session_attributes: TpmaSession::empty(),
-        hmac: Tpm2bAuth::try_from(password)
-            .map_err(|_| AuthError::TooLargeDigest(password.len()))?,
-    })
-}
-
-/// Builds a complete, serialized TPM command buffer.
-fn build_full_command<C: TpmFrame>(
-    command: &C,
-    tag: TpmSt,
-    sessions: &[TpmsAuthCommand],
-) -> Result<Vec<u8>, Error> {
-    let mut cmd_buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-
-    let cmd_len = {
-        let mut writer = TpmWriter::new(&mut cmd_buf);
-        tpm_marshal_command(command, tag, sessions, &mut writer).map_err(CommandError::from)?;
-        writer.len()
-    };
-    cmd_buf.truncate(cmd_len);
-
-    Ok(cmd_buf)
 }
 
 /// Conditionally wraps a list of expressions in `Expression::And`.
