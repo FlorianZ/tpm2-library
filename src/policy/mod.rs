@@ -4,9 +4,6 @@
 
 //! This module contains the executor for the unified policy language.
 
-mod tpm;
-
-pub use tpm::*;
 use tpm2_policy_language::{Error as PolicyLanguageError, Expression, HandleClass, PolicyAlgId};
 
 use crate::{
