@@ -1,6 +1,6 @@
 [package]
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
-description = "TPM 2.0 policy language interpreter"
+description = "TPM 2.0 policy language compiler and interpreter"
 edition = "2021"
 homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-policy-language.git/about/?h=main"
 license = "MIT OR Apache-2.0"
@@ -8,7 +8,7 @@ name = "tpm2-policy-language"
 readme = "README.md"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-policy-language.git"
 rust-version = "1.79"
-version = "0.4.0"
+version = "0.5.0"
 
 [dependencies]
 hex = "0.4"

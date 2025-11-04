@@ -1,6 +1,6 @@
 # TPM 2.0 Policy Language Parser
 
-`tpm2-policy-language` is a TPM 2.0 policy language interpreter.
+`tpm2-policy-language` is a TPM 2.0 policy language compiler and interpreter.
 
 ## Development
 
