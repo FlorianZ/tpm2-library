@@ -23,7 +23,7 @@ use tpm2_protocol::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
         TpmCc, TpmRcBase, TpmlPcrSelection, TpmsSensitiveCreate,
     },
-    frame::TpmCreateCommand,
+    frame::{TpmAuthCommands, TpmCommandBody, TpmCreateCommand},
 };
 use tpm2_tpmkey::TpmKey;
 
@@ -98,9 +98,11 @@ impl Create {
             sensitive_data,
         };
 
-        let (auth_policy_digest, policy_blobs, policy_context) = if let Some(expression) =
-            &self.creation_args.policy_expression
-        {
+        let (auth_policy_digest, policy_commands, policy_context): (
+            Tpm2bDigest,
+            Option<Vec<(TpmCommandBody, TpmAuthCommands)>>,
+            tpm2_policy_language::PolicyState,
+        ) = if let Some(expression) = &self.creation_args.policy_expression {
             let banks = pcr_get_bank_list(device)?;
             let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
 
@@ -133,9 +135,10 @@ impl Create {
 
             resolve_pcr_digests(job, device, &mut ast, session_hash_alg, &banks)?;
 
-            let (blobs, final_digest) = ast.to_command_list(session_hash_alg, &policy_context)?;
+            let (commands, final_digest) =
+                ast.to_command_list(session_hash_alg, &policy_context)?;
 
-            (final_digest, Some(blobs), policy_context)
+            (final_digest, Some(commands), policy_context)
         } else {
             (
                 Tpm2bDigest::default(),
@@ -199,7 +202,7 @@ impl Create {
                 parent_public: Some(parent_public_2b),
                 key_type: template.alg_desc.object_type,
                 empty_auth: empty_auth_flag.then_some(true),
-                policy: policy_blobs,
+                policy: policy_commands,
             }
         };
 

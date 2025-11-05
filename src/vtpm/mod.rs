@@ -21,9 +21,8 @@ use thiserror::Error;
 use tpm2_crypto::CryptoError;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
-    basic::{TpmBuffer, TpmList},
-    constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
+    frame::{TpmAuthCommands, TpmCommandBody},
     TpmHandle, TpmMarshalError, TpmUnmarshalError,
 };
 
@@ -32,9 +31,6 @@ mod session;
 
 pub use key::*;
 pub use session::*;
-
-/// A local constant for the max commands, as tpm2-protocol 0.12 does not export this.
-type TpmPolicyCommandBlob = TpmBuffer<{ TPM_MAX_COMMAND_SIZE as usize }>;
 
 #[derive(Debug, Error)]
 pub enum VtpmError {
@@ -470,21 +466,12 @@ impl<'a> VtpmCache<'a> {
         handle: TpmHandle,
         public: &Tpm2bPublic,
         parent_public: &Tpm2bPublic,
-        policy: &Option<Vec<Vec<u8>>>,
+        policy: &Option<Vec<(TpmCommandBody, TpmAuthCommands)>>,
     ) -> Result<u32, VtpmError> {
         let context = device.save_context(handle)?;
         for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
             if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
-                let mut policy_list = TpmList::new();
-                if let Some(blobs) = policy {
-                    for blob in blobs {
-                        let buffer = TpmPolicyCommandBlob::try_from(blob.as_slice())
-                            .map_err(|_| VtpmError::CapacityExceeded)?;
-                        policy_list
-                            .push(buffer)
-                            .map_err(|_| VtpmError::CapacityExceeded)?;
-                    }
-                }
+                let policy_list = policy.clone().unwrap_or_default();
 
                 let key = VtpmKey {
                     context,
@@ -541,7 +528,7 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns a [`VtpmError`] if a session is not found or loading its context fails.
+    /// Returns a [`VtpmError`] if a session is not found or if loading its context fails.
     pub fn prepare_sessions(
         &mut self,
         device: &mut Device,

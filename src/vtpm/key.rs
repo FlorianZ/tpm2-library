@@ -10,15 +10,32 @@ use crate::{
 };
 use std::{any::Any, fs, path::Path};
 use tpm2_protocol::{
-    basic::{TpmBuffer, TpmList},
+    basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bPublic, TpmRcBase, TpmsContext},
+    data::{Tpm2bPublic, TpmRcBase, TpmSt, TpmsContext},
+    frame::{tpm_unmarshal_command, TpmAuthCommands, TpmCommandBody},
     TpmHandle, TpmMarshal, TpmMarshalError, TpmSized, TpmUnmarshal, TpmUnmarshalError, TpmWriter,
 };
 
-/// A local constant for the max commands, as tpm2-protocol 0.12 does not export this.
-const MAX_POLICY_COMMANDS: usize = 32;
-type TpmPolicyCommandBlob = TpmBuffer<{ TPM_MAX_COMMAND_SIZE as usize }>;
+/// Serialize a command and its auth sessions into `Vec<u8>`.
+fn marshal_command(
+    command: &TpmCommandBody,
+    sessions: &TpmAuthCommands,
+) -> Result<Vec<u8>, TpmMarshalError> {
+    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+    let tag = if sessions.is_empty() {
+        TpmSt::NoSessions
+    } else {
+        TpmSt::Sessions
+    };
+    let len = {
+        let mut writer = TpmWriter::new(&mut buf);
+        command.marshal_frame(tag, sessions, &mut writer)?;
+        writer.len()
+    };
+    buf.truncate(len);
+    Ok(buf)
+}
 
 #[derive(Debug, Clone)]
 pub struct VtpmKey {
@@ -26,7 +43,7 @@ pub struct VtpmKey {
     pub handle: TpmHandle,
     pub public: Tpm2bPublic,
     pub parent: Tpm2bPublic,
-    pub policy: TpmList<TpmPolicyCommandBlob, MAX_POLICY_COMMANDS>,
+    pub policy: Vec<(TpmCommandBody, TpmAuthCommands)>,
 }
 
 impl VtpmKey {
@@ -47,7 +64,11 @@ impl TpmSized for VtpmKey {
             + self.handle.len()
             + self.public.len()
             + self.parent.len()
-            + self.policy.len()
+            + self
+                .policy
+                .iter()
+                .map(|(cmd, auth)| cmd.len() + auth.len())
+                .sum::<usize>()
     }
 }
 
@@ -57,7 +78,16 @@ impl TpmMarshal for VtpmKey {
         self.handle.marshal(writer)?;
         self.public.marshal(writer)?;
         self.parent.marshal(writer)?;
-        self.policy.marshal(writer)
+        u32::try_from(self.policy.len())
+            .map_err(|_| TpmMarshalError::InvalidValue)?
+            .marshal(writer)?;
+        for (cmd, auth) in &self.policy {
+            let blob = marshal_command(cmd, auth)?;
+            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(blob.as_slice())
+                .map_err(|_| TpmMarshalError::CapacityExceeded)?
+                .marshal(writer)?;
+        }
+        Ok(())
     }
 }
 
@@ -67,8 +97,15 @@ impl TpmUnmarshal for VtpmKey {
         let (handle, remainder) = TpmHandle::unmarshal(remainder)?;
         let (public, remainder) = Tpm2bPublic::unmarshal(remainder)?;
         let (parent, remainder) = Tpm2bPublic::unmarshal(remainder)?;
-        let (policy, remainder) =
-            TpmList::<TpmPolicyCommandBlob, MAX_POLICY_COMMANDS>::unmarshal(remainder)?;
+        let (count, mut remainder) = u32::unmarshal(remainder)?;
+        let mut policy = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let (blob, rest) =
+                TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)?;
+            let (_, body, auth) = tpm_unmarshal_command(blob.as_ref())?;
+            policy.push((body, auth));
+            remainder = rest;
+        }
         Ok((
             Self {
                 context,

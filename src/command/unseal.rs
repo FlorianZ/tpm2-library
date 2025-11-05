@@ -13,7 +13,7 @@ use std::io::IsTerminal;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe},
-    frame::{tpm_unmarshal_command, TpmCommandBody, TpmFrame, TpmUnsealCommand},
+    frame::{TpmAuthCommands, TpmCommandBody, TpmFrame, TpmUnsealCommand},
 };
 
 /// Retrieves data from a sealed data object.
@@ -36,13 +36,13 @@ impl Unseal {
     fn create_policy_session_from_blobs(
         job: &mut Session,
         device: &mut Device,
-        policy_blobs: Option<&Vec<Vec<u8>>>,
+        policy_commands: Option<&Vec<(TpmCommandBody, TpmAuthCommands)>>,
         key_name_alg: TpmAlgId,
     ) -> Result<Option<Auth>, CommandError> {
-        let Some(blobs) = policy_blobs else {
+        let Some(commands) = policy_commands else {
             return Ok(None);
         };
-        if blobs.is_empty() {
+        if commands.is_empty() {
             return Ok(None);
         }
 
@@ -58,9 +58,8 @@ impl Unseal {
         let policy_phandle = resp.session_handle;
 
         let execution_result: Result<(), CommandError> = (|| {
-            for blob in blobs {
-                let (_, mut command_body, auth_sessions) = tpm_unmarshal_command(blob)
-                    .map_err(|e| CommandError::InvalidInput(e.to_string()))?;
+            for (command_body, auth_sessions) in commands {
+                let mut command_body = command_body.clone();
 
                 match &mut command_body {
                     TpmCommandBody::PolicyPcr(cmd) => cmd.policy_session = policy_phandle.0.into(),
@@ -78,7 +77,7 @@ impl Unseal {
                         )))
                     }
                 }
-                device.execute(&command_body, &auth_sessions)?;
+                device.execute(&command_body, auth_sessions)?;
             }
             Ok(())
         })();
@@ -115,11 +114,14 @@ impl Job for Unseal {
             let mut auths = self.auth_args.auths().to_vec();
             let mut policy_session_auth: Option<Auth> = None;
 
-            let key_info: Option<(Option<Vec<Vec<u8>>>, TpmAlgId)> =
+            let key_info: Option<(Option<Vec<(TpmCommandBody, TpmAuthCommands)>>, TpmAlgId)> =
                 if self.input.class() == HandleClass::Vtpm {
                     job.cache.find_by_vhandle(vhandle).ok().map(|key| {
-                        let blobs: Vec<Vec<u8>> = key.policy.iter().map(|b| b.to_vec()).collect();
-                        let policy = if blobs.is_empty() { None } else { Some(blobs) };
+                        let policy = if key.policy.is_empty() {
+                            None
+                        } else {
+                            Some(key.policy.clone())
+                        };
                         (policy, key.public.inner.name_alg)
                     })
                 } else {
@@ -127,11 +129,11 @@ impl Job for Unseal {
                 };
 
             if self.auth_args.auths().as_ref() == [Auth::default()] {
-                if let Some((policy_blobs, name_alg)) = key_info {
+                if let Some((policy_commands, name_alg)) = key_info {
                     if let Some(session_auth) = Unseal::create_policy_session_from_blobs(
                         job,
                         device,
-                        policy_blobs.as_ref(),
+                        policy_commands.as_ref(),
                         name_alg,
                     )? {
                         auths = vec![session_auth.clone()];
