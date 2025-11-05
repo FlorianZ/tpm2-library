@@ -17,3 +17,7 @@ rasn = "0.26"
 thiserror = "1.0"
 tpm2-policy-language = "0.5.0"
 tpm2-protocol = "0.13.0"
+
+[[test]]
+name = "policy"
+path = "tests/policy.rs"
