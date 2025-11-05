@@ -44,32 +44,22 @@ impl Cache {
     fn refresh_cache(job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |dev| {
             let vhandles: Vec<u32> = job.cache.contexts.keys().copied().collect();
-            let mut actions = Vec::with_capacity(vhandles.len());
-            let mut first_error: Option<CommandError> = None;
+            let mut results = Vec::with_capacity(vhandles.len());
 
             for &vhandle in &vhandles {
                 if let Some(context) = job.cache.contexts.get_mut(&vhandle) {
-                    let result = context.refresh(dev);
-                    match result {
-                        Ok(action) => actions.push((vhandle, action)),
-                        Err(e) => {
-                            log::warn!("vtpm:{vhandle:08x}: {e}");
-                            if first_error.is_none() {
-                                first_error = Some(e.into());
-                            }
-                            actions.push((vhandle, RefreshAction::Stale));
-                        }
-                    }
+                    results.push((vhandle, context.refresh(dev)));
                 }
             }
 
+            let mut errors: Vec<CommandError> = Vec::new();
             let mut handles_to_remove = Vec::new();
 
-            for (vhandle, action) in actions {
-                match action {
-                    RefreshAction::Keep => {}
-                    RefreshAction::Stale => handles_to_remove.push(vhandle),
-                    RefreshAction::Updated(new_context) => {
+            for (vhandle, result) in results {
+                match result {
+                    Ok(RefreshAction::Keep) => {}
+                    Ok(RefreshAction::Stale) => handles_to_remove.push(vhandle),
+                    Ok(RefreshAction::Updated(new_context)) => {
                         if let Some(session) = job
                             .cache
                             .contexts
@@ -83,19 +73,22 @@ impl Cache {
                             handles_to_remove.push(vhandle);
                         }
                     }
+                    Err(e) => {
+                        log::warn!("vtpm:{vhandle:08x}: {e}");
+                        errors.push(e.into());
+                        handles_to_remove.push(vhandle);
+                    }
                 }
             }
 
             for vhandle in handles_to_remove {
                 if let Err(e) = job.cache.remove(dev, vhandle) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
-                    if first_error.is_none() {
-                        first_error = Some(e.into());
-                    }
+                    errors.push(e.into());
                 }
             }
 
-            if let Some(err) = first_error {
+            if let Some(err) = errors.into_iter().next() {
                 Err(err)
             } else {
                 Ok(())

@@ -16,6 +16,8 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommandBody, TpmFrame, TpmUnsealCommand},
 };
 
+type KeyPolicyInfo = (Option<Vec<(TpmCommandBody, TpmAuthCommands)>>, TpmAlgId);
+
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
 #[command(about = "Retrieves data from a sealed data object.")]
@@ -114,19 +116,18 @@ impl Job for Unseal {
             let mut auths = self.auth_args.auths().to_vec();
             let mut policy_session_auth: Option<Auth> = None;
 
-            let key_info: Option<(Option<Vec<(TpmCommandBody, TpmAuthCommands)>>, TpmAlgId)> =
-                if self.input.class() == HandleClass::Vtpm {
-                    job.cache.find_by_vhandle(vhandle).ok().map(|key| {
-                        let policy = if key.policy.is_empty() {
-                            None
-                        } else {
-                            Some(key.policy.clone())
-                        };
-                        (policy, key.public.inner.name_alg)
-                    })
-                } else {
-                    None
-                };
+            let key_info: Option<KeyPolicyInfo> = if self.input.class() == HandleClass::Vtpm {
+                job.cache.find_by_vhandle(vhandle).ok().map(|key| {
+                    let policy = if key.policy.is_empty() {
+                        None
+                    } else {
+                        Some(key.policy.clone())
+                    };
+                    (policy, key.public.inner.name_alg)
+                })
+            } else {
+                None
+            };
 
             if self.auth_args.auths().as_ref() == [Auth::default()] {
                 if let Some((policy_commands, name_alg)) = key_info {
