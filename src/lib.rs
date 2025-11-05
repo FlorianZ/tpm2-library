@@ -227,7 +227,7 @@ impl TpmKey {
     }
 
     /// Converts the runtime `TpmKey` into its ASN.1 representation.
-    fn to_asn1(&self, context: &PolicyState) -> Result<TpmKeyAsn1, Error> {
+    fn to_asn1(&self, _context: &PolicyState) -> Result<TpmKeyAsn1, Error> {
         let rsa_parent = self
             .parent_public
             .as_ref()
@@ -249,43 +249,42 @@ impl TpmKey {
         let (policy, auth_policy) = if let Some(commands) = &self.policy {
             let expr = Expression::from_command_list(commands)?;
 
-            let (policy, auth_policy) = match expr {
-                Expression::Or(branches) => {
-                    let auth_policies = branches
-                        .iter()
-                        .map(|branch| {
-                            let (branch_commands, _) =
-                                branch.to_command_list(self.public.inner.name_alg, context)?;
+            if matches!(expr, Expression::Or(_)) {
+                let mut branches = Vec::new();
+                let mut current_branch = Vec::new();
 
-                            let commands = branch_commands
-                                .iter()
-                                .map(|(cmd, auth)| {
-                                    TpmPolicyCommandAsn1::from_command(cmd, auth)
-                                        .map_err(Error::from)
-                                })
-                                .collect::<Result<_, _>>()?;
+                for (cmd, auth) in commands {
+                    let asn1_cmd =
+                        TpmPolicyCommandAsn1::from_command(cmd, auth).map_err(Error::from)?;
 
-                            Ok::<_, Error>(TpmAuthPolicyAsn1 {
+                    if matches!(cmd, TpmCommandBody::PolicyRestart(_)) {
+                        if !current_branch.is_empty() {
+                            branches.push(TpmAuthPolicyAsn1 {
                                 name: None,
-                                policy: commands,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    (None, Some(auth_policies))
+                                policy: current_branch,
+                            });
+                        }
+                        current_branch = vec![asn1_cmd];
+                    } else {
+                        current_branch.push(asn1_cmd);
+                    }
                 }
-                _ => (
-                    Some(
-                        commands
-                            .iter()
-                            .map(|(cmd, auth)| {
-                                TpmPolicyCommandAsn1::from_command(cmd, auth).map_err(Error::from)
-                            })
-                            .collect::<Result<_, Error>>()?,
-                    ),
-                    None,
-                ),
-            };
-            (policy, auth_policy)
+                if !current_branch.is_empty() {
+                    branches.push(TpmAuthPolicyAsn1 {
+                        name: None,
+                        policy: current_branch,
+                    });
+                }
+                (None, Some(branches))
+            } else {
+                let asn1_commands = commands
+                    .iter()
+                    .map(|(cmd, auth)| {
+                        TpmPolicyCommandAsn1::from_command(cmd, auth).map_err(Error::from)
+                    })
+                    .collect::<Result<_, Error>>()?;
+                (Some(asn1_commands), None)
+            }
         } else {
             (None, None)
         };
