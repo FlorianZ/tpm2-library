@@ -136,6 +136,8 @@ impl core::fmt::Display for TpmProtocolError {
     }
 }
 
+impl core::error::Error for TpmProtocolError {}
+
 pub type TpmResult<T> = Result<T, TpmProtocolError>;
 
 /// Writes into a mutable byte slice.
