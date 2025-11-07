@@ -7,7 +7,7 @@ homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol.git"
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.81"
 readme = "README.md"
 
 [dev-dependencies]
