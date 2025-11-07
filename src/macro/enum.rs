@@ -69,15 +69,15 @@ macro_rules! tpm_enum {
         }
 
         impl $crate::TpmMarshal for $name {
-            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmMarshalResult<()> {
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $crate::TpmMarshal::marshal(&(*self as $repr), writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $name {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmUnmarshalResult<(Self, &[u8])> {
+            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
                 let (val, buf) = <$repr>::unmarshal(buf)?;
-                let enum_val = Self::try_from(val).map_err(|()| $crate::TpmUnmarshalError::InvalidDiscriminant (stringify!($name), val.into()))?;
+                let enum_val = Self::try_from(val).map_err(|()| $crate::TpmProtocolError::InvalidDiscriminant (stringify!($name), val.into()))?;
                 Ok((enum_val, buf))
             }
         }

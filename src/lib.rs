@@ -49,13 +49,13 @@ impl core::convert::From<TpmHandle> for u32 {
 }
 
 impl TpmMarshal for TpmHandle {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         TpmMarshal::marshal(&self.0, writer)
     }
 }
 
 impl TpmUnmarshal for TpmHandle {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (val, buf) = u32::unmarshal(buf)?;
         Ok((Self(val), buf))
     }
@@ -102,54 +102,41 @@ impl core::fmt::LowerHex for TpmDiscriminant {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// TPM protocol marshaling error.
-pub enum TpmMarshalError {
-    /// Capacity of a structure has been exceeded,
+/// TPM protocol marshaling or unmarshaling error.
+pub enum TpmProtocolError {
+    /// An architectural limit (e.g., `MAX_SESSIONS`) was exceeded.
     CapacityExceeded,
-    /// Input value is not valid.
-    InvalidValue,
-}
-
-impl core::fmt::Display for TpmMarshalError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::CapacityExceeded => write!(f, "capacity exceeded"),
-            Self::InvalidValue => write!(f, "invalid value"),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-/// TPM protocol unmarshaling error.
-pub enum TpmUnmarshalError {
-    /// Capacity of a structure has been exceeded,
-    CapacityExceeded,
-    /// Unknown discriminant.
+    /// Data size exceeds the `u16` max for a TPM2B, or a writer's buffer is full.
+    BufferExceeded,
+    /// Item count exceeds the `u32` max for a TPML.
+    ListExceeded,
+    /// Unknown discriminant for an enum or tagged union.
     InvalidDiscriminant(&'static str, TpmDiscriminant),
     /// The frame or object is malformed.
     MalformedValue,
-    /// `TrailingData` data left.
+    /// Trailing data left after unmarshaling.
     TrailingData,
     /// Not enough bytes to unmarshal.
-    TruncatedData,
+    UnexpectedEof,
 }
 
-impl core::fmt::Display for TpmUnmarshalError {
+impl core::fmt::Display for TpmProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::CapacityExceeded => write!(f, "capacity exceeded"),
+            Self::BufferExceeded => write!(f, "buffer exceeded"),
+            Self::ListExceeded => write!(f, "list exceeded"),
             Self::InvalidDiscriminant(type_name, value) => {
                 write!(f, "invalid discriminant: {type_name}: 0x{value:x}")
             }
             Self::MalformedValue => write!(f, "malformed value"),
             Self::TrailingData => write!(f, "trailing data"),
-            Self::TruncatedData => write!(f, "truncated data"),
+            Self::UnexpectedEof => write!(f, "unexpected EOF"),
         }
     }
 }
 
-pub type TpmMarshalResult<T> = Result<T, TpmMarshalError>;
-pub type TpmUnmarshalResult<T> = Result<T, TpmUnmarshalError>;
+pub type TpmResult<T> = Result<T, TpmProtocolError>;
 
 /// Writes into a mutable byte slice.
 pub struct TpmWriter<'a> {
@@ -180,12 +167,12 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `TpmError::CapacityExceeded` if the writer does not have enough
+    /// Returns `TpmProtocolError::BufferExceeded` if the writer does not have enough
     /// capacity to hold the new bytes.
-    pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmMarshalResult<()> {
+    pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmMarshalError::CapacityExceeded);
+            return Err(TpmProtocolError::BufferExceeded);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
@@ -214,8 +201,8 @@ pub trait TpmMarshal: TpmSized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmError)` on a marshal failure.
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()>;
+    /// Returns `Err(TpmProtocolError)` on a marshal failure.
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
 pub trait TpmUnmarshal: Sized + TpmSized {
@@ -225,8 +212,8 @@ pub trait TpmUnmarshal: Sized + TpmSized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmError)` on a unmarshal failure.
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])>;
+    /// Returns `Err(TpmProtocolError)` on a unmarshal failure.
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 
 /// Types that are composed of a tag and a value e.g., a union.
@@ -244,12 +231,9 @@ pub trait TpmUnmarshalTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmUnmarshal` implementation,
-    /// such as a `TpmError::TruncatedData` if the buffer is too small or an
-    /// `TpmError::MalformedValue` if the data is malformed.
-    fn unmarshal_tagged(
-        tag: <Self as TpmTagged>::Tag,
-        buf: &[u8],
-    ) -> TpmUnmarshalResult<(Self, &[u8])>
+    /// such as a `TpmProtocolError::UnexpectedEof` if the buffer is too small or an
+    /// `TpmProtocolError::MalformedValue` if the data is malformed.
+    fn unmarshal_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where
         Self: TpmTagged,
         <Self as TpmTagged>::Tag: TpmUnmarshal + TpmMarshal;

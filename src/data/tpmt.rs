@@ -9,8 +9,8 @@ use super::{
     TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
-    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmMarshal, TpmMarshalResult, TpmSized,
-    TpmUnmarshal, TpmUnmarshalError, TpmUnmarshalResult, TpmUnmarshalTagged, TpmWriter,
+    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
+    TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
 };
 
 macro_rules! tpm_struct_tagged {
@@ -35,14 +35,14 @@ macro_rules! tpm_struct_tagged {
         }
 
         impl $crate::TpmMarshal for $name {
-            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmMarshalResult<()> {
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $crate::TpmMarshal::marshal(&self.$tag_field, writer)?;
                 $crate::TpmMarshal::marshal(&self.$value_field, writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $name {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmUnmarshalResult<(Self, &[u8])> {
+            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
                 let ($tag_field, buf) = <$tag_ty>::unmarshal(buf)?;
                 let ($value_field, buf) =
                     <$value_ty as $crate::TpmUnmarshalTagged>::unmarshal_tagged($tag_field, buf)?;
@@ -81,7 +81,7 @@ impl TpmSized for TpmtPublic {
 }
 
 impl TpmMarshal for TpmtPublic {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.object_type.marshal(writer)?;
         self.name_alg.marshal(writer)?;
         self.object_attributes.marshal(writer)?;
@@ -92,7 +92,7 @@ impl TpmMarshal for TpmtPublic {
 }
 
 impl TpmUnmarshal for TpmtPublic {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (object_type, buf) = TpmAlgId::unmarshal(buf)?;
         let (name_alg, buf) = TpmAlgId::unmarshal(buf)?;
         let (object_attributes, buf) = TpmaObject::unmarshal(buf)?;
@@ -116,7 +116,7 @@ impl TpmUnmarshal for TpmtPublic {
                 (TpmuPublicId::Ecc(point), rest)
             }
             TpmAlgId::Null => (TpmuPublicId::Null, buf),
-            _ => return Err(TpmUnmarshalError::MalformedValue),
+            _ => return Err(TpmProtocolError::MalformedValue),
         };
         let public_area = Self {
             object_type,
@@ -195,7 +195,7 @@ impl TpmSized for TpmtSensitive {
 }
 
 impl TpmMarshal for TpmtSensitive {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.sensitive_type.marshal(writer)?;
         self.auth_value.marshal(writer)?;
         self.seed_value.marshal(writer)?;
@@ -204,7 +204,7 @@ impl TpmMarshal for TpmtSensitive {
 }
 
 impl TpmUnmarshal for TpmtSensitive {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (sensitive_type, buf) = TpmAlgId::unmarshal(buf)?;
         let (auth_value, buf) = Tpm2bAuth::unmarshal(buf)?;
         let (seed_value, buf) = Tpm2bDigest::unmarshal(buf)?;
@@ -225,7 +225,7 @@ impl TpmUnmarshal for TpmtSensitive {
                 let (val, buf) = Tpm2bSymKey::unmarshal(buf)?;
                 (TpmuSensitiveComposite::Sym(val), buf)
             }
-            _ => return Err(TpmUnmarshalError::MalformedValue),
+            _ => return Err(TpmProtocolError::MalformedValue),
         };
         Ok((
             Self {
@@ -258,7 +258,7 @@ impl TpmSized for TpmtSymDef {
 }
 
 impl TpmMarshal for TpmtSymDef {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.algorithm.marshal(writer)?;
         if self.algorithm != TpmAlgId::Null {
             self.key_bits.marshal(writer)?;
@@ -269,7 +269,7 @@ impl TpmMarshal for TpmtSymDef {
 }
 
 impl TpmUnmarshal for TpmtSymDef {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (algorithm, buf) = TpmAlgId::unmarshal(buf)?;
         if algorithm == TpmAlgId::Null {
             return Ok((
@@ -299,7 +299,7 @@ impl TpmUnmarshal for TpmtSymDef {
                 (TpmuSymKeyBits::Xor(val), buf)
             }
             TpmAlgId::Null => (TpmuSymKeyBits::Null, buf),
-            _ => return Err(TpmUnmarshalError::MalformedValue),
+            _ => return Err(TpmProtocolError::MalformedValue),
         };
         let (mode, buf) = match algorithm {
             TpmAlgId::Aes => {
@@ -319,7 +319,7 @@ impl TpmUnmarshal for TpmtSymDef {
                 (TpmuSymMode::Xor(val), buf)
             }
             TpmAlgId::Null => (TpmuSymMode::Null, buf),
-            _ => return Err(TpmUnmarshalError::MalformedValue),
+            _ => return Err(TpmProtocolError::MalformedValue),
         };
         Ok((
             Self {

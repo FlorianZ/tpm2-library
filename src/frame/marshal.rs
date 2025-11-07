@@ -6,7 +6,7 @@ use crate::{
     constant::TPM_HEADER_SIZE,
     data::{TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     frame::TpmFrame,
-    TpmMarshal, TpmMarshalError, TpmMarshalResult, TpmSized,
+    TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
 };
 use core::{convert::TryFrom, mem::size_of};
 
@@ -14,18 +14,18 @@ use core::{convert::TryFrom, mem::size_of};
 ///
 /// # Errors
 ///
-/// Returns `Err(TpmError)` on a marshal failure.
+/// Returns `Err(TpmProtocolError)` on a marshal failure.
 pub fn tpm_marshal_command<C>(
     command: &C,
     tag: TpmSt,
     sessions: &[TpmsAuthCommand],
     writer: &mut crate::TpmWriter,
-) -> TpmMarshalResult<()>
+) -> TpmResult<()>
 where
     C: TpmFrame,
 {
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-        return Err(TpmMarshalError::InvalidValue);
+        return Err(TpmProtocolError::MalformedValue);
     }
 
     let handle_area_size = command.handles() * size_of::<u32>();
@@ -39,7 +39,7 @@ where
 
     let total_body_len = handle_area_size + auth_area_size + param_area_size;
     let command_size = u32::try_from(TPM_HEADER_SIZE as usize + total_body_len)
-        .map_err(|_| TpmMarshalError::InvalidValue)?;
+        .map_err(|_| TpmProtocolError::ListExceeded)?;
 
     (tag as u16).marshal(writer)?;
     command_size.marshal(writer)?;
@@ -49,7 +49,7 @@ where
 
     if tag == TpmSt::Sessions {
         let sessions_len = u32::try_from(auth_area_size - size_of::<u32>())
-            .map_err(|_| TpmMarshalError::InvalidValue)?;
+            .map_err(|_| TpmProtocolError::ListExceeded)?;
         sessions_len.marshal(writer)?;
         for s in sessions {
             s.marshal(writer)?;
@@ -63,13 +63,13 @@ where
 ///
 /// # Errors
 ///
-/// Returns `Err(TpmError)` on a marshal failure.
+/// Returns `Err(TpmProtocolError)` on a marshal failure.
 pub fn tpm_marshal_response<R>(
     response: &R,
     sessions: &[TpmsAuthResponse],
     rc: TpmRc,
     writer: &mut crate::TpmWriter,
-) -> TpmMarshalResult<()>
+) -> TpmResult<()>
 where
     R: TpmFrame,
 {
@@ -100,7 +100,7 @@ where
         handle_area_size + parameter_area_size_field_len + param_area_size + sessions_len;
 
     let response_size = u32::try_from(TPM_HEADER_SIZE as usize + total_body_len)
-        .map_err(|_| TpmMarshalError::InvalidValue)?;
+        .map_err(|_| TpmProtocolError::ListExceeded)?;
 
     (tag as u16).marshal(writer)?;
     response_size.marshal(writer)?;
@@ -110,7 +110,7 @@ where
 
     if tag == TpmSt::Sessions {
         let params_len =
-            u32::try_from(param_area_size).map_err(|_| TpmMarshalError::InvalidValue)?;
+            u32::try_from(param_area_size).map_err(|_| TpmProtocolError::ListExceeded)?;
         params_len.marshal(writer)?;
     }
 

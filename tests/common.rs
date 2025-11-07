@@ -6,7 +6,7 @@
 #![allow(clippy::pedantic)]
 
 use std::{io::IsTerminal, vec::Vec};
-use tpm2_protocol::{TpmDiscriminant, TpmUnmarshalError};
+use tpm2_protocol::{TpmDiscriminant, TpmProtocolError};
 
 #[allow(dead_code)]
 pub fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -97,11 +97,11 @@ fn unmarshal_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'st
 }
 
 #[allow(dead_code)]
-pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmUnmarshalError, &'static str> {
+pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmProtocolError, &'static str> {
     match s {
-        "MalformedValue" => return Ok(TpmUnmarshalError::MalformedValue),
-        "TruncatedData" => return Ok(TpmUnmarshalError::TruncatedData),
-        "TrailingData" => return Ok(TpmUnmarshalError::TrailingData),
+        "MalformedValue" => return Ok(TpmProtocolError::MalformedValue),
+        "UnexpectedEof" => return Ok(TpmProtocolError::UnexpectedEof),
+        "TrailingData" => return Ok(TpmProtocolError::TrailingData),
         _ => {}
     }
 
@@ -137,7 +137,7 @@ pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmUnmarshalError, &'stat
         {
             let val = u64::from_str_radix(num_str.strip_prefix("0x").unwrap_or(num_str), 16)
                 .map_err(|_| "InvalidDiscriminant: invalid number for Unsigned")?;
-            return Ok(TpmUnmarshalError::InvalidDiscriminant(
+            return Ok(TpmProtocolError::InvalidDiscriminant(
                 type_name,
                 TpmDiscriminant::Unsigned(val),
             ));

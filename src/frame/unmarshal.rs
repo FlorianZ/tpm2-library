@@ -8,7 +8,7 @@ use super::{
 use crate::{
     constant::TPM_HEADER_SIZE,
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    TpmDiscriminant, TpmUnmarshal, TpmUnmarshalError, TpmUnmarshalResult,
+    TpmDiscriminant, TpmProtocolError, TpmResult, TpmUnmarshal,
 };
 use core::{convert::TryFrom, mem::size_of};
 
@@ -18,11 +18,9 @@ pub struct TpmDispatch {
     pub cc: TpmCc,
     pub handles: usize,
     #[allow(clippy::type_complexity)]
-    pub command_unmarshaler:
-        for<'a> fn(&'a [u8], &'a [u8]) -> TpmUnmarshalResult<(TpmCommand, &'a [u8])>,
+    pub command_unmarshaler: for<'a> fn(&'a [u8], &'a [u8]) -> TpmResult<(TpmCommand, &'a [u8])>,
     #[allow(clippy::type_complexity)]
-    pub response_unmarshaler:
-        for<'a> fn(TpmSt, &'a [u8]) -> TpmUnmarshalResult<(TpmResponse, &'a [u8])>,
+    pub response_unmarshaler: for<'a> fn(TpmSt, &'a [u8]) -> TpmResult<(TpmResponse, &'a [u8])>,
 }
 
 /// Represents the dualistic nature of responses.
@@ -32,20 +30,18 @@ pub type TpmResponseResult = Result<(TpmResponse, TpmAuthResponses), TpmRc>;
 ///
 /// # Errors
 ///
-/// * `TpmError::TruncatedData` if the buffer is too small
-/// * `TpmError::InvalidDiscriminant` if the buffer contains an unsupported command code or unexpected byte
-/// * `TpmError::TrailingData` if the command has after spurious data left
-pub fn tpm_unmarshal_command(
-    buf: &[u8],
-) -> TpmUnmarshalResult<(TpmHandles, TpmCommand, TpmAuthCommands)> {
+/// * `TpmProtocolError::UnexpectedEof` if the buffer is too small
+/// * `TpmProtocolError::InvalidDiscriminant` if the buffer contains an unsupported command code or unexpected byte
+/// * `TpmProtocolError::TrailingData` if the command has after spurious data left
+pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, TpmAuthCommands)> {
     if buf.len() < TPM_HEADER_SIZE as usize {
-        return Err(TpmUnmarshalError::TruncatedData);
+        return Err(TpmProtocolError::UnexpectedEof);
     }
     let buf_len = buf.len();
 
     let (tag_raw, buf) = u16::unmarshal(buf)?;
     let tag = TpmSt::try_from(tag_raw).map_err(|()| {
-        TpmUnmarshalError::InvalidDiscriminant(
+        TpmProtocolError::InvalidDiscriminant(
             "TpmSt",
             TpmDiscriminant::Unsigned(u64::from(tag_raw)),
         )
@@ -54,34 +50,31 @@ pub fn tpm_unmarshal_command(
     let (cc_raw, body_buf) = u32::unmarshal(buf)?;
 
     if buf_len < size as usize {
-        return Err(TpmUnmarshalError::TruncatedData);
+        return Err(TpmProtocolError::UnexpectedEof);
     } else if buf_len > size as usize {
-        return Err(TpmUnmarshalError::TrailingData);
+        return Err(TpmProtocolError::TrailingData);
     }
 
     let cc = TpmCc::try_from(cc_raw).map_err(|()| {
-        TpmUnmarshalError::InvalidDiscriminant(
-            "TpmCc",
-            TpmDiscriminant::Unsigned(u64::from(cc_raw)),
-        )
+        TpmProtocolError::InvalidDiscriminant("TpmCc", TpmDiscriminant::Unsigned(u64::from(cc_raw)))
     })?;
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
         .map_err(|_| {
-            TpmUnmarshalError::InvalidDiscriminant(
+            TpmProtocolError::InvalidDiscriminant(
                 "TpmCc",
                 TpmDiscriminant::Unsigned(u64::from(cc_raw)),
             )
         })?;
 
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-        return Err(TpmUnmarshalError::MalformedValue);
+        return Err(TpmProtocolError::MalformedValue);
     }
 
     let handle_area_size = dispatch.handles * size_of::<u32>();
     if body_buf.len() < handle_area_size {
-        return Err(TpmUnmarshalError::TruncatedData);
+        return Err(TpmProtocolError::UnexpectedEof);
     }
     let (handle_area, after_handles) = body_buf.split_at(handle_area_size);
 
@@ -90,18 +83,16 @@ pub fn tpm_unmarshal_command(
         let (auth_area_size, buf_after_auth_size) = u32::unmarshal(after_handles)?;
         let auth_area_size = auth_area_size as usize;
         if buf_after_auth_size.len() < auth_area_size {
-            return Err(TpmUnmarshalError::TruncatedData);
+            return Err(TpmProtocolError::UnexpectedEof);
         }
         let (mut auth_area, param_area) = buf_after_auth_size.split_at(auth_area_size);
         while !auth_area.is_empty() {
             let (session, rest) = TpmsAuthCommand::unmarshal(auth_area)?;
-            sessions
-                .push(session)
-                .map_err(|_| TpmUnmarshalError::CapacityExceeded)?;
+            sessions.push(session)?;
             auth_area = rest;
         }
         if !auth_area.is_empty() {
-            return Err(TpmUnmarshalError::TrailingData);
+            return Err(TpmProtocolError::TrailingData);
         }
         param_area
     } else {
@@ -111,16 +102,14 @@ pub fn tpm_unmarshal_command(
     let (command_data, param_remainder) = (dispatch.command_unmarshaler)(handle_area, param_area)?;
 
     if !param_remainder.is_empty() {
-        return Err(TpmUnmarshalError::TrailingData);
+        return Err(TpmProtocolError::TrailingData);
     }
 
     let mut handles = TpmHandles::new();
     let mut temp_handle_cursor = handle_area;
     while !temp_handle_cursor.is_empty() {
         let (handle, rest) = u32::unmarshal(temp_handle_cursor)?;
-        handles
-            .push(handle.into())
-            .map_err(|_| TpmUnmarshalError::CapacityExceeded)?;
+        handles.push(handle.into())?;
         temp_handle_cursor = rest;
     }
 
@@ -131,12 +120,12 @@ pub fn tpm_unmarshal_command(
 ///
 /// # Errors
 ///
-/// * `TpmError::TruncatedData` if the buffer is too small
-/// * `TpmError::InvalidDiscriminant` if the buffer contains an unsupported command code
-/// * `TpmError::TrailingData` if the response has after spurious data left
-pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmUnmarshalResult<TpmResponseResult> {
+/// * `TpmProtocolError::UnexpectedEof` if the buffer is too small
+/// * `TpmProtocolError::InvalidDiscriminant` if the buffer contains an unsupported command code
+/// * `TpmProtocolError::TrailingData` if the response has after spurious data left
+pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult> {
     if buf.len() < TPM_HEADER_SIZE as usize {
-        return Err(TpmUnmarshalError::TruncatedData);
+        return Err(TpmProtocolError::UnexpectedEof);
     }
 
     let (tag_raw, remainder) = u16::unmarshal(buf)?;
@@ -144,9 +133,9 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmUnmarshalResult<TpmRe
     let (code, body_buf) = u32::unmarshal(remainder)?;
 
     if buf.len() < size as usize {
-        return Err(TpmUnmarshalError::TruncatedData);
+        return Err(TpmProtocolError::UnexpectedEof);
     } else if buf.len() > size as usize {
-        return Err(TpmUnmarshalError::TrailingData);
+        return Err(TpmProtocolError::TrailingData);
     }
 
     let rc = TpmRc::try_from(code)?;
@@ -155,7 +144,7 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmUnmarshalResult<TpmRe
     }
 
     let tag = TpmSt::try_from(tag_raw).map_err(|()| {
-        TpmUnmarshalError::InvalidDiscriminant(
+        TpmProtocolError::InvalidDiscriminant(
             "TpmSt",
             TpmDiscriminant::Unsigned(u64::from(tag_raw)),
         )
@@ -165,7 +154,7 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmUnmarshalResult<TpmRe
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
         .map_err(|_| {
-            TpmUnmarshalError::InvalidDiscriminant(
+            TpmProtocolError::InvalidDiscriminant(
                 "TpmCc",
                 TpmDiscriminant::Unsigned(u64::from(cc as u32)),
             )
@@ -177,15 +166,13 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmUnmarshalResult<TpmRe
     if tag == TpmSt::Sessions {
         while !session_area.is_empty() {
             let (session, rest) = TpmsAuthResponse::unmarshal(session_area)?;
-            auth_responses
-                .push(session)
-                .map_err(|_| TpmUnmarshalError::CapacityExceeded)?;
+            auth_responses.push(session)?;
             session_area = rest;
         }
     }
 
     if !session_area.is_empty() {
-        return Err(TpmUnmarshalError::TrailingData);
+        return Err(TpmProtocolError::TrailingData);
     }
 
     Ok(Ok((body, auth_responses)))

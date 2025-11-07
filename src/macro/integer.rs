@@ -6,19 +6,19 @@
 macro_rules! tpm_integer {
     ($ty:ty, $variant:ident) => {
         impl TpmUnmarshal for $ty {
-            fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+            fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
                 let size = size_of::<$ty>();
-                let bytes = buf.get(..size).ok_or(TpmUnmarshalError::TruncatedData)?;
+                let bytes = buf.get(..size).ok_or(TpmProtocolError::UnexpectedEof)?;
                 let array = bytes
                     .try_into()
-                    .map_err(|_| TpmUnmarshalError::MalformedValue)?;
+                    .map_err(|_| TpmProtocolError::MalformedValue)?;
                 let val = <$ty>::from_be_bytes(array);
                 Ok((val, &buf[size..]))
             }
         }
 
         impl TpmMarshal for $ty {
-            fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+            fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
                 writer.write_bytes(&self.to_be_bytes())
             }
         }

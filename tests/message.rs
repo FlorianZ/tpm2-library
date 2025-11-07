@@ -125,7 +125,7 @@ fn main() {
                             });
                         let actual_err = unmarshal_result
                             .err()
-                            .expect("expected TpmUnmarshalError, got Ok");
+                            .expect("expected TpmProtocolError, got Ok");
                         assert_eq!(
                             actual_err, expected_err,
                             "mismatched unmarshaling error type"

@@ -13,8 +13,8 @@ use crate::{
         TpmlTaggedTpmProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtRsaScheme,
         TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
     },
-    tpm_struct, TpmHandle, TpmMarshal, TpmMarshalError, TpmMarshalResult, TpmSized, TpmUnmarshal,
-    TpmUnmarshalError, TpmUnmarshalResult, TpmWriter,
+    tpm_struct, TpmHandle, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal,
+    TpmWriter,
 };
 use core::{
     convert::TryFrom,
@@ -56,14 +56,14 @@ impl Deref for TpmsPcrSelect {
 }
 
 impl TryFrom<&[u8]> for TpmsPcrSelect {
-    type Error = TpmMarshalError;
+    type Error = TpmProtocolError;
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > TPM_PCR_SELECT_MAX as usize {
-            return Err(TpmMarshalError::CapacityExceeded);
+            return Err(TpmProtocolError::CapacityExceeded);
         }
         let mut pcr_select = Self::new();
-        let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmMarshalError::InvalidValue)?;
+        let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmProtocolError::BufferExceeded)?;
         pcr_select.size = len_u8;
         pcr_select.data[..slice.len()].copy_from_slice(slice);
         Ok(pcr_select)
@@ -89,26 +89,26 @@ impl TpmSized for TpmsPcrSelect {
 }
 
 impl TpmMarshal for TpmsPcrSelect {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.size.marshal(writer)?;
         writer.write_bytes(self)
     }
 }
 
 impl TpmUnmarshal for TpmsPcrSelect {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (size, remainder) = u8::unmarshal(buf)?;
 
         if size > TPM_PCR_SELECT_MAX {
-            return Err(TpmUnmarshalError::CapacityExceeded);
+            return Err(TpmProtocolError::CapacityExceeded);
         }
         if remainder.len() < size as usize {
-            return Err(TpmUnmarshalError::TruncatedData);
+            return Err(TpmProtocolError::UnexpectedEof);
         }
 
         let (pcr_bytes, final_remainder) = remainder.split_at(size as usize);
         let pcr_select =
-            Self::try_from(pcr_bytes).map_err(|_| TpmUnmarshalError::CapacityExceeded)?;
+            Self::try_from(pcr_bytes).map_err(|_| TpmProtocolError::CapacityExceeded)?;
         Ok((pcr_select, final_remainder))
     }
 }
@@ -162,14 +162,14 @@ impl TpmSized for TpmsCapabilityData {
 }
 
 impl TpmMarshal for TpmsCapabilityData {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.capability.marshal(writer)?;
         self.data.marshal(writer)
     }
 }
 
 impl TpmUnmarshal for TpmsCapabilityData {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (capability, buf) = TpmCap::unmarshal(buf)?;
         let (data, buf) = match capability {
             TpmCap::Algs => {
@@ -291,14 +291,14 @@ impl TpmSized for TpmsPcrSelection {
 }
 
 impl TpmMarshal for TpmsPcrSelection {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.hash.marshal(writer)?;
         self.pcr_select.marshal(writer)
     }
 }
 
 impl TpmUnmarshal for TpmsPcrSelection {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (hash, buf) = TpmAlgId::unmarshal(buf)?;
         let (pcr_select, buf) = TpmsPcrSelect::unmarshal(buf)?;
         Ok((Self { hash, pcr_select }, buf))
@@ -476,7 +476,7 @@ impl TpmSized for TpmsAttest {
 }
 
 impl TpmMarshal for TpmsAttest {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmMarshalResult<()> {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         0xff54_4347_u32.marshal(writer)?;
         self.attest_type.marshal(writer)?;
         self.qualified_signer.marshal(writer)?;
@@ -488,10 +488,10 @@ impl TpmMarshal for TpmsAttest {
 }
 
 impl TpmUnmarshal for TpmsAttest {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (magic, buf) = u32::unmarshal(buf)?;
         if magic != TPM_GENERATED_VALUE {
-            return Err(TpmUnmarshalError::MalformedValue);
+            return Err(TpmProtocolError::MalformedValue);
         }
         let (attest_type, buf) = TpmSt::unmarshal(buf)?;
         let (qualified_signer, buf) = Tpm2bName::unmarshal(buf)?;
@@ -531,7 +531,7 @@ impl TpmUnmarshal for TpmsAttest {
                 let (val, buf) = TpmsNvDigestCertifyInfo::unmarshal(buf)?;
                 (TpmuAttest::NvDigest(val), buf)
             }
-            _ => return Err(TpmUnmarshalError::MalformedValue),
+            _ => return Err(TpmProtocolError::MalformedValue),
         };
 
         Ok((

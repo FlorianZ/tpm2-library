@@ -2,10 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    TpmMarshal, TpmMarshalError, TpmMarshalResult, TpmSized, TpmUnmarshal, TpmUnmarshalError,
-    TpmUnmarshalResult,
-};
+use crate::{TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal};
 use core::{
     convert::TryFrom,
     fmt::Debug,
@@ -41,11 +38,11 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns a `TpmError::CapacityExceeded` error if the list is already at
+    ///
     /// full capacity.
-    pub fn push(&mut self, item: T) -> Result<(), T> {
+    pub fn push(&mut self, item: T) -> Result<(), TpmProtocolError> {
         if self.len >= CAPACITY {
-            return Err(item);
+            return Err(TpmProtocolError::CapacityExceeded);
         }
         self.items[self.len].write(item);
         self.len += 1;
@@ -61,7 +58,7 @@ impl<T: Copy, const CAPACITY: usize> Deref for TpmList<T, CAPACITY> {
     ///
     /// This implementation uses `unsafe` to provide a view into the initialized
     /// portion of the list. The caller can rely on this being safe because:
-    /// 1. The first `self.len` items are guaranteed to be initialized by the `try_push` method.
+    /// 1. The first `self.len` items are guaranteed to be initialized by the `push` method.
     /// 2. `MaybeUninit<T>` is guaranteed to have the same memory layout as `T`.
     fn deref(&self) -> &Self::Target {
         unsafe { slice::from_raw_parts(self.items.as_ptr().cast::<T>(), self.len) }
@@ -96,8 +93,8 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 }
 
 impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPACITY> {
-    fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmMarshalResult<()> {
-        let len = u32::try_from(self.len).map_err(|_| TpmMarshalError::InvalidValue)?;
+    fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
+        let len = u32::try_from(self.len).map_err(|_| TpmProtocolError::ListExceeded)?;
         TpmMarshal::marshal(&len, writer)?;
         for item in &**self {
             TpmMarshal::marshal(item, writer)?;
@@ -107,18 +104,17 @@ impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPA
 }
 
 impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, CAPACITY> {
-    fn unmarshal(buf: &[u8]) -> TpmUnmarshalResult<(Self, &[u8])> {
+    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (count_u32, mut buf) = u32::unmarshal(buf)?;
         let count = count_u32 as usize;
         if count > CAPACITY {
-            return Err(TpmUnmarshalError::CapacityExceeded);
+            return Err(TpmProtocolError::CapacityExceeded);
         }
 
         let mut list = Self::new();
         for _ in 0..count {
             let (item, rest) = T::unmarshal(buf)?;
-            list.push(item)
-                .map_err(|_| TpmUnmarshalError::CapacityExceeded)?;
+            list.push(item)?;
             buf = rest;
         }
 
