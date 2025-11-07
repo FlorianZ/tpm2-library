@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-//! KDFa and KDFe tests.
+//! `KDFa` and `KDFe` tests.
 
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
@@ -152,13 +152,13 @@ fn kdfe_sha256_eq() {
 #[test]
 fn kdfe_label_null_termination_eq() {
     let alg = TpmAlgId::Sha256;
-    let z = b"Z";
-    let u = b"U";
-    let v = b"V";
+    let z_val = b"Z";
+    let u_val = b"U";
+    let v_val = b"V";
 
-    let a = kdfe(alg, z, "LAB", u, v, 128).expect("LAB");
-    let b = kdfe(alg, z, "LAB\u{0}", u, v, 128).expect("LAB\\0");
-    assert_eq!(a, b);
+    let res_a = kdfe(alg, z_val, "LAB", u_val, v_val, 128).expect("LAB");
+    let res_b = kdfe(alg, z_val, "LAB\u{0}", u_val, v_val, 128).expect("LAB\\0");
+    assert_eq!(res_a, res_b);
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn kdfa_label_null_termination_diff() {
     let ctx_a = b"A";
     let ctx_b = b"B";
 
-    let a = kdfa(alg, key, "LAB", ctx_a, ctx_b, 128).expect("LAB");
-    let b = kdfa(alg, key, "LAB\u{0}", ctx_a, ctx_b, 128).expect("LAB\\0");
-    assert_ne!(a, b);
+    let res_a = kdfa(alg, key, "LAB", ctx_a, ctx_b, 128).expect("LAB");
+    let res_b = kdfa(alg, key, "LAB\u{0}", ctx_a, ctx_b, 128).expect("LAB\\0");
+    assert_ne!(res_a, res_b);
 }
