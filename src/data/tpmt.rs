@@ -3,14 +3,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{
-    Tpm2bAuth, Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
-    TpmAlgId, TpmHt, TpmRh, TpmSt, TpmaObject, TpmsEccPoint, TpmuHa, TpmuKeyedhashScheme,
+    Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmHt, TpmRh, TpmSt, TpmaObject, TpmuHa, TpmuKeyedhashScheme,
     TpmuNvPublic2, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite, TpmuSigScheme,
     TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
-    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
-    TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
+    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal,
+    TpmUnmarshalTagged, TpmWriter,
 };
 
 macro_rules! tpm_struct_tagged {
@@ -98,26 +97,8 @@ impl TpmUnmarshal for TpmtPublic {
         let (object_attributes, buf) = TpmaObject::unmarshal(buf)?;
         let (auth_policy, buf) = Tpm2bDigest::unmarshal(buf)?;
         let (parameters, buf) = TpmuPublicParms::unmarshal_tagged(object_type, buf)?;
-        let (unique, buf) = match object_type {
-            TpmAlgId::KeyedHash => {
-                let (val, rest) = Tpm2bDigest::unmarshal(buf)?;
-                (TpmuPublicId::KeyedHash(val), rest)
-            }
-            TpmAlgId::SymCipher => {
-                let (val, rest) = Tpm2bSymKey::unmarshal(buf)?;
-                (TpmuPublicId::SymCipher(val), rest)
-            }
-            TpmAlgId::Rsa => {
-                let (val, rest) = Tpm2bPublicKeyRsa::unmarshal(buf)?;
-                (TpmuPublicId::Rsa(val), rest)
-            }
-            TpmAlgId::Ecc => {
-                let (point, rest) = TpmsEccPoint::unmarshal(buf)?;
-                (TpmuPublicId::Ecc(point), rest)
-            }
-            TpmAlgId::Null => (TpmuPublicId::Null, buf),
-            _ => return Err(TpmProtocolError::MalformedValue),
-        };
+        let (unique, buf) = TpmuPublicId::unmarshal_tagged(object_type, buf)?;
+
         let public_area = Self {
             object_type,
             name_alg,
@@ -208,25 +189,8 @@ impl TpmUnmarshal for TpmtSensitive {
         let (sensitive_type, buf) = TpmAlgId::unmarshal(buf)?;
         let (auth_value, buf) = Tpm2bAuth::unmarshal(buf)?;
         let (seed_value, buf) = Tpm2bDigest::unmarshal(buf)?;
-        let (sensitive, buf) = match sensitive_type {
-            TpmAlgId::Rsa => {
-                let (val, buf) = crate::data::Tpm2bPrivateKeyRsa::unmarshal(buf)?;
-                (TpmuSensitiveComposite::Rsa(val), buf)
-            }
-            TpmAlgId::Ecc => {
-                let (val, buf) = Tpm2bEccParameter::unmarshal(buf)?;
-                (TpmuSensitiveComposite::Ecc(val), buf)
-            }
-            TpmAlgId::KeyedHash => {
-                let (val, buf) = Tpm2bSensitiveData::unmarshal(buf)?;
-                (TpmuSensitiveComposite::Bits(val), buf)
-            }
-            TpmAlgId::SymCipher => {
-                let (val, buf) = Tpm2bSymKey::unmarshal(buf)?;
-                (TpmuSensitiveComposite::Sym(val), buf)
-            }
-            _ => return Err(TpmProtocolError::MalformedValue),
-        };
+        let (sensitive, buf) = TpmuSensitiveComposite::unmarshal_tagged(sensitive_type, buf)?;
+
         Ok((
             Self {
                 sensitive_type,
@@ -271,6 +235,7 @@ impl TpmMarshal for TpmtSymDef {
 impl TpmUnmarshal for TpmtSymDef {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (algorithm, buf) = TpmAlgId::unmarshal(buf)?;
+
         if algorithm == TpmAlgId::Null {
             return Ok((
                 Self {
@@ -281,46 +246,10 @@ impl TpmUnmarshal for TpmtSymDef {
                 buf,
             ));
         }
-        let (key_bits, buf) = match algorithm {
-            TpmAlgId::Aes => {
-                let (val, buf) = u16::unmarshal(buf)?;
-                (TpmuSymKeyBits::Aes(val), buf)
-            }
-            TpmAlgId::Sm4 => {
-                let (val, buf) = u16::unmarshal(buf)?;
-                (TpmuSymKeyBits::Sm4(val), buf)
-            }
-            TpmAlgId::Camellia => {
-                let (val, buf) = u16::unmarshal(buf)?;
-                (TpmuSymKeyBits::Camellia(val), buf)
-            }
-            TpmAlgId::Xor => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                (TpmuSymKeyBits::Xor(val), buf)
-            }
-            TpmAlgId::Null => (TpmuSymKeyBits::Null, buf),
-            _ => return Err(TpmProtocolError::MalformedValue),
-        };
-        let (mode, buf) = match algorithm {
-            TpmAlgId::Aes => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                (TpmuSymMode::Aes(val), buf)
-            }
-            TpmAlgId::Sm4 => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                (TpmuSymMode::Sm4(val), buf)
-            }
-            TpmAlgId::Camellia => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                (TpmuSymMode::Camellia(val), buf)
-            }
-            TpmAlgId::Xor => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                (TpmuSymMode::Xor(val), buf)
-            }
-            TpmAlgId::Null => (TpmuSymMode::Null, buf),
-            _ => return Err(TpmProtocolError::MalformedValue),
-        };
+
+        let (key_bits, buf) = TpmuSymKeyBits::unmarshal_tagged(algorithm, buf)?;
+        let (mode, buf) = TpmuSymMode::unmarshal_tagged(algorithm, buf)?;
+
         Ok((
             Self {
                 algorithm,

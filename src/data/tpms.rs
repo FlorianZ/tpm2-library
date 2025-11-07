@@ -9,12 +9,11 @@ use crate::{
         Tpm2b, Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bMaxNvBuffer, Tpm2bName,
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
         TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
-        TpmiYesNo, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection,
-        TpmlTaggedTpmProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtRsaScheme,
-        TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
+        TpmiYesNo, TpmlPcrSelection, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme,
+        TpmtRsaScheme, TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
     },
     tpm_struct, TpmHandle, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal,
-    TpmWriter,
+    TpmUnmarshalTagged, TpmWriter,
 };
 use core::{
     convert::TryFrom,
@@ -171,32 +170,7 @@ impl TpmMarshal for TpmsCapabilityData {
 impl TpmUnmarshal for TpmsCapabilityData {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (capability, buf) = TpmCap::unmarshal(buf)?;
-        let (data, buf) = match capability {
-            TpmCap::Algs => {
-                let (algs, buf) = TpmlAlgProperty::unmarshal(buf)?;
-                (TpmuCapabilities::Algs(algs), buf)
-            }
-            TpmCap::Handles => {
-                let (handles, buf) = TpmlHandle::unmarshal(buf)?;
-                (TpmuCapabilities::Handles(handles), buf)
-            }
-            TpmCap::Pcrs => {
-                let (pcrs, buf) = TpmlPcrSelection::unmarshal(buf)?;
-                (TpmuCapabilities::Pcrs(pcrs), buf)
-            }
-            TpmCap::Commands => {
-                let (cmds, buf) = TpmlCca::unmarshal(buf)?;
-                (TpmuCapabilities::Commands(cmds), buf)
-            }
-            TpmCap::TpmProperties => {
-                let (props, buf) = TpmlTaggedTpmProperty::unmarshal(buf)?;
-                (TpmuCapabilities::TpmProperties(props), buf)
-            }
-            TpmCap::EccCurves => {
-                let (curves, buf) = TpmlEccCurve::unmarshal(buf)?;
-                (TpmuCapabilities::EccCurves(curves), buf)
-            }
-        };
+        let (data, buf) = TpmuCapabilities::unmarshal_tagged(capability, buf)?;
         Ok((Self { capability, data }, buf))
     }
 }
@@ -498,41 +472,7 @@ impl TpmUnmarshal for TpmsAttest {
         let (extra_data, buf) = Tpm2bData::unmarshal(buf)?;
         let (clock_info, buf) = TpmsClockInfo::unmarshal(buf)?;
         let (firmware_version, buf) = u64::unmarshal(buf)?;
-        let (attested, buf) = match attest_type {
-            TpmSt::AttestCertify => {
-                let (val, buf) = TpmsCertifyInfo::unmarshal(buf)?;
-                (TpmuAttest::Certify(val), buf)
-            }
-            TpmSt::AttestCreation => {
-                let (val, buf) = TpmsCreationInfo::unmarshal(buf)?;
-                (TpmuAttest::Creation(val), buf)
-            }
-            TpmSt::AttestQuote => {
-                let (val, buf) = TpmsQuoteInfo::unmarshal(buf)?;
-                (TpmuAttest::Quote(val), buf)
-            }
-            TpmSt::AttestCommandAudit => {
-                let (val, buf) = TpmsCommandAuditInfo::unmarshal(buf)?;
-                (TpmuAttest::CommandAudit(val), buf)
-            }
-            TpmSt::AttestSessionAudit => {
-                let (val, buf) = TpmsSessionAuditInfo::unmarshal(buf)?;
-                (TpmuAttest::SessionAudit(val), buf)
-            }
-            TpmSt::AttestTime => {
-                let (val, buf) = TpmsTimeAttestInfo::unmarshal(buf)?;
-                (TpmuAttest::Time(val), buf)
-            }
-            TpmSt::AttestNv => {
-                let (val, buf) = TpmsNvCertifyInfo::unmarshal(buf)?;
-                (TpmuAttest::Nv(val), buf)
-            }
-            TpmSt::AttestNvDigest => {
-                let (val, buf) = TpmsNvDigestCertifyInfo::unmarshal(buf)?;
-                (TpmuAttest::NvDigest(val), buf)
-            }
-            _ => return Err(TpmProtocolError::MalformedValue),
-        };
+        let (attested, buf) = TpmuAttest::unmarshal_tagged(attest_type, buf)?;
 
         Ok((
             Self {
