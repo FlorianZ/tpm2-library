@@ -160,19 +160,16 @@ pub fn kdfa(
 ) -> Result<Vec<u8>, Error> {
     let mut key_stream = Vec::new();
     let key_bytes = (key_bits as usize).div_ceil(8);
-    let label_bytes = {
-        let mut bytes = label.as_bytes().to_vec();
-        bytes.push(0);
-        bytes
-    };
 
     let mut counter: u32 = 1;
+    let key_bits_bytes = u32::from(key_bits).to_be_bytes();
+
     while key_stream.len() < key_bytes {
         let counter_bytes = counter.to_be_bytes();
-        let key_bits_bytes = u32::from(key_bits).to_be_bytes();
         let hmac_payload = [
             counter_bytes.as_slice(),
-            label_bytes.as_slice(),
+            label.as_bytes(),
+            &[0u8],
             context_a,
             context_b,
             key_bits_bytes.as_slice(),
@@ -208,17 +205,24 @@ pub fn kdfe(
 ) -> Result<Vec<u8>, Error> {
     let mut key_stream = Vec::new();
     let key_bytes = (key_bits as usize).div_ceil(8);
-    let mut label_bytes = label.as_bytes().to_vec();
-    if label_bytes.last() != Some(&0) {
-        label_bytes.push(0);
-    }
 
-    let other_info = [label_bytes.as_slice(), context_u, context_v].concat();
+    let (label_data, terminator) = if label.as_bytes().last() == Some(&0) {
+        (label.as_bytes(), &[][..])
+    } else {
+        (label.as_bytes(), &[0u8][..])
+    };
 
     let mut counter: u32 = 1;
     while key_stream.len() < key_bytes {
         let counter_bytes = counter.to_be_bytes();
-        let digest_payload = [&counter_bytes, z, &other_info];
+        let digest_payload = [
+            &counter_bytes,
+            z,
+            label_data,
+            terminator,
+            context_u,
+            context_v,
+        ];
 
         let result = digest(hash_alg, &digest_payload)?;
         let remaining = key_bytes - key_stream.len();
