@@ -3,8 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{
-    TpmAuthCommands, TpmAuthResponses, TpmCommandBody, TpmHandles, TpmResponseBody,
-    TPM_DISPATCH_TABLE,
+    TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmHandles, TpmResponse, TPM_DISPATCH_TABLE,
 };
 use crate::{
     constant::TPM_HEADER_SIZE,
@@ -20,14 +19,14 @@ pub struct TpmDispatch {
     pub handles: usize,
     #[allow(clippy::type_complexity)]
     pub command_unmarshaler:
-        for<'a> fn(&'a [u8], &'a [u8]) -> TpmUnmarshalResult<(TpmCommandBody, &'a [u8])>,
+        for<'a> fn(&'a [u8], &'a [u8]) -> TpmUnmarshalResult<(TpmCommand, &'a [u8])>,
     #[allow(clippy::type_complexity)]
     pub response_unmarshaler:
-        for<'a> fn(TpmSt, &'a [u8]) -> TpmUnmarshalResult<(TpmResponseBody, &'a [u8])>,
+        for<'a> fn(TpmSt, &'a [u8]) -> TpmUnmarshalResult<(TpmResponse, &'a [u8])>,
 }
 
 /// Represents the dualistic nature of responses.
-pub type TpmResponseResult = Result<(TpmResponseBody, TpmAuthResponses), TpmRc>;
+pub type TpmResponseResult = Result<(TpmResponse, TpmAuthResponses), TpmRc>;
 
 /// Unmarshals a command from a TPM command buffer.
 ///
@@ -38,7 +37,7 @@ pub type TpmResponseResult = Result<(TpmResponseBody, TpmAuthResponses), TpmRc>;
 /// * `TpmError::TrailingData` if the command has after spurious data left
 pub fn tpm_unmarshal_command(
     buf: &[u8],
-) -> TpmUnmarshalResult<(TpmHandles, TpmCommandBody, TpmAuthCommands)> {
+) -> TpmUnmarshalResult<(TpmHandles, TpmCommand, TpmAuthCommands)> {
     if buf.len() < TPM_HEADER_SIZE as usize {
         return Err(TpmUnmarshalError::TruncatedData);
     }

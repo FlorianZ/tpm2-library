@@ -60,7 +60,7 @@ pub trait TpmBodyMarshal: TpmSized {
 
 /// Unmarshals a command body from the slices point out to the handle area and
 /// parameter area of the original buffer.
-pub(crate) trait TpmCommandBodyUnmarshal: Sized {
+pub(crate) trait TpmUnmarshalCommand: Sized {
     /// Unmarshals the command body from the handle and parameter area.
     ///
     /// # Errors
@@ -73,7 +73,7 @@ pub(crate) trait TpmCommandBodyUnmarshal: Sized {
 }
 
 /// Unmarshals a response body using the response tag to handle structural variations.
-pub trait TpmResponseBodyUnmarshal: Sized {
+pub trait TpmUnmarshalResponse: Sized {
     /// Unmarshals the response body from a buffer, using the response tag
     /// dynamically to determine the structure.
     ///

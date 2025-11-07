@@ -67,7 +67,7 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::frame::TpmCommandBodyUnmarshal for $name {
+        impl $crate::frame::TpmUnmarshalCommand for $name {
             #[allow(unused_mut, unused_variables)]
             fn unmarshal_body<'a>(
                 handles: &'a [u8],
@@ -161,7 +161,7 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::frame::TpmResponseBodyUnmarshal for $name {
+        impl $crate::frame::TpmUnmarshalResponse for $name {
             #[allow(unused_mut, unused_variables)]
             fn unmarshal_body(
                 tag: $crate::data::TpmSt,
