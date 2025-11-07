@@ -31,7 +31,7 @@ pub trait TpmHeader {
 }
 
 /// A trait for TPM commands and responses that provides dynamic frame information.
-pub trait TpmFrame: TpmMarshal + TpmBodyMarshal + Debug {
+pub trait TpmFrame: TpmMarshal + TpmMarshalBody + Debug {
     /// Returns the Command Code (CC) for the command or response.
     fn cc(&self) -> crate::data::TpmCc;
     /// Returns the number of handles in the handle area.
@@ -39,7 +39,7 @@ pub trait TpmFrame: TpmMarshal + TpmBodyMarshal + Debug {
 }
 
 /// A trait for marshaling command/response bodies in separate handle and parameter sections.
-pub trait TpmBodyMarshal: TpmSized {
+pub trait TpmMarshalBody: TpmSized {
     /// Marshals the handle area.
     ///
     /// # Errors

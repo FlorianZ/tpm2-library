@@ -48,12 +48,12 @@ macro_rules! tpm_struct {
         impl $crate::TpmMarshal for $name {
             #[allow(unused_variables)]
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                <Self as $crate::frame::TpmBodyMarshal>::marshal_handles(self, writer)?;
-                <Self as $crate::frame::TpmBodyMarshal>::marshal_parameters(self, writer)
+                <Self as $crate::frame::TpmMarshalBody>::marshal_handles(self, writer)?;
+                <Self as $crate::frame::TpmMarshalBody>::marshal_parameters(self, writer)
             }
         }
 
-        impl $crate::frame::TpmBodyMarshal for $name {
+        impl $crate::frame::TpmMarshalBody for $name {
             #[allow(unused_variables)]
             fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $($crate::TpmMarshal::marshal(&self.$handle_field, writer)?;)*
@@ -134,7 +134,7 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::frame::TpmBodyMarshal for $name {
+        impl $crate::frame::TpmMarshalBody for $name {
             #[allow(unused_variables)]
             fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $($crate::TpmMarshal::marshal(&self.$handle_field, writer)?;)*
@@ -156,8 +156,8 @@ macro_rules! tpm_struct {
 
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                <Self as $crate::frame::TpmBodyMarshal>::marshal_handles(self, writer)?;
-                <Self as $crate::frame::TpmBodyMarshal>::marshal_parameters(self, writer)
+                <Self as $crate::frame::TpmMarshalBody>::marshal_handles(self, writer)?;
+                <Self as $crate::frame::TpmMarshalBody>::marshal_parameters(self, writer)
             }
         }
 

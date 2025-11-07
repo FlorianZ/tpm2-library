@@ -172,15 +172,15 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl $crate::frame::TpmBodyMarshal for TpmCommand {
+        impl $crate::frame::TpmMarshalBody for TpmCommand {
              fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
-                     $( Self::$variant(c) => $crate::frame::TpmBodyMarshal::marshal_handles(c, writer), )*
+                     $( Self::$variant(c) => $crate::frame::TpmMarshalBody::marshal_handles(c, writer), )*
                  }
              }
              fn marshal_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
-                     $( Self::$variant(c) => $crate::frame::TpmBodyMarshal::marshal_parameters(c, writer), )*
+                     $( Self::$variant(c) => $crate::frame::TpmMarshalBody::marshal_parameters(c, writer), )*
                  }
              }
         }
@@ -240,15 +240,15 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl $crate::frame::TpmBodyMarshal for TpmResponse {
+        impl $crate::frame::TpmMarshalBody for TpmResponse {
              fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
-                     $( Self::$variant(r) => $crate::frame::TpmBodyMarshal::marshal_handles(r, writer), )*
+                     $( Self::$variant(r) => $crate::frame::TpmMarshalBody::marshal_handles(r, writer), )*
                  }
              }
              fn marshal_parameters(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
-                     $( Self::$variant(r) => $crate::frame::TpmBodyMarshal::marshal_parameters(r, writer), )*
+                     $( Self::$variant(r) => $crate::frame::TpmMarshalBody::marshal_parameters(r, writer), )*
                  }
              }
         }
