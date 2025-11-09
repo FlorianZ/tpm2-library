@@ -62,6 +62,23 @@ fn tpm_ecc_param_to_bignum(param: &Tpm2bEccParameter) -> Result<BigNum, Error> {
     BigNum::from_slice(param.as_ref()).map_err(|_| Error::OutOfMemory)
 }
 
+/// Returns [`TpmAlgId`](tpm2_protocol::data::TpmAlgId) matching the name.
+///
+/// # Errors
+///
+/// Returns [`UnsupportedHashAlgorithm`](crate::Error::UnsupportedHashAlgorithm)
+/// when the hash algorithm is not recognized.
+pub fn hash_name(alg: &str) -> Result<TpmAlgId, Error> {
+    let alg = match alg {
+        "sha1" => TpmAlgId::Sha1,
+        "sha256" => TpmAlgId::Sha256,
+        "sha384" => TpmAlgId::Sha384,
+        "sha512" => TpmAlgId::Sha512,
+        _ => return Err(Error::InvalidHashAlgorithm(alg.to_string())),
+    };
+    Ok(alg)
+}
+
 /// Returns the size of the digest for a given hash algorithm.
 ///
 /// # Errors
