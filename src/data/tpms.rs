@@ -59,7 +59,7 @@ impl TryFrom<&[u8]> for TpmsPcrSelect {
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > TPM_PCR_SELECT_MAX as usize {
-            return Err(TpmProtocolError::CapacityExceeded);
+            return Err(TpmProtocolError::TooManyListItems);
         }
         let mut pcr_select = Self::new();
         let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmProtocolError::BufferExceeded)?;
@@ -99,7 +99,7 @@ impl TpmUnmarshal for TpmsPcrSelect {
         let (size, remainder) = u8::unmarshal(buf)?;
 
         if size > TPM_PCR_SELECT_MAX {
-            return Err(TpmProtocolError::CapacityExceeded);
+            return Err(TpmProtocolError::TooManyListItems);
         }
         if remainder.len() < size as usize {
             return Err(TpmProtocolError::UnexpectedEof);

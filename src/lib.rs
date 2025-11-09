@@ -101,11 +101,12 @@ impl core::fmt::LowerHex for TpmDiscriminant {
     }
 }
 
+/// TPM protocol data error.
 #[derive(Debug, PartialEq, Eq)]
-/// TPM protocol marshaling or unmarshaling error.
 pub enum TpmProtocolError {
-    /// An architectural limit (e.g., `MAX_SESSIONS`) was exceeded.
-    CapacityExceeded,
+    /// The number of list items exceeds the maximum capability of a type, as
+    /// defined in the TCG specifications.
+    TooManyListItems,
     /// Data size exceeds the `u16` max for a TPM2B, or a writer's buffer is full.
     BufferExceeded,
     /// Item count exceeds the `u32` max for a TPML.
@@ -123,7 +124,7 @@ pub enum TpmProtocolError {
 impl core::fmt::Display for TpmProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::CapacityExceeded => write!(f, "capacity exceeded"),
+            Self::TooManyListItems => write!(f, "capacity exceeded"),
             Self::BufferExceeded => write!(f, "buffer exceeded"),
             Self::ListExceeded => write!(f, "list exceeded"),
             Self::InvalidDiscriminant(type_name, value) => {

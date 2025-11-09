@@ -42,7 +42,7 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     /// full capacity.
     pub fn push(&mut self, item: T) -> Result<(), TpmProtocolError> {
         if self.len >= CAPACITY {
-            return Err(TpmProtocolError::CapacityExceeded);
+            return Err(TpmProtocolError::TooManyListItems);
         }
         self.items[self.len].write(item);
         self.len += 1;
@@ -108,7 +108,7 @@ impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, 
         let (count_u32, mut buf) = u32::unmarshal(buf)?;
         let count = count_u32 as usize;
         if count > CAPACITY {
-            return Err(TpmProtocolError::CapacityExceeded);
+            return Err(TpmProtocolError::TooManyListItems);
         }
 
         let mut list = Self::new();
