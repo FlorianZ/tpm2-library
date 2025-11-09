@@ -168,17 +168,17 @@ impl TpmUnmarshalTagged for TpmuHa {
             TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => 32,
             TpmAlgId::Sha384 => 48,
             TpmAlgId::Sha512 => 64,
-            _ => return Err(TpmProtocolError::MalformedValue),
+            _ => return Err(TpmProtocolError::InvalidVariant),
         };
 
         if buf.len() < digest_size {
-            return Err(TpmProtocolError::UnexpectedEof);
+            return Err(TpmProtocolError::UnexpectedEnd);
         }
 
         let (digest_bytes, buf) = buf.split_at(digest_size);
 
         let digest = Self::Digest(
-            TpmBuffer::try_from(digest_bytes).map_err(|_| TpmProtocolError::CapacityExceeded)?,
+            TpmBuffer::try_from(digest_bytes).map_err(|_| TpmProtocolError::OperationFailed)?,
         );
 
         Ok((digest, buf))
@@ -272,7 +272,7 @@ impl TpmUnmarshalTagged for TpmuPublicId {
                 Ok((TpmuPublicId::Ecc(point), rest))
             }
             TpmAlgId::Null => Ok((TpmuPublicId::Null, buf)),
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }
@@ -342,7 +342,7 @@ impl TpmUnmarshalTagged for TpmuPublicParms {
                 Ok((Self::Ecc(details), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }
@@ -407,7 +407,7 @@ impl TpmUnmarshalTagged for TpmuSensitiveComposite {
                 let (val, buf) = Tpm2bSymKey::unmarshal(buf)?;
                 Ok((TpmuSensitiveComposite::Sym(val), buf))
             }
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }
@@ -473,7 +473,7 @@ impl TpmUnmarshalTagged for TpmuSymKeyBits {
                 Ok((TpmuSymKeyBits::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((TpmuSymKeyBits::Null, buf)),
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }
@@ -539,7 +539,7 @@ impl TpmUnmarshalTagged for TpmuSymMode {
                 Ok((TpmuSymMode::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((TpmuSymMode::Null, buf)),
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }
@@ -618,7 +618,7 @@ impl TpmUnmarshalTagged for TpmuSignature {
                 Ok((Self::Hmac(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }
@@ -707,7 +707,7 @@ impl TpmUnmarshalTagged for TpmuAttest {
                 let (val, buf) = TpmsNvDigestCertifyInfo::unmarshal(buf)?;
                 Ok((TpmuAttest::NvDigest(val), buf))
             }
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }
@@ -758,7 +758,7 @@ impl TpmUnmarshalTagged for TpmuKeyedhashScheme {
                 Ok((Self::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }
@@ -859,7 +859,7 @@ impl TpmUnmarshalTagged for TpmuNvPublic2 {
                 let (val, buf) = TpmsNvPublic::unmarshal(buf)?;
                 Ok((Self::PermanentNv(val), buf))
             }
-            _ => Err(TpmProtocolError::MalformedValue),
+            _ => Err(TpmProtocolError::InvalidVariant),
         }
     }
 }

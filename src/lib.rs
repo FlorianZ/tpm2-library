@@ -86,53 +86,45 @@ impl core::fmt::UpperHex for TpmHandle {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum TpmDiscriminant {
-    Signed(i64),
-    Unsigned(u64),
-}
-
-impl core::fmt::LowerHex for TpmDiscriminant {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            TpmDiscriminant::Signed(v) => write!(f, "{v:x}"),
-            TpmDiscriminant::Unsigned(v) => write!(f, "{v:x}"),
-        }
-    }
-}
-
 /// TPM protocol data error.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TpmProtocolError {
+    /// The amount data exceeds the maximum capacity of a type, as defined in
+    /// the TCG specifications.
+    CapacityExceeded,
+    /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
+    /// magic value.
+    InvalidAttestMagic,
+    /// Tag is neither [`Sessions`](crate::data::TpmSt::Sessions) nor
+    /// [`NoSessions`](crate::data::TpmSt::NoSessions).
+    InvalidTag,
+    /// A value is not defined for the type.
+    InvalidValue,
+    /// An enum variant is not valid for the context of use.
+    InvalidVariant,
+    /// A cryptographic operation failed.
+    OperationFailed,
     /// The number of list items exceeds the maximum capability of a type, as
     /// defined in the TCG specifications.
-    TooManyListItems,
-    /// Data size exceeds the `u16` max for a TPM2B, or a writer's buffer is full.
-    BufferExceeded,
-    /// Item count exceeds the `u32` max for a TPML.
-    ListExceeded,
-    /// Unknown discriminant for an enum or tagged union.
-    InvalidDiscriminant(&'static str, TpmDiscriminant),
-    /// The frame or object is malformed.
-    MalformedValue,
+    TooManyItems,
     /// Trailing data left after unmarshaling.
     TrailingData,
     /// Not enough bytes to unmarshal.
-    UnexpectedEof,
+    UnexpectedEnd,
 }
 
 impl core::fmt::Display for TpmProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::TooManyListItems => write!(f, "capacity exceeded"),
-            Self::BufferExceeded => write!(f, "buffer exceeded"),
-            Self::ListExceeded => write!(f, "list exceeded"),
-            Self::InvalidDiscriminant(type_name, value) => {
-                write!(f, "invalid discriminant: {type_name}: 0x{value:x}")
-            }
-            Self::MalformedValue => write!(f, "malformed value"),
+            Self::CapacityExceeded => write!(f, "buffer capacity exceeded"),
+            Self::InvalidAttestMagic => write!(f, "invalid attestation magiC"),
+            Self::InvalidTag => write!(f, "invalid tag"),
+            Self::InvalidValue => write!(f, "invalid value"),
+            Self::InvalidVariant => write!(f, "invalid variant"),
+            Self::OperationFailed => write!(f, "operation failed"),
+            Self::TooManyItems => write!(f, "too many list items"),
             Self::TrailingData => write!(f, "trailing data"),
-            Self::UnexpectedEof => write!(f, "unexpected EOF"),
+            Self::UnexpectedEnd => write!(f, "unexpected end"),
         }
     }
 }
@@ -170,12 +162,12 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `TpmProtocolError::BufferExceeded` if the writer does not have enough
-    /// capacity to hold the new bytes.
+    /// Returns [`CapacityExceeded`](crate::TpmProtocolError::CapacitExceeded)
+    /// when the capacity of the buffer is exceeded.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmProtocolError::BufferExceeded);
+            return Err(TpmProtocolError::CapacityExceeded);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
@@ -183,7 +175,7 @@ impl<'a> TpmWriter<'a> {
     }
 }
 
-/// Provides two ways to determine the size of an object: a compile-time maximum
+/// Provides two ways to determine the size of an oBject: a compile-time maximum
 /// and a runtime exact size.
 pub trait TpmSized {
     /// The estimated size of the object in its serialized form evaluated at
@@ -234,7 +226,7 @@ pub trait TpmUnmarshalTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmUnmarshal` implementation,
-    /// such as a `TpmProtocolError::UnexpectedEof` if the buffer is too small or an
+    /// such as a `TpmProtocolError::UnexpectedEnd` if the buffer is too small or an
     /// `TpmProtocolError::MalformedValue` if the data is malformed.
     fn unmarshal_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where

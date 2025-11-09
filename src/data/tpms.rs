@@ -59,10 +59,10 @@ impl TryFrom<&[u8]> for TpmsPcrSelect {
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > TPM_PCR_SELECT_MAX as usize {
-            return Err(TpmProtocolError::TooManyListItems);
+            return Err(TpmProtocolError::TooManyItems);
         }
         let mut pcr_select = Self::new();
-        let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmProtocolError::BufferExceeded)?;
+        let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmProtocolError::OperationFailed)?;
         pcr_select.size = len_u8;
         pcr_select.data[..slice.len()].copy_from_slice(slice);
         Ok(pcr_select)
@@ -99,10 +99,10 @@ impl TpmUnmarshal for TpmsPcrSelect {
         let (size, remainder) = u8::unmarshal(buf)?;
 
         if size > TPM_PCR_SELECT_MAX {
-            return Err(TpmProtocolError::TooManyListItems);
+            return Err(TpmProtocolError::TooManyItems);
         }
         if remainder.len() < size as usize {
-            return Err(TpmProtocolError::UnexpectedEof);
+            return Err(TpmProtocolError::UnexpectedEnd);
         }
 
         let (pcr_bytes, final_remainder) = remainder.split_at(size as usize);
@@ -465,7 +465,7 @@ impl TpmUnmarshal for TpmsAttest {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (magic, buf) = u32::unmarshal(buf)?;
         if magic != TPM_GENERATED_VALUE {
-            return Err(TpmProtocolError::MalformedValue);
+            return Err(TpmProtocolError::InvalidAttestMagic);
         }
         let (attest_type, buf) = TpmSt::unmarshal(buf)?;
         let (qualified_signer, buf) = Tpm2bName::unmarshal(buf)?;

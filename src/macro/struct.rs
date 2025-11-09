@@ -177,7 +177,7 @@ macro_rules! tpm_struct {
                     let (size, buf_after_size) = <u32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     let size = size as usize;
                     if buf_after_size.len() < size {
-                        return Err($crate::TpmProtocolError::UnexpectedEof);
+                        return Err($crate::TpmProtocolError::UnexpectedEnd);
                     }
                     let (mut params_cursor, final_tail) = buf_after_size.split_at(size);
 

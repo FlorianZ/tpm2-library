@@ -126,7 +126,7 @@ macro_rules! tpm_bool {
                 match val {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
-                    _ => Err($crate::TpmProtocolError::InvalidDiscriminant (stringify!($name), $crate::TpmDiscriminant::Unsigned(u64::from(val)))),
+                    _ => Err($crate::TpmProtocolError::InvalidValue),
                 }
             }
         }
@@ -357,7 +357,7 @@ macro_rules! tpm2b_struct {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 u16::try_from(inner_len)
-                    .map_err(|_| $crate::TpmProtocolError::CapacityExceeded)?
+                    .map_err(|_| $crate::TpmProtocolError::OperationFailed)?
                     .marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
             }
@@ -369,7 +369,7 @@ macro_rules! tpm2b_struct {
                 let size = size as usize;
 
                 if buf_after_size.len() < size {
-                    return Err($crate::TpmProtocolError::UnexpectedEof);
+                    return Err($crate::TpmProtocolError::UnexpectedEnd);
                 }
                 let (inner_bytes, rest) = buf_after_size.split_at(size);
 

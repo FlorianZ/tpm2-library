@@ -6,7 +6,7 @@
 #![allow(clippy::pedantic)]
 
 use std::{io::IsTerminal, vec::Vec};
-use tpm2_protocol::{TpmDiscriminant, TpmProtocolError};
+use tpm2_protocol::TpmProtocolError;
 
 #[allow(dead_code)]
 pub fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -99,51 +99,43 @@ fn unmarshal_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'st
 #[allow(dead_code)]
 pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmProtocolError, &'static str> {
     match s {
-        "MalformedValue" => return Ok(TpmProtocolError::MalformedValue),
-        "UnexpectedEof" => return Ok(TpmProtocolError::UnexpectedEof),
+        "InvalidValue" => return Ok(TpmProtocolError::InvalidValue),
+        "UnexpectedEnd" => return Ok(TpmProtocolError::UnexpectedEnd),
         "TrailingData" => return Ok(TpmProtocolError::TrailingData),
         _ => {}
     }
 
-    if let Some(rest) = s.strip_prefix("InvalidDiscriminant") {
+    if let Some(rest) = s.strip_prefix("InvalidValue") {
         let content = rest
             .trim()
             .strip_prefix('(')
             .and_then(|s| s.strip_suffix(')'))
-            .ok_or("InvalidDiscriminant: missing parentheses")?
+            .ok_or("InvalidValue: missing parentheses")?
             .trim();
 
         let mut parts = content.splitn(2, ',');
-        let type_name_part = parts
-            .next()
-            .ok_or("InvalidDiscriminant: missing type_name part")?;
-        let value_part = parts
-            .next()
-            .ok_or("InvalidDiscriminant: missing value part")?;
+        let type_name_part = parts.next().ok_or("InvalidValue: missing type_name part")?;
+        let value_part = parts.next().ok_or("InvalidValue: missing value part")?;
 
         let type_name_val = type_name_part
             .trim()
             .strip_prefix('"')
             .and_then(|s| s.strip_suffix('"'))
-            .ok_or("InvalidDiscriminant: malformed type_name string")?;
-        let type_name = match type_name_val {
-            "TpmSt" => "TpmSt",
-            _ => return Err("InvalidDiscriminant: unsupported type_name"),
-        };
+            .ok_or("InvalidValue: malformed type_name string")?;
+
+        if type_name_val != "TpmSt" {
+            return Err("InvalidValue: unsupported type_name");
+        }
+
         let value_str = value_part.trim();
-        if let Some(num_str) = value_str
+        if let Some(_) = value_str
             .strip_prefix("Unsigned(")
             .and_then(|s| s.strip_suffix(')'))
         {
-            let val = u64::from_str_radix(num_str.strip_prefix("0x").unwrap_or(num_str), 16)
-                .map_err(|_| "InvalidDiscriminant: invalid number for Unsigned")?;
-            return Ok(TpmProtocolError::InvalidDiscriminant(
-                type_name,
-                TpmDiscriminant::Unsigned(val),
-            ));
+            return Ok(TpmProtocolError::InvalidValue);
         }
 
-        return Err("InvalidDiscriminant: unsupported value variant");
+        return Err("InvalidValue: unsupported value variant");
     }
 
     Err("unknown variant")

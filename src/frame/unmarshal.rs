@@ -8,7 +8,7 @@ use super::{
 use crate::{
     constant::TPM_HEADER_SIZE,
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    TpmDiscriminant, TpmProtocolError, TpmResult, TpmUnmarshal,
+    TpmProtocolError, TpmResult, TpmUnmarshal,
 };
 use core::{convert::TryFrom, mem::size_of};
 
@@ -30,51 +30,39 @@ pub type TpmResponseResult = Result<(TpmResponse, TpmAuthResponses), TpmRc>;
 ///
 /// # Errors
 ///
-/// * `TpmProtocolError::UnexpectedEof` if the buffer is too small
-/// * `TpmProtocolError::InvalidDiscriminant` if the buffer contains an unsupported command code or unexpected byte
+/// * `TpmProtocolError::UnexpectedEnd` if the buffer is too small
+/// * `TpmProtocolError::InvalidValue` if the buffer contains an unsupported command code or unexpected byte
 /// * `TpmProtocolError::TrailingData` if the command has after spurious data left
 pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, TpmAuthCommands)> {
     if buf.len() < TPM_HEADER_SIZE as usize {
-        return Err(TpmProtocolError::UnexpectedEof);
+        return Err(TpmProtocolError::UnexpectedEnd);
     }
     let buf_len = buf.len();
 
     let (tag_raw, buf) = u16::unmarshal(buf)?;
-    let tag = TpmSt::try_from(tag_raw).map_err(|()| {
-        TpmProtocolError::InvalidDiscriminant(
-            "TpmSt",
-            TpmDiscriminant::Unsigned(u64::from(tag_raw)),
-        )
-    })?;
+    let tag = TpmSt::try_from(tag_raw).map_err(|()| TpmProtocolError::InvalidValue)?;
     let (size, buf) = u32::unmarshal(buf)?;
     let (cc_raw, body_buf) = u32::unmarshal(buf)?;
 
     if buf_len < size as usize {
-        return Err(TpmProtocolError::UnexpectedEof);
+        return Err(TpmProtocolError::UnexpectedEnd);
     } else if buf_len > size as usize {
         return Err(TpmProtocolError::TrailingData);
     }
 
-    let cc = TpmCc::try_from(cc_raw).map_err(|()| {
-        TpmProtocolError::InvalidDiscriminant("TpmCc", TpmDiscriminant::Unsigned(u64::from(cc_raw)))
-    })?;
+    let cc = TpmCc::try_from(cc_raw).map_err(|()| TpmProtocolError::InvalidValue)?;
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
-        .map_err(|_| {
-            TpmProtocolError::InvalidDiscriminant(
-                "TpmCc",
-                TpmDiscriminant::Unsigned(u64::from(cc_raw)),
-            )
-        })?;
+        .map_err(|_| TpmProtocolError::InvalidValue)?;
 
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-        return Err(TpmProtocolError::MalformedValue);
+        return Err(TpmProtocolError::InvalidTag);
     }
 
     let handle_area_size = dispatch.handles * size_of::<u32>();
     if body_buf.len() < handle_area_size {
-        return Err(TpmProtocolError::UnexpectedEof);
+        return Err(TpmProtocolError::UnexpectedEnd);
     }
     let (handle_area, after_handles) = body_buf.split_at(handle_area_size);
 
@@ -83,7 +71,7 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
         let (auth_area_size, buf_after_auth_size) = u32::unmarshal(after_handles)?;
         let auth_area_size = auth_area_size as usize;
         if buf_after_auth_size.len() < auth_area_size {
-            return Err(TpmProtocolError::UnexpectedEof);
+            return Err(TpmProtocolError::UnexpectedEnd);
         }
         let (mut auth_area, param_area) = buf_after_auth_size.split_at(auth_area_size);
         while !auth_area.is_empty() {
@@ -120,12 +108,12 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
 ///
 /// # Errors
 ///
-/// * `TpmProtocolError::UnexpectedEof` if the buffer is too small
-/// * `TpmProtocolError::InvalidDiscriminant` if the buffer contains an unsupported command code
+/// * `TpmProtocolError::UnexpectedEnd` if the buffer is too small
+/// * `TpmProtocolError::InvalidValue` if the buffer contains an unsupported command code
 /// * `TpmProtocolError::TrailingData` if the response has after spurious data left
 pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult> {
     if buf.len() < TPM_HEADER_SIZE as usize {
-        return Err(TpmProtocolError::UnexpectedEof);
+        return Err(TpmProtocolError::UnexpectedEnd);
     }
 
     let (tag_raw, remainder) = u16::unmarshal(buf)?;
@@ -133,7 +121,7 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
     let (code, body_buf) = u32::unmarshal(remainder)?;
 
     if buf.len() < size as usize {
-        return Err(TpmProtocolError::UnexpectedEof);
+        return Err(TpmProtocolError::UnexpectedEnd);
     } else if buf.len() > size as usize {
         return Err(TpmProtocolError::TrailingData);
     }
@@ -143,22 +131,12 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
         return Ok(Err(rc));
     }
 
-    let tag = TpmSt::try_from(tag_raw).map_err(|()| {
-        TpmProtocolError::InvalidDiscriminant(
-            "TpmSt",
-            TpmDiscriminant::Unsigned(u64::from(tag_raw)),
-        )
-    })?;
+    let tag = TpmSt::try_from(tag_raw).map_err(|()| TpmProtocolError::InvalidValue)?;
 
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
-        .map_err(|_| {
-            TpmProtocolError::InvalidDiscriminant(
-                "TpmCc",
-                TpmDiscriminant::Unsigned(u64::from(cc as u32)),
-            )
-        })?;
+        .map_err(|_| TpmProtocolError::InvalidValue)?;
 
     let (body, mut session_area) = (dispatch.response_unmarshaler)(tag, body_buf)?;
 

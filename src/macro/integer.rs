@@ -8,10 +8,10 @@ macro_rules! tpm_integer {
         impl TpmUnmarshal for $ty {
             fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
                 let size = size_of::<$ty>();
-                let bytes = buf.get(..size).ok_or(TpmProtocolError::UnexpectedEof)?;
+                let bytes = buf.get(..size).ok_or(TpmProtocolError::UnexpectedEnd)?;
                 let array = bytes
                     .try_into()
-                    .map_err(|_| TpmProtocolError::MalformedValue)?;
+                    .map_err(|_| TpmProtocolError::OperationFailed)?;
                 let val = <$ty>::from_be_bytes(array);
                 Ok((val, &buf[size..]))
             }
@@ -27,12 +27,6 @@ macro_rules! tpm_integer {
             const SIZE: usize = size_of::<$ty>();
             fn len(&self) -> usize {
                 Self::SIZE
-            }
-        }
-
-        impl core::convert::From<$ty> for TpmDiscriminant {
-            fn from(value: $ty) -> Self {
-                Self::$variant(value.into())
             }
         }
     };

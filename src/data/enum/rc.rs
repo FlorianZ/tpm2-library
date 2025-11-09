@@ -2,10 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-#[allow(unused_imports)]
-use crate::{
-    tpm_enum, TpmDiscriminant, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal,
-};
+use crate::{tpm_enum, TpmProtocolError};
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display, Formatter},
@@ -228,12 +225,7 @@ impl TryFrom<u32> for TpmRc {
             value
         };
 
-        let base = TpmRcBase::try_from(base_code).map_err(|()| {
-            TpmProtocolError::InvalidDiscriminant(
-                "TpmRcBase",
-                TpmDiscriminant::Unsigned(u64::from(base_code)),
-            )
-        })?;
+        let base = TpmRcBase::try_from(base_code).map_err(|()| TpmProtocolError::InvalidValue)?;
 
         if (value & TPM_RC_WARN) == TPM_RC_WARN {
             Ok(Self::Warn(base))

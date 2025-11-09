@@ -77,7 +77,7 @@ macro_rules! tpm_enum {
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
                 let (val, buf) = <$repr>::unmarshal(buf)?;
-                let enum_val = Self::try_from(val).map_err(|()| $crate::TpmProtocolError::InvalidDiscriminant (stringify!($name), val.into()))?;
+                let enum_val = Self::try_from(val).map_err(|()| $crate::TpmProtocolError::InvalidValue)?;
                 Ok((enum_val, buf))
             }
         }
