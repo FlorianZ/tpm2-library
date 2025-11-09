@@ -1,14 +1,14 @@
 [package]
-name = "tpm2-protocol"
-description = "TPM 2.0 marshaler/unmarshaler"
-version = "0.14.0"
-license = "MIT OR Apache-2.0"
-homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol.git"
-repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol.git"
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
+description = "TPM 2.0 marshaler/unmarshaler"
 edition = "2021"
-rust-version = "1.81"
+homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol.git/about"
+license = "MIT OR Apache-2.0"
+name = "tpm2-protocol"
 readme = "README.md"
+repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol.git"
+rust-version = "1.81"
+version = "0.14.1"
 
 [dev-dependencies]
 
