@@ -1,0 +1,255 @@
+//! SPDX-License-Identifier: MIT OR Apache-2.0
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
+
+//! TPM 2.0 hash algorithms and cryptographic operations.
+
+use crate::Error;
+use openssl::{
+    hash::{Hasher, MessageDigest},
+    memcmp,
+    pkey::PKey,
+    sign::Signer,
+};
+use strum::{Display, EnumString};
+use tpm2_protocol::data::TpmAlgId;
+
+/// TPM 2.0 hash algorithms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
+#[strum(serialize_all = "kebab-case")]
+pub enum Hash {
+    Sha1,
+    Sha256,
+    Sha384,
+    Sha512,
+    Sm3_256,
+    Sha3_256,
+    Sha3_384,
+    Sha3_512,
+    Shake128,
+    Shake256,
+    Null,
+}
+
+impl From<TpmAlgId> for Hash {
+    fn from(alg: TpmAlgId) -> Self {
+        match alg {
+            TpmAlgId::Sha1 => Self::Sha1,
+            TpmAlgId::Sha256 => Self::Sha256,
+            TpmAlgId::Sha384 => Self::Sha384,
+            TpmAlgId::Sha512 => Self::Sha512,
+            TpmAlgId::Sm3_256 => Self::Sm3_256,
+            TpmAlgId::Sha3_256 => Self::Sha3_256,
+            TpmAlgId::Sha3_384 => Self::Sha3_384,
+            TpmAlgId::Sha3_512 => Self::Sha3_512,
+            TpmAlgId::Shake128 => Self::Shake128,
+            TpmAlgId::Shake256 => Self::Shake256,
+            _ => Self::Null,
+        }
+    }
+}
+
+impl From<Hash> for TpmAlgId {
+    fn from(alg: Hash) -> Self {
+        match alg {
+            Hash::Sha1 => Self::Sha1,
+            Hash::Sha256 => Self::Sha256,
+            Hash::Sha384 => Self::Sha384,
+            Hash::Sha512 => Self::Sha512,
+            Hash::Sm3_256 => Self::Sm3_256,
+            Hash::Sha3_256 => Self::Sha3_256,
+            Hash::Sha3_384 => Self::Sha3_384,
+            Hash::Sha3_512 => Self::Sha3_512,
+            Hash::Shake128 => Self::Shake128,
+            Hash::Shake256 => Self::Shake256,
+            Hash::Null => Self::Null,
+        }
+    }
+}
+
+impl Hash {
+    /// Maps a TPM hash algorithm to an OpenSSL message digest.
+    fn to_md(self) -> Result<MessageDigest, Error> {
+        match self {
+            Self::Sha1 => Ok(MessageDigest::sha1()),
+            Self::Sha256 => Ok(MessageDigest::sha256()),
+            Self::Sm3_256 => Ok(MessageDigest::sm3()),
+            Self::Sha384 => Ok(MessageDigest::sha384()),
+            Self::Sha512 => Ok(MessageDigest::sha512()),
+            _ => Err(Error::InvalidHash(self)),
+        }
+    }
+
+    /// Returns the size of the digest for a given hash algorithm.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// when the hash algorithm is not recognized by OpenSSL.
+    pub fn size(&self) -> Result<usize, Error> {
+        (*self).to_md().map(|md| md.size())
+    }
+
+    /// Computes a cryptographic digest over a series of data chunks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// when the hash algorithm is not recognized.
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// when the digest computation fails.
+    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    pub fn digest(&self, data_chunks: &[&[u8]]) -> Result<Vec<u8>, Error> {
+        let md = (*self).to_md()?;
+        let mut hasher = Hasher::new(md).map_err(|_| Error::OutOfMemory)?;
+        for chunk in data_chunks {
+            hasher.update(chunk).map_err(|_| Error::OperationFailed)?;
+        }
+        Ok(hasher
+            .finish()
+            .map_err(|_| Error::OperationFailed)?
+            .to_vec())
+    }
+
+    /// Computes an HMAC digest over a series of data chunks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// when the hash algorithm is not recognized.
+    /// Returns [`KeyIsEmpty`](crate::Error::KeyIsEmpty) when the provided key is empty.
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// when the HMAC computation fails.
+    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    pub fn hmac(&self, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>, Error> {
+        if key.is_empty() {
+            return Err(Error::KeyIsEmpty);
+        }
+        let md = (*self).to_md()?;
+        let public_key = PKey::hmac(key).map_err(|_| Error::OutOfMemory)?;
+        let mut signer = Signer::new(md, &public_key).map_err(|_| Error::OutOfMemory)?;
+        for chunk in data_chunks {
+            signer.update(chunk).map_err(|_| Error::OperationFailed)?;
+        }
+        signer.sign_to_vec().map_err(|_| Error::OperationFailed)
+    }
+
+    /// Verifies an HMAC signature over a series of data chunks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PermissionDenied`](crate::Error::PermissionDenied)
+    /// when the HMAC does not match the expected value.
+    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// when the hash algorithm is not recognized.
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// when the HMAC computation fails.
+    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    pub fn hmac_verify(
+        &self,
+        key: &[u8],
+        data_chunks: &[&[u8]],
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        let expected = self.hmac(key, data_chunks)?;
+        if memcmp::eq(&expected, signature) {
+            Ok(())
+        } else {
+            Err(Error::PermissionDenied)
+        }
+    }
+
+    /// Implements the `KDFa` key derivation function from the TPM specification.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// when the hash algorithm is not recognized.
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// when the HMAC computation fails.
+    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    pub fn kdfa(
+        &self,
+        hmac_key: &[u8],
+        label: &str,
+        context_a: &[u8],
+        context_b: &[u8],
+        key_bits: u16,
+    ) -> Result<Vec<u8>, Error> {
+        let mut key_stream = Vec::new();
+        let key_bytes = (key_bits as usize).div_ceil(8);
+
+        let mut counter: u32 = 1;
+        let key_bits_bytes = u32::from(key_bits).to_be_bytes();
+
+        while key_stream.len() < key_bytes {
+            let counter_bytes = counter.to_be_bytes();
+            let hmac_payload = [
+                counter_bytes.as_slice(),
+                label.as_bytes(),
+                &[0u8],
+                context_a,
+                context_b,
+                key_bits_bytes.as_slice(),
+            ];
+
+            let result = self.hmac(hmac_key, &hmac_payload)?;
+            let remaining = key_bytes - key_stream.len();
+            let to_take = remaining.min(result.len());
+            key_stream.extend_from_slice(&result[..to_take]);
+
+            counter += 1;
+        }
+
+        Ok(key_stream)
+    }
+
+    /// Implements the `KDFe` key derivation function from SP 800-56A for ECDH.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// when the hash algorithm is not recognized.
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// when the digest computation fails.
+    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    pub fn kdfe(
+        &self,
+        z: &[u8],
+        label: &str,
+        context_u: &[u8],
+        context_v: &[u8],
+        key_bits: u16,
+    ) -> Result<Vec<u8>, Error> {
+        let mut key_stream = Vec::new();
+        let key_bytes = (key_bits as usize).div_ceil(8);
+
+        let (label_data, terminator) = if label.as_bytes().last() == Some(&0) {
+            (label.as_bytes(), &[][..])
+        } else {
+            (label.as_bytes(), &[0u8][..])
+        };
+
+        let mut counter: u32 = 1;
+        while key_stream.len() < key_bytes {
+            let counter_bytes = counter.to_be_bytes();
+            let digest_payload = [
+                &counter_bytes,
+                z,
+                label_data,
+                terminator,
+                context_u,
+                context_v,
+            ];
+
+            let result = self.digest(&digest_payload)?;
+            let remaining = key_bytes - key_stream.len();
+            let to_take = remaining.min(result.len());
+            key_stream.extend_from_slice(&result[..to_take]);
+
+            counter += 1;
+        }
+
+        Ok(key_stream)
+    }
+}

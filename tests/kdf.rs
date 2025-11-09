@@ -1,17 +1,16 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Opinsys Oy
-// Copyright (c) 2024-2025 Jarkko Sakkinen
+//! SPDX-License-Identifier: MIT OR Apache-2.0
+//! Copyright (c) 2025 Opinsys Oy
+//! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! `KDFa` and `KDFe` tests.
 
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-use tpm2_crypto::{digest, hmac, kdfa, kdfe};
-use tpm2_protocol::data::TpmAlgId;
+use tpm2_crypto::Hash;
 
 fn kdfa_expected(
-    alg: TpmAlgId,
+    alg: Hash,
     hmac_key: &[u8],
     label: &str,
     context_a: &[u8],
@@ -33,7 +32,7 @@ fn kdfa_expected(
         payload.extend_from_slice(context_b);
         payload.extend_from_slice(&u32::from(key_bits).to_be_bytes());
 
-        let block = hmac(alg, hmac_key, &[payload.as_slice()]).expect("hmac ok");
+        let block = alg.hmac(hmac_key, &[payload.as_slice()]).expect("hmac ok");
         let remaining = key_bytes - key_stream.len();
         key_stream.extend_from_slice(&block[..remaining.min(block.len())]);
 
@@ -44,7 +43,7 @@ fn kdfa_expected(
 }
 
 fn kdfe_expected(
-    alg: TpmAlgId,
+    alg: Hash,
     z: &[u8],
     label: &str,
     context_u: &[u8],
@@ -68,7 +67,7 @@ fn kdfe_expected(
         payload.extend_from_slice(z);
         payload.extend_from_slice(&other_info);
 
-        let block = digest(alg, &[payload.as_slice()]).expect("digest ok");
+        let block = alg.digest(&[payload.as_slice()]).expect("digest ok");
         let remaining = key_bytes - key_stream.len();
         key_stream.extend_from_slice(&block[..remaining.min(block.len())]);
 
@@ -80,7 +79,7 @@ fn kdfe_expected(
 
 #[test]
 fn kdfa_sha256_eq() {
-    let alg = TpmAlgId::Sha256;
+    let alg = Hash::Sha256;
     let key = b"supersecretkey";
     let label = "LABEL";
     let ctx_a = b"A";
@@ -88,7 +87,9 @@ fn kdfa_sha256_eq() {
     let key_bits = 256;
 
     let expected = kdfa_expected(alg, key, label, ctx_a, ctx_b, key_bits);
-    let actual = kdfa(alg, key, label, ctx_a, ctx_b, key_bits).expect("kdfa ok");
+    let actual = alg
+        .kdfa(key, label, ctx_a, ctx_b, key_bits)
+        .expect("kdfa ok");
 
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), (key_bits as usize).div_ceil(8));
@@ -96,18 +97,18 @@ fn kdfa_sha256_eq() {
 
 #[test]
 fn kdfa_key_length_variance() {
-    let alg = TpmAlgId::Sha256;
+    let alg = Hash::Sha256;
     let key = b"k";
     let label = "X";
     let ctx_a = b"Y";
     let ctx_b = b"Z";
 
-    let out_13 = kdfa(alg, key, label, ctx_a, ctx_b, 13).expect("kdfa 13");
+    let out_13 = alg.kdfa(key, label, ctx_a, ctx_b, 13).expect("kdfa 13");
     let out_13_ref = kdfa_expected(alg, key, label, ctx_a, ctx_b, 13);
     assert_eq!(out_13.len(), 2);
     assert_eq!(out_13, out_13_ref);
 
-    let out_257 = kdfa(alg, key, label, ctx_a, ctx_b, 257).expect("kdfa 257");
+    let out_257 = alg.kdfa(key, label, ctx_a, ctx_b, 257).expect("kdfa 257");
     let out_257_ref = kdfa_expected(alg, key, label, ctx_a, ctx_b, 257);
     assert_eq!(out_257.len(), 33);
     assert_eq!(out_257, out_257_ref);
@@ -115,17 +116,17 @@ fn kdfa_key_length_variance() {
 
 #[test]
 fn kdfa_input_sensitivity() {
-    let alg = TpmAlgId::Sha256;
+    let alg = Hash::Sha256;
     let key = b"key";
     let label = "LBL";
     let ctx_a = b"AAA";
     let ctx_b = b"BBB";
 
-    let base = kdfa(alg, key, label, ctx_a, ctx_b, 128).expect("base");
-    let diff_label = kdfa(alg, key, "LBL2", ctx_a, ctx_b, 128).expect("label");
-    let diff_a = kdfa(alg, key, label, b"AAAA", ctx_b, 128).expect("a");
-    let diff_b = kdfa(alg, key, label, ctx_a, b"BBBB", 128).expect("b");
-    let diff_key = kdfa(alg, b"key2", label, ctx_a, ctx_b, 128).expect("key");
+    let base = alg.kdfa(key, label, ctx_a, ctx_b, 128).expect("base");
+    let diff_label = alg.kdfa(key, "LBL2", ctx_a, ctx_b, 128).expect("label");
+    let diff_a = alg.kdfa(key, label, b"AAAA", ctx_b, 128).expect("a");
+    let diff_b = alg.kdfa(key, label, ctx_a, b"BBBB", 128).expect("b");
+    let diff_key = alg.kdfa(b"key2", label, ctx_a, ctx_b, 128).expect("key");
 
     assert_ne!(base, diff_label);
     assert_ne!(base, diff_a);
@@ -135,7 +136,7 @@ fn kdfa_input_sensitivity() {
 
 #[test]
 fn kdfe_sha256_eq() {
-    let alg = TpmAlgId::Sha256;
+    let alg = Hash::Sha256;
     let z = b"sharedsecretZ";
     let label = "DUPLICATE";
     let u = b"Ux";
@@ -143,7 +144,7 @@ fn kdfe_sha256_eq() {
     let key_bits = 256;
 
     let expected = kdfe_expected(alg, z, label, u, v, key_bits);
-    let actual = kdfe(alg, z, label, u, v, key_bits).expect("kdfe ok");
+    let actual = alg.kdfe(z, label, u, v, key_bits).expect("kdfe ok");
 
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), (key_bits as usize).div_ceil(8));
@@ -151,24 +152,28 @@ fn kdfe_sha256_eq() {
 
 #[test]
 fn kdfe_label_null_termination_eq() {
-    let alg = TpmAlgId::Sha256;
+    let alg = Hash::Sha256;
     let z_val = b"Z";
     let u_val = b"U";
     let v_val = b"V";
 
-    let res_a = kdfe(alg, z_val, "LAB", u_val, v_val, 128).expect("LAB");
-    let res_b = kdfe(alg, z_val, "LAB\u{0}", u_val, v_val, 128).expect("LAB\\0");
+    let res_a = alg.kdfe(z_val, "LAB", u_val, v_val, 128).expect("LAB");
+    let res_b = alg
+        .kdfe(z_val, "LAB\u{0}", u_val, v_val, 128)
+        .expect("LAB\\0");
     assert_eq!(res_a, res_b);
 }
 
 #[test]
 fn kdfa_label_null_termination_diff() {
-    let alg = TpmAlgId::Sha256;
+    let alg = Hash::Sha256;
     let key = b"K";
     let ctx_a = b"A";
     let ctx_b = b"B";
 
-    let res_a = kdfa(alg, key, "LAB", ctx_a, ctx_b, 128).expect("LAB");
-    let res_b = kdfa(alg, key, "LAB\u{0}", ctx_a, ctx_b, 128).expect("LAB\\0");
+    let res_a = alg.kdfa(key, "LAB", ctx_a, ctx_b, 128).expect("LAB");
+    let res_b = alg
+        .kdfa(key, "LAB\u{0}", ctx_a, ctx_b, 128)
+        .expect("LAB\\0");
     assert_ne!(res_a, res_b);
 }
