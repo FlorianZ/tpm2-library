@@ -2,12 +2,34 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::AuthError;
 use std::str::FromStr;
+use thiserror::Error;
 use tpm2_protocol::data::TpmHt;
 
 /// Maximum size for password or policy authorization data.
 pub(crate) const MAX_AUTH_SIZE: usize = 64;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum AuthError {
+    #[error("invalid digest size: {0}")]
+    InvalidDigestSize(usize),
+    #[error("invalid handle string: {0}")]
+    InvalidHandleString(String),
+    #[error("invalid handle type: 0x{0:02x}")]
+    InvalidHandleType(u8),
+    #[error("invalid password string")]
+    InvalidPasswordString,
+    #[error("invalid policy string: {0}")]
+    InvalidPolicyString(String),
+    #[error("invalid prefix: {0}")]
+    InvalidPrefix(String),
+    #[error("password size exceeded")]
+    TooLongPassword,
+    #[error("policy size exceeded")]
+    TooLongPolicyDigest,
+    #[error("prefix missing")]
+    PrefixMissing,
+}
 
 /// Authorization data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,13 +65,13 @@ impl FromStr for Auth {
             return Ok(Self::default());
         }
 
-        let (prefix, value) = auth_str.split_once(':').ok_or(AuthError::InvalidPrefix)?;
+        let (prefix, value) = auth_str.split_once(':').ok_or(AuthError::PrefixMissing)?;
 
         match prefix {
             "password" => {
                 let bytes = hex::decode(value).map_err(|_| AuthError::InvalidPasswordString)?;
                 if bytes.len() > MAX_AUTH_SIZE {
-                    return Err(AuthError::TooLargeAuth(bytes.len()));
+                    return Err(AuthError::TooLongPassword);
                 }
                 Ok(Self::Password(bytes))
             }
@@ -57,7 +79,7 @@ impl FromStr for Auth {
                 let bytes = hex::decode(value)
                     .map_err(|_| AuthError::InvalidPolicyString(value.to_string()))?;
                 if bytes.len() > MAX_AUTH_SIZE {
-                    return Err(AuthError::TooLargeAuth(bytes.len()));
+                    return Err(AuthError::TooLongPolicyDigest);
                 }
                 Ok(Self::Policy(bytes))
             }
@@ -70,10 +92,10 @@ impl FromStr for Auth {
 
                 match ht {
                     TpmHt::PolicySession | TpmHt::HmacSession => Ok(Self::Session(handle_val)),
-                    _ => Err(AuthError::InvalidPrefix),
+                    _ => Err(AuthError::InvalidPrefix(prefix.to_string())),
                 }
             }
-            _ => Err(AuthError::InvalidPrefix),
+            _ => Err(AuthError::InvalidPrefix(prefix.to_string())),
         }
     }
 }

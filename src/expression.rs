@@ -3,20 +3,20 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    build_and_branch, Auth, AuthError, CommandError, Error, ExpressionError, Handle, HandleClass,
-    HandleError, PcrError, PolicyAlgId, PolicyState, SecretError, SoftwarePolicySession,
+    build_and_branch, Auth, Error, Handle, HandleClass, HandleError, LanguageError, PolicyState,
+    SoftwarePolicySession,
 };
 use std::fmt;
+use tpm2_crypto::hash_to_name as crypto_hash_to_name;
 use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmaSession, TpmlDigest,
         TpmlPcrSelection, TpmsAuthCommand,
     },
     frame::{
-        TpmAuthCommands, TpmCommandBody, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
+        TpmAuthCommands, TpmCommand, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
         TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
-    TpmSized,
 };
 
 /// The Abstract Syntax Tree (AST) for the unified policy language.
@@ -31,7 +31,6 @@ pub enum Expression {
     Secret {
         auth_handle: Box<Expression>,
         password: Option<Box<Expression>>,
-        cp_hash: Option<String>,
     },
     And(Vec<Expression>),
     Or(Vec<Expression>),
@@ -69,16 +68,13 @@ impl PartialEq for Expression {
                 Self::Secret {
                     auth_handle: l_ah,
                     password: l_pw,
-                    cp_hash: l_cph,
                 },
                 Self::Secret {
                     auth_handle: r_ah,
                     password: r_pw,
-                    cp_hash: r_cph,
                 },
             ) => {
                 l_ah == r_ah
-                    && l_cph == r_cph
                     && compare_passwords(l_pw.as_ref().map(|b| &**b), r_pw.as_ref().map(|b| &**b))
             }
             (Self::Auth(l), Self::Auth(r)) => l == r,
@@ -113,7 +109,10 @@ impl fmt::Display for Expression {
                 let selection_strings: Vec<String> = selections
                     .iter()
                     .map(|tpms| {
-                        let alg_str = PolicyAlgId(tpms.hash).to_string();
+                        let alg_str = match crypto_hash_to_name(tpms.hash) {
+                            Ok(alg_str) => alg_str,
+                            Err(_) => "unknown".to_string(),
+                        };
                         let mut indices = Vec::new();
                         for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
                             for bit_index in 0..8 {
@@ -141,16 +140,12 @@ impl fmt::Display for Expression {
             Expression::Secret {
                 auth_handle,
                 password,
-                cp_hash,
             } => {
                 write!(f, "secret({auth_handle}")?;
                 if let Some(p) = password {
                     if !matches!(&**p, Expression::Auth(Auth::Password(pw)) if pw.is_empty()) {
                         write!(f, ", {p}")?;
                     }
-                }
-                if let Some(c) = cp_hash {
-                    write!(f, ", {c}")?;
                 }
                 write!(f, ")")
             }
@@ -184,7 +179,7 @@ impl Expression {
         if iter.peek().is_none() {
             Ok(expr)
         } else {
-            Err(ExpressionError::TrailingData.into())
+            Err(LanguageError::TrailingData.into())
         }
     }
 
@@ -204,18 +199,18 @@ impl Expression {
     /// unexpected command is found, or if the sequence of commands is
     /// logically inconsistent (e.g., mismatched policy branches).
     pub fn from_command_list(
-        command_list: &[(TpmCommandBody, TpmAuthCommands)],
+        command_list: &[(TpmCommand, TpmAuthCommands)],
     ) -> Result<Expression, Error> {
         let mut stack: Vec<Vec<Expression>> = vec![vec![]];
 
         for (command_body, auth_sessions) in command_list {
-            let current_branch = stack.last_mut().ok_or(ExpressionError::MalformedState)?;
+            let current_branch = stack.last_mut().ok_or(LanguageError::OperationFailed)?;
 
-            match command_body.clone() {
-                TpmCommandBody::PolicyRestart(_) => {
+            match command_body {
+                TpmCommand::PolicyRestart(_) => {
                     stack.push(vec![]);
                 }
-                TpmCommandBody::PolicyPcr(cmd) => {
+                TpmCommand::PolicyPcr(cmd) => {
                     let selections = cmd.pcrs;
                     let digest = Some(hex::encode(cmd.pcr_digest.as_ref()));
                     let expr = Expression::Pcr {
@@ -225,18 +220,11 @@ impl Expression {
                     };
                     current_branch.push(expr);
                 }
-                TpmCommandBody::PolicySecret(cmd) => {
+                TpmCommand::PolicySecret(cmd) => {
                     let auth_handle = Box::new(Expression::Handle(Handle::new(
                         HandleClass::Tpm,
                         cmd.auth_handle.into(),
                     )));
-
-                    let cp_hash_bytes = cmd.cp_hash_a.as_ref();
-                    let cp_hash = if cp_hash_bytes.is_empty() {
-                        None
-                    } else {
-                        Some(hex::encode(cp_hash_bytes))
-                    };
 
                     let password = auth_sessions.iter().find_map(|auth| {
                         if auth.session_handle.0 == TpmRh::Pw as u32 {
@@ -251,14 +239,13 @@ impl Expression {
                     let expr = Expression::Secret {
                         auth_handle,
                         password,
-                        cp_hash,
                     };
                     current_branch.push(expr);
                 }
-                TpmCommandBody::PolicyOr(cmd) => {
+                TpmCommand::PolicyOr(cmd) => {
                     let num_branches = cmd.p_hash_list.iter().len();
                     if stack.len() < num_branches {
-                        return Err(ExpressionError::MalformedState.into());
+                        return Err(LanguageError::OperationFailed.into());
                     }
 
                     let mut branches = Vec::with_capacity(num_branches);
@@ -266,7 +253,7 @@ impl Expression {
                         if let Some(branch_vec) = stack.pop() {
                             branches.push(build_and_branch(branch_vec));
                         } else {
-                            return Err(ExpressionError::MalformedState.into());
+                            return Err(LanguageError::OperationFailed.into());
                         }
                     }
 
@@ -276,21 +263,21 @@ impl Expression {
                     if let Some(branch_to_push_to) = stack.last_mut() {
                         branch_to_push_to.push(expr);
                     } else {
-                        return Err(ExpressionError::MalformedState.into());
+                        return Err(LanguageError::OperationFailed.into());
                     }
                 }
-                _ => return Err(CommandError::UnexpectedCommand(command_body.cc()).into()),
+                _ => return Err(LanguageError::UnsupportedCommand(command_body.cc()).into()),
             }
         }
 
         if stack.len() != 1 {
-            return Err(ExpressionError::MalformedState.into());
+            return Err(LanguageError::OperationFailed.into());
         }
 
         if let Some(final_branch) = stack.pop() {
             Ok(build_and_branch(final_branch))
         } else {
-            Err(ExpressionError::MalformedState.into())
+            Err(LanguageError::OperationFailed.into())
         }
     }
 
@@ -316,8 +303,8 @@ impl Expression {
         &self,
         session_hash_alg: TpmAlgId,
         context: &PolicyState,
-    ) -> Result<(Vec<(TpmCommandBody, TpmAuthCommands)>, Tpm2bDigest), Error> {
-        let mut command_list: Vec<(TpmCommandBody, TpmAuthCommands)> = Vec::new();
+    ) -> Result<(Vec<(TpmCommand, TpmAuthCommands)>, Tpm2bDigest), Error> {
+        let mut command_list: Vec<(TpmCommand, TpmAuthCommands)> = Vec::new();
         let mut software_session = SoftwarePolicySession::new(session_hash_alg)?;
 
         let final_digest =
@@ -327,7 +314,7 @@ impl Expression {
 
     fn to_command_list_walk<'a>(
         &'a self,
-        command_list: &mut Vec<(TpmCommandBody, TpmAuthCommands)>,
+        command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut SoftwarePolicySession,
         context: &'a PolicyState,
     ) -> Result<Tpm2bDigest, Error> {
@@ -348,32 +335,33 @@ impl Expression {
                 expr.to_command_list_walk_secret(command_list, software_session, context)
             }
             expr @ (Expression::Auth { .. } | Expression::Handle { .. }) => {
-                Err(ExpressionError::InvalidNode(expr.to_string()).into())
+                Err(LanguageError::InvalidExpression(expr.to_string()).into())
             }
         }
     }
 
     fn to_command_list_walk_pcr(
         &self,
-        command_list: &mut Vec<(TpmCommandBody, TpmAuthCommands)>,
+        command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut SoftwarePolicySession,
     ) -> Result<Tpm2bDigest, Error> {
         let (selections, digest) = match self {
             Expression::Pcr {
                 selections, digest, ..
             } => (selections, digest),
-            expr => return Err(ExpressionError::InvalidNode(expr.to_string()).into()),
+            expr => return Err(LanguageError::InvalidExpression(expr.to_string()).into()),
         };
 
-        let digest_bytes = hex::decode(digest.as_ref().ok_or(PcrError::MissingPcrDigest)?)
-            .map_err(|_| PcrError::InvalidDigestString(digest.as_ref().unwrap().to_string()))?;
+        let digest_string = digest.as_ref().ok_or(LanguageError::PcrDigestMissing)?;
+        let digest_bytes =
+            hex::decode(digest_string).map_err(|_| LanguageError::InvalidPcrDigest)?;
 
         if digest_bytes.len() != software_session.digest_size {
-            return Err(PcrError::TooLargeDigest(digest_bytes.len()).into());
+            return Err(LanguageError::InvalidPcrDigest.into());
         }
 
         let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
-            .map_err(|_| PcrError::TooLargeDigest(digest_bytes.len()))?;
+            .map_err(|_| LanguageError::OperationFailed)?;
 
         let cmd = TpmPolicyPcrCommand {
             policy_session: 0.into(),
@@ -381,10 +369,7 @@ impl Expression {
             pcrs: *selections,
         };
 
-        command_list.push((
-            TpmCommandBody::PolicyPcr(cmd.clone()),
-            TpmAuthCommands::new(),
-        ));
+        command_list.push((TpmCommand::PolicyPcr(cmd.clone()), TpmAuthCommands::new()));
         software_session.policy_pcr(&cmd)?;
 
         Ok(software_session.get_digest())
@@ -392,23 +377,22 @@ impl Expression {
 
     fn to_command_list_walk_secret<'a>(
         &'a self,
-        command_list: &mut Vec<(TpmCommandBody, TpmAuthCommands)>,
+        command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut SoftwarePolicySession,
         context: &'a PolicyState,
     ) -> Result<Tpm2bDigest, Error> {
-        let (auth_handle, password, cp_hash) = match self {
+        let (auth_handle, password) = match self {
             Expression::Secret {
                 auth_handle,
                 password,
-                cp_hash,
-            } => (auth_handle, password, cp_hash),
-            expr => return Err(ExpressionError::InvalidNode(expr.to_string()).into()),
+            } => (auth_handle, password),
+            expr => return Err(LanguageError::InvalidExpression(expr.to_string()).into()),
         };
 
         let h_val = if let Expression::Handle(handle) = &**auth_handle {
-            handle.value().ok_or(HandleError::PatternNotAllowed)?
+            handle.value().ok_or(HandleError::PatternDenied)?
         } else {
-            return Err(ExpressionError::InvalidNode(auth_handle.to_string()).into());
+            return Err(LanguageError::InvalidExpression(auth_handle.to_string()).into());
         };
 
         let ht = h_val >> 24;
@@ -419,23 +403,13 @@ impl Expression {
         let name = context
             .names
             .get(&h_val)
-            .ok_or(SecretError::HandleNameMissing(h_val))?;
-
-        let cp_hash_bytes = match cp_hash.as_ref().map(String::as_str) {
-            None | Some("") => Ok::<_, SecretError>(Tpm2bDigest::default()),
-            Some(cp_hash_str) => {
-                let bytes = hex::decode(cp_hash_str)
-                    .map_err(|_| SecretError::InvalidDigestString(cp_hash_str.to_string()))?;
-                Tpm2bDigest::try_from(bytes.as_slice())
-                    .map_err(|_| SecretError::InvalidDigestSize(bytes.len()))
-            }
-        }?;
+            .ok_or_else(|| LanguageError::InvalidExpression(format!("secret(tpm:{h_val:08x})")))?;
 
         let cmd = TpmPolicySecretCommand {
             auth_handle: h_val.into(),
             policy_session: 0.into(),
             nonce_tpm: Tpm2bNonce::default(),
-            cp_hash_a: cp_hash_bytes,
+            cp_hash_a: Tpm2bDigest::default(),
             policy_ref: Tpm2bNonce::default(),
             expiration: 0,
         };
@@ -454,27 +428,27 @@ impl Expression {
             nonce: Tpm2bNonce::default(),
             session_attributes: TpmaSession::empty(),
             hmac: Tpm2bAuth::try_from(password_bytes.as_slice())
-                .map_err(|_| AuthError::TooLargeDigest(password_bytes.len()))?,
+                .map_err(|_| LanguageError::OperationFailed)?,
         };
         let mut auth_commands = TpmAuthCommands::new();
         auth_commands
             .push(auth_session)
-            .map_err(|_| AuthError::TooLargeAuth(1))?;
+            .map_err(|_| LanguageError::AuthListTooLong)?;
 
-        command_list.push((TpmCommandBody::PolicySecret(cmd), auth_commands));
+        command_list.push((TpmCommand::PolicySecret(cmd), auth_commands));
         software_session.policy_secret(name)?;
         Ok(software_session.get_digest())
     }
 
     fn to_command_list_walk_or<'a>(
         &'a self,
-        command_list: &mut Vec<(TpmCommandBody, TpmAuthCommands)>,
+        command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut SoftwarePolicySession,
         context: &'a PolicyState,
     ) -> Result<Tpm2bDigest, Error> {
         let branches = match self {
             Expression::Or(branches) => branches,
-            expr => return Err(ExpressionError::InvalidNode(expr.to_string()).into()),
+            expr => return Err(LanguageError::InvalidExpression(expr.to_string()).into()),
         };
 
         let mut digest_list = TpmlDigest::new();
@@ -483,7 +457,7 @@ impl Expression {
                 session_handle: 0.into(),
             };
             command_list.push((
-                TpmCommandBody::PolicyRestart(restart_cmd),
+                TpmCommand::PolicyRestart(restart_cmd),
                 TpmAuthCommands::new(),
             ));
             software_session.policy_restart()?;
@@ -492,17 +466,14 @@ impl Expression {
 
             digest_list
                 .push(digest)
-                .map_err(|_| CommandError::TooManyOrBranches(digest_list.len()))?;
+                .map_err(|_| LanguageError::TooManyBranches(self.to_string()))?;
         }
 
         let or_cmd = TpmPolicyOrCommand {
             policy_session: 0.into(),
             p_hash_list: digest_list,
         };
-        command_list.push((
-            TpmCommandBody::PolicyOr(or_cmd.clone()),
-            TpmAuthCommands::new(),
-        ));
+        command_list.push((TpmCommand::PolicyOr(or_cmd.clone()), TpmAuthCommands::new()));
         software_session.policy_or(&or_cmd)?;
 
         Ok(software_session.get_digest())

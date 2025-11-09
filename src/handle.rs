@@ -2,9 +2,27 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::HandleError;
 use std::{fmt, str::FromStr};
+use thiserror::Error;
 use tpm2_protocol::data::TpmHt;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum HandleError {
+    #[error("invalid handle prefix: {0}")]
+    InvalidPrefix(String),
+    #[error("invalid handle string: {0}")]
+    InvalidString(String),
+    #[error("invalid handle type: 0x{0:02x}")]
+    InvalidType(u8),
+    #[error("pattern denied: must be a concrete handle")]
+    PatternDenied,
+    #[error("handle has less than eight characters")]
+    TooFewDigits,
+    #[error("handle has more than one '*")]
+    TooManyAsterisks,
+    #[error("handle has more than eight characters")]
+    TooManyDigits,
+}
 
 /// Handle classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +118,7 @@ impl FromStr for Handle {
         let class = match scheme_str {
             "tpm" => HandleClass::Tpm,
             "vtpm" => HandleClass::Vtpm,
-            _ => return Err(HandleError::InvalidPrefix),
+            _ => return Err(HandleError::InvalidPrefix(scheme_str.to_string())),
         };
 
         if value_str == "*" {
@@ -158,7 +176,7 @@ impl TryFrom<Handle> for TpmHt {
     type Error = HandleError;
 
     fn try_from(handle: Handle) -> Result<Self, Self::Error> {
-        let raw_handle = handle.value().ok_or(HandleError::PatternNotAllowed)?;
+        let raw_handle = handle.value().ok_or(HandleError::PatternDenied)?;
         let ht_byte = (raw_handle >> 24) as u8;
         TpmHt::try_from(ht_byte).map_err(|()| HandleError::InvalidType(ht_byte))
     }
