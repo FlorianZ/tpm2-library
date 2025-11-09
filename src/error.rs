@@ -11,7 +11,7 @@ use tpm2_protocol::{
 };
 
 /// Top-level error type for the crate.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum Error {
     /// A TPM protocol marshaling error.
     #[error("protocol marshal error: {0}")]
