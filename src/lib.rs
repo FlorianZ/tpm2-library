@@ -245,7 +245,7 @@ fn parse_primary<'a>(
             "secret" => parse_secret_call(tokens, context),
             _ => parse_literal(name),
         },
-        _ => Err(LanguageError::UnexpectedToken(token.to_string()).into()),
+        _ => Err(LanguageError::InvalidToken(token.to_string()).into()),
     }
 }
 
@@ -256,7 +256,7 @@ fn parse_literal(s: &str) -> Result<Expression, Error> {
     } else if let Ok(handle) = Handle::from_str(s) {
         Ok(Expression::Handle(handle))
     } else {
-        Err(LanguageError::UnexpectedToken(format!("unrecognized literal '{s}'")).into())
+        Err(LanguageError::InvalidToken(s.to_string()).into())
     }
 }
 
@@ -267,10 +267,7 @@ fn parse_call_args<'a>(
     match tokens.next() {
         Some(Token::LParen) => {}
         Some(actual_token) => {
-            return Err(LanguageError::UnexpectedToken(format!(
-                "Expected '(' to start argument list, found {actual_token}"
-            ))
-            .into());
+            return Err(LanguageError::InvalidToken(actual_token.to_string()).into());
         }
         None => {
             return Err(LanguageError::UnexpectedEnd.into());
@@ -290,10 +287,7 @@ fn parse_call_args<'a>(
             Some(Token::RParen) => break,
             Some(Token::Comma) => {}
             Some(actual_token) => {
-                return Err(LanguageError::UnexpectedToken(format!(
-                    "Expected ',' or ')' in argument list, found {actual_token}"
-                ))
-                .into());
+                return Err(LanguageError::InvalidToken(actual_token.to_string()).into());
             }
             None => return Err(LanguageError::ParenthesisMismatch.into()),
         }
@@ -305,10 +299,14 @@ fn parse_pcr_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
     context: &PolicyState,
 ) -> Result<Expression, LanguageError> {
-    if tokens.next() != Some(&Token::LParen) {
-        return Err(LanguageError::UnexpectedToken(
-            "expected '(' after 'pcr'".to_string(),
-        ));
+    match tokens.next() {
+        Some(Token::LParen) => {}
+        Some(actual_token) => {
+            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+        }
+        None => {
+            return Err(LanguageError::UnexpectedEnd);
+        }
     }
 
     let mut buf = String::new();
@@ -317,10 +315,8 @@ fn parse_pcr_call<'a>(
             Some(Token::RParen) => break,
             Some(Token::Ident(s)) => buf.push_str(s),
             Some(Token::Comma) => buf.push(','),
-            Some(Token::And | Token::Or | Token::LParen) => {
-                return Err(LanguageError::UnexpectedToken(
-                    "unexpected token inside pcr()".to_string(),
-                ))
+            Some(tok @ (Token::And | Token::Or | Token::LParen)) => {
+                return Err(LanguageError::InvalidToken(tok.to_string()));
             }
             None => return Err(LanguageError::UnexpectedEnd),
         }

@@ -23,6 +23,8 @@ pub enum LanguageError {
     AuthListTooLong,
     #[error("invalid expression: {0}")]
     InvalidExpression(String),
+    #[error("invalid token: {0}")]
+    InvalidToken(String),
     #[error("invalid PCR digest")]
     InvalidPcrDigest,
     #[error("invalid PCR digest algorithm")]
@@ -53,6 +55,4 @@ pub enum LanguageError {
     UnsupportedCommand(TpmCc),
     #[error("unexpected end of expression")]
     UnexpectedEnd,
-    #[error("unexpected token: {0}")]
-    UnexpectedToken(String),
 }
