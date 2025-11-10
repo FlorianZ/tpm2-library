@@ -2,18 +2,23 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{EccCurve, Hash};
 use thiserror::Error;
 
 /// The top-level error type for cryptographic operations.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum Error {
     /// Hash algorithm is not supported in the context of use.
-    #[error("invalid hash algorithm: {0}")]
-    InvalidHash(Hash),
+    #[error("invalid hash algorithm")]
+    InvalidHash,
     /// ECC curve is not supported in the context of use.
-    #[error("invalid ECC curve: {0}")]
-    InvalidEccCurve(EccCurve),
+    #[error("invalid ECC curve")]
+    InvalidEccCurve,
+    /// Invalid ECC public parameters.
+    #[error("invalid ECC parameters")]
+    InvalidEccParameters,
+    /// Invalid RSA public parameters.
+    #[error("invalid RSA parameters")]
+    InvalidRsaParameters,
     /// A zero-length key was provided.
     #[error("the provided key has zero length")]
     KeyIsEmpty,

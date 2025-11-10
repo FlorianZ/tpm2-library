@@ -15,7 +15,9 @@ use openssl::{
 };
 use rand::{CryptoRng, RngCore};
 use strum::{Display, EnumString};
-use tpm2_protocol::data::{Tpm2bEccParameter, TpmEccCurve, TpmsEccPoint};
+use tpm2_protocol::data::{
+    Tpm2bEccParameter, TpmEccCurve, TpmsEccPoint, TpmtPublic, TpmuPublicId, TpmuPublicParms,
+};
 
 /// TPM 2.0 ECC curves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
@@ -82,46 +84,80 @@ impl From<EccCurve> for TpmEccCurve {
     }
 }
 
-impl EccCurve {
-    /// Converts a TPM ECC parameter (big-endian bytes) to an OpenSSL `BigNum`.
-    fn parameter_to_bignum(param: &Tpm2bEccParameter) -> Result<BigNum, Error> {
-        BigNum::from_slice(param.as_ref()).map_err(|_| Error::OutOfMemory)
-    }
-
+impl From<EccCurve> for Nid {
     /// Maps a TPM ECC curve ID to an OpenSSL NID.
-    fn to_nid(self) -> Result<Nid, Error> {
-        match self {
-            Self::NistP256 => Ok(Nid::X9_62_PRIME256V1),
-            Self::NistP384 => Ok(Nid::SECP384R1),
-            Self::NistP521 => Ok(Nid::SECP521R1),
-            _ => Err(Error::InvalidEccCurve(self)),
+    fn from(curve: EccCurve) -> Self {
+        match curve {
+            EccCurve::NistP192 => Nid::X9_62_PRIME192V1,
+            EccCurve::NistP224 => Nid::SECP224R1,
+            EccCurve::NistP256 => Nid::X9_62_PRIME256V1,
+            EccCurve::NistP384 => Nid::SECP384R1,
+            EccCurve::NistP521 => Nid::SECP521R1,
+            EccCurve::BpP256R1 => Nid::BRAINPOOL_P256R1,
+            EccCurve::BpP384R1 => Nid::BRAINPOOL_P384R1,
+            EccCurve::BpP512R1 => Nid::BRAINPOOL_P512R1,
+            _ => Nid::UNDEF,
         }
     }
+}
 
+/// ECC public key parameters.
+#[derive(Debug, Clone)]
+pub struct EccPublicKey {
+    pub curve: EccCurve,
+    pub x: Tpm2bEccParameter,
+    pub y: Tpm2bEccParameter,
+}
+
+impl TryFrom<&TpmtPublic> for EccPublicKey {
+    type Error = Error;
+
+    fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
+        let params = match &public.parameters {
+            TpmuPublicParms::Ecc(params) => Ok(params),
+            _ => Err(Error::InvalidEccParameters),
+        }?;
+
+        let (x, y) = match &public.unique {
+            TpmuPublicId::Ecc(point) => Ok((point.x, point.y)),
+            _ => Err(Error::InvalidEccParameters),
+        }?;
+
+        Ok(Self {
+            curve: params.curve_id.into(),
+            x,
+            y,
+        })
+    }
+}
+
+impl EccPublicKey {
     /// Performs ECDH and derives a seed using `KDFe` key derivation function from
-    /// TCG TPM 2.0 Architeture specification.
+    /// TCG TPM 2.0 Architecture specification.
     ///
     /// # Errors
     ///
     /// Returns [`InvalidEccCurve`](crate::Error::InvalidEccCurve)
     /// when the curve is not supported.
-    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
     /// when the hash algorithm is not recognized.
     /// Returns [`OperationFailed`](crate::Error::OperationFailed) when an internal
     /// cryptographic operation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
     pub fn ecdh(
         &self,
-        parent_point: &TpmsEccPoint,
         name_alg: Hash,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(Vec<u8>, TpmsEccPoint), Error> {
-        let nid = (*self).to_nid()?;
+        let nid = self.curve.into();
+        if nid == Nid::UNDEF {
+            return Err(Error::InvalidEccCurve);
+        }
         let group = EcGroup::from_curve_name(nid).map_err(|_| Error::OutOfMemory)?;
         let mut ctx = BigNumContext::new().map_err(|_| Error::OutOfMemory)?;
 
-        let parent_x = Self::parameter_to_bignum(&parent_point.x)?;
-        let parent_y = Self::parameter_to_bignum(&parent_point.y)?;
+        let parent_x = BigNum::from_slice(self.x.as_ref()).map_err(|_| Error::OutOfMemory)?;
+        let parent_y = BigNum::from_slice(self.y.as_ref()).map_err(|_| Error::OutOfMemory)?;
         let parent_key = EcKey::from_public_key_affine_coordinates(&group, &parent_x, &parent_y)
             .map_err(|_| Error::OperationFailed)?;
         let parent_public_key =
@@ -158,7 +194,6 @@ impl EccCurve {
         let ephemeral_pub_bytes = ephemeral_pub_point
             .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
             .map_err(|_| Error::OperationFailed)?;
-
         if ephemeral_pub_bytes.is_empty() || ephemeral_pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
             return Err(Error::OperationFailed);
         }
@@ -168,9 +203,8 @@ impl EccCurve {
         let ephemeral_y = &ephemeral_pub_bytes[1 + coord_len..];
 
         let seed_bits = u16::try_from(name_alg.size()? * 8).map_err(|_| Error::OperationFailed)?;
-
         let context_u = ephemeral_x;
-        let context_v = parent_point.x.as_ref();
+        let context_v = self.x.as_ref();
 
         let seed = name_alg.kdfe(&z, KDF_LABEL_DUPLICATE, context_u, context_v, seed_bits)?;
 

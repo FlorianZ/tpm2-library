@@ -68,23 +68,11 @@ impl From<Hash> for TpmAlgId {
 }
 
 impl Hash {
-    /// Maps a TPM hash algorithm to an OpenSSL message digest.
-    fn to_md(self) -> Result<MessageDigest, Error> {
-        match self {
-            Self::Sha1 => Ok(MessageDigest::sha1()),
-            Self::Sha256 => Ok(MessageDigest::sha256()),
-            Self::Sm3_256 => Ok(MessageDigest::sm3()),
-            Self::Sha384 => Ok(MessageDigest::sha384()),
-            Self::Sha512 => Ok(MessageDigest::sha512()),
-            _ => Err(Error::InvalidHash(self)),
-        }
-    }
-
     /// Returns the size of the digest for a given hash algorithm.
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
     /// when the hash algorithm is not recognized by OpenSSL.
     pub fn size(&self) -> Result<usize, Error> {
         (*self).to_md().map(|md| md.size())
@@ -94,7 +82,7 @@ impl Hash {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
     /// when the hash algorithm is not recognized.
     /// Returns [`OperationFailed`](crate::Error::OperationFailed)
     /// when the digest computation fails.
@@ -115,7 +103,7 @@ impl Hash {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
     /// when the hash algorithm is not recognized.
     /// Returns [`KeyIsEmpty`](crate::Error::KeyIsEmpty) when the provided key is empty.
     /// Returns [`OperationFailed`](crate::Error::OperationFailed)
@@ -140,7 +128,7 @@ impl Hash {
     ///
     /// Returns [`PermissionDenied`](crate::Error::PermissionDenied)
     /// when the HMAC does not match the expected value.
-    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
     /// when the hash algorithm is not recognized.
     /// Returns [`OperationFailed`](crate::Error::OperationFailed)
     /// when the HMAC computation fails.
@@ -163,7 +151,7 @@ impl Hash {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
     /// when the hash algorithm is not recognized.
     /// Returns [`OperationFailed`](crate::Error::OperationFailed)
     /// when the HMAC computation fails.
@@ -208,7 +196,7 @@ impl Hash {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHashAlgorithm`](crate::Error::InvalidHashAlgorithm)
+    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
     /// when the hash algorithm is not recognized.
     /// Returns [`OperationFailed`](crate::Error::OperationFailed)
     /// when the digest computation fails.
@@ -251,5 +239,17 @@ impl Hash {
         }
 
         Ok(key_stream)
+    }
+
+    /// Maps a TPM hash algorithm to an OpenSSL message digest.
+    pub(crate) fn to_md(self) -> Result<MessageDigest, Error> {
+        match self {
+            Self::Sha1 => Ok(MessageDigest::sha1()),
+            Self::Sha256 => Ok(MessageDigest::sha256()),
+            Self::Sm3_256 => Ok(MessageDigest::sm3()),
+            Self::Sha384 => Ok(MessageDigest::sha384()),
+            Self::Sha512 => Ok(MessageDigest::sha512()),
+            _ => Err(Error::InvalidHash),
+        }
     }
 }

@@ -10,6 +10,7 @@
 mod ecc;
 mod error;
 mod hash;
+mod rsa;
 
 use tpm2_protocol::{
     constant::MAX_DIGEST_SIZE,
@@ -20,6 +21,7 @@ use tpm2_protocol::{
 pub use ecc::*;
 pub use error::*;
 pub use hash::*;
+pub use rsa::*;
 
 pub const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
