@@ -14,13 +14,13 @@
 mod error;
 
 pub use crate::error::*;
-use pem::Pem;
+use pem::{EncodeConfig, LineEnding, Pem};
 use rasn::{
     prelude::ObjectIdentifier,
     types::{OctetString, Utf8String},
     AsnType, Decode, Decoder, Encode, Encoder,
 };
-use tpm2_policy_language::{Expression, PolicyState};
+use tpm2_policy_language::Expression;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmSt},
@@ -176,11 +176,10 @@ impl TpmKey {
     ///
     /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
     /// fields cannot be encoded to DER.
-    pub fn to_pem(&self, context: &PolicyState) -> Result<String, Error> {
-        Ok(pem::encode(&Pem::new(
-            "TSS2 PRIVATE KEY",
-            self.to_der(context)?,
-        )))
+    pub fn to_pem(&self) -> Result<String, Error> {
+        let pem = Pem::new("TSS2 PRIVATE KEY", self.to_der()?);
+        let cfg = EncodeConfig::new().set_line_ending(LineEnding::LF);
+        Ok(pem::encode_config(&pem, cfg))
     }
 
     /// Serialize TPM key to DER bytes.
@@ -189,8 +188,8 @@ impl TpmKey {
     ///
     /// Returns [`InvalidData`](crate::TpmKeyError::InvalidData) when the key's
     /// fields cannot be encoded to DER.
-    pub fn to_der(&self, context: &PolicyState) -> Result<Vec<u8>, Error> {
-        let asn1 = self.to_asn1(context)?;
+    pub fn to_der(&self) -> Result<Vec<u8>, Error> {
+        let asn1 = self.to_asn1()?;
         rasn::der::encode(&asn1).map_err(|_| Error::Key(KeyError::InvalidDer))
     }
 
@@ -202,10 +201,10 @@ impl TpmKey {
     /// or inner DER bytes cannot be umarshaled.
     /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
     /// tag is not 'TSS2 PRIVATE KEY'.
-    pub fn from_pem(pem_bytes: &[u8], context: &PolicyState) -> Result<Self, Error> {
+    pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, Error> {
         let pem = pem::parse(pem_bytes).map_err(|_| Error::Key(KeyError::InvalidPem))?;
         if pem.tag() == "TSS2 PRIVATE KEY" {
-            Self::from_der(pem.contents(), context)
+            Self::from_der(pem.contents())
         } else {
             Err(Error::Key(KeyError::InvalidPemTag(pem.tag().to_string())))
         }
@@ -217,14 +216,14 @@ impl TpmKey {
     ///
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
     /// bytes cannot be umarshaled.
-    pub fn from_der(der_bytes: &[u8], context: &PolicyState) -> Result<Self, Error> {
+    pub fn from_der(der_bytes: &[u8]) -> Result<Self, Error> {
         let asn1: TpmKeyAsn1 =
             rasn::der::decode(der_bytes).map_err(|_| Error::Key(KeyError::InvalidDer))?;
-        Self::from_asn1(asn1, context)
+        Self::from_asn1(asn1)
     }
 
     /// Converts the runtime `TpmKey` into its ASN.1 representation.
-    fn to_asn1(&self, _context: &PolicyState) -> Result<TpmKeyAsn1, Error> {
+    fn to_asn1(&self) -> Result<TpmKeyAsn1, Error> {
         let rsa_parent = self
             .parent_public
             .as_ref()
@@ -309,7 +308,7 @@ impl TpmKey {
     }
 
     /// Converts the ASN.1 `TpmKeyAsn1` into the runtime representation.
-    fn from_asn1(asn1: TpmKeyAsn1, _context: &PolicyState) -> Result<Self, Error> {
+    fn from_asn1(asn1: TpmKeyAsn1) -> Result<Self, Error> {
         let (public, _) =
             Tpm2bPublic::unmarshal(&asn1.pubkey).map_err(|_| Error::Key(KeyError::InvalidDer))?;
         let (private, _) =
