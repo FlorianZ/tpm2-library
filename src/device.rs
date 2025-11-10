@@ -3,7 +3,6 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{cli::LogFormat, print::TpmPrint, spinner::Spinner, TEARDOWN};
-use log::trace;
 use nix::poll::{poll, PollFd, PollFlags};
 use std::{
     cell::RefCell,
@@ -32,6 +31,7 @@ use tpm2_protocol::{
     },
     TpmHandle, TpmProtocolError, TpmWriter,
 };
+use tracing::trace;
 
 /// A type-erased object safe TPM command object
 pub trait TpmCommandObject: TpmFrame + TpmPrint {}
@@ -231,23 +231,15 @@ impl Device {
                 Ok(Ok((response, _))) => {
                     response.print(&mut buf, "Response", 1)?;
                     for line in String::from_utf8_lossy(&buf).lines() {
-                        trace!(target: "cli::device", "{line}");
+                        trace!("{line}");
                     }
                 }
                 Ok(Err(_)) | Err(_) => {
-                    trace!(
-                        target: "cli::device",
-                        "Response: {}",
-                        hex::encode(&resp_buf)
-                    );
+                    trace!("Response: {}", hex::encode(&resp_buf));
                 }
             }
         } else {
-            trace!(
-                target: "cli::device",
-                "Response: {}",
-                hex::encode(&resp_buf)
-            );
+            trace!("Response: {}", hex::encode(&resp_buf));
         }
         Ok(result??)
     }
@@ -276,14 +268,10 @@ impl Device {
             writeln!(&mut print_buf, "{cc}")?;
             command.print(&mut print_buf, "Command", 1)?;
             for line in String::from_utf8_lossy(&print_buf).lines() {
-                trace!(target: "cli::device", "{line}");
+                trace!("{line}");
             }
         } else {
-            trace!(
-                target: "cli::device",
-                "Command: {}",
-                hex::encode(&buf)
-            );
+            trace!("Command: {}", hex::encode(&buf));
         }
         Ok(buf)
     }
