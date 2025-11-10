@@ -15,12 +15,16 @@ use std::{
     cell::RefCell, fs, io::Write, os::unix::io::AsRawFd, path::Path, process, rc::Rc,
     sync::atomic::Ordering,
 };
+use tracing_subscriber::EnvFilter;
 
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
 /// external signal indexed by the signal number.
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_micros()
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .with_timer(tracing_subscriber::fmt::time::SystemTime)
         .init();
 
     if ctrlc::set_handler(move || {
