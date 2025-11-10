@@ -6,12 +6,13 @@ use crate::{
     build_and_branch, Auth, Error, Handle, HandleClass, HandleError, LanguageError, PolicyState,
     SoftwarePolicySession,
 };
+use std::borrow::Cow;
 use std::fmt;
 use tpm2_crypto::Hash;
 use tpm2_protocol::{
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmaSession, TpmlDigest,
-        TpmlPcrSelection, TpmsAuthCommand,
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmaSession,
+        TpmlDigest, TpmlPcrSelection, TpmsAuthCommand,
     },
     frame::{
         TpmAuthCommands, TpmCommand, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
@@ -392,15 +393,30 @@ impl Expression {
             return Err(LanguageError::InvalidExpression((**auth_handle).clone()).into());
         };
 
-        let ht = h_val >> 24;
-        if (h_val >> 24) as u8 != TpmHt::Persistent as u8 {
-            return Err(HandleError::InvalidType(ht as u8).into());
-        }
+        let ht_byte = (h_val >> 24) as u8;
+        let ht = TpmHt::try_from(ht_byte).map_err(|()| HandleError::InvalidType(ht_byte))?;
 
-        let name = context
-            .names
-            .get(&h_val)
-            .ok_or_else(|| LanguageError::InvalidExpression(self.clone()))?;
+        let name = match ht {
+            TpmHt::Persistent => Cow::Borrowed(
+                context
+                    .names
+                    .get(&h_val)
+                    .ok_or_else(|| LanguageError::InvalidExpression(self.clone()))?,
+            ),
+            TpmHt::Permanent => {
+                let rh = TpmRh::try_from(h_val).map_err(|()| HandleError::InvalidType(ht_byte))?;
+                match rh {
+                    TpmRh::Owner | TpmRh::Endorsement | TpmRh::Platform | TpmRh::Lockout => {
+                        let handle_bytes = (rh as u32).to_be_bytes();
+                        let name = Tpm2bName::try_from(handle_bytes.as_slice())
+                            .map_err(|_| HandleError::InvalidType(ht_byte))?;
+                        Cow::Owned(name)
+                    }
+                    _ => return Err(HandleError::InvalidType(ht_byte).into()),
+                }
+            }
+            _ => return Err(HandleError::InvalidType(ht_byte).into()),
+        };
 
         let cmd = TpmPolicySecretCommand {
             auth_handle: h_val.into(),
@@ -433,7 +449,7 @@ impl Expression {
             .map_err(|_| LanguageError::AuthListTooLong)?;
 
         command_list.push((TpmCommand::PolicySecret(cmd), auth_commands));
-        software_session.policy_secret(name)?;
+        software_session.policy_secret(name.as_ref())?;
         Ok(software_session.get_digest())
     }
 
