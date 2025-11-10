@@ -133,7 +133,7 @@ fn oid_to_key_type(oid: &ObjectIdentifier) -> Result<TpmAlgId, Error> {
     } else if oid == &OID_SEALED_DATA {
         Ok(TpmAlgId::KeyedHash)
     } else {
-        Err(Error::Key(KeyError::UnknownOid(oid.to_string())))
+        Err(Error::Key(KeyError::InvalidDerTag(oid.to_string())))
     }
 }
 
@@ -141,7 +141,7 @@ fn key_type_to_oid(key_type: TpmAlgId) -> Result<ObjectIdentifier, Error> {
     match key_type {
         TpmAlgId::Rsa | TpmAlgId::Ecc => Ok(OID_LOADABLE_KEY.clone()),
         TpmAlgId::KeyedHash => Ok(OID_SEALED_DATA.clone()),
-        _ => Err(Error::Key(KeyError::InvalidAlgorithm(key_type.to_string()))),
+        _ => Err(Error::Key(KeyError::InvalidKeyType)),
     }
 }
 
@@ -191,7 +191,7 @@ impl TpmKey {
     /// fields cannot be encoded to DER.
     pub fn to_der(&self, context: &PolicyState) -> Result<Vec<u8>, Error> {
         let asn1 = self.to_asn1(context)?;
-        rasn::der::encode(&asn1).map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))
+        rasn::der::encode(&asn1).map_err(|_| Error::Key(KeyError::InvalidDer))
     }
 
     /// Parse TPM key from PEM bytes.
@@ -203,12 +203,11 @@ impl TpmKey {
     /// Returns [`UnknownPemTag`](crate::TpmKeyError::UnknownPemTag) when the PEM
     /// tag is not 'TSS2 PRIVATE KEY'.
     pub fn from_pem(pem_bytes: &[u8], context: &PolicyState) -> Result<Self, Error> {
-        let pem = pem::parse(pem_bytes)
-            .map_err(|e| Error::Pem(PemError::MalformedData(e.to_string())))?;
+        let pem = pem::parse(pem_bytes).map_err(|_| Error::Key(KeyError::InvalidPem))?;
         if pem.tag() == "TSS2 PRIVATE KEY" {
             Self::from_der(pem.contents(), context)
         } else {
-            Err(Error::Pem(PemError::InvalidTag(pem.tag().to_string())))
+            Err(Error::Key(KeyError::InvalidPemTag(pem.tag().to_string())))
         }
     }
 
@@ -219,8 +218,8 @@ impl TpmKey {
     /// Returns [`MalformedData`](crate::TpmKeyError::MalformedData) when the DER
     /// bytes cannot be umarshaled.
     pub fn from_der(der_bytes: &[u8], context: &PolicyState) -> Result<Self, Error> {
-        let asn1: TpmKeyAsn1 = rasn::der::decode(der_bytes)
-            .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
+        let asn1: TpmKeyAsn1 =
+            rasn::der::decode(der_bytes).map_err(|_| Error::Key(KeyError::InvalidDer))?;
         Self::from_asn1(asn1, context)
     }
 
@@ -233,8 +232,7 @@ impl TpmKey {
 
         let parent_pubkey_bytes = if let Some(parent_public) = &self.parent_public {
             Some(OctetString::copy_from_slice(
-                &write_object(parent_public)
-                    .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))?,
+                &write_object(parent_public).map_err(|_| Error::Key(KeyError::OperationFailed))?,
             ))
         } else {
             None
@@ -256,7 +254,7 @@ impl TpmKey {
 
                 for (cmd, auth) in commands {
                     let asn1_cmd = TpmPolicyCommandAsn1::from_command(cmd, auth)
-                        .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))?;
+                        .map_err(|_| Error::Key(KeyError::OperationFailed))?;
 
                     if matches!(cmd, TpmCommand::PolicyRestart(_)) {
                         if !current_branch.is_empty() {
@@ -282,7 +280,7 @@ impl TpmKey {
                     .iter()
                     .map(|(cmd, auth)| {
                         TpmPolicyCommandAsn1::from_command(cmd, auth)
-                            .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))
+                            .map_err(|_| Error::Key(KeyError::OperationFailed))
                     })
                     .collect::<Result<_, Error>>()?;
                 (Some(asn1_commands), None)
@@ -302,25 +300,23 @@ impl TpmKey {
             parent_pubkey: parent_pubkey_bytes,
             parent: self.parent_handle.0,
             pubkey: OctetString::copy_from_slice(
-                &write_object(&self.public)
-                    .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))?,
+                &write_object(&self.public).map_err(|_| Error::Key(KeyError::OperationFailed))?,
             ),
             privkey: OctetString::copy_from_slice(
-                &write_object(&self.private)
-                    .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))?,
+                &write_object(&self.private).map_err(|_| Error::Key(KeyError::OperationFailed))?,
             ),
         })
     }
 
     /// Converts the ASN.1 `TpmKeyAsn1` into the runtime representation.
     fn from_asn1(asn1: TpmKeyAsn1, _context: &PolicyState) -> Result<Self, Error> {
-        let (public, _) = Tpm2bPublic::unmarshal(&asn1.pubkey)
-            .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
-        let (private, _) = Tpm2bPrivate::unmarshal(&asn1.privkey)
-            .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
+        let (public, _) =
+            Tpm2bPublic::unmarshal(&asn1.pubkey).map_err(|_| Error::Key(KeyError::InvalidDer))?;
+        let (private, _) =
+            Tpm2bPrivate::unmarshal(&asn1.privkey).map_err(|_| Error::Key(KeyError::InvalidDer))?;
         let parent_public = if let Some(parent_bytes) = &asn1.parent_pubkey {
             let (parent_pub, _) = Tpm2bPublic::unmarshal(parent_bytes)
-                .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
+                .map_err(|_| Error::Key(KeyError::InvalidDer))?;
             Some(parent_pub)
         } else {
             None
@@ -336,7 +332,7 @@ impl TpmKey {
             for branch in auth_policies {
                 for cmd in branch.policy {
                     let (_, body, auth) = tpm_unmarshal_command(cmd.command_policy.as_ref())
-                        .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
+                        .map_err(|_| Error::Key(KeyError::InvalidDer))?;
                     commands.push((body, auth));
                 }
             }
@@ -346,7 +342,7 @@ impl TpmKey {
                 .iter()
                 .map(|cmd| {
                     let (_, body, auth) = tpm_unmarshal_command(cmd.command_policy.as_ref())
-                        .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
+                        .map_err(|_| Error::Key(KeyError::InvalidDer))?;
                     Ok((body, auth))
                 })
                 .collect::<Result<_, Error>>()?;
