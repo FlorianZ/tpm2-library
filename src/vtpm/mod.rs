@@ -6,7 +6,6 @@
 
 use crate::{
     device::{Device, DeviceError},
-    key::Tpm2shAlgId,
     write_object,
 };
 use std::{
@@ -18,12 +17,12 @@ use std::{
     rc::Rc,
 };
 use thiserror::Error;
-use tpm2_crypto::CryptoError;
-use tpm2_policy_language::{Auth, Handle, HandleClass};
+use tpm2_crypto::{Error as CryptoError, Hash};
+use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Handle, HandleClass};
 use tpm2_protocol::{
     data::{Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
-    frame::{TpmAuthCommands, TpmCommandBody},
-    TpmHandle, TpmMarshalError, TpmUnmarshalError,
+    frame::{TpmAuthCommands, TpmCommand},
+    TpmHandle, TpmProtocolError,
 };
 
 mod key;
@@ -55,33 +54,19 @@ pub enum VtpmError {
     #[error("trailing authorizations")]
     TrailingAuthorizations,
     #[error("unsupported name algorithm: {0}")]
-    UnsupportedNameAlgorithm(Tpm2shAlgId),
+    UnsupportedNameAlgorithm(Hash),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
     #[error("policy language: {0}")]
-    PolicyLanguage(#[from] tpm2_policy_language::Error),
+    PolicyLanguage(#[from] PolicyLanguageError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
-    #[error("protocol marshal: {0}")]
-    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
-    #[error("protocol unmarshal: {0}")]
-    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
-}
-
-impl From<TpmMarshalError> for VtpmError {
-    fn from(err: TpmMarshalError) -> Self {
-        Self::ProtocolMarshal(err)
-    }
-}
-
-impl From<TpmUnmarshalError> for VtpmError {
-    fn from(err: TpmUnmarshalError) -> Self {
-        Self::ProtocolUnmarshal(err)
-    }
+    #[error("protocol: {0}")]
+    Protocol(#[from] TpmProtocolError),
 }
 
 impl From<TpmRc> for VtpmError {
@@ -382,8 +367,7 @@ impl<'a> VtpmCache<'a> {
     ) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
         for (vhandle, key) in self.key_iter() {
-            let parent_key_bytes =
-                write_object(&key.parent.inner).map_err(VtpmError::ProtocolMarshal)?;
+            let parent_key_bytes = write_object(&key.parent.inner).map_err(VtpmError::Protocol)?;
             parent_to_children
                 .entry(parent_key_bytes)
                 .or_default()
@@ -395,8 +379,7 @@ impl<'a> VtpmCache<'a> {
         let mut deleted_children = Vec::new();
 
         while let Some(parent_public) = ancestor_list.pop_front() {
-            let parent_key_bytes =
-                write_object(&parent_public).map_err(VtpmError::ProtocolMarshal)?;
+            let parent_key_bytes = write_object(&parent_public).map_err(VtpmError::Protocol)?;
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_vhandle, child_public) in children_to_process.clone() {
                     if let Some(context) = self.contexts.remove(&child_vhandle) {
@@ -466,7 +449,7 @@ impl<'a> VtpmCache<'a> {
         handle: TpmHandle,
         public: &Tpm2bPublic,
         parent_public: &Tpm2bPublic,
-        policy: &Option<Vec<(TpmCommandBody, TpmAuthCommands)>>,
+        policy: &Option<Vec<(TpmCommand, TpmAuthCommands)>>,
     ) -> Result<u32, VtpmError> {
         let context = device.save_context(handle)?;
         for vhandle in 0x8000_0000u32..=0x80FF_FFFF {

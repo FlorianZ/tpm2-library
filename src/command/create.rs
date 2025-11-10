@@ -23,7 +23,7 @@ use tpm2_protocol::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
         TpmCc, TpmRcBase, TpmlPcrSelection, TpmsSensitiveCreate,
     },
-    frame::{TpmAuthCommands, TpmCommandBody, TpmCreateCommand},
+    frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
 use tpm2_tpmkey::TpmKey;
 
@@ -98,10 +98,9 @@ impl Create {
             sensitive_data,
         };
 
-        let (auth_policy_digest, policy_commands, policy_context): (
+        let (auth_policy_digest, policy_commands): (
             Tpm2bDigest,
-            Option<Vec<(TpmCommandBody, TpmAuthCommands)>>,
-            tpm2_policy_language::PolicyState,
+            Option<Vec<(TpmCommand, TpmAuthCommands)>>,
         ) = if let Some(expression) = &self.creation_args.policy_expression {
             let banks = pcr_get_bank_list(device)?;
             let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
@@ -138,13 +137,9 @@ impl Create {
             let (commands, final_digest) =
                 ast.to_command_list(session_hash_alg, &policy_context)?;
 
-            (final_digest, Some(commands), policy_context)
+            (final_digest, Some(commands))
         } else {
-            (
-                Tpm2bDigest::default(),
-                None,
-                tpm2_policy_language::PolicyState::default(),
-            )
+            (Tpm2bDigest::default(), None)
         };
 
         let tpm_key = {
@@ -211,7 +206,6 @@ impl Create {
             &tpm_key,
             self.output_args.output.as_deref(),
             self.output_encoding_args.output_encoding,
-            &policy_context,
         )
     }
 }

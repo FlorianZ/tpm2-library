@@ -28,9 +28,9 @@ use tpm2_protocol::{
     frame::{
         tpm_marshal_command, tpm_unmarshal_response, TpmAuthResponses, TpmContextLoadCommand,
         TpmContextSaveCommand, TpmEvictControlCommand, TpmFlushContextCommand, TpmFrame,
-        TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponseBody,
+        TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponse,
     },
-    TpmHandle, TpmMarshalError, TpmUnmarshalError, TpmWriter,
+    TpmHandle, TpmProtocolError, TpmWriter,
 };
 
 /// A type-erased object safe TPM command object
@@ -59,24 +59,10 @@ pub enum DeviceError {
     Io(#[from] std::io::Error),
     #[error("syscall: {0}")]
     Nix(#[from] nix::Error),
-    #[error("protocol marshal: {0}")]
-    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
-    #[error("protocol unmarshal: {0}")]
-    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
+    #[error("protocol: {0}")]
+    Protocol(#[from] TpmProtocolError),
     #[error("TPM return code: {0}")]
     TpmRc(TpmRc),
-}
-
-impl From<TpmMarshalError> for DeviceError {
-    fn from(err: TpmMarshalError) -> Self {
-        Self::ProtocolMarshal(err)
-    }
-}
-
-impl From<TpmUnmarshalError> for DeviceError {
-    fn from(err: TpmUnmarshalError) -> Self {
-        Self::ProtocolUnmarshal(err)
-    }
 }
 
 impl From<TpmRc> for DeviceError {
@@ -146,7 +132,7 @@ impl Device {
         &mut self,
         command: &C,
         sessions: &[TpmsAuthCommand],
-    ) -> Result<(TpmResponseBody, TpmAuthResponses), DeviceError> {
+    ) -> Result<(TpmResponse, TpmAuthResponses), DeviceError> {
         let command_vec = self.build_command_buffer(command, sessions)?;
         let cc = command.cc();
 

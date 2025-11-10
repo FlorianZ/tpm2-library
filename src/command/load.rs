@@ -11,7 +11,7 @@ use crate::{
     session::Session,
 };
 use clap::Args;
-use tpm2_policy_language::{Auth, Handle, HandleClass, PolicyState};
+use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{Tpm2bName, Tpm2bPublic, TpmCc},
     frame::TpmLoadCommand,
@@ -38,11 +38,8 @@ impl Job for Load {
                 return Ok(());
             }
 
-            let complete_policy_state = PolicyState::default();
-
-            let tpm_key = TpmKey::from_pem(&input_bytes, &complete_policy_state).or_else(|_| {
-                TpmKey::from_der(&input_bytes, &complete_policy_state).map_err(KeyError::from)
-            })?;
+            let tpm_key = TpmKey::from_pem(&input_bytes)
+                .or_else(|_| TpmKey::from_der(&input_bytes).map_err(KeyError::from))?;
 
             let parent_public = tpm_key
                 .parent_public()

@@ -12,11 +12,12 @@ pub use rsa::rsa_to_public_id;
 
 use openssl::error::ErrorStack;
 use std::num::TryFromIntError;
-use strum::{Display, EnumString};
+use std::str::FromStr;
 use thiserror::Error;
+use tpm2_crypto::{EccCurve, Hash};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms},
-    TpmMarshalError, TpmUnmarshalError,
+    TpmProtocolError,
 };
 use tpm2_tpmkey::Error as TpmKeyError;
 
@@ -54,22 +55,8 @@ pub enum KeyError {
     TpmKey(#[from] TpmKeyError),
     #[error("openssl: {0}")]
     Openssl(#[from] ErrorStack),
-    #[error("protocol marshal: {0}")]
-    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
-    #[error("protocol unmarshal: {0}")]
-    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
-}
-
-impl From<TpmMarshalError> for KeyError {
-    fn from(err: TpmMarshalError) -> Self {
-        Self::ProtocolMarshal(err)
-    }
-}
-
-impl From<TpmUnmarshalError> for KeyError {
-    fn from(err: TpmUnmarshalError) -> Self {
-        Self::ProtocolUnmarshal(err)
-    }
+    #[error("protocol: {0}")]
+    Protocol(#[from] TpmProtocolError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +81,9 @@ impl Alg {
     ///
     /// Returns an `KeyError` if the provided hash algorithm string is invalid.
     pub fn new_keyedhash(hash_alg: &str) -> Result<Self, KeyError> {
-        let name_alg = Tpm2shAlgId::try_from(hash_alg)?.0;
+        let name_alg = Hash::from_str(hash_alg)
+            .map_err(|_| KeyError::InvalidAlgorithm(hash_alg.to_string()))?
+            .into();
         Ok(Self {
             name: format!("keyedhash:{hash_alg}"),
             object_type: TpmAlgId::KeyedHash,
@@ -121,7 +110,9 @@ impl std::str::FromStr for Alg {
             let key_bits: u16 = bits_str
                 .parse()
                 .map_err(|_| KeyError::InvalidRsaKeyBits(bits_str.to_string()))?;
-            let name_alg = Tpm2shAlgId::try_from(name_alg_str)?.0;
+            let name_alg = Hash::from_str(name_alg_str)
+                .map_err(|_| KeyError::InvalidAlgorithm(name_alg_str.to_string()))?
+                .into();
             Ok(Self {
                 name: s.to_string(),
                 object_type: TpmAlgId::Rsa,
@@ -132,10 +123,12 @@ impl std::str::FromStr for Alg {
             let (curve_str, name_alg_str) = rest
                 .split_once(':')
                 .ok_or_else(|| KeyError::InvalidAlgorithmFormat(s.to_string()))?;
-            let curve_id: TpmEccCurve = Tpm2shEccCurve::from_str(curve_str)
-                .map_err(|e| KeyError::InvalidEccCurve(e.to_string()))?
+            let curve_id: TpmEccCurve = EccCurve::from_str(curve_str)
+                .map_err(|_| KeyError::InvalidEccCurve(curve_str.to_string()))?
                 .into();
-            let name_alg = Tpm2shAlgId::try_from(name_alg_str)?.0;
+            let name_alg = Hash::from_str(name_alg_str)
+                .map_err(|_| KeyError::InvalidAlgorithm(name_alg_str.to_string()))?
+                .into();
             Ok(Self {
                 name: s.to_string(),
                 object_type: TpmAlgId::Ecc,
@@ -143,7 +136,9 @@ impl std::str::FromStr for Alg {
                 params: AlgInfo::Ecc { curve_id },
             })
         } else if let Some(name_alg_str) = s.strip_prefix("keyedhash:") {
-            let name_alg = Tpm2shAlgId::try_from(name_alg_str)?.0;
+            let name_alg = Hash::from_str(name_alg_str)
+                .map_err(|_| KeyError::InvalidAlgorithm(name_alg_str.to_string()))?
+                .into();
             Ok(Self {
                 name: s.to_string(),
                 object_type: TpmAlgId::KeyedHash,
@@ -168,125 +163,10 @@ impl std::cmp::PartialOrd for Alg {
     }
 }
 
-/// A newtype wrapper to provide a project-specific `Display` implementation for `TpmAlgId`.
-#[derive(Debug, Clone, Copy)]
-pub struct Tpm2shAlgId(pub TpmAlgId);
-
-impl TryFrom<&str> for Tpm2shAlgId {
-    type Error = KeyError;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let alg_id = match s {
-            "rsa" => TpmAlgId::Rsa,
-            "sha1" => TpmAlgId::Sha1,
-            "hmac" => TpmAlgId::Hmac,
-            "aes" => TpmAlgId::Aes,
-            "keyedhash" => TpmAlgId::KeyedHash,
-            "xor" => TpmAlgId::Xor,
-            "sha256" => TpmAlgId::Sha256,
-            "sha384" => TpmAlgId::Sha384,
-            "sha512" => TpmAlgId::Sha512,
-            "null" => TpmAlgId::Null,
-            "sm3_256" => TpmAlgId::Sm3_256,
-            "sm4" => TpmAlgId::Sm4,
-            "ecc" => TpmAlgId::Ecc,
-            _ => return Err(KeyError::InvalidAlgorithm(s.to_string())),
-        };
-        Ok(Self(alg_id))
-    }
-}
-
-impl std::fmt::Display for Tpm2shAlgId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self.0 {
-            TpmAlgId::Sha1 => "sha1",
-            TpmAlgId::Sha256 => "sha256",
-            TpmAlgId::Sha384 => "sha384",
-            TpmAlgId::Sha512 => "sha512",
-            TpmAlgId::Rsa => "rsa",
-            TpmAlgId::Hmac => "hmac",
-            TpmAlgId::Aes => "aes",
-            TpmAlgId::KeyedHash => "keyedhash",
-            TpmAlgId::Xor => "xor",
-            TpmAlgId::Null => "null",
-            TpmAlgId::Sm3_256 => "sm3_256",
-            TpmAlgId::Sm4 => "sm4",
-            TpmAlgId::Ecc => "ecc",
-            _ => "unknown",
-        };
-        write!(f, "{s}")
-    }
-}
-
-/// A local wrapper enum for `TpmEccCurve` to allow `strum` derives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
-#[strum(serialize_all = "kebab-case")]
-pub enum Tpm2shEccCurve {
-    NistP192,
-    NistP224,
-    NistP256,
-    NistP384,
-    NistP521,
-    BnP256,
-    BnP638,
-    Sm2P256,
-    #[strum(serialize = "bp-p256-r1")]
-    BpP256R1,
-    #[strum(serialize = "bp-p384-r1")]
-    BpP384R1,
-    #[strum(serialize = "bp-p512-r1")]
-    BpP512R1,
-    Curve25519,
-    Curve448,
-    None,
-}
-
-impl From<TpmEccCurve> for Tpm2shEccCurve {
-    fn from(curve: TpmEccCurve) -> Self {
-        match curve {
-            TpmEccCurve::NistP192 => Self::NistP192,
-            TpmEccCurve::NistP224 => Self::NistP224,
-            TpmEccCurve::NistP256 => Self::NistP256,
-            TpmEccCurve::NistP384 => Self::NistP384,
-            TpmEccCurve::NistP521 => Self::NistP521,
-            TpmEccCurve::BnP256 => Self::BnP256,
-            TpmEccCurve::BnP638 => Self::BnP638,
-            TpmEccCurve::Sm2P256 => Self::Sm2P256,
-            TpmEccCurve::BpP256R1 => Self::BpP256R1,
-            TpmEccCurve::BpP384R1 => Self::BpP384R1,
-            TpmEccCurve::BpP512R1 => Self::BpP512R1,
-            TpmEccCurve::Curve25519 => Self::Curve25519,
-            TpmEccCurve::Curve448 => Self::Curve448,
-            TpmEccCurve::None => Self::None,
-        }
-    }
-}
-
-impl From<Tpm2shEccCurve> for TpmEccCurve {
-    fn from(curve: Tpm2shEccCurve) -> Self {
-        match curve {
-            Tpm2shEccCurve::NistP192 => Self::NistP192,
-            Tpm2shEccCurve::NistP224 => Self::NistP224,
-            Tpm2shEccCurve::NistP256 => Self::NistP256,
-            Tpm2shEccCurve::NistP384 => Self::NistP384,
-            Tpm2shEccCurve::NistP521 => Self::NistP521,
-            Tpm2shEccCurve::BnP256 => Self::BnP256,
-            Tpm2shEccCurve::BnP638 => Self::BnP638,
-            Tpm2shEccCurve::Sm2P256 => Self::Sm2P256,
-            Tpm2shEccCurve::BpP256R1 => Self::BpP256R1,
-            Tpm2shEccCurve::BpP384R1 => Self::BpP384R1,
-            Tpm2shEccCurve::BpP512R1 => Self::BpP512R1,
-            Tpm2shEccCurve::Curve25519 => Self::Curve25519,
-            Tpm2shEccCurve::Curve448 => Self::Curve448,
-            Tpm2shEccCurve::None => Self::None,
-        }
-    }
-}
-
 /// Formats a human-readable algorithm string from a `TpmtPublic` structure.
 #[must_use]
 pub fn format_alg_from_public(public: &TpmtPublic) -> String {
-    let name_alg_str = Tpm2shAlgId(public.name_alg).to_string();
+    let name_alg_str = Hash::from(public.name_alg).to_string();
     match public.object_type {
         TpmAlgId::Rsa => {
             if let TpmuPublicParms::Rsa(params) = &public.parameters {
@@ -297,13 +177,13 @@ pub fn format_alg_from_public(public: &TpmtPublic) -> String {
         }
         TpmAlgId::Ecc => {
             if let TpmuPublicParms::Ecc(params) = &public.parameters {
-                let curve_str = Tpm2shEccCurve::from(params.curve_id).to_string();
+                let curve_str = EccCurve::from(params.curve_id).to_string();
                 format!("ecc-{curve_str}:{name_alg_str}")
             } else {
                 "ecc".to_string()
             }
         }
         TpmAlgId::KeyedHash => format!("keyedhash:{name_alg_str}"),
-        _ => Tpm2shAlgId(public.object_type).to_string(),
+        _ => Hash::from(public.object_type).to_string(),
     }
 }

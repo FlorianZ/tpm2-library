@@ -46,10 +46,10 @@ use clap::builder::styling::Style as AnsiStyle;
 use openssl::error::ErrorStack;
 use std::{io::Write, num::TryFromIntError};
 use thiserror::Error;
-use tpm2_crypto::CryptoError;
+use tpm2_crypto::Error as CryptoError;
 use tpm2_protocol::{
     data::{TpmCc, TpmRcBase},
-    TpmMarshalError, TpmUnmarshalError,
+    TpmProtocolError,
 };
 
 /// A trait for data structures that can be represented as a table row.
@@ -188,10 +188,8 @@ pub enum CommandError {
     Io(#[from] std::io::Error),
     #[error("openssl: {0}")]
     Openssl(#[from] ErrorStack),
-    #[error("protocol marshal: {0}")]
-    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
-    #[error("protocol unmarshal: {0}")]
-    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
+    #[error("protocol: {0}")]
+    Protocol(#[from] TpmProtocolError),
 }
 
 impl From<SessionError> for CommandError {
@@ -230,17 +228,5 @@ impl From<DeviceError> for CommandError {
             }
         }
         Self::Device(err)
-    }
-}
-
-impl From<TpmMarshalError> for CommandError {
-    fn from(err: TpmMarshalError) -> Self {
-        Self::ProtocolMarshal(err)
-    }
-}
-
-impl From<TpmUnmarshalError> for CommandError {
-    fn from(err: TpmUnmarshalError) -> Self {
-        Self::ProtocolUnmarshal(err)
     }
 }

@@ -5,10 +5,10 @@ use crate::{
     cli::Job,
     command::CommandError,
     device::{with_device, Device, DeviceError},
-    key::{Tpm2shAlgId, Tpm2shEccCurve},
     session::Session,
 };
 use clap::Args;
+use tpm2_crypto::{EccCurve, Hash};
 use tpm2_protocol::{
     constant::MAX_HANDLES,
     data::{
@@ -55,7 +55,7 @@ impl Algorithm {
                 match Self::test_rsa_parms(device, key_bits) {
                     Ok(()) => {
                         for &name_alg in &name_algs {
-                            results.push(format!("rsa-{}:{}", key_bits, Tpm2shAlgId(name_alg)));
+                            results.push(format!("rsa-{}:{}", key_bits, Hash::from(name_alg)));
                         }
                     }
                     Err(DeviceError::TpmRc(rc)) => {
@@ -83,8 +83,8 @@ impl Algorithm {
                 for &name_alg in &name_algs {
                     results.push(format!(
                         "ecc-{}:{}",
-                        Tpm2shEccCurve::from(curve_id),
-                        Tpm2shAlgId(name_alg)
+                        EccCurve::from(curve_id),
+                        Hash::from(name_alg)
                     ));
                 }
             }
@@ -92,7 +92,7 @@ impl Algorithm {
 
         if all_algs.contains(&TpmAlgId::KeyedHash) {
             for &name_alg in &name_algs {
-                results.push(format!("keyedhash:{}", Tpm2shAlgId(name_alg)));
+                results.push(format!("keyedhash:{}", Hash::from(name_alg)));
             }
         }
         Ok(results)

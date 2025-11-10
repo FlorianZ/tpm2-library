@@ -11,7 +11,7 @@ use crate::{
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc};
 use thiserror::Error;
-use tpm2_crypto::{hash_size as crypto_hash_size, make_name as crypto_make_name, CryptoError};
+use tpm2_crypto::{make_name as crypto_make_name, Error as CryptoError, Hash};
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{
@@ -19,7 +19,7 @@ use tpm2_protocol::{
         TpmsAuthCommand, TpmtSymDefObject,
     },
     frame::{
-        TpmAuthResponses, TpmEvictControlCommand, TpmFrame, TpmResponseBody,
+        TpmAuthResponses, TpmEvictControlCommand, TpmFrame, TpmResponse,
         TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
     TpmHandle,
@@ -209,7 +209,7 @@ impl<'a> Session<'a> {
                         .cache
                         .get_session(*vhandle)
                         .ok_or(SessionError::HandleNotFound("vtpm:", *vhandle))?;
-                    let nonce_size = crypto_hash_size(session.auth_hash)?;
+                    let nonce_size = Hash::from(session.auth_hash).size()?;
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
@@ -253,7 +253,7 @@ impl<'a> Session<'a> {
         command: &C,
         handles: &[u32],
         auth_list: &[Auth],
-    ) -> Result<(TpmResponseBody, TpmAuthResponses), SessionError> {
+    ) -> Result<(TpmResponse, TpmAuthResponses), SessionError> {
         let mut effective_auth_list: Vec<Auth> = Vec::with_capacity(auth_list.len());
         let mut vhandles: Vec<u32> = Vec::new();
         let mut phandles: Vec<TpmHandle> = Vec::new();
@@ -372,7 +372,7 @@ impl<'a> Session<'a> {
         auth_hash: TpmAlgId,
         bind: TpmHandle,
     ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), SessionError> {
-        let digest_len = crypto_hash_size(auth_hash)?;
+        let digest_len = Hash::from(auth_hash).size()?;
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())

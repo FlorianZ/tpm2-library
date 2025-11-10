@@ -19,7 +19,7 @@ use tpm2_protocol::{
         TpmuSymMode,
     },
     frame::{
-        TpmCommandBody, TpmContextLoadCommand, TpmContextLoadResponse, TpmContextSaveCommand,
+        TpmCommand, TpmContextLoadCommand, TpmContextLoadResponse, TpmContextSaveCommand,
         TpmContextSaveResponse, TpmCreateCommand, TpmCreatePrimaryCommand,
         TpmCreatePrimaryResponse, TpmCreateResponse, TpmDictionaryAttackLockResetCommand,
         TpmDictionaryAttackLockResetResponse, TpmEccParametersCommand, TpmEvictControlCommand,
@@ -30,7 +30,7 @@ use tpm2_protocol::{
         TpmPcrReadCommand, TpmPcrReadResponse, TpmPolicyGetDigestCommand,
         TpmPolicyGetDigestResponse, TpmPolicyOrCommand, TpmPolicyPcrCommand, TpmPolicyPcrResponse,
         TpmPolicyRestartCommand, TpmPolicyRestartResponse, TpmPolicySecretCommand,
-        TpmPolicySecretResponse, TpmReadPublicCommand, TpmReadPublicResponse, TpmResponseBody,
+        TpmPolicySecretResponse, TpmReadPublicCommand, TpmReadPublicResponse, TpmResponse,
         TpmStartAuthSessionCommand, TpmStartAuthSessionResponse, TpmTestParmsCommand,
         TpmUnsealCommand, TpmUnsealResponse,
     },
@@ -565,7 +565,7 @@ impl TpmPrint for TpmuKeyedhashScheme {
     }
 }
 
-impl TpmPrint for TpmCommandBody {
+impl TpmPrint for TpmCommand {
     fn print(
         &self,
         writer: &mut dyn Write,
@@ -608,7 +608,7 @@ impl TpmPrint for TpmCommandBody {
     }
 }
 
-impl TpmPrint for TpmResponseBody {
+impl TpmPrint for TpmResponse {
     fn print(
         &self,
         writer: &mut dyn Write,

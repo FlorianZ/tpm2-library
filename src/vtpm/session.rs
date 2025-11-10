@@ -8,10 +8,7 @@ use crate::{
     write_object,
 };
 use std::{any::Any, fs, path::Path};
-use tpm2_crypto::{
-    digest as crypto_digest, hash_size as crypto_hash_size, hmac as crypto_hmac,
-    kdfa as crypto_kdfa,
-};
+use tpm2_crypto::Hash;
 use tpm2_protocol::{
     basic::TpmBuffer,
     data::{
@@ -19,7 +16,7 @@ use tpm2_protocol::{
         TpmsAuthCommand, TpmsContext,
     },
     frame::TpmStartAuthSessionResponse,
-    TpmHandle, TpmMarshal, TpmMarshalError, TpmSized, TpmUnmarshal, TpmWriter,
+    TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
 /// Manages the state of an active authorization session.
@@ -44,15 +41,14 @@ impl VtpmSession {
         resp: &TpmStartAuthSessionResponse,
         auth_value: &[u8],
     ) -> Result<Self, VtpmError> {
-        let digest_len = crypto_hash_size(auth_hash)?;
+        let digest_len = Hash::from(auth_hash).size()?;
         let hmac_key_bytes = if (resp.session_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
             if auth_value.is_empty() {
                 Vec::new()
             } else {
                 let key_bits = u16::try_from(digest_len * 8)
                     .map_err(|_| VtpmError::InvalidKeyBits(digest_len.to_string()))?;
-                crypto_kdfa(
-                    auth_hash,
+                Hash::from(auth_hash).kdfa(
                     auth_value,
                     "ATH",
                     &resp.nonce_tpm,
@@ -83,15 +79,13 @@ impl VtpmSession {
     pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
         let session_bytes = fs::read(path)?;
         let (context, remainder) =
-            TpmsContext::unmarshal(&session_bytes).map_err(VtpmError::ProtocolUnmarshal)?;
+            TpmsContext::unmarshal(&session_bytes).map_err(VtpmError::Protocol)?;
         let (nonce_tpm, remainder) =
-            Tpm2bNonce::unmarshal(remainder).map_err(VtpmError::ProtocolUnmarshal)?;
+            Tpm2bNonce::unmarshal(remainder).map_err(VtpmError::Protocol)?;
         let (attributes, remainder) =
-            TpmaSession::unmarshal(remainder).map_err(VtpmError::ProtocolUnmarshal)?;
-        let (hmac_key, remainder) =
-            Tpm2bAuth::unmarshal(remainder).map_err(VtpmError::ProtocolUnmarshal)?;
-        let (auth_hash, _) =
-            TpmAlgId::unmarshal(remainder).map_err(VtpmError::ProtocolUnmarshal)?;
+            TpmaSession::unmarshal(remainder).map_err(VtpmError::Protocol)?;
+        let (hmac_key, remainder) = Tpm2bAuth::unmarshal(remainder).map_err(VtpmError::Protocol)?;
+        let (auth_hash, _) = TpmAlgId::unmarshal(remainder).map_err(VtpmError::Protocol)?;
 
         if !remainder.is_empty() {
             log::warn!("trailing data");
@@ -133,7 +127,7 @@ impl VtpmContext for VtpmSession {
     }
 
     fn save(&self, path: &Path) -> Result<(), VtpmError> {
-        let bytes = write_object(self).map_err(VtpmError::ProtocolMarshal)?;
+        let bytes = write_object(self).map_err(VtpmError::Protocol)?;
         fs::write(path, bytes)?;
         Ok(())
     }
@@ -198,7 +192,7 @@ impl TpmSized for VtpmSession {
 }
 
 impl TpmMarshal for VtpmSession {
-    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmMarshalError> {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmProtocolError> {
         self.context.marshal(writer)?;
         self.nonce_tpm.marshal(writer)?;
         self.attributes.marshal(writer)?;
@@ -271,7 +265,7 @@ pub fn create_auth(
     }
     cp_hash_chunks.push(parameters);
 
-    let cp_hash = crypto_digest(session.auth_hash, &cp_hash_chunks)?;
+    let cp_hash = Hash::from(session.auth_hash).digest(&cp_hash_chunks)?;
 
     let hmac_bytes = if (session.context.saved_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
         let hmac_key = [session.hmac_key.as_ref(), auth_value].concat();
@@ -301,7 +295,7 @@ pub fn create_auth(
         let attribute_bits = [session.attributes.bits()];
         hmac_payload.push(&attribute_bits);
 
-        crypto_hmac(session.auth_hash, &hmac_key, &hmac_payload)?
+        Hash::from(session.auth_hash).hmac(&hmac_key, &hmac_payload)?
     } else {
         Vec::new()
     };

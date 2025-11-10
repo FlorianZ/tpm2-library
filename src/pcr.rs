@@ -12,7 +12,7 @@ use crate::{
 };
 use std::collections::HashMap;
 use thiserror::Error;
-use tpm2_crypto::{digest as crypto_digest, CryptoError};
+use tpm2_crypto::{Error as CryptoError, Hash};
 use tpm2_policy_language::Expression;
 use tpm2_protocol::{
     data::{
@@ -20,7 +20,7 @@ use tpm2_protocol::{
         TpmuCapabilities,
     },
     frame::TpmPcrReadCommand,
-    TpmMarshalError, TpmUnmarshalError,
+    TpmProtocolError,
 };
 
 #[derive(Debug, Error)]
@@ -37,22 +37,8 @@ pub enum PcrError {
     Crypto(#[from] CryptoError),
     #[error("session: {0}")]
     Session(#[from] SessionError),
-    #[error("protocol marshal: {0}")]
-    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
-    #[error("protocol unmarshal: {0}")]
-    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
-}
-
-impl From<TpmMarshalError> for PcrError {
-    fn from(err: TpmMarshalError) -> Self {
-        Self::ProtocolMarshal(err)
-    }
-}
-
-impl From<TpmUnmarshalError> for PcrError {
-    fn from(err: TpmUnmarshalError) -> Self {
-        Self::ProtocolUnmarshal(err)
-    }
+    #[error("protocol: {0}")]
+    Protocol(#[from] TpmProtocolError),
 }
 
 /// Represents the state of a single PCR register.
@@ -194,7 +180,7 @@ pub fn pcr_read(
 /// creating a composite digest.
 pub fn pcr_composite_digest(pcrs: &[Pcr], alg: TpmAlgId) -> Result<Vec<u8>, PcrError> {
     let digests: Vec<&[u8]> = pcrs.iter().map(|p| p.value.as_slice()).collect();
-    Ok(crypto_digest(alg, &digests)?)
+    Ok(Hash::from(alg).digest(&digests)?)
 }
 
 /// Populates the AST with PCR digests by reading current values from the TPM.

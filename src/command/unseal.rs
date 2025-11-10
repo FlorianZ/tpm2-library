@@ -13,10 +13,10 @@ use std::io::IsTerminal;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe},
-    frame::{TpmAuthCommands, TpmCommandBody, TpmFrame, TpmUnsealCommand},
+    frame::{TpmAuthCommands, TpmCommand, TpmFrame, TpmUnsealCommand},
 };
 
-type KeyPolicyInfo = (Option<Vec<(TpmCommandBody, TpmAuthCommands)>>, TpmAlgId);
+type KeyPolicyInfo = (Option<Vec<(TpmCommand, TpmAuthCommands)>>, TpmAlgId);
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
@@ -38,7 +38,7 @@ impl Unseal {
     fn create_policy_session_from_blobs(
         job: &mut Session,
         device: &mut Device,
-        policy_commands: Option<&Vec<(TpmCommandBody, TpmAuthCommands)>>,
+        policy_commands: Option<&Vec<(TpmCommand, TpmAuthCommands)>>,
         key_name_alg: TpmAlgId,
     ) -> Result<Option<Auth>, CommandError> {
         let Some(commands) = policy_commands else {
@@ -64,12 +64,12 @@ impl Unseal {
                 let mut command_body = command_body.clone();
 
                 match &mut command_body {
-                    TpmCommandBody::PolicyPcr(cmd) => cmd.policy_session = policy_phandle.0.into(),
-                    TpmCommandBody::PolicyOr(cmd) => cmd.policy_session = policy_phandle.0.into(),
-                    TpmCommandBody::PolicyRestart(cmd) => {
+                    TpmCommand::PolicyPcr(cmd) => cmd.policy_session = policy_phandle.0.into(),
+                    TpmCommand::PolicyOr(cmd) => cmd.policy_session = policy_phandle.0.into(),
+                    TpmCommand::PolicyRestart(cmd) => {
                         cmd.session_handle = policy_phandle.0.into();
                     }
-                    TpmCommandBody::PolicySecret(cmd) => {
+                    TpmCommand::PolicySecret(cmd) => {
                         cmd.policy_session = policy_phandle.0.into();
                     }
                     _ => {

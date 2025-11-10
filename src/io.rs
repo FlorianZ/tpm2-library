@@ -11,7 +11,6 @@ use std::{
     io::{self, Read, Write},
     path::Path,
 };
-use tpm2_policy_language::PolicyState;
 use tpm2_tpmkey::TpmKey;
 
 /// Reads data from a file path or from stdin if the path is not provided.
@@ -46,14 +45,10 @@ pub fn write_key_data(
     tpm_key: &TpmKey,
     output: Option<&Path>,
     encoding: OutputEncoding,
-    policy_state: &PolicyState,
 ) -> Result<(), CommandError> {
     let output_bytes = match encoding {
-        OutputEncoding::Der => tpm_key.to_der(policy_state).map_err(KeyError::from)?,
-        OutputEncoding::Pem => tpm_key
-            .to_pem(policy_state)
-            .map_err(KeyError::from)?
-            .into_bytes(),
+        OutputEncoding::Der => tpm_key.to_der().map_err(KeyError::from)?,
+        OutputEncoding::Pem => tpm_key.to_pem().map_err(KeyError::from)?.into_bytes(),
     };
 
     write_data(writer, output, &output_bytes)

@@ -23,10 +23,10 @@ use openssl::{
 };
 use rand;
 use tpm2_crypto::{
-    ecdh as crypto_ecdh, hash_size as crypto_hash_size, hmac as crypto_hmac, kdfa as crypto_kdfa,
-    make_name as crypto_make_name, CryptoError, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
+    make_name as crypto_make_name, EccCurve, Error as CryptoError, Hash, KDF_LABEL_INTEGRITY,
+    KDF_LABEL_STORAGE,
 };
-use tpm2_policy_language::{Handle, HandleClass, PolicyState};
+use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -36,7 +36,7 @@ use tpm2_protocol::{
         TpmuPublicParms, TpmuSensitiveComposite,
     },
     frame::TpmImportCommand,
-    TpmHandle, TpmMarshal, TpmWriter,
+    TpmHandle, TpmMarshal, TpmProtocolError, TpmWriter,
 };
 use tpm2_tpmkey::TpmKey;
 
@@ -92,7 +92,6 @@ impl Job for Convert {
                 &tpm_key,
                 self.output_args.output.as_deref(),
                 self.output_encoding_args.output_encoding,
-                &PolicyState::default(),
             )
         })
     }
@@ -142,7 +141,7 @@ impl Convert {
         ctx.set_rsa_padding(Padding::PKCS1_OAEP)?;
         ctx.set_rsa_oaep_md(oaep_md)?;
         ctx.set_rsa_mgf1_md(oaep_md)?;
-        ctx.set_rsa_oaep_label("DUPLICATE\0".as_bytes())?;
+        ctx.set_rsa_oaep_label("DUPLICATE\\0".as_bytes())?;
 
         let mut encrypted_seed = vec![0; pkey.size()];
         let len = ctx.encrypt(seed, Some(encrypted_seed.as_mut_slice()))?;
@@ -166,15 +165,17 @@ impl Convert {
             )),
         }?;
 
-        crypto_ecdh(curve_id, parent_point, parent_public.name_alg, rng).map_err(|e| {
-            if let CryptoError::Rc(TpmRcBase::Curve) = e {
-                CommandError::InvalidInput(format!(
-                    "Unsupported ECC curve specified by parent key: {curve_id:?}"
-                ))
-            } else {
-                CommandError::Crypto(e)
-            }
-        })
+        EccCurve::from(curve_id)
+            .ecdh(parent_point, Hash::from(parent_public.name_alg), rng)
+            .map_err(|e| {
+                if let CryptoError::InvalidEccCurve(_) = e {
+                    CommandError::InvalidInput(format!(
+                        "Unsupported ECC curve specified by parent key: {curve_id:?}"
+                    ))
+                } else {
+                    CommandError::Crypto(e)
+                }
+            })
     }
 
     /// Generates the appropriate seed and encrypted seed based on parent key type.
@@ -186,7 +187,7 @@ impl Convert {
         match parent_key_type {
             TpmAlgId::Rsa => {
                 let parent_name_alg = parent_public.name_alg;
-                let seed_size = crypto_hash_size(parent_name_alg)? as usize;
+                let seed_size = Hash::from(parent_name_alg).size()?;
                 let mut seed = vec![0u8; seed_size];
                 rand_bytes(&mut seed)?;
                 let encrypted_seed = Self::create_import_seed_rsa(parent_public, &seed)?;
@@ -212,28 +213,16 @@ impl Convert {
         seed: &[u8],
         object_name: &Tpm2bName,
     ) -> Result<(Vec<u8>, Vec<u8>), CommandError> {
-        let sym_key = crypto_kdfa(
-            parent_name_alg,
-            seed,
-            KDF_LABEL_STORAGE,
-            object_name.as_ref(),
-            &[],
-            128,
-        )
-        .map_err(CommandError::Crypto)?;
+        let sym_key = Hash::from(parent_name_alg)
+            .kdfa(seed, KDF_LABEL_STORAGE, object_name.as_ref(), &[], 128)
+            .map_err(CommandError::Crypto)?;
 
-        let key_bits = crypto_hash_size(parent_name_alg)? * 8;
+        let key_bits = Hash::from(parent_name_alg).size()? * 8;
         let key_bits = u16::try_from(key_bits)?;
 
-        let hmac_key = crypto_kdfa(
-            parent_name_alg,
-            seed,
-            KDF_LABEL_INTEGRITY,
-            &[],
-            &[],
-            key_bits,
-        )
-        .map_err(CommandError::Crypto)?;
+        let hmac_key = Hash::from(parent_name_alg)
+            .kdfa(seed, KDF_LABEL_INTEGRITY, &[], &[], key_bits)
+            .map_err(CommandError::Crypto)?;
 
         Ok((sym_key, hmac_key))
     }
@@ -289,12 +278,9 @@ impl Convert {
         encrypted_sensitive_data: &[u8],
         object_name: &Tpm2bName,
     ) -> Result<Tpm2bPrivate, CommandError> {
-        let final_mac = crypto_hmac(
-            parent_name_alg,
-            hmac_key,
-            &[encrypted_sensitive_data, object_name.as_ref()],
-        )
-        .map_err(CommandError::Crypto)?;
+        let final_mac = Hash::from(parent_name_alg)
+            .hmac(hmac_key, &[encrypted_sensitive_data, object_name.as_ref()])
+            .map_err(CommandError::Crypto)?;
 
         let duplicate_blob = {
             let mut duplicate_blob_buf = [0u8; TPM_MAX_COMMAND_SIZE as usize];
@@ -302,7 +288,8 @@ impl Convert {
                 let mut writer = TpmWriter::new(&mut duplicate_blob_buf);
                 Tpm2bDigest::try_from(final_mac.as_slice())
                     .map_err(|_| CommandError::CapacityExceeded)?
-                    .marshal(&mut writer)?;
+                    .marshal(&mut writer)
+                    .map_err(|e: TpmProtocolError| e)?;
                 writer.write_bytes(encrypted_sensitive_data)?;
                 writer.len()
             };

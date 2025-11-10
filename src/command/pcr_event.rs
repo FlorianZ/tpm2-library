@@ -6,12 +6,12 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs},
     device::with_device,
     io::read_file_input,
-    key::Tpm2shAlgId,
     parse_hex_u32,
     pcr::pcr_get_bank_list,
     session::Session,
 };
 use clap::Args;
+use tpm2_crypto::Hash;
 use tpm2_protocol::{
     data::{Tpm2bEvent, TpmCc, TpmuHa},
     frame::TpmPcrEventCommand,
@@ -67,7 +67,7 @@ impl Job for PcrEvent {
                     if let TpmuHa::Digest(bytes) = digest_struct.digest {
                         Some(format!(
                             "{}:{}:{}",
-                            Tpm2shAlgId(bank.alg),
+                            Hash::from(bank.alg),
                             self.pcr_index.0,
                             hex::encode(bytes)
                         ))

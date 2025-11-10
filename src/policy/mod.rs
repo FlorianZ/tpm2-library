@@ -1,10 +1,10 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
+//! SPDX-License-Identifier: MIT OR Apache-2.0
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! This module contains the executor for the unified policy language.
 
-use tpm2_policy_language::{Error as PolicyLanguageError, Expression, HandleClass, PolicyAlgId};
+use tpm2_policy_language::{Error as PolicyLanguageError, Expression, HandleClass};
 
 use crate::{
     device::DeviceError,
@@ -15,10 +15,10 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::num::ParseIntError;
 use thiserror::Error;
-use tpm2_crypto::CryptoError;
+use tpm2_crypto::Error as CryptoError;
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmlDigest, TpmlPcrSelection},
-    TpmMarshalError, TpmUnmarshalError,
+    TpmProtocolError,
 };
 
 #[derive(Debug, Error)]
@@ -55,22 +55,8 @@ pub enum PolicyError {
     PcrValueMissing(String),
     #[error("policy language: {0}")]
     PolicyLanguage(#[from] PolicyLanguageError),
-    #[error("protocol marshal: {0}")]
-    ProtocolMarshal(tpm2_protocol::TpmMarshalError),
-    #[error("protocol unmarshal: {0}")]
-    ProtocolUnmarshal(tpm2_protocol::TpmUnmarshalError),
-}
-
-impl From<TpmMarshalError> for PolicyError {
-    fn from(err: TpmMarshalError) -> Self {
-        Self::ProtocolMarshal(err)
-    }
-}
-
-impl From<TpmUnmarshalError> for PolicyError {
-    fn from(err: TpmUnmarshalError) -> Self {
-        Self::ProtocolUnmarshal(err)
-    }
+    #[error("protocol: {0}")]
+    Protocol(#[from] TpmProtocolError),
 }
 
 /// Pre-resolved data needed for policy execution.
@@ -176,7 +162,6 @@ pub fn execute_policy(
         Expression::Secret {
             auth_handle,
             password,
-            cp_hash,
         } => {
             let h_val = if let Expression::Handle(handle) = &**auth_handle {
                 let val = handle.value().ok_or(PolicyError::InvalidExpression(
@@ -206,14 +191,7 @@ pub fn execute_policy(
                 .as_ref()
                 .map(|expr| expression_to_bytes(expr))
                 .transpose()?;
-            let cp_hash_digest = cp_hash
-                .as_ref()
-                .map(|hex_str| -> Result<Tpm2bDigest, PolicyError> {
-                    let bytes = hex::decode(hex_str)?;
-                    Tpm2bDigest::try_from(bytes.as_slice())
-                        .map_err(|_| PolicyError::CapacityExceeded)
-                })
-                .transpose()?;
+            let cp_hash_digest = None;
 
             session.policy_secret(h_val, name, password_bytes.as_deref(), cp_hash_digest)?;
 
@@ -264,7 +242,7 @@ pub fn populate_pcr_digests<S: BuildHasher>(
                 let selection_strings: Vec<String> = selections
                     .iter()
                     .map(|tpms| {
-                        let alg_str = PolicyAlgId(tpms.hash).to_string();
+                        let alg_str = tpm2_crypto::Hash::from(tpms.hash).to_string();
                         let mut indices = Vec::new();
                         for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
                             for bit_index in 0..8 {
@@ -297,7 +275,6 @@ pub fn populate_pcr_digests<S: BuildHasher>(
         Expression::Secret {
             auth_handle,
             password,
-            ..
         } => {
             populate_pcr_digests(auth_handle, pcr_map)?;
             if let Some(pwd_expr) = password {

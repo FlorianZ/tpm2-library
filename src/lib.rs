@@ -32,7 +32,7 @@ pub static TEARDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// Returns a `TpmError` if the object cannot be serialized into the buffer.
 pub fn write_object<T: tpm2_protocol::TpmMarshal>(
     obj: &T,
-) -> Result<Vec<u8>, tpm2_protocol::TpmMarshalError> {
+) -> Result<Vec<u8>, tpm2_protocol::TpmProtocolError> {
     let mut buf = vec![0u8; tpm2_protocol::constant::TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = tpm2_protocol::TpmWriter::new(&mut buf);

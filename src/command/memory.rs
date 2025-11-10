@@ -6,13 +6,14 @@ use crate::{
     cli::Job,
     command::{print_table, AuthArgs, CommandError, Tabled},
     device::{self, Device, DeviceError},
-    key::{Alg, AlgInfo, Tpm2shAlgId},
+    key::{Alg, AlgInfo},
     session::Session,
 };
 use clap::Args;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
 use strum::Display;
+use tpm2_crypto::Hash;
 use tpm2_policy_language::{Auth, Handle};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
@@ -320,12 +321,12 @@ impl Memory {
         }
     }
 
-    fn fetch_hash_alg(oid_nid: Nid) -> Result<TpmAlgId, CommandError> {
+    fn fetch_hash_alg(oid_nid: Nid) -> Result<Hash, CommandError> {
         match oid_nid {
-            Nid::SHA1WITHRSAENCRYPTION => Ok(TpmAlgId::Sha1),
-            Nid::ECDSA_WITH_SHA256 | Nid::SHA256WITHRSAENCRYPTION => Ok(TpmAlgId::Sha256),
-            Nid::ECDSA_WITH_SHA384 | Nid::SHA384WITHRSAENCRYPTION => Ok(TpmAlgId::Sha384),
-            Nid::ECDSA_WITH_SHA512 | Nid::SHA512WITHRSAENCRYPTION => Ok(TpmAlgId::Sha512),
+            Nid::SHA1WITHRSAENCRYPTION => Ok(Hash::Sha1),
+            Nid::ECDSA_WITH_SHA256 | Nid::SHA256WITHRSAENCRYPTION => Ok(Hash::Sha256),
+            Nid::ECDSA_WITH_SHA384 | Nid::SHA384WITHRSAENCRYPTION => Ok(Hash::Sha384),
+            Nid::ECDSA_WITH_SHA512 | Nid::SHA512WITHRSAENCRYPTION => Ok(Hash::Sha512),
             _ => Err(CommandError::UnsupportedSignatureAlgorithm(Alg {
                 name: oid_nid.long_name().unwrap_or("unknown").to_string(),
                 object_type: TpmAlgId::Null,
@@ -342,7 +343,7 @@ impl Memory {
 
         let sig_nid = cert.signature_algorithm().object().nid();
         let sig_alg = Self::fetch_hash_alg(sig_nid)?;
-        let sig_alg_str = Tpm2shAlgId(sig_alg).to_string();
+        let sig_alg_str = sig_alg.to_string();
 
         let pkey = cert.public_key()?;
         match pkey.id() {

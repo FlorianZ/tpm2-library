@@ -13,15 +13,15 @@ use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPublic, TpmRcBase, TpmSt, TpmsContext},
-    frame::{tpm_unmarshal_command, TpmAuthCommands, TpmCommandBody},
-    TpmHandle, TpmMarshal, TpmMarshalError, TpmSized, TpmUnmarshal, TpmUnmarshalError, TpmWriter,
+    frame::{tpm_unmarshal_command, TpmAuthCommands, TpmCommand},
+    TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
 /// Serialize a command and its auth sessions into `Vec<u8>`.
 fn marshal_command(
-    command: &TpmCommandBody,
+    command: &TpmCommand,
     sessions: &TpmAuthCommands,
-) -> Result<Vec<u8>, TpmMarshalError> {
+) -> Result<Vec<u8>, TpmProtocolError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let tag = if sessions.is_empty() {
         TpmSt::NoSessions
@@ -43,13 +43,13 @@ pub struct VtpmKey {
     pub handle: TpmHandle,
     pub public: Tpm2bPublic,
     pub parent: Tpm2bPublic,
-    pub policy: Vec<(TpmCommandBody, TpmAuthCommands)>,
+    pub policy: Vec<(TpmCommand, TpmAuthCommands)>,
 }
 
 impl VtpmKey {
     pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
         let content = fs::read(path)?;
-        let (key, remainder) = Self::unmarshal(&content).map_err(VtpmError::ProtocolUnmarshal)?;
+        let (key, remainder) = Self::unmarshal(&content).map_err(VtpmError::Protocol)?;
         if !remainder.is_empty() {
             log::warn!("trailing data");
         }
@@ -73,18 +73,18 @@ impl TpmSized for VtpmKey {
 }
 
 impl TpmMarshal for VtpmKey {
-    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmMarshalError> {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmProtocolError> {
         self.context.marshal(writer)?;
         self.handle.marshal(writer)?;
         self.public.marshal(writer)?;
         self.parent.marshal(writer)?;
         u32::try_from(self.policy.len())
-            .map_err(|_| TpmMarshalError::InvalidValue)?
+            .map_err(|_| TpmProtocolError::OperationFailed)?
             .marshal(writer)?;
         for (cmd, auth) in &self.policy {
             let blob = marshal_command(cmd, auth)?;
             TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(blob.as_slice())
-                .map_err(|_| TpmMarshalError::CapacityExceeded)?
+                .map_err(|_| TpmProtocolError::CapacityExceeded)?
                 .marshal(writer)?;
         }
         Ok(())
@@ -92,7 +92,7 @@ impl TpmMarshal for VtpmKey {
 }
 
 impl TpmUnmarshal for VtpmKey {
-    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmUnmarshalError> {
+    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmProtocolError> {
         let (context, remainder) = TpmsContext::unmarshal(buffer)?;
         let (handle, remainder) = TpmHandle::unmarshal(remainder)?;
         let (public, remainder) = Tpm2bPublic::unmarshal(remainder)?;
@@ -141,7 +141,7 @@ impl VtpmContext for VtpmKey {
     }
 
     fn save(&self, path: &Path) -> Result<(), VtpmError> {
-        let bytes = write_object(self).map_err(VtpmError::ProtocolMarshal)?;
+        let bytes = write_object(self).map_err(VtpmError::Protocol)?;
         fs::write(path, bytes)?;
         Ok(())
     }
