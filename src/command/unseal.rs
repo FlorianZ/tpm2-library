@@ -4,7 +4,7 @@
 use crate::{
     cli::Job,
     command::{AuthArgs, CommandError},
-    device::{with_device, Device, DeviceError},
+    device::{with_device, Device},
     session::{Session, SessionError},
     vtpm::VtpmSession,
 };
@@ -12,7 +12,7 @@ use clap::Args;
 use std::io::IsTerminal;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
-    data::{TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe},
+    data::{TpmAlgId, TpmCc, TpmRh, TpmSe},
     frame::{TpmAuthCommands, TpmCommand, TpmFrame, TpmUnsealCommand},
 };
 
@@ -150,20 +150,13 @@ impl Job for Unseal {
 
             let (resp, _) = job
                 .execute(device, &unseal_cmd, &unseal_handles, &auths)
-                .map_err(|e| {
+                .map_err(|e: SessionError| {
                     if let Some(Auth::Session(vhandle)) = policy_session_auth {
                         if let Err(e) = job.cache.remove(device, vhandle) {
                             log::error!("Failed to clean up policy session: {e}");
                         }
                     }
-                    if let SessionError::Device(DeviceError::TpmRc(rc)) = &e {
-                        if rc.base() == TpmRcBase::PolicyFail {
-                            return CommandError::InvalidInput(
-                                "policy authorization failed".to_string(),
-                            );
-                        }
-                    }
-                    e.into()
+                    Into::<CommandError>::into(e)
                 })?;
 
             if let Some(Auth::Session(vhandle)) = policy_session_auth {

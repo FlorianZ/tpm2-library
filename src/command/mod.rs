@@ -146,6 +146,8 @@ pub enum CommandError {
     InvalidParent(&'static str, u32),
     #[error("handle pattern not allowed: {0}")]
     PatternNotAllowed(String),
+    #[error("policy denied")]
+    PolicyDenied,
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
     #[error("sensitive data denied")]
@@ -225,6 +227,9 @@ impl From<DeviceError> for CommandError {
             }
             if base == TpmRcBase::Lockout {
                 return Self::DictionaryAttackLocked;
+            }
+            if base == TpmRcBase::PolicyFail {
+                return Self::PolicyDenied;
             }
         }
         Self::Device(err)
