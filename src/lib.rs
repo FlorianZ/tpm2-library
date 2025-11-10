@@ -28,9 +28,7 @@ pub use expression::*;
 pub use handle::*;
 
 use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
-use tpm2_crypto::{
-    digest as crypto_digest, hash_from_name as crypto_hash_from_name, hash_size as crypto_hash_size,
-};
+use tpm2_crypto::Hash;
 use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
     data::{
@@ -74,10 +72,11 @@ fn parse_tpml_pcr_selection_str(
             .split_once(':')
             .ok_or_else(|| LanguageError::InvalidPcrSelection(part.to_string()))?;
 
-        let alg =
-            crypto_hash_from_name(alg_str).map_err(|_| LanguageError::InvalidPcrDigestAlgorithm)?;
-        if !context.pcr_banks.contains(&alg) {
-            return Err(LanguageError::PcrBankMissing(alg));
+        let alg = alg_str
+            .parse::<Hash>()
+            .map_err(|_| LanguageError::InvalidPcrDigestAlgorithm)?;
+        if !context.pcr_banks.contains(&alg.into()) {
+            return Err(LanguageError::PcrBankMissing(alg.into()));
         }
 
         let indices: Vec<u32> = indices_str
@@ -96,7 +95,7 @@ fn parse_tpml_pcr_selection_str(
         }
 
         list.push(TpmsPcrSelection {
-            hash: alg,
+            hash: alg.into(),
             pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
                 .map_err(|_| LanguageError::PcrDigestTooLarge(pcr_select_bytes.len()))?,
         })
@@ -399,8 +398,9 @@ fn update_policy_digest(
     chunks.push(&cc_bytes);
     chunks.extend(params.iter());
 
-    let new_digest_bytes =
-        crypto_digest(hash_alg, &chunks).map_err(|_| LanguageError::OperationFailed)?;
+    let new_digest_bytes = Hash::from(hash_alg)
+        .digest(&chunks)
+        .map_err(|_| LanguageError::OperationFailed)?;
     *current_digest = Tpm2bDigest::try_from(new_digest_bytes.as_slice())
         .map_err(|_| LanguageError::OperationFailed)?;
 
@@ -410,8 +410,9 @@ fn update_policy_digest(
 impl SoftwarePolicySession {
     /// Creates a new software policy session.
     fn new(hash_alg: TpmAlgId) -> Result<Self, LanguageError> {
-        let digest_size =
-            crypto_hash_size(hash_alg).map_err(|_| LanguageError::InvalidPolicyDigestAlgorithm)?;
+        let digest_size = Hash::from(hash_alg)
+            .size()
+            .map_err(|_| LanguageError::InvalidPolicyDigestAlgorithm)?;
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
             .map_err(|_| LanguageError::OperationFailed)?;
         Ok(Self {
@@ -464,17 +465,13 @@ impl SoftwarePolicySession {
         let policy_ref = Tpm2bNonce::default();
         let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
 
-        let intermediate_digest_bytes = crypto_digest(
-            self.hash_alg,
-            &[self.digest.as_ref(), &cc_bytes, auth_handle_name.as_ref()],
-        )
-        .map_err(|_| LanguageError::OperationFailed)?;
+        let intermediate_digest_bytes = Hash::from(self.hash_alg)
+            .digest(&[self.digest.as_ref(), &cc_bytes, auth_handle_name.as_ref()])
+            .map_err(|_| LanguageError::OperationFailed)?;
 
-        let final_digest_bytes = crypto_digest(
-            self.hash_alg,
-            &[&intermediate_digest_bytes, policy_ref.as_ref()],
-        )
-        .map_err(|_| LanguageError::OperationFailed)?;
+        let final_digest_bytes = Hash::from(self.hash_alg)
+            .digest(&[&intermediate_digest_bytes, policy_ref.as_ref()])
+            .map_err(|_| LanguageError::OperationFailed)?;
 
         self.digest = Tpm2bDigest::try_from(final_digest_bytes.as_slice())
             .map_err(|_| LanguageError::OperationFailed)?;

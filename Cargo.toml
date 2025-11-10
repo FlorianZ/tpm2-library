@@ -2,20 +2,20 @@
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
 description = "TPM 2.0 policy language compiler and interpreter"
 edition = "2021"
-homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-policy-language.git/about/?h=main"
+homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-policy-language.git/about"
 license = "MIT OR Apache-2.0"
 name = "tpm2-policy-language"
 readme = "README.md"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-policy-language.git"
-rust-version = "1.79"
-version = "0.5.0"
+rust-version = "1.81"
+version = "0.5.1"
 
 [dependencies]
 hex = "0.4"
 strum = { version = "0.26", features = ["derive"] }
 thiserror = "1.0"
-tpm2-crypto = "0.5.3"
-tpm2-protocol = "0.14.0"
+tpm2-crypto = "0.5.5"
+tpm2-protocol = "0.14.1"
 
 [dev-dependencies]
 rstest = "0.21"

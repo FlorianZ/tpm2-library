@@ -45,8 +45,6 @@ pub enum LanguageError {
     PcrIndexTooLarge(usize, String),
     #[error("PCR selection size too large: {0}")]
     PcrSelectionTooLarge(String),
-    #[error("PCR digest is missing")]
-    PcrValueMissing,
     #[error("expression has too many branches: {0}")]
     TooManyBranches(String),
     #[error("trailing data")]
@@ -57,6 +55,4 @@ pub enum LanguageError {
     UnexpectedEnd,
     #[error("unexpected token: {0}")]
     UnexpectedToken(String),
-    #[error("unsupported hash algorithm: {0:?}")]
-    UnsupportedHashAlgorithm(TpmAlgId),
 }

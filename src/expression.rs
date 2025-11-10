@@ -7,7 +7,7 @@ use crate::{
     SoftwarePolicySession,
 };
 use std::fmt;
-use tpm2_crypto::hash_to_name as crypto_hash_to_name;
+use tpm2_crypto::Hash;
 use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmaSession, TpmlDigest,
@@ -109,10 +109,7 @@ impl fmt::Display for Expression {
                 let selection_strings: Vec<String> = selections
                     .iter()
                     .map(|tpms| {
-                        let alg_str = match crypto_hash_to_name(tpms.hash) {
-                            Ok(alg_str) => alg_str,
-                            Err(_) => "unknown".to_string(),
-                        };
+                        let alg_str = Hash::from(tpms.hash).to_string();
                         let mut indices = Vec::new();
                         for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
                             for bit_index in 0..8 {
