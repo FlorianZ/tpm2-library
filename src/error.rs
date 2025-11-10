@@ -3,7 +3,8 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use thiserror::Error;
-use tpm2_protocol::data::{TpmAlgId, TpmCc};
+use tpm2_crypto::Hash;
+use tpm2_protocol::data::TpmCc;
 
 /// The top-level error type.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -37,8 +38,8 @@ pub enum LanguageError {
     OperationFailed,
     #[error("parenthesis mismatch")]
     ParenthesisMismatch,
-    #[error("PCR bank not available: {0:?}")]
-    PcrBankMissing(TpmAlgId),
+    #[error("PCR bank not available: {0}")]
+    PcrBankMissing(Hash),
     #[error("PCR digest is missing")]
     PcrDigestMissing,
     #[error("invalid digest size: {0}")]

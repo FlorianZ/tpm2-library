@@ -76,7 +76,7 @@ fn parse_tpml_pcr_selection_str(
             .parse::<Hash>()
             .map_err(|_| LanguageError::InvalidPcrDigestAlgorithm)?;
         if !context.pcr_banks.contains(&alg.into()) {
-            return Err(LanguageError::PcrBankMissing(alg.into()));
+            return Err(LanguageError::PcrBankMissing(alg));
         }
 
         let indices: Vec<u32> = indices_str
