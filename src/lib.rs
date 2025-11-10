@@ -349,21 +349,16 @@ fn parse_secret_call<'a>(
     context: &PolicyState,
 ) -> Result<Expression, Error> {
     let args = parse_call_args(tokens, context)?;
-    let arg_string = args
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ");
 
     if args.is_empty() || args.len() > 2 {
-        return Err(LanguageError::InvalidExpression(format!("secret({arg_string})")).into());
+        return Err(LanguageError::InvalidSecretCall.into());
     }
 
     let mut arg_iter = args.into_iter();
     let auth_handle = if let Some(handle) = arg_iter.next() {
         Box::new(handle)
     } else {
-        return Err(LanguageError::InvalidExpression(format!("secret({arg_string})")).into());
+        return Err(LanguageError::InvalidSecretCall.into());
     };
     let password = arg_iter.next().map(Box::new);
 

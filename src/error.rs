@@ -2,6 +2,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
+use crate::Expression;
 use thiserror::Error;
 use tpm2_crypto::Hash;
 use tpm2_protocol::data::TpmCc;
@@ -23,13 +24,15 @@ pub enum LanguageError {
     #[error("authorization list is too long")]
     AuthListTooLong,
     #[error("invalid expression: {0}")]
-    InvalidExpression(String),
+    InvalidExpression(Expression),
     #[error("invalid token: {0}")]
     InvalidToken(String),
     #[error("invalid PCR digest")]
     InvalidPcrDigest,
     #[error("invalid PCR digest algorithm")]
     InvalidPcrDigestAlgorithm,
+    #[error("invalid secret call")]
+    InvalidSecretCall,
     #[error("PCR selection string is not valid: {0}")]
     InvalidPcrSelection(String),
     #[error("invalid policy digest algorithm")]

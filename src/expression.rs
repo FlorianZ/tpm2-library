@@ -332,7 +332,7 @@ impl Expression {
                 expr.to_command_list_walk_secret(command_list, software_session, context)
             }
             expr @ (Expression::Auth { .. } | Expression::Handle { .. }) => {
-                Err(LanguageError::InvalidExpression(expr.to_string()).into())
+                Err(LanguageError::InvalidExpression(expr.clone()).into())
             }
         }
     }
@@ -346,7 +346,7 @@ impl Expression {
             Expression::Pcr {
                 selections, digest, ..
             } => (selections, digest),
-            expr => return Err(LanguageError::InvalidExpression(expr.to_string()).into()),
+            expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
         };
 
         let digest_string = digest.as_ref().ok_or(LanguageError::PcrDigestMissing)?;
@@ -383,13 +383,13 @@ impl Expression {
                 auth_handle,
                 password,
             } => (auth_handle, password),
-            expr => return Err(LanguageError::InvalidExpression(expr.to_string()).into()),
+            expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
         };
 
         let h_val = if let Expression::Handle(handle) = &**auth_handle {
             handle.value().ok_or(HandleError::PatternDenied)?
         } else {
-            return Err(LanguageError::InvalidExpression(auth_handle.to_string()).into());
+            return Err(LanguageError::InvalidExpression((**auth_handle).clone()).into());
         };
 
         let ht = h_val >> 24;
@@ -400,7 +400,7 @@ impl Expression {
         let name = context
             .names
             .get(&h_val)
-            .ok_or_else(|| LanguageError::InvalidExpression(format!("secret(tpm:{h_val:08x})")))?;
+            .ok_or_else(|| LanguageError::InvalidExpression(self.clone()))?;
 
         let cmd = TpmPolicySecretCommand {
             auth_handle: h_val.into(),
@@ -445,7 +445,7 @@ impl Expression {
     ) -> Result<Tpm2bDigest, Error> {
         let branches = match self {
             Expression::Or(branches) => branches,
-            expr => return Err(LanguageError::InvalidExpression(expr.to_string()).into()),
+            expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
         };
 
         let mut digest_list = TpmlDigest::new();
