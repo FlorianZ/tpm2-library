@@ -24,14 +24,12 @@ use tpm2_policy_language::{Expression, PolicyState};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmSt},
-    frame::{
-        tpm_marshal_command, tpm_unmarshal_command, TpmAuthCommands, TpmCommandBody, TpmFrame,
-    },
-    TpmHandle, TpmMarshal, TpmMarshalError, TpmUnmarshal, TpmWriter,
+    frame::{tpm_unmarshal_command, TpmAuthCommands, TpmCommand, TpmFrame},
+    TpmHandle, TpmMarshal, TpmProtocolError, TpmUnmarshal, TpmWriter,
 };
 
 /// Serialize a type implementing `TpmMarshal` type into `Vec<u8>`.
-fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmMarshalError> {
+fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
@@ -61,9 +59,9 @@ struct TpmPolicyCommandAsn1 {
 impl TpmPolicyCommandAsn1 {
     /// Marshals a command and auth session into an ASN.1-compatible struct.
     fn from_command(
-        command: &TpmCommandBody,
+        command: &TpmCommand,
         sessions: &TpmAuthCommands,
-    ) -> Result<Self, TpmMarshalError> {
+    ) -> Result<Self, TpmProtocolError> {
         let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
         let tag = if sessions.is_empty() {
             TpmSt::NoSessions
@@ -72,7 +70,7 @@ impl TpmPolicyCommandAsn1 {
         };
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
-            tpm_marshal_command(command, tag, sessions, &mut writer)?;
+            command.marshal_frame(tag, sessions, &mut writer)?;
             writer.len()
         };
         buf.truncate(len);
@@ -126,7 +124,7 @@ pub struct TpmKey {
     pub parent_public: Option<Tpm2bPublic>,
     pub key_type: TpmAlgId,
     pub empty_auth: Option<bool>,
-    pub policy: Option<Vec<(TpmCommandBody, TpmAuthCommands)>>,
+    pub policy: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
 }
 
 fn oid_to_key_type(oid: &ObjectIdentifier) -> Result<TpmAlgId, Error> {
@@ -234,7 +232,10 @@ impl TpmKey {
             .map(|pp| pp.inner.object_type == TpmAlgId::Rsa);
 
         let parent_pubkey_bytes = if let Some(parent_public) = &self.parent_public {
-            Some(OctetString::copy_from_slice(&write_object(parent_public)?))
+            Some(OctetString::copy_from_slice(
+                &write_object(parent_public)
+                    .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))?,
+            ))
         } else {
             None
         };
@@ -254,10 +255,10 @@ impl TpmKey {
                 let mut current_branch = Vec::new();
 
                 for (cmd, auth) in commands {
-                    let asn1_cmd =
-                        TpmPolicyCommandAsn1::from_command(cmd, auth).map_err(Error::from)?;
+                    let asn1_cmd = TpmPolicyCommandAsn1::from_command(cmd, auth)
+                        .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))?;
 
-                    if matches!(cmd, TpmCommandBody::PolicyRestart(_)) {
+                    if matches!(cmd, TpmCommand::PolicyRestart(_)) {
                         if !current_branch.is_empty() {
                             branches.push(TpmAuthPolicyAsn1 {
                                 name: None,
@@ -280,7 +281,8 @@ impl TpmKey {
                 let asn1_commands = commands
                     .iter()
                     .map(|(cmd, auth)| {
-                        TpmPolicyCommandAsn1::from_command(cmd, auth).map_err(Error::from)
+                        TpmPolicyCommandAsn1::from_command(cmd, auth)
+                            .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))
                     })
                     .collect::<Result<_, Error>>()?;
                 (Some(asn1_commands), None)
@@ -299,17 +301,26 @@ impl TpmKey {
             rsa_parent,
             parent_pubkey: parent_pubkey_bytes,
             parent: self.parent_handle.0,
-            pubkey: OctetString::copy_from_slice(&write_object(&self.public)?),
-            privkey: OctetString::copy_from_slice(&write_object(&self.private)?),
+            pubkey: OctetString::copy_from_slice(
+                &write_object(&self.public)
+                    .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))?,
+            ),
+            privkey: OctetString::copy_from_slice(
+                &write_object(&self.private)
+                    .map_err(|e| Error::Der(DerError::InvalidData(e.to_string())))?,
+            ),
         })
     }
 
     /// Converts the ASN.1 `TpmKeyAsn1` into the runtime representation.
     fn from_asn1(asn1: TpmKeyAsn1, _context: &PolicyState) -> Result<Self, Error> {
-        let (public, _) = Tpm2bPublic::unmarshal(&asn1.pubkey)?;
-        let (private, _) = Tpm2bPrivate::unmarshal(&asn1.privkey)?;
+        let (public, _) = Tpm2bPublic::unmarshal(&asn1.pubkey)
+            .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
+        let (private, _) = Tpm2bPrivate::unmarshal(&asn1.privkey)
+            .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
         let parent_public = if let Some(parent_bytes) = &asn1.parent_pubkey {
-            let (parent_pub, _) = Tpm2bPublic::unmarshal(parent_bytes)?;
+            let (parent_pub, _) = Tpm2bPublic::unmarshal(parent_bytes)
+                .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
             Some(parent_pub)
         } else {
             None
@@ -324,7 +335,8 @@ impl TpmKey {
             let mut commands = Vec::new();
             for branch in auth_policies {
                 for cmd in branch.policy {
-                    let (_, body, auth) = tpm_unmarshal_command(cmd.command_policy.as_ref())?;
+                    let (_, body, auth) = tpm_unmarshal_command(cmd.command_policy.as_ref())
+                        .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
                     commands.push((body, auth));
                 }
             }
@@ -333,7 +345,8 @@ impl TpmKey {
             let commands = policy
                 .iter()
                 .map(|cmd| {
-                    let (_, body, auth) = tpm_unmarshal_command(cmd.command_policy.as_ref())?;
+                    let (_, body, auth) = tpm_unmarshal_command(cmd.command_policy.as_ref())
+                        .map_err(|e| Error::Der(DerError::MalformedData(e.to_string())))?;
                     Ok((body, auth))
                 })
                 .collect::<Result<_, Error>>()?;

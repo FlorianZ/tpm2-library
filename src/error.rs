@@ -4,7 +4,7 @@
 
 use thiserror::Error;
 use tpm2_policy_language::Error as PolicyLanguageError;
-use tpm2_protocol::{TpmMarshalError, TpmUnmarshalError};
+use tpm2_protocol::TpmProtocolError;
 
 #[derive(Debug, Error)]
 pub enum KeyError {
@@ -42,22 +42,12 @@ pub enum Error {
     Pem(#[from] PemError),
     #[error("der error: {0}")]
     Der(#[from] DerError),
-    #[error("marshal error: {0}")]
-    Marshal(TpmMarshalError),
-    #[error("unmarshal error: {0}")]
-    Unmarshal(TpmUnmarshalError),
     #[error("policy language: {0}")]
     PolicyLanguage(#[from] PolicyLanguageError),
 }
 
-impl From<TpmMarshalError> for Error {
-    fn from(err: TpmMarshalError) -> Self {
-        Self::Marshal(err)
-    }
-}
-
-impl From<TpmUnmarshalError> for Error {
-    fn from(err: TpmUnmarshalError) -> Self {
-        Self::Unmarshal(err)
+impl From<TpmProtocolError> for Error {
+    fn from(err: TpmProtocolError) -> Self {
+        Self::Der(DerError::MalformedData(err.to_string()))
     }
 }
