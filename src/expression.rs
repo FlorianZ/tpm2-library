@@ -263,7 +263,7 @@ impl Expression {
                         return Err(LanguageError::OperationFailed.into());
                     }
                 }
-                _ => return Err(LanguageError::UnsupportedCommand(command_body.cc()).into()),
+                _ => return Err(LanguageError::InvalidCc(command_body.cc()).into()),
             }
         }
 
@@ -463,7 +463,7 @@ impl Expression {
 
             digest_list
                 .push(digest)
-                .map_err(|_| LanguageError::TooManyBranches(self.to_string()))?;
+                .map_err(|_| LanguageError::TooManyBranches(self.clone()))?;
         }
 
         let or_cmd = TpmPolicyOrCommand {

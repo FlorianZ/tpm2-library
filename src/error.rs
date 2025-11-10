@@ -23,6 +23,8 @@ pub enum Error {
 pub enum LanguageError {
     #[error("authorization list is too long")]
     AuthListTooLong,
+    #[error("invalid command code: {0:?}")]
+    InvalidCc(TpmCc),
     #[error("invalid expression: {0}")]
     InvalidExpression(Expression),
     #[error("invalid token: {0}")]
@@ -33,8 +35,8 @@ pub enum LanguageError {
     InvalidPcrDigestAlgorithm,
     #[error("invalid secret call")]
     InvalidSecretCall,
-    #[error("PCR selection string is not valid: {0}")]
-    InvalidPcrSelection(String),
+    #[error("invalid PCR selection")]
+    InvalidPcrSelection,
     #[error("invalid policy digest algorithm")]
     InvalidPolicyDigestAlgorithm,
     #[error("operation failed")]
@@ -42,21 +44,19 @@ pub enum LanguageError {
     #[error("parenthesis mismatch")]
     ParenthesisMismatch,
     #[error("PCR bank not available: {0}")]
-    PcrBankMissing(Hash),
+    PcrBankNotAvailable(Hash),
     #[error("PCR digest is missing")]
     PcrDigestMissing,
-    #[error("invalid digest size: {0}")]
-    PcrDigestTooLarge(usize),
-    #[error("index is too large: {0} in {1}")]
-    PcrIndexTooLarge(usize, String),
-    #[error("PCR selection size too large: {0}")]
-    PcrSelectionTooLarge(String),
-    #[error("expression has too many branches: {0}")]
-    TooManyBranches(String),
+    #[error("PCR digest is too large")]
+    PcrDigestTooLarge,
+    #[error("PCR index is too large")]
+    PcrIndexTooLarge,
+    #[error("PCR selection size is too large")]
+    PcrSelectionTooLarge,
+    #[error("too many branches: {0}")]
+    TooManyBranches(Expression),
     #[error("trailing data")]
     TrailingData,
-    #[error("unexpected non-policy command: {0:?}")]
-    UnsupportedCommand(TpmCc),
-    #[error("unexpected end of expression")]
+    #[error("unexpected end")]
     UnexpectedEnd,
 }

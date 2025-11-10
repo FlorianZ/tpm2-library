@@ -62,34 +62,32 @@ fn parse_tpml_pcr_selection_str(
     let mut list = TpmlPcrSelection::new();
     let pcr_select_size = context.pcr_count.div_ceil(8);
     if pcr_select_size > TPM_PCR_SELECT_MAX as usize {
-        return Err(LanguageError::PcrSelectionTooLarge(
-            selection_str.to_string(),
-        ));
+        return Err(LanguageError::PcrSelectionTooLarge);
     }
 
     for part in selection_str.split('+') {
         let (alg_str, indices_str) = part
             .split_once(':')
-            .ok_or_else(|| LanguageError::InvalidPcrSelection(part.to_string()))?;
+            .ok_or(LanguageError::InvalidPcrSelection)?;
 
         let alg = alg_str
             .parse::<Hash>()
             .map_err(|_| LanguageError::InvalidPcrDigestAlgorithm)?;
         if !context.pcr_banks.contains(&alg.into()) {
-            return Err(LanguageError::PcrBankMissing(alg));
+            return Err(LanguageError::PcrBankNotAvailable(alg));
         }
 
         let indices: Vec<u32> = indices_str
             .split(',')
             .map(str::parse)
             .collect::<Result<_, _>>()
-            .map_err(|_| LanguageError::InvalidPcrSelection(part.to_string()))?;
+            .map_err(|_| LanguageError::InvalidPcrSelection)?;
 
         let mut pcr_select_bytes = vec![0u8; pcr_select_size];
         for &pcr_index in &indices {
             let pcr_index = pcr_index as usize;
             if pcr_index >= context.pcr_count {
-                return Err(LanguageError::PcrIndexTooLarge(pcr_index, part.to_string()));
+                return Err(LanguageError::PcrIndexTooLarge);
             }
             pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
         }
@@ -97,9 +95,9 @@ fn parse_tpml_pcr_selection_str(
         list.push(TpmsPcrSelection {
             hash: alg.into(),
             pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
-                .map_err(|_| LanguageError::PcrDigestTooLarge(pcr_select_bytes.len()))?,
+                .map_err(|_| LanguageError::PcrDigestTooLarge)?,
         })
-        .map_err(|_| LanguageError::PcrSelectionTooLarge(selection_str.to_string()))?;
+        .map_err(|_| LanguageError::PcrSelectionTooLarge)?;
     }
     Ok(list)
 }
