@@ -8,13 +8,9 @@ use openssl::error::ErrorStack;
 use std::num::TryFromIntError;
 use std::str::FromStr;
 use thiserror::Error;
-use tpm2_crypto::{EccCurve, EccPublicKey, Error as CryptoError, Hash, RsaPublicKey};
+use tpm2_crypto::{EccCurve, Error as CryptoError, Hash};
 use tpm2_protocol::{
-    data::{
-        Tpm2bDigest, Tpm2bPublicKeyRsa, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms,
-        TpmsRsaParms, TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmtRsaScheme,
-        TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
-    },
+    data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms},
     TpmProtocolError,
 };
 use tpm2_tpmkey::Error as TpmKeyError;
@@ -57,71 +53,6 @@ pub enum KeyError {
     Openssl(#[from] ErrorStack),
     #[error("protocol: {0}")]
     Protocol(#[from] TpmProtocolError),
-}
-
-/// Converts an `RsaPublicKey` to a `TpmtPublic` structure.
-///
-/// # Errors
-///
-/// Returns a `KeyError` if the key's public modulus cannot be converted to the
-/// `Tpm2bPublicKeyRsa` type.
-pub fn rsa_to_public(
-    rsa_key: &RsaPublicKey,
-    hash_alg: TpmAlgId,
-    symmetric: TpmtSymDefObject,
-    key_bits: u16,
-) -> Result<tpm2_protocol::data::TpmtPublic, KeyError> {
-    Ok(tpm2_protocol::data::TpmtPublic {
-        object_type: TpmAlgId::Rsa,
-        name_alg: hash_alg,
-        object_attributes: TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
-        auth_policy: Tpm2bDigest::default(),
-        parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
-            symmetric,
-            scheme: TpmtRsaScheme {
-                scheme: TpmAlgId::Oaep,
-                details: TpmuAsymScheme::Any(TpmsSchemeHash { hash_alg }),
-            },
-            key_bits,
-            exponent: 0,
-        }),
-        unique: TpmuPublicId::Rsa(
-            Tpm2bPublicKeyRsa::try_from(rsa_key.n.as_ref())
-                .map_err(|_| KeyError::CapacityExceeded)?,
-        ),
-    })
-}
-
-/// Converts ECC public key bytes to a `TpmtPublic` structure.
-///
-/// # Errors
-///
-/// Returns a `KeyError` if the public key bytes do not represent a valid
-/// uncompressed ECC point or if conversion to TPM types fails.
-pub fn ecc_to_public(
-    ecc_key: &EccPublicKey,
-    hash_alg: TpmAlgId,
-    symmetric: TpmtSymDefObject,
-) -> Result<TpmtPublic, KeyError> {
-    Ok(TpmtPublic {
-        object_type: TpmAlgId::Ecc,
-        name_alg: hash_alg,
-        object_attributes: TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
-        auth_policy: Tpm2bDigest::default(),
-        parameters: TpmuPublicParms::Ecc(TpmsEccParms {
-            symmetric,
-            scheme: TpmtEccScheme {
-                scheme: TpmAlgId::Ecdh,
-                details: TpmuAsymScheme::Any(tpm2_protocol::data::TpmsSchemeHash { hash_alg }),
-            },
-            curve_id: ecc_key.curve.into(),
-            kdf: TpmtKdfScheme::default(),
-        }),
-        unique: TpmuPublicId::Ecc(tpm2_protocol::data::TpmsEccPoint {
-            x: ecc_key.x,
-            y: ecc_key.y,
-        }),
-    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

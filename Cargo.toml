@@ -31,8 +31,8 @@ rand = "0.8"
 strum = { version = "0.26", features = ["derive"] }
 tabled = { version = "0.15", features = ["ansi"] }
 thiserror = "1.0"
-tpm2-crypto = "0.5.8"
-tpm2-policy-language = "0.5.2"
+tpm2-crypto = "0.5.9"
+tpm2-policy-language = "0.5.3"
 tpm2-protocol = "0.14.1"
 tpm2-tpmkey = "0.4.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }

@@ -41,7 +41,7 @@ impl VtpmSession {
         resp: &TpmStartAuthSessionResponse,
         auth_value: &[u8],
     ) -> Result<Self, VtpmError> {
-        let digest_len = Hash::from(auth_hash).size()?;
+        let digest_len = Hash::from(auth_hash).size();
         let hmac_key_bytes = if (resp.session_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
             if auth_value.is_empty() {
                 Vec::new()

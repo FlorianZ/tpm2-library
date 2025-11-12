@@ -7,20 +7,18 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::{read_file_input, write_key_data},
-    key::{ecc_to_public, rsa_to_public, KeyError},
     session::Session,
     write_object,
 };
 use clap::Args;
 use openssl::{
-    pkey::{PKey, Private},
     rand::rand_bytes,
     symm::{encrypt, Cipher},
 };
 use rand;
 use tpm2_crypto::{
-    make_name as crypto_make_name, EccPublicKey, Hash, RsaPublicKey, KDF_LABEL_INTEGRITY,
-    KDF_LABEL_STORAGE,
+    make_name as crypto_make_name, EccPublicKey, Error as CryptoError, Hash, PublicKey,
+    RsaPublicKey, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
@@ -132,7 +130,7 @@ impl Convert {
         match parent_key_type {
             TpmAlgId::Rsa => {
                 let parent_name_alg = parent_public.name_alg;
-                let seed_size = Hash::from(parent_name_alg).size()?;
+                let seed_size = Hash::from(parent_name_alg).size();
                 let mut seed = vec![0u8; seed_size];
                 rand_bytes(&mut seed)?;
                 let encrypted_seed = Self::create_import_seed_rsa(parent_public, &seed)?;
@@ -162,7 +160,7 @@ impl Convert {
             .kdfa(seed, KDF_LABEL_STORAGE, object_name.as_ref(), &[], 128)
             .map_err(CommandError::Crypto)?;
 
-        let key_bits = Hash::from(parent_name_alg).size()? * 8;
+        let key_bits = Hash::from(parent_name_alg).size() * 8;
         let key_bits = u16::try_from(key_bits)?;
 
         let hmac_key = Hash::from(parent_name_alg)
@@ -272,36 +270,6 @@ impl Convert {
         Ok((duplicate, in_sym_seed, Tpm2bData::default()))
     }
 
-    fn build_tpm_public_from_openssl(
-        pkey: &PKey<Private>,
-        hash_alg: TpmAlgId,
-    ) -> Result<TpmtPublic, KeyError> {
-        let symmetric = TpmtSymDefObject::default();
-
-        if pkey.rsa().is_ok() {
-            let rsa_key = RsaPublicKey::try_from(pkey)?;
-            let key_bits = u16::try_from(pkey.size() * 8)?;
-            rsa_to_public(&rsa_key, hash_alg, symmetric, key_bits)
-        } else if pkey.ec_key().is_ok() {
-            let ecc_key = EccPublicKey::try_from(pkey)?;
-            ecc_to_public(&ecc_key, hash_alg, symmetric)
-        } else {
-            Err(KeyError::InvalidFormat)
-        }
-    }
-
-    fn get_sensitive_blob_from_openssl_pkey(pkey: &PKey<Private>) -> Result<Vec<u8>, KeyError> {
-        if let Ok(rsa) = pkey.rsa() {
-            let p = rsa.p().ok_or(KeyError::InvalidFormat)?.to_vec();
-            Ok(p)
-        } else if let Ok(ec_key) = pkey.ec_key() {
-            let d = ec_key.private_key().to_vec();
-            Ok(d)
-        } else {
-            Err(KeyError::InvalidFormat)
-        }
-    }
-
     fn create_external_key(
         job: &mut Session,
         device: &mut Device,
@@ -323,7 +291,6 @@ impl Convert {
             input_bytes.to_vec()
         };
 
-        let pkey = PKey::private_key_from_der(&der_bytes).map_err(KeyError::from)?;
         let mut rng = rand::thread_rng();
 
         let (parent_public, _) = match device.read_public(parent_handle) {
@@ -341,9 +308,26 @@ impl Convert {
             Err(e) => return Err(e.into()),
         };
 
-        let public = Self::build_tpm_public_from_openssl(&pkey, parent_public.name_alg)?;
+        let (public, sensitive_blob) = {
+            let symmetric = TpmtSymDefObject::default();
+            let name_alg = parent_public.name_alg;
+
+            match RsaPublicKey::from_der(&der_bytes) {
+                Ok((public_key, sensitive)) => {
+                    let public = public_key.to_public(name_alg, symmetric);
+                    Ok((public, sensitive))
+                }
+                Err(CryptoError::InvalidRsaParameters) => EccPublicKey::from_der(&der_bytes)
+                    .map_err(CommandError::Crypto)
+                    .map(|(public_key, sensitive)| {
+                        let public = public_key.to_public(name_alg, symmetric);
+                        (public, sensitive)
+                    }),
+                Err(e) => Err(CommandError::Crypto(e)),
+            }
+        }?;
+
         let object_name = crypto_make_name(&public).map_err(CommandError::Crypto)?;
-        let sensitive_blob = Self::get_sensitive_blob_from_openssl_pkey(&pkey)?;
 
         let (duplicate, in_sym_seed, encryption_key) = Self::create_import_blob_internal(
             &parent_public,

@@ -209,7 +209,7 @@ impl<'a> Session<'a> {
                         .cache
                         .get_session(*vhandle)
                         .ok_or(SessionError::HandleNotFound("vtpm:", *vhandle))?;
-                    let nonce_size = Hash::from(session.auth_hash).size()?;
+                    let nonce_size = Hash::from(session.auth_hash).size();
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
@@ -372,7 +372,7 @@ impl<'a> Session<'a> {
         auth_hash: TpmAlgId,
         bind: TpmHandle,
     ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), SessionError> {
-        let digest_len = Hash::from(auth_hash).size()?;
+        let digest_len = Hash::from(auth_hash).size();
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
