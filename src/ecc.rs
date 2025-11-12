@@ -4,8 +4,9 @@
 
 //! TPM 2.0 ECC curves and cryptographic operations.
 
-use crate::{Error, Hash, KDF_LABEL_DUPLICATE, UNCOMPRESSED_POINT_TAG};
+use crate::{Error, Hash, PublicKey, KDF_LABEL_DUPLICATE, UNCOMPRESSED_POINT_TAG};
 use num_bigint::{BigUint, RandBigInt};
+use num_traits::ops::bytes::ToBytes;
 use openssl::{
     bn::{BigNum, BigNumContext},
     derive::Deriver,
@@ -175,14 +176,9 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
     }
 }
 
-impl EccPublicKey {
+impl PublicKey for EccPublicKey {
     /// Converts an `EccPublicKey` to a `TpmtPublic` structure.
-    #[must_use]
-    pub fn to_public(
-        &self,
-        hash_alg: TpmAlgId,
-        symmetric: TpmtSymDefObject,
-    ) -> tpm2_protocol::data::TpmtPublic {
+    fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic {
         tpm2_protocol::data::TpmtPublic {
             object_type: TpmAlgId::Ecc,
             name_alg: hash_alg,
@@ -204,6 +200,22 @@ impl EccPublicKey {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// when the DER parsing or key extraction fails.
+    /// Returns [`InvalidEccParameters`](crate::Error::InvalidEccParameters)
+    /// when the key is not a valid ECC key.
+    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error> {
+        let pkey = PKey::private_key_from_der(bytes).map_err(|_| Error::OperationFailed)?;
+        let public_key = EccPublicKey::try_from(&pkey)?;
+        let ec_key = pkey.ec_key().map_err(|_| Error::InvalidEccParameters)?;
+        let sensitive = ec_key.private_key().to_vec();
+        Ok((public_key, sensitive))
+    }
+}
+
+impl EccPublicKey {
     /// Performs ECDH and derives a seed using `KDFe` key derivation function from
     /// TCG TPM 2.0 Architecture specification.
     ///
@@ -244,7 +256,7 @@ impl EccPublicKey {
 
         let priv_uint = rng.gen_biguint_range(&one, &order_uint);
         let priv_bn =
-            BigNum::from_slice(&priv_uint.to_bytes_be()).map_err(|_| Error::OutOfMemory)?;
+            BigNum::from_slice(&priv_uint.to_be_bytes()).map_err(|_| Error::OutOfMemory)?;
 
         let mut ephemeral_pub_point = EcPoint::new(&group).map_err(|_| Error::OutOfMemory)?;
         ephemeral_pub_point

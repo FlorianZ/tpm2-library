@@ -14,7 +14,7 @@ mod rsa;
 
 use tpm2_protocol::{
     constant::MAX_DIGEST_SIZE,
-    data::{Tpm2bName, TpmtPublic},
+    data::{Tpm2bName, TpmAlgId, TpmtPublic, TpmtSymDefObject},
     TpmMarshal, TpmSized, TpmWriter,
 };
 
@@ -22,6 +22,29 @@ pub use ecc::*;
 pub use error::*;
 pub use hash::*;
 pub use rsa::*;
+
+/// Trait for cryptographic public keys.
+pub trait PublicKey
+where
+    Self: Sized,
+{
+    /// Converts the public key to a `TpmtPublic` structure.
+    fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic;
+
+    /// Parses a DER-encoded private key.
+    ///
+    /// Returns the public key structure and the sensitive private component.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// when the DER parsing or key extraction fails.
+    /// Returns [`InvalidRsaParameters`](crate::Error::InvalidRsaParameters)
+    /// when the key is not a valid RSA key.
+    /// Returns [`InvalidEccParameters`](crate::Error::InvalidEccParameters)
+    /// when the key is not a valid ECC key.
+    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error>;
+}
 
 pub const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 

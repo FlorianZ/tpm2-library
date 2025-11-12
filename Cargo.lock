@@ -500,6 +500,7 @@ version = "0.5.8"
 dependencies = [
  "hex",
  "num-bigint",
+ "num-traits",
  "openssl",
  "rand",
  "rstest",

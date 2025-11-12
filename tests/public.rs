@@ -8,7 +8,7 @@
 #![deny(clippy::pedantic)]
 
 use rstest::rstest;
-use tpm2_crypto::{EccCurve, EccPublicKey, RsaPublicKey};
+use tpm2_crypto::{EccCurve, EccPublicKey, PublicKey, RsaPublicKey};
 use tpm2_protocol::data::{
     Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmtSymDefObject, TpmuAsymScheme,
     TpmuPublicId, TpmuPublicParms,
@@ -22,10 +22,14 @@ const TEST_COORD: [u8; 32] = [2; 32];
 #[case(TpmAlgId::Sha384, 3072)]
 fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
     let n = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
-    let rsa_key = RsaPublicKey { n, e: 65537 };
+    let rsa_key = RsaPublicKey {
+        n,
+        e: 65537,
+        key_bits,
+    };
     let symmetric = TpmtSymDefObject::default();
 
-    let public = rsa_key.to_public(hash_alg, symmetric, key_bits);
+    let public = rsa_key.to_public(hash_alg, symmetric);
     let default_attr = TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT;
 
     assert_eq!(public.object_type, TpmAlgId::Rsa);

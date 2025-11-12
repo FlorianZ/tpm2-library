@@ -12,6 +12,7 @@ version = "0.5.8"
 
 [dependencies]
 num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
 openssl = { version = "0.10" }
 rand = "0.8"
 strum = { version = "0.26", features = ["derive"] }

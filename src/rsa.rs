@@ -3,7 +3,7 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 //! TPM 2.0 RSA cryptographic operations.
 
-use crate::{Error, Hash};
+use crate::{Error, Hash, PublicKey};
 use openssl::{
     bn::BigNum,
     hash::MessageDigest,
@@ -22,6 +22,7 @@ use tpm2_protocol::data::{
 pub struct RsaPublicKey {
     pub n: Tpm2bPublicKeyRsa,
     pub e: u32,
+    pub key_bits: u16,
 }
 
 impl TryFrom<&TpmtPublic> for RsaPublicKey {
@@ -48,7 +49,11 @@ impl TryFrom<&TpmtPublic> for RsaPublicKey {
             params.exponent
         };
 
-        Ok(Self { n, e })
+        Ok(Self {
+            n,
+            e,
+            key_bits: params.key_bits,
+        })
     }
 }
 
@@ -72,19 +77,15 @@ impl TryFrom<&PKey<Private>> for RsaPublicKey {
         e_buf[4 - e_bytes.len()..].copy_from_slice(&e_bytes);
         let e = u32::from_be_bytes(e_buf);
 
-        Ok(Self { n, e })
+        let key_bits = u16::try_from(rsa.size() * 8).map_err(|_| Error::InvalidRsaParameters)?;
+
+        Ok(Self { n, e, key_bits })
     }
 }
 
-impl RsaPublicKey {
+impl PublicKey for RsaPublicKey {
     /// Converts an `RsaPublicKey` to a `TpmtPublic` structure.
-    #[must_use]
-    pub fn to_public(
-        &self,
-        hash_alg: TpmAlgId,
-        symmetric: TpmtSymDefObject,
-        key_bits: u16,
-    ) -> TpmtPublic {
+    fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic {
         TpmtPublic {
             object_type: TpmAlgId::Rsa,
             name_alg: hash_alg,
@@ -96,13 +97,29 @@ impl RsaPublicKey {
                     scheme: TpmAlgId::Oaep,
                     details: TpmuAsymScheme::Any(TpmsSchemeHash { hash_alg }),
                 },
-                key_bits,
+                key_bits: self.key_bits,
                 exponent: 0,
             }),
             unique: TpmuPublicId::Rsa(self.n),
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// when the DER parsing or key extraction fails.
+    /// Returns [`InvalidRsaParameters`](crate::Error::InvalidRsaParameters)
+    /// when the key is not a valid RSA key.
+    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error> {
+        let pkey = PKey::private_key_from_der(bytes).map_err(|_| Error::OperationFailed)?;
+        let public_key = RsaPublicKey::try_from(&pkey)?;
+        let rsa = pkey.rsa().map_err(|_| Error::InvalidRsaParameters)?;
+        let sensitive = rsa.p().ok_or(Error::OperationFailed)?.to_vec();
+        Ok((public_key, sensitive))
+    }
+}
+
+impl RsaPublicKey {
     /// Performs RSA-OAEP.
     ///
     /// # Errors
