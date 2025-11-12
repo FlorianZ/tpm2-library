@@ -3,11 +3,11 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    alg::KeyError,
     cli::Job,
     command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
     io::read_file_input,
-    key::KeyError,
     session::Session,
 };
 use clap::Args;

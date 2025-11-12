@@ -4,8 +4,8 @@
 
 use super::{RefreshAction, VtpmContext, VtpmError};
 use crate::{
+    alg::format_alg_from_public,
     device::{Device, DeviceError},
-    key::format_alg_from_public,
     write_object,
 };
 use std::{any::Any, fs, path::Path};

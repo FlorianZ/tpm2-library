@@ -5,11 +5,11 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
+pub mod alg;
 pub mod cli;
 pub mod command;
 pub mod device;
 pub mod io;
-pub mod key;
 pub mod pcr;
 pub mod policy;
 pub mod print;

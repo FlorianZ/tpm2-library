@@ -3,9 +3,9 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    alg::{Alg, AlgInfo},
     cli::Hierarchy,
     command::CommandError,
-    key::{Alg, AlgInfo},
 };
 use clap::{Args, ValueEnum};
 use std::{borrow::Cow, path::PathBuf};

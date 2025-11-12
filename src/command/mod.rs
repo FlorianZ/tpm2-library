@@ -35,8 +35,8 @@ pub use return_code::*;
 pub use unseal::*;
 
 use crate::{
+    alg::{AlgInfo, KeyError},
     device::DeviceError,
-    key::{AlgInfo, KeyError},
     pcr::PcrError,
     policy::PolicyError,
     session::SessionError,
@@ -92,7 +92,7 @@ where
 ///
 /// Returns [`UnsupportedKeyAlgorithm`](crate::command::CommandError::UnsupportedKeyAlgorithm)
 /// if the algorithm is keyedhash.
-pub fn deny_keyedhash(algorithm: &crate::key::Alg) -> Result<(), CommandError> {
+pub fn deny_keyedhash(algorithm: &crate::alg::Alg) -> Result<(), CommandError> {
     if algorithm.params == AlgInfo::KeyedHash {
         Err(CommandError::UnsupportedKeyAlgorithm(algorithm.clone()))
     } else {
@@ -137,9 +137,9 @@ pub enum CommandError {
     #[error("unknown parent")]
     UnknownParent,
     #[error("unsupported key algorithm: '{0}'")]
-    UnsupportedKeyAlgorithm(crate::key::Alg),
+    UnsupportedKeyAlgorithm(crate::alg::Alg),
     #[error("unsupported signature algorithm: {0}")]
-    UnsupportedSignatureAlgorithm(crate::key::Alg),
+    UnsupportedSignatureAlgorithm(crate::alg::Alg),
     #[error("missing ECC curve parameters")]
     MissingEccCurveParameters,
     #[error("cache: {0}")]

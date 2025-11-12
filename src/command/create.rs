@@ -5,11 +5,11 @@
 //! Handles the `create` command, which creates secondary keys or sealed objects.
 
 use crate::{
+    alg::{Alg, AlgInfo},
     cli::Job,
     command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::write_key_data,
-    key::{Alg, AlgInfo},
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
     policy::visit_secret_handles,
     session::{Session, SessionError},

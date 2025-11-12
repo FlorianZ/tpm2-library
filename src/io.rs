@@ -3,8 +3,8 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    alg::KeyError,
     command::{CommandError, OutputEncoding},
-    key::KeyError,
 };
 use std::{
     fs,

@@ -3,8 +3,8 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    alg::KeyError,
     device::{Device, DeviceError, TpmCommandObject},
-    key::KeyError,
     vtpm::{build_password_session, create_auth, VtpmCache, VtpmError, VtpmSession},
     write_object,
 };

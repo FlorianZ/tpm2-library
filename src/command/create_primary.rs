@@ -3,10 +3,10 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    alg::Alg,
     cli::Job,
     command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
-    key::Alg,
     session::Session,
     template::build_public,
 };

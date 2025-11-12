@@ -3,10 +3,10 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    alg::{Alg, AlgInfo},
     cli::Job,
     command::{print_table, AuthArgs, CommandError},
     device::{self, Device, DeviceError},
-    key::{Alg, AlgInfo},
     session::Session,
 };
 use clap::Args;
@@ -303,7 +303,7 @@ impl Memory {
         if let Some(handle_val) = handle.value() {
             let tpm_handle = TpmHandle(handle_val);
             let (public, _) = device.read_public(tpm_handle)?;
-            Ok(crate::key::format_alg_from_public(&public))
+            Ok(crate::alg::format_alg_from_public(&public))
         } else {
             Err(CommandError::PatternNotAllowed(handle.to_string()))
         }
