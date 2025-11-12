@@ -399,9 +399,7 @@ fn update_policy_digest(
 impl SoftwarePolicySession {
     /// Creates a new software policy session.
     fn new(hash_alg: TpmAlgId) -> Result<Self, LanguageError> {
-        let digest_size = Hash::from(hash_alg)
-            .size()
-            .map_err(|_| LanguageError::InvalidPolicyDigestAlgorithm)?;
+        let digest_size = Hash::from(hash_alg).size();
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
             .map_err(|_| LanguageError::OperationFailed)?;
         Ok(Self {
