@@ -162,6 +162,66 @@ impl TpmPolicyCommand {
         }
     }
 
+    /// Creates a new `TPM2_PolicyAuthorize` command.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed) if marshaling fails.
+    pub fn authorize(
+        key_sign: &Tpm2bPublic,
+        policy_ref: &Tpm2bDigest,
+        policy_signature: &TpmtSignature,
+    ) -> Result<Self, Error> {
+        let mut body = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut body);
+            key_sign
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            policy_ref
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            policy_signature
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            writer.len()
+        };
+        Ok(Self {
+            cc: TpmCc::PolicyAuthorize,
+            body: body[..len].to_vec(),
+        })
+    }
+
+    /// Creates a new `TPM2_PolicySecret` command.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed) if marshaling fails.
+    pub fn secret(
+        object_handle_hint: TpmHandle,
+        object_name: &Tpm2bName,
+        policy_ref: &Tpm2bDigest,
+    ) -> Result<Self, Error> {
+        let mut body = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut body);
+            object_handle_hint
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            object_name
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            policy_ref
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            writer.len()
+        };
+        Ok(Self {
+            cc: TpmCc::PolicySecret,
+            body: body[..len].to_vec(),
+        })
+    }
+
     /// Returns the command code.
     #[must_use]
     pub fn code(&self) -> TpmCc {
@@ -551,7 +611,7 @@ mod tests {
     use rstest::rstest;
     use tpm2_protocol::data::{
         Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmsRsaParms, TpmtPublic, TpmtSensitive,
-        TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+        TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite, TpmuSignature,
     };
 
     #[rstest]
@@ -732,5 +792,31 @@ mod tests {
         let bad_pem = "not pem data at all";
         let res = TpmKey::from_pem(bad_pem.as_bytes());
         assert!(matches!(res, Err(Error::InvalidPem(_))));
+    }
+
+    #[test]
+    fn policy_command_authorize_constructor_ok() {
+        let cmd = TpmPolicyCommand::authorize(
+            &Tpm2bPublic::default(),
+            &Tpm2bDigest::default(),
+            &TpmtSignature {
+                sig_alg: TpmAlgId::Null,
+                signature: TpmuSignature::Null,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(cmd.code(), TpmCc::PolicyAuthorize);
+        assert!(validate_policy_authorize(cmd.body()).is_ok());
+    }
+
+    #[test]
+    fn policy_command_secret_constructor_ok() {
+        let cmd =
+            TpmPolicyCommand::secret(TpmHandle(0), &Tpm2bName::default(), &Tpm2bDigest::default())
+                .unwrap();
+
+        assert_eq!(cmd.code(), TpmCc::PolicySecret);
+        assert!(validate_policy_secret(cmd.body()).is_ok());
     }
 }
