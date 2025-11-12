@@ -2181,7 +2181,7 @@ tpm_struct! {
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     kind: Command,
     name: TpmPolicyOrCommand,
-    cc: TpmCc::PolicyOR,
+    cc: TpmCc::PolicyOr,
     handles: {
         policy_session
     },
@@ -2194,7 +2194,7 @@ tpm_struct! {
     #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
     kind: Response,
     name: TpmPolicyOrResponse,
-    cc: TpmCc::PolicyOR,
+    cc: TpmCc::PolicyOr,
     handles: {},
     parameters: {}
 }

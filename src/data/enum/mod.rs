@@ -185,7 +185,7 @@ tpm_enum! {
         (PolicyCpHash, 0x0000_016E, "TPM_CC_PolicyCpHash"),
         (PolicyLocality, 0x0000_016F, "TPM_CC_PolicyLocality"),
         (PolicyNameHash, 0x0000_0170, "TPM_CC_PolicyNameHash"),
-        (PolicyOR, 0x0000_0171, "TPM_CC_PolicyOR"),
+        (PolicyOr, 0x0000_0171, "TPM_CC_PolicyOr"),
         (PolicyTicket, 0x0000_0172, "TPM_CC_PolicyTicket"),
         (ReadPublic, 0x0000_0173, "TPM_CC_ReadPublic"),
         (RsaEncrypt, 0x0000_0174, "TPM_CC_RSA_Encrypt"),
