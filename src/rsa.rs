@@ -92,7 +92,7 @@ impl RsaPublicKey {
             .map_err(|_| Error::OperationFailed)?;
         ctx.set_rsa_mgf1_md(oaep_md)
             .map_err(|_| Error::OperationFailed)?;
-        ctx.set_rsa_oaep_label(b"DUPLICATE\\0")
+        ctx.set_rsa_oaep_label(b"DUPLICATE\0")
             .map_err(|_| Error::OperationFailed)?;
 
         let mut encrypted_seed = vec![0; pkey.size()];
