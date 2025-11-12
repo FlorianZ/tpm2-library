@@ -277,39 +277,12 @@ impl TpmKey {
 
         let key_type_oid = key_type_to_oid_for_encode(self.key_type, self.secret.is_some())?;
 
-        let policy_asn1 = if let Some(policy) = &self.policy {
-            let cmds = policy
-                .policy
-                .iter()
-                .map(|c| TpmPolicyCommandAsn1 {
-                    command_code: c.cc as u32,
-                    command_policy: OctetString::copy_from_slice(&c.body),
-                })
-                .collect::<Vec<_>>();
-            Some(cmds)
-        } else {
-            None
-        };
+        let policy_asn1 = self.policy.as_ref().map(Vec::<TpmPolicyCommandAsn1>::from);
 
-        let auth_policy_asn1 = if let Some(list) = &self.auth_policy {
-            let branches = list
-                .iter()
-                .map(|p| TpmAuthPolicyAsn1 {
-                    name: p.name.as_deref().map(Utf8String::from),
-                    policy: p
-                        .policy
-                        .iter()
-                        .map(|c| TpmPolicyCommandAsn1 {
-                            command_code: c.cc as u32,
-                            command_policy: OctetString::copy_from_slice(&c.body),
-                        })
-                        .collect(),
-                })
-                .collect::<Vec<_>>();
-            Some(branches)
-        } else {
-            None
-        };
+        let auth_policy_asn1 = self
+            .auth_policy
+            .as_ref()
+            .map(|list| list.iter().map(TpmAuthPolicyAsn1::from).collect::<Vec<_>>());
 
         Ok(TpmKeyAsn1 {
             key_type: key_type_oid,
@@ -349,43 +322,17 @@ impl TpmKey {
             return Err(Error::MissingSecret);
         }
 
-        let policy = if let Some(cmds) = asn1.policy {
-            let mut v = Vec::with_capacity(cmds.len());
-            for cmd in cmds {
-                let cc = TpmCc::try_from(cmd.command_code)
-                    .map_err(|()| Error::InvalidCc(cmd.command_code))?;
-                let body = cmd.command_policy.as_ref().to_vec();
-                validate_policy_command(cc, &body)?;
-                v.push(TpmPolicyCommand { cc, body });
-            }
-            Some(TpmPolicy {
-                name: None,
-                policy: v,
-            })
-        } else {
-            None
-        };
+        let policy = asn1.policy.map(TpmPolicy::try_from).transpose()?;
 
-        let auth_policy = if let Some(branches) = asn1.auth_policy {
-            let mut v = Vec::with_capacity(branches.len());
-            for b in branches {
-                let mut cmds = Vec::with_capacity(b.policy.len());
-                for cmd in b.policy {
-                    let cc = TpmCc::try_from(cmd.command_code)
-                        .map_err(|()| Error::InvalidCc(cmd.command_code))?;
-                    let body = cmd.command_policy.as_ref().to_vec();
-                    validate_policy_command(cc, &body)?;
-                    cmds.push(TpmPolicyCommand { cc, body });
-                }
-                v.push(TpmPolicy {
-                    name: b.name,
-                    policy: cmds,
-                });
-            }
-            Some(v)
-        } else {
-            None
-        };
+        let auth_policy = asn1
+            .auth_policy
+            .map(|branches| {
+                branches
+                    .into_iter()
+                    .map(TpmPolicy::try_from)
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
 
         let key_type = public.inner.object_type;
 
@@ -416,6 +363,75 @@ impl TryFrom<&[u8]> for TpmKey {
     /// Returns [`MissingSecret`](crate::Error::MissingSecret)
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         Self::from_der(value)
+    }
+}
+
+impl TryFrom<TpmPolicyCommandAsn1> for TpmPolicyCommand {
+    type Error = Error;
+
+    fn try_from(val: TpmPolicyCommandAsn1) -> Result<Self, Self::Error> {
+        let cc =
+            TpmCc::try_from(val.command_code).map_err(|()| Error::InvalidCc(val.command_code))?;
+        let body = val.command_policy.as_ref().to_vec();
+        validate_policy_command(cc, &body)?;
+        Ok(Self { cc, body })
+    }
+}
+
+impl TryFrom<TpmAuthPolicyAsn1> for TpmPolicy {
+    type Error = Error;
+
+    fn try_from(val: TpmAuthPolicyAsn1) -> Result<Self, Self::Error> {
+        let cmds = val
+            .policy
+            .into_iter()
+            .map(TpmPolicyCommand::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            name: val.name,
+            policy: cmds,
+        })
+    }
+}
+
+impl TryFrom<Vec<TpmPolicyCommandAsn1>> for TpmPolicy {
+    type Error = Error;
+
+    fn try_from(cmds: Vec<TpmPolicyCommandAsn1>) -> Result<Self, Self::Error> {
+        let cmds = cmds
+            .into_iter()
+            .map(TpmPolicyCommand::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            name: None,
+            policy: cmds,
+        })
+    }
+}
+
+impl From<&TpmPolicyCommand> for TpmPolicyCommandAsn1 {
+    fn from(c: &TpmPolicyCommand) -> Self {
+        Self {
+            command_code: c.cc as u32,
+            command_policy: OctetString::copy_from_slice(&c.body),
+        }
+    }
+}
+
+impl From<&TpmPolicy> for TpmAuthPolicyAsn1 {
+    fn from(p: &TpmPolicy) -> Self {
+        Self {
+            name: p.name.as_deref().map(Utf8String::from),
+            policy: p.policy.iter().map(TpmPolicyCommandAsn1::from).collect(),
+        }
+    }
+}
+
+impl From<&TpmPolicy> for Vec<TpmPolicyCommandAsn1> {
+    fn from(p: &TpmPolicy) -> Self {
+        p.policy.iter().map(TpmPolicyCommandAsn1::from).collect()
     }
 }
 
