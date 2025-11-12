@@ -2,14 +2,10 @@
 
 `tpm2-tpmkey` is a Rust library for reading and writing TPM 2.0 key ASN.1 files.
 
-## Development
+## Overview
 
-* Git: https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-tools.git
+* Git: https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-tpmkey.git
 * Contributions: patches can be submitted to `tpm-protocol@lists.linux.dev`.
-* Commits follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
-  specification.
-* New commits should include a `Signed-off-by` trailer.
-* Versioning scheme uses [Semantic Versioning](https://semver.org/).
 
 ## Licensing
 
