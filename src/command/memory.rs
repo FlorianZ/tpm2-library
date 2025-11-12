@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Job,
-    command::{print_table, AuthArgs, CommandError, Tabled},
+    command::{print_table, AuthArgs, CommandError},
     device::{self, Device, DeviceError},
     key::{Alg, AlgInfo},
     session::Session,
@@ -13,6 +13,7 @@ use clap::Args;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
 use strum::Display;
+use tabled::Tabled;
 use tpm2_crypto::Hash;
 use tpm2_policy_language::{Auth, Handle};
 use tpm2_protocol::{
@@ -30,28 +31,14 @@ enum MemoryHandleType {
     Certificate,
 }
 
+#[derive(Tabled)]
 struct MemoryRow {
+    #[tabled(rename = "HANDLE")]
     handle: String,
+    #[tabled(rename = "TYPE")]
     class: String,
+    #[tabled(rename = "DETAILS")]
     details: String,
-}
-
-impl Tabled for MemoryRow {
-    fn headers() -> Vec<String> {
-        vec![
-            "HANDLE".to_string(),
-            "TYPE".to_string(),
-            "DETAILS".to_string(),
-        ]
-    }
-
-    fn row(&self) -> Vec<String> {
-        vec![
-            self.handle.clone(),
-            self.class.clone(),
-            self.details.clone(),
-        ]
-    }
 }
 
 /// Lists active TPM objects or inspects a single handle.
@@ -187,6 +174,7 @@ impl Memory {
                 },
             )?;
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
+
             print_table(&mut session.writer, &rows)?;
             Ok(())
         })

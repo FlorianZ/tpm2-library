@@ -4,35 +4,22 @@
 
 use crate::{
     cli::Job,
-    command::{print_table, CommandError, Tabled},
+    command::{print_table, CommandError},
     device::with_device,
     session::Session,
     vtpm::{RefreshAction, VtpmSession},
 };
 use clap::Args;
+use tabled::Tabled;
 
+#[derive(Tabled)]
 struct CacheRow {
+    #[tabled(rename = "HANDLE")]
     handle: String,
+    #[tabled(rename = "TYPE")]
     class: String,
+    #[tabled(rename = "DETAILS")]
     details: String,
-}
-
-impl Tabled for CacheRow {
-    fn headers() -> Vec<String> {
-        vec![
-            "HANDLE".to_string(),
-            "TYPE".to_string(),
-            "DETAILS".to_string(),
-        ]
-    }
-
-    fn row(&self) -> Vec<String> {
-        vec![
-            self.handle.clone(),
-            self.class.clone(),
-            self.details.clone(),
-        ]
-    }
 }
 
 /// Lists cached TPM objects.

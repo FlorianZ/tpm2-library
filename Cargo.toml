@@ -29,6 +29,7 @@ openssl = "0.10"
 pem = "3.0"
 rand = "0.8"
 strum = { version = "0.26", features = ["derive"] }
+tabled = { version = "0.15", features = ["ansi"] }
 thiserror = "1.0"
 tpm2-crypto = "0.5.8"
 tpm2-policy-language = "0.5.2"

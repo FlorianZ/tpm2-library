@@ -42,9 +42,15 @@ use crate::{
     session::SessionError,
     vtpm::VtpmError,
 };
-use clap::builder::styling::Style as AnsiStyle;
 use openssl::error::ErrorStack;
-use std::{io::Write, num::TryFromIntError};
+use std::{
+    io::{IsTerminal, Write},
+    num::TryFromIntError,
+};
+use tabled::{
+    settings::{object::Rows, Format, Modify, Padding, Style},
+    Table, Tabled,
+};
 use thiserror::Error;
 use tpm2_crypto::Error as CryptoError;
 use tpm2_protocol::{
@@ -52,20 +58,12 @@ use tpm2_protocol::{
     TpmProtocolError,
 };
 
-/// A trait for data structures that can be represented as a table row.
-pub trait Tabled {
-    /// Returns the headers for the table.
-    fn headers() -> Vec<String>;
-    /// Returns the data for a single row.
-    fn row(&self) -> Vec<String>;
-}
-
 /// Creates, styles, and prints a table from a vector of `Tabled` items.
 ///
 /// # Errors
 ///
-/// Returns an I/O error if writing to the writer fails.
-pub fn print_table<T>(writer: &mut dyn Write, items: &[T]) -> Result<(), std::io::Error>
+/// Returns [`Io`](CommandError::Io) if writing to the writer fails.
+pub fn print_table<T>(writer: &mut dyn Write, items: &[T]) -> Result<(), CommandError>
 where
     T: Tabled,
 {
@@ -73,42 +71,18 @@ where
         return Ok(());
     }
 
-    let headers = T::headers();
-    let rows: Vec<Vec<String>> = items.iter().map(T::row).collect();
-    let num_columns = headers.len();
-    let mut max_widths = vec![0; num_columns];
+    let mut table = Table::new(items);
 
-    for i in 0..num_columns {
-        max_widths[i] = headers[i].len();
-    }
-    for row in &rows {
-        for (i, cell) in row.iter().enumerate() {
-            if cell.len() > max_widths[i] {
-                max_widths[i] = cell.len();
-            }
-        }
+    table.with(Style::blank()).with(Padding::new(0, 2, 0, 0));
+
+    if std::io::stdout().is_terminal() {
+        table.with(
+            Modify::new(Rows::first())
+                .with(Format::content(|s: &str| format!("\x1b[1m{s}\x1b[0m"))),
+        );
     }
 
-    let bold = AnsiStyle::new().bold();
-    let header_line = headers
-        .iter()
-        .zip(&max_widths)
-        .map(|(header, &width)| format!("{header:<width$}"))
-        .collect::<Vec<String>>()
-        .join("  ");
-
-    writeln!(writer, "{bold}{header_line}{bold:#}")?;
-
-    for row in &rows {
-        let row_line = row
-            .iter()
-            .zip(&max_widths)
-            .map(|(cell, &width)| format!("{cell:<width$}"))
-            .collect::<Vec<String>>()
-            .join("  ");
-        writeln!(writer, "{row_line}")?;
-    }
-
+    writeln!(writer, "{table}").map_err(CommandError::Io)?;
     Ok(())
 }
 
