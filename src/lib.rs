@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: MIT OR Apache-2.0
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! A reader and writer for the [TPM 2.0
 //! Key](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html) ASN.1
