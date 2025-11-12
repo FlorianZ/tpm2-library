@@ -57,7 +57,17 @@ impl TryFrom<&PKey<Private>> for RsaPublicKey {
         let n = Tpm2bPublicKeyRsa::try_from(rsa.n().to_vec().as_slice())
             .map_err(|_| Error::InvalidRsaParameters)?;
 
-        let e = 0;
+        let e_bn = rsa.e();
+        if e_bn.is_negative() || e_bn.num_bits() > 32 {
+            return Err(Error::InvalidRsaParameters);
+        }
+        let e_bytes = e_bn.to_vec();
+        if e_bytes.len() > 4 {
+            return Err(Error::InvalidRsaParameters);
+        }
+        let mut e_buf = [0u8; 4];
+        e_buf[4 - e_bytes.len()..].copy_from_slice(&e_bytes);
+        let e = u32::from_be_bytes(e_buf);
 
         Ok(Self { n, e })
     }
