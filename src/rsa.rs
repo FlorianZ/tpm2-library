@@ -7,7 +7,7 @@ use crate::{Error, Hash};
 use openssl::{
     bn::BigNum,
     md::Md,
-    pkey::PKey,
+    pkey::{PKey, Private},
     pkey_ctx::PkeyCtx,
     rsa::{Padding, Rsa},
 };
@@ -48,6 +48,20 @@ impl TryFrom<&TpmtPublic> for RsaPublicKey {
     }
 }
 
+impl TryFrom<&PKey<Private>> for RsaPublicKey {
+    type Error = Error;
+
+    fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
+        let rsa = pkey.rsa().map_err(|_| Error::InvalidRsaParameters)?;
+        let n = Tpm2bPublicKeyRsa::try_from(rsa.n().to_vec().as_slice())
+            .map_err(|_| Error::InvalidRsaParameters)?;
+
+        let e = 0;
+
+        Ok(Self { n, e })
+    }
+}
+
 impl RsaPublicKey {
     /// Performs RSA-OAEP.
     ///
@@ -78,7 +92,7 @@ impl RsaPublicKey {
             .map_err(|_| Error::OperationFailed)?;
         ctx.set_rsa_mgf1_md(oaep_md)
             .map_err(|_| Error::OperationFailed)?;
-        ctx.set_rsa_oaep_label(b"DUPLICATE\0")
+        ctx.set_rsa_oaep_label(b"DUPLICATE\\0")
             .map_err(|_| Error::OperationFailed)?;
 
         let mut encrypted_seed = vec![0; pkey.size()];

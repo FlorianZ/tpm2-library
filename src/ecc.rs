@@ -11,7 +11,7 @@ use openssl::{
     derive::Deriver,
     ec::{EcGroup, EcKey, EcPoint, PointConversionForm},
     nid::Nid,
-    pkey::PKey,
+    pkey::{PKey, Private},
 };
 use rand::{CryptoRng, RngCore};
 use strum::{Display, EnumString};
@@ -96,6 +96,7 @@ impl From<EccCurve> for Nid {
             EccCurve::BpP256R1 => Nid::BRAINPOOL_P256R1,
             EccCurve::BpP384R1 => Nid::BRAINPOOL_P384R1,
             EccCurve::BpP512R1 => Nid::BRAINPOOL_P512R1,
+            EccCurve::Sm2P256 => Nid::SM2,
             _ => Nid::UNDEF,
         }
     }
@@ -128,6 +129,47 @@ impl TryFrom<&TpmtPublic> for EccPublicKey {
             x,
             y,
         })
+    }
+}
+
+impl TryFrom<&PKey<Private>> for EccPublicKey {
+    type Error = Error;
+
+    fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
+        let ec_key = pkey.ec_key().map_err(|_| Error::InvalidEccParameters)?;
+        let group = ec_key.group();
+        let nid = group.curve_name().ok_or(Error::InvalidEccParameters)?;
+
+        let curve = match nid {
+            Nid::X9_62_PRIME192V1 => EccCurve::NistP192,
+            Nid::SECP224R1 => EccCurve::NistP224,
+            Nid::X9_62_PRIME256V1 => EccCurve::NistP256,
+            Nid::SECP384R1 => EccCurve::NistP384,
+            Nid::SECP521R1 => EccCurve::NistP521,
+            Nid::BRAINPOOL_P256R1 => EccCurve::BpP256R1,
+            Nid::BRAINPOOL_P384R1 => EccCurve::BpP384R1,
+            Nid::BRAINPOOL_P512R1 => EccCurve::BpP512R1,
+            Nid::SM2 => EccCurve::Sm2P256,
+            _ => return Err(Error::InvalidEccCurve),
+        };
+
+        let mut ctx = BigNumContext::new().map_err(|_| Error::OutOfMemory)?;
+        let pub_bytes = ec_key
+            .public_key()
+            .to_bytes(group, PointConversionForm::UNCOMPRESSED, &mut ctx)
+            .map_err(|_| Error::OperationFailed)?;
+
+        if pub_bytes.is_empty() || pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
+            return Err(Error::InvalidEccParameters);
+        }
+
+        let coord_len = (pub_bytes.len() - 1) / 2;
+        let x = Tpm2bEccParameter::try_from(&pub_bytes[1..=coord_len])
+            .map_err(|_| Error::OperationFailed)?;
+        let y = Tpm2bEccParameter::try_from(&pub_bytes[1 + coord_len..])
+            .map_err(|_| Error::OperationFailed)?;
+
+        Ok(Self { curve, x, y })
     }
 }
 
