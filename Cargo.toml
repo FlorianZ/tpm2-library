@@ -23,5 +23,11 @@ name = "hmac"
 path = "tests/hmac.rs"
 harness = true
 
+[[test]]
+name = "public"
+path = "tests/public.rs"
+harness = true
+
 [dev-dependencies]
 hex = "0.4"
+rstest = "0.18"

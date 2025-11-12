@@ -16,7 +16,9 @@ use openssl::{
 use rand::{CryptoRng, RngCore};
 use strum::{Display, EnumString};
 use tpm2_protocol::data::{
-    Tpm2bEccParameter, TpmEccCurve, TpmsEccPoint, TpmtPublic, TpmuPublicId, TpmuPublicParms,
+    Tpm2bDigest, Tpm2bEccParameter, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms, TpmsEccPoint,
+    TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmtSymDefObject, TpmuAsymScheme,
+    TpmuPublicId, TpmuPublicParms,
 };
 
 /// TPM 2.0 ECC curves.
@@ -174,6 +176,34 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
 }
 
 impl EccPublicKey {
+    /// Converts an `EccPublicKey` to a `TpmtPublic` structure.
+    #[must_use]
+    pub fn to_public(
+        &self,
+        hash_alg: TpmAlgId,
+        symmetric: TpmtSymDefObject,
+    ) -> tpm2_protocol::data::TpmtPublic {
+        tpm2_protocol::data::TpmtPublic {
+            object_type: TpmAlgId::Ecc,
+            name_alg: hash_alg,
+            object_attributes: TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
+            auth_policy: Tpm2bDigest::default(),
+            parameters: TpmuPublicParms::Ecc(TpmsEccParms {
+                symmetric,
+                scheme: TpmtEccScheme {
+                    scheme: TpmAlgId::Ecdh,
+                    details: TpmuAsymScheme::Any(TpmsSchemeHash { hash_alg }),
+                },
+                curve_id: self.curve.into(),
+                kdf: TpmtKdfScheme::default(),
+            }),
+            unique: TpmuPublicId::Ecc(TpmsEccPoint {
+                x: self.x,
+                y: self.y,
+            }),
+        }
+    }
+
     /// Performs ECDH and derives a seed using `KDFe` key derivation function from
     /// TCG TPM 2.0 Architecture specification.
     ///

@@ -12,7 +12,10 @@ use openssl::{
     pkey_ctx::PkeyCtx,
     rsa::{Padding, Rsa},
 };
-use tpm2_protocol::data::{Tpm2bPublicKeyRsa, TpmAlgId, TpmtPublic, TpmuPublicId, TpmuPublicParms};
+use tpm2_protocol::data::{
+    Tpm2bDigest, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsRsaParms, TpmsSchemeHash, TpmtPublic,
+    TpmtRsaScheme, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+};
 
 /// RSA public key parameters.
 #[derive(Debug, Clone)]
@@ -74,6 +77,32 @@ impl TryFrom<&PKey<Private>> for RsaPublicKey {
 }
 
 impl RsaPublicKey {
+    /// Converts an `RsaPublicKey` to a `TpmtPublic` structure.
+    #[must_use]
+    pub fn to_public(
+        &self,
+        hash_alg: TpmAlgId,
+        symmetric: TpmtSymDefObject,
+        key_bits: u16,
+    ) -> TpmtPublic {
+        TpmtPublic {
+            object_type: TpmAlgId::Rsa,
+            name_alg: hash_alg,
+            object_attributes: TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
+            auth_policy: Tpm2bDigest::default(),
+            parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
+                symmetric,
+                scheme: TpmtRsaScheme {
+                    scheme: TpmAlgId::Oaep,
+                    details: TpmuAsymScheme::Any(TpmsSchemeHash { hash_alg }),
+                },
+                key_bits,
+                exponent: 0,
+            }),
+            unique: TpmuPublicId::Rsa(self.n),
+        }
+    }
+
     /// Performs RSA-OAEP.
     ///
     /// # Errors
