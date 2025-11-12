@@ -176,9 +176,9 @@ impl TpmPolicyCommand {
 
 /// A policy branch (used for `auth_policy` list).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TpmKeyPolicy {
-    name: Option<String>,
-    body: Vec<TpmPolicyCommand>,
+pub struct TpmPolicy {
+    pub name: Option<String>,
+    pub policy: Vec<TpmPolicyCommand>,
 }
 
 /// High-level runtime representation of a TPM key.
@@ -190,8 +190,8 @@ pub struct TpmKey {
     pub parent_public: Option<Tpm2bPublic>,
     pub key_type: TpmAlgId,
     pub empty_auth: Option<bool>,
-    pub policy: Option<TpmKeyPolicy>,
-    pub auth_policy: Option<Vec<TpmKeyPolicy>>,
+    pub policy: Option<TpmPolicy>,
+    pub auth_policy: Option<Vec<TpmPolicy>>,
     pub secret: Option<Vec<u8>>,
     pub description: Option<String>,
 }
@@ -279,7 +279,7 @@ impl TpmKey {
 
         let policy_asn1 = if let Some(policy) = &self.policy {
             let cmds = policy
-                .body
+                .policy
                 .iter()
                 .map(|c| TpmPolicyCommandAsn1 {
                     command_code: c.cc as u32,
@@ -297,7 +297,7 @@ impl TpmKey {
                 .map(|p| TpmAuthPolicyAsn1 {
                     name: p.name.as_deref().map(Utf8String::from),
                     policy: p
-                        .body
+                        .policy
                         .iter()
                         .map(|c| TpmPolicyCommandAsn1 {
                             command_code: c.cc as u32,
@@ -358,9 +358,9 @@ impl TpmKey {
                 validate_policy_command(cc, &body)?;
                 v.push(TpmPolicyCommand { cc, body });
             }
-            Some(TpmKeyPolicy {
+            Some(TpmPolicy {
                 name: None,
-                body: v,
+                policy: v,
             })
         } else {
             None
@@ -377,9 +377,9 @@ impl TpmKey {
                     validate_policy_command(cc, &body)?;
                     cmds.push(TpmPolicyCommand { cc, body });
                 }
-                v.push(TpmKeyPolicy {
+                v.push(TpmPolicy {
                     name: b.name,
-                    body: cmds,
+                    policy: cmds,
                 });
             }
             Some(v)
