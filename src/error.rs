@@ -18,9 +18,13 @@ pub enum Error {
     #[error("invalid DER tag: {0}")]
     InvalidDerTag(String),
 
-    /// ASN.1 / TPM inner data are malformed or have an unexpected layout.
+    /// ASN.1 structure or embedded TPM data is malformed.
     #[error("invalid DER data")]
     InvalidDer,
+
+    /// A policy command body is malformed or invalid for that command.
+    #[error("invalid policy")]
+    InvalidPolicy,
 
     /// Importable key is missing its encrypted seed (`secret`).
     #[error("missing secret for importable key")]

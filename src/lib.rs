@@ -137,7 +137,7 @@ impl TpmPolicyCommand {
     /// # Errors
     ///
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when `cc` is not valid.
-    /// Returns [`InvalidDer`](crate::Error::InvalidDer) when `body` violates
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when `body` violates
     /// command-specific constraints (e.g., a zero-parameter command with data).
     pub fn from_raw(cc: TpmCc, body: impl Into<Vec<u8>>) -> Result<Self, Error> {
         let body = body.into();
@@ -149,8 +149,8 @@ impl TpmPolicyCommand {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidDer`](crate::Error::InvalidDer) when `cc` is not one of
-    /// the zero-parameter commands.
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when `cc` is not
+    /// one of the zero-parameter commands.
     pub fn zero(cc: TpmCc) -> Result<Self, Error> {
         if ZERO_PARAM_CMDS.contains(&cc) {
             Ok(Self {
@@ -158,7 +158,7 @@ impl TpmPolicyCommand {
                 body: Vec::new(),
             })
         } else {
-            Err(Error::InvalidDer)
+            Err(Error::InvalidPolicy)
         }
     }
 
@@ -264,6 +264,8 @@ impl TpmKey {
     /// and inner public key type mismatch.
     /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag) when the ASN.1
     /// OID is not a recognized TPM key type.
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when a policy
+    /// command body is invalid.
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when a policy item uses
     /// an unknown TPM command code.
     /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
@@ -301,6 +303,8 @@ impl TpmKey {
     /// and inner public key type mismatch.
     /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag) when the ASN.1
     /// OID is not a recognized TPM key type.
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when a policy
+    /// command body is invalid.
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when a policy item uses
     /// an unknown TPM command code.
     /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
@@ -422,6 +426,7 @@ impl TryFrom<&[u8]> for TpmKey {
     /// Returns [`InvalidDer`](crate::Error::InvalidDer)
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType)
     /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag)
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy)
     /// Returns [`InvalidCc`](crate::Error::InvalidCc)
     /// Returns [`MissingSecret`](crate::Error::MissingSecret)
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
@@ -509,7 +514,7 @@ const ZERO_PARAM_CMDS: &[TpmCc] = &[
 fn validate_policy_command(cc: TpmCc, body: &[u8]) -> Result<(), Error> {
     if ZERO_PARAM_CMDS.contains(&cc) {
         if !body.is_empty() {
-            return Err(Error::InvalidDer);
+            return Err(Error::InvalidPolicy);
         }
         return Ok(());
     }
@@ -522,21 +527,21 @@ fn validate_policy_command(cc: TpmCc, body: &[u8]) -> Result<(), Error> {
 }
 
 fn validate_policy_authorize(body: &[u8]) -> Result<(), Error> {
-    let (.., rest) = Tpm2bPublic::unmarshal(body).map_err(|_| Error::InvalidDer)?;
-    let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidDer)?;
-    let (.., rest) = TpmtSignature::unmarshal(rest).map_err(|_| Error::InvalidDer)?;
+    let (.., rest) = Tpm2bPublic::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
+    let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+    let (.., rest) = TpmtSignature::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
     if !rest.is_empty() {
-        return Err(Error::InvalidDer);
+        return Err(Error::InvalidPolicy);
     }
     Ok(())
 }
 
 fn validate_policy_secret(body: &[u8]) -> Result<(), Error> {
-    let (.., rest) = TpmHandle::unmarshal(body).map_err(|_| Error::InvalidDer)?;
-    let (.., rest) = Tpm2bName::unmarshal(rest).map_err(|_| Error::InvalidDer)?;
-    let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidDer)?;
+    let (.., rest) = TpmHandle::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
+    let (.., rest) = Tpm2bName::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+    let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
     if !rest.is_empty() {
-        return Err(Error::InvalidDer);
+        return Err(Error::InvalidPolicy);
     }
     Ok(())
 }
@@ -570,7 +575,7 @@ mod tests {
     fn zero_param_non_empty_err(#[case] cc: TpmCc) {
         assert!(matches!(
             validate_policy_command(cc, &[0x00]),
-            Err(Error::InvalidDer)
+            Err(Error::InvalidPolicy)
         ));
         assert!(TpmPolicyCommand::from_raw(cc, vec![0]).is_err());
     }
@@ -586,7 +591,7 @@ mod tests {
         let body = [0u8, 0, 0, 0, 0, 0, 0];
         assert!(matches!(
             validate_policy_command(TpmCc::PolicySecret, &body),
-            Err(Error::InvalidDer)
+            Err(Error::InvalidPolicy)
         ));
     }
 
@@ -594,7 +599,7 @@ mod tests {
     fn policy_authorize_empty_err() {
         assert!(matches!(
             validate_policy_command(TpmCc::PolicyAuthorize, &[]),
-            Err(Error::InvalidDer)
+            Err(Error::InvalidPolicy)
         ));
     }
 
