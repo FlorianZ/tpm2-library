@@ -189,7 +189,6 @@ pub struct TpmKey {
     pub private: Tpm2bPrivate,
     pub parent_handle: TpmHandle,
     pub parent_public: Option<Tpm2bPublic>,
-    pub key_type: TpmAlgId,
     pub empty_auth: Option<bool>,
     pub policy: Option<TpmPolicy>,
     pub auth_policy: Option<Vec<TpmPolicy>>,
@@ -328,7 +327,8 @@ impl TpmKey {
             None
         };
 
-        let key_type_oid = key_type_to_oid_for_encode(self.key_type, self.secret.is_some())?;
+        let key_type_oid =
+            key_type_to_oid_for_encode(self.public.inner.object_type, self.secret.is_some())?;
 
         let policy_asn1 = self.policy.as_ref().map(Vec::<TpmPolicyCommandAsn1>::from);
 
@@ -406,7 +406,6 @@ impl TpmKey {
             private,
             parent_handle: TpmHandle(asn1.parent),
             parent_public,
-            key_type,
             empty_auth: asn1.empty_auth,
             policy,
             auth_policy,
@@ -697,7 +696,6 @@ mod tests {
             private,
             parent_handle: TpmHandle(0),
             parent_public: None,
-            key_type: TpmAlgId::Rsa,
             empty_auth: None,
             policy: None,
             auth_policy: None,
