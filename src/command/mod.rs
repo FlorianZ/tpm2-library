@@ -116,8 +116,10 @@ pub enum CommandError {
     InvalidInput(String),
     #[error("invalid output: {0}")]
     InvalidOutput(String),
-    #[error("invalid parent: {0}{1:08x}")]
-    InvalidParent(&'static str, u32),
+    #[error("invalid parent object handle: {0}{1:08x}")]
+    InvalidParentHandle(&'static str, u32),
+    #[error("invalid parent key type")]
+    InvalidParentType,
     #[error("handle pattern not allowed: {0}")]
     PatternNotAllowed(String),
     #[error("policy denied")]
@@ -171,10 +173,10 @@ pub enum CommandError {
 impl From<SessionError> for CommandError {
     fn from(err: SessionError) -> Self {
         match err {
-            SessionError::InvalidParent(prefix, handle) => Self::InvalidParent(prefix, handle),
             SessionError::Device(dev_err) => Self::from(dev_err),
-            SessionError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) => {
-                Self::InvalidParent(prefix, handle)
+            SessionError::InvalidParent(prefix, handle)
+            | SessionError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) => {
+                Self::InvalidParentHandle(prefix, handle)
             }
             SessionError::Vtpm(e) => Self::Cache(e),
             SessionError::Key(e) => Self::Key(e),

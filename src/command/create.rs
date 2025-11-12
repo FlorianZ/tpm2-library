@@ -168,12 +168,12 @@ impl Create {
                     if let SessionError::Device(DeviceError::TpmRc(rc)) = &e {
                         if rc.base() == TpmRcBase::Type {
                             if let Ok(key) = job.cache.find_by_phandle(device, parent_handle.0) {
-                                return CommandError::InvalidParent(
+                                return CommandError::InvalidParentHandle(
                                     "vtpm:",
                                     key.context.saved_handle.0,
                                 );
                             }
-                            return CommandError::InvalidParent("tpm:", parent_handle.0);
+                            return CommandError::InvalidParentHandle("tpm:", parent_handle.0);
                         }
                     }
                     e.into()

@@ -11,10 +11,7 @@ use crate::{
     write_object,
 };
 use clap::Args;
-use openssl::{
-    rand::rand_bytes,
-    symm::{encrypt, Cipher},
-};
+use openssl::symm::{encrypt, Cipher};
 use rand;
 use tpm2_crypto::{
     make_name as crypto_make_name, EccPublicKey, Error as CryptoError, Hash, PublicKey,
@@ -26,8 +23,7 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
-        TpmCc, TpmRcBase, TpmsEccPoint, TpmtPublic, TpmtSensitive, TpmtSymDefObject,
-        TpmuSensitiveComposite,
+        TpmCc, TpmRcBase, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     frame::TpmImportCommand,
     TpmHandle, TpmMarshal, TpmProtocolError, TpmWriter,
@@ -92,65 +88,6 @@ impl Job for Convert {
 }
 
 impl Convert {
-    /// Encrypts a seed using the parent's RSA public key for duplication.
-    fn create_import_seed_rsa(
-        parent_public: &TpmtPublic,
-        seed: &[u8],
-    ) -> Result<Tpm2bEncryptedSecret, CommandError> {
-        let parent_name_alg = parent_public.name_alg;
-        let rsa_key = RsaPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
-
-        let encrypted_seed = rsa_key
-            .oaep(Hash::from(parent_name_alg), seed)
-            .map_err(CommandError::Crypto)?;
-
-        Tpm2bEncryptedSecret::try_from(encrypted_seed.as_slice())
-            .map_err(|_| CommandError::CapacityExceeded)
-    }
-
-    /// Derives a `seed` and an ephemeral public key using ECDH with the parent's ECC public key.
-    fn create_import_seed_ecc(
-        parent_public: &TpmtPublic,
-        rng: &mut (impl rand::RngCore + rand::CryptoRng),
-    ) -> Result<(Vec<u8>, TpmsEccPoint), CommandError> {
-        let parent_name_alg = parent_public.name_alg;
-        let ecc_key = EccPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
-
-        ecc_key
-            .ecdh(Hash::from(parent_name_alg), rng)
-            .map_err(CommandError::Crypto)
-    }
-
-    /// Generates the appropriate seed and encrypted seed based on parent key type.
-    fn create_import_seed(
-        parent_public: &TpmtPublic,
-        rng: &mut (impl rand::RngCore + rand::CryptoRng),
-    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), CommandError> {
-        let parent_key_type = parent_public.object_type;
-        match parent_key_type {
-            TpmAlgId::Rsa => {
-                let parent_name_alg = parent_public.name_alg;
-                let seed_size = Hash::from(parent_name_alg).size();
-                let mut seed = vec![0u8; seed_size];
-                rand_bytes(&mut seed)?;
-                let encrypted_seed = Self::create_import_seed_rsa(parent_public, &seed)?;
-                Ok((seed, encrypted_seed))
-            }
-            TpmAlgId::Ecc => {
-                let (derived_seed, ephemeral_point) =
-                    Self::create_import_seed_ecc(parent_public, rng)?;
-                let point_bytes = write_object(&ephemeral_point)?;
-                let secret = Tpm2bEncryptedSecret::try_from(point_bytes.as_slice())
-                    .map_err(|_| CommandError::CapacityExceeded)?;
-                Ok((derived_seed, secret))
-            }
-            _ => Err(CommandError::InvalidInput(format!(
-                "Unsupported parent key type for import: {parent_key_type}"
-            ))),
-        }
-    }
-
-    /// Derives symmetric and HMAC keys using KDFa.
     fn create_import_keys(
         parent_name_alg: TpmAlgId,
         seed: &[u8],
@@ -170,7 +107,6 @@ impl Convert {
         Ok((sym_key, hmac_key))
     }
 
-    /// Encrypts the sensitive portion of the key.
     fn encrypt_sensitive_data(
         object_public: &TpmtPublic,
         private_bytes: &[u8],
@@ -214,15 +150,14 @@ impl Convert {
         Ok(enc_data)
     }
 
-    /// Calculates the outer HMAC and assembles the final private blob.
     fn create_private_blob(
         parent_name_alg: TpmAlgId,
         hmac_key: &[u8],
-        encrypted_sensitive_data: &[u8],
+        sensitive: &[u8],
         object_name: &Tpm2bName,
     ) -> Result<Tpm2bPrivate, CommandError> {
         let final_mac = Hash::from(parent_name_alg)
-            .hmac(hmac_key, &[encrypted_sensitive_data, object_name.as_ref()])
+            .hmac(hmac_key, &[sensitive, object_name.as_ref()])
             .map_err(CommandError::Crypto)?;
 
         let duplicate_blob = {
@@ -233,7 +168,7 @@ impl Convert {
                     .map_err(|_| CommandError::CapacityExceeded)?
                     .marshal(&mut writer)
                     .map_err(|e: TpmProtocolError| e)?;
-                writer.write_bytes(encrypted_sensitive_data)?;
+                writer.write_bytes(sensitive)?;
                 writer.len()
             };
             duplicate_blob_buf[..len].to_vec()
@@ -243,30 +178,30 @@ impl Convert {
             .map_err(|_| CommandError::CapacityExceeded)
     }
 
-    /// Creates the import blob components (`duplicate`, `in_sym_seed`, `encryption_key`).
-    fn create_import_blob_internal(
+    fn create_import_blob(
         parent_public: &tpm2_protocol::data::TpmtPublic,
         object_public: &tpm2_protocol::data::TpmtPublic,
         private_bytes: &[u8],
         object_name: &Tpm2bName,
         rng: &mut (impl rand::RngCore + rand::CryptoRng),
     ) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData), CommandError> {
-        let parent_name_alg = parent_public.name_alg;
-
-        let (seed, in_sym_seed) = Self::create_import_seed(parent_public, rng)?;
-
-        let (sym_key, hmac_key) = Self::create_import_keys(parent_name_alg, &seed, object_name)?;
-
-        let encrypted_sensitive_data =
-            Self::encrypt_sensitive_data(object_public, private_bytes, &sym_key)?;
-
-        let duplicate = Self::create_private_blob(
-            parent_name_alg,
-            &hmac_key,
-            &encrypted_sensitive_data,
-            object_name,
-        )?;
-
+        let name_alg = parent_public.name_alg;
+        let (seed, in_sym_seed) = match parent_public.object_type {
+            TpmAlgId::Rsa => {
+                let key = RsaPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
+                key.to_seed(Hash::from(name_alg), rng)
+                    .map_err(CommandError::Crypto)?
+            }
+            TpmAlgId::Ecc => {
+                let key = EccPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
+                key.to_seed(Hash::from(name_alg), rng)
+                    .map_err(CommandError::Crypto)?
+            }
+            _ => return Err(CommandError::InvalidParentType),
+        };
+        let (sym_key, hmac_key) = Self::create_import_keys(name_alg, &seed, object_name)?;
+        let sensitive = Self::encrypt_sensitive_data(object_public, private_bytes, &sym_key)?;
+        let duplicate = Self::create_private_blob(name_alg, &hmac_key, &sensitive, object_name)?;
         Ok((duplicate, in_sym_seed, Tpm2bData::default()))
     }
 
@@ -301,7 +236,7 @@ impl Convert {
                     || base == TpmRcBase::ReferenceH0
                     || base == TpmRcBase::Type
                 {
-                    return Err(CommandError::InvalidParent("tpm:", parent_handle.0));
+                    return Err(CommandError::InvalidParentHandle("tpm:", parent_handle.0));
                 }
                 return Err(DeviceError::TpmRc(rc).into());
             }
@@ -329,7 +264,7 @@ impl Convert {
 
         let object_name = crypto_make_name(&public).map_err(CommandError::Crypto)?;
 
-        let (duplicate, in_sym_seed, encryption_key) = Self::create_import_blob_internal(
+        let (duplicate, in_sym_seed, encryption_key) = Self::create_import_blob(
             &parent_public,
             &public,
             &sensitive_blob,
