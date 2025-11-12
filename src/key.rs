@@ -4,55 +4,24 @@
 
 #![allow(clippy::no_effect_underscore_binding)]
 
-use openssl::error::ErrorStack;
-use std::num::TryFromIntError;
 use std::str::FromStr;
 use thiserror::Error;
-use tpm2_crypto::{EccCurve, Error as CryptoError, Hash};
-use tpm2_protocol::{
-    data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms},
-    TpmProtocolError,
-};
+use tpm2_crypto::{EccCurve, Hash};
 use tpm2_tpmkey::Error as TpmKeyError;
+use tpm2_protocol::data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms};
 
 #[derive(Debug, Error)]
 pub enum KeyError {
-    #[error("capacity exceeded")]
-    CapacityExceeded,
     #[error("unsupported name algorithm: {0}")]
     InvalidAlgorithm(String),
     #[error("invalid algorithm format: '{0}'")]
     InvalidAlgorithmFormat(String),
     #[error("invalid ECC curve: {0}")]
     InvalidEccCurve(String),
-    #[error("invalid ECC point: {0}")]
-    InvalidEccPoint(String),
-    #[error("invalid key format")]
-    InvalidFormat,
-    #[error("invalid RSA exponent")]
-    InvalidRsaExponent,
     #[error("invalid RSA key bits: {0}")]
     InvalidRsaKeyBits(String),
-    #[error("unsupported file format")]
-    UnsupportedFileFormat,
-    #[error("unsupported OID: {0}")]
-    UnsupportedOid(String),
-    #[error("unsupported PEM tag: {0}")]
-    UnsupportedPemTag(String),
-    #[error("value conversion failed: {0}")]
-    ValueConversionFailed(String),
-    #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
-    #[error("hex decode: {0}")]
-    HexDecode(#[from] hex::FromHexError),
-    #[error("int decode: {0}")]
-    IntDecode(#[from] TryFromIntError),
     #[error("tpm key: {0}")]
     TpmKey(#[from] TpmKeyError),
-    #[error("openssl: {0}")]
-    Openssl(#[from] ErrorStack),
-    #[error("protocol: {0}")]
-    Protocol(#[from] TpmProtocolError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
