@@ -29,4 +29,12 @@ pub enum Error {
     /// Internal operation failed (e.g., buffer marshal overflow).
     #[error("operation failed")]
     OperationFailed,
+
+    /// Malformed PEM data.
+    #[error("invalid PEM data")]
+    InvalidPem(#[from] pem::PemError),
+
+    /// PEM tag is not 'TSS2 PRIVATE KEY'.
+    #[error("invalid PEM tag: {0}")]
+    InvalidPemTag(String),
 }

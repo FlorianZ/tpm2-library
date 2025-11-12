@@ -44,6 +44,7 @@ mod error;
 
 pub use crate::error::*;
 
+use pem::{EncodeConfig, LineEnding, Pem};
 use rasn::{
     prelude::ObjectIdentifier,
     types::{OctetString, Utf8String},
@@ -234,6 +235,48 @@ impl TpmKey {
         self.parent_public.as_ref()
     }
 
+    /// Serialize this key into PEM bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidDer`](crate::Error::InvalidDer) when ASN.1 encoding fails.
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed) when TPM
+    /// structures cannot be marshalled to bytes.
+    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
+    /// is not `Rsa`, `Ecc`, or `KeyedHash`.
+    pub fn to_pem(&self) -> Result<String, Error> {
+        let der = self.to_der()?;
+        let pem = Pem::new("TSS2 PRIVATE KEY", der);
+        let cfg = EncodeConfig::new().set_line_ending(LineEnding::LF);
+        Ok(pem::encode_config(&pem, cfg))
+    }
+
+    /// Parse a key from PEM bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidPem`](crate::Error::InvalidPem) when PEM parsing fails.
+    /// Returns [`InvalidPemTag`](crate::Error::InvalidPemTag) when the PEM tag
+    /// is not `TSS2 PRIVATE KEY`.
+    /// Returns [`InvalidDer`](crate::Error::InvalidDer) when ASN.1 decoding or
+    /// embedded layout checks fail.
+    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when the OID
+    /// and inner public key type mismatch.
+    /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag) when the ASN.1
+    /// OID is not a recognized TPM key type.
+    /// Returns [`InvalidCc`](crate::Error::InvalidCc) when a policy item uses
+    /// an unknown TPM command code.
+    /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
+    /// an *Importable Key* but `secret` is absent.
+    pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, Error> {
+        let pem = pem::parse(pem_bytes)?;
+        if pem.tag() == "TSS2 PRIVATE KEY" {
+            Self::from_der(pem.contents())
+        } else {
+            Err(Error::InvalidPemTag(pem.tag().to_string()))
+        }
+    }
+
     /// Serialize this key into DER bytes.
     ///
     /// # Errors
@@ -241,6 +284,8 @@ impl TpmKey {
     /// Returns [`InvalidDer`](crate::Error::InvalidDer) when ASN.1 encoding fails.
     /// Returns [`OperationFailed`](crate::Error::OperationFailed) when TPM
     /// structures cannot be marshalled to bytes.
+    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
+    /// is not `Rsa`, `Ecc`, or `KeyedHash`.
     pub fn to_der(&self) -> Result<Vec<u8>, Error> {
         let asn1 = self.to_asn1()?;
         rasn::der::encode(&asn1).map_err(|_| Error::InvalidDer)
@@ -252,6 +297,10 @@ impl TpmKey {
     ///
     /// Returns [`InvalidDer`](crate::Error::InvalidDer) when ASN.1 decoding or
     /// embedded layout checks fail.
+    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when the OID
+    /// and inner public key type mismatch.
+    /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag) when the ASN.1
+    /// OID is not a recognized TPM key type.
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when a policy item uses
     /// an unknown TPM command code.
     /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
@@ -317,6 +366,20 @@ impl TpmKey {
             None
         };
 
+        let key_type = public.inner.object_type;
+
+        if asn1.key_type == OID_LOADABLE_KEY || asn1.key_type == OID_IMPORTABLE_KEY {
+            if !(key_type == TpmAlgId::Rsa || key_type == TpmAlgId::Ecc) {
+                return Err(Error::InvalidKeyType);
+            }
+        } else if asn1.key_type == OID_SEALED_DATA {
+            if key_type != TpmAlgId::KeyedHash {
+                return Err(Error::InvalidKeyType);
+            }
+        } else {
+            return Err(Error::InvalidDerTag(asn1.key_type.to_string()));
+        }
+
         let is_importable_oid = asn1.key_type == OID_IMPORTABLE_KEY;
         if is_importable_oid && asn1.secret.is_none() {
             return Err(Error::MissingSecret);
@@ -333,8 +396,6 @@ impl TpmKey {
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
-
-        let key_type = public.inner.object_type;
 
         Ok(Self {
             public,
@@ -359,6 +420,8 @@ impl TryFrom<&[u8]> for TpmKey {
     /// # Errors
     ///
     /// Returns [`InvalidDer`](crate::Error::InvalidDer)
+    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType)
+    /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag)
     /// Returns [`InvalidCc`](crate::Error::InvalidCc)
     /// Returns [`MissingSecret`](crate::Error::MissingSecret)
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
@@ -482,6 +545,10 @@ fn validate_policy_secret(body: &[u8]) -> Result<(), Error> {
 mod tests {
     use super::*;
     use rstest::rstest;
+    use tpm2_protocol::data::{
+        Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmsRsaParms, TpmtPublic, TpmtSensitive,
+        TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+    };
 
     #[rstest]
     #[case(TpmCc::PolicyAuthValue)]
@@ -531,10 +598,39 @@ mod tests {
         ));
     }
 
+    fn minimal_rsa_key_components() -> (Tpm2bPublic, Tpm2bPrivate) {
+        let tpm_public = TpmtPublic {
+            object_type: TpmAlgId::Rsa,
+            name_alg: TpmAlgId::Sha256,
+            parameters: TpmuPublicParms::Rsa(TpmsRsaParms::default()),
+            unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
+            ..Default::default()
+        };
+        let public = Tpm2bPublic::from(tpm_public);
+
+        let tpm_sensitive = TpmtSensitive {
+            sensitive_type: TpmAlgId::Rsa,
+            sensitive: TpmuSensitiveComposite::Rsa(Tpm2bPrivateKeyRsa::default()),
+            ..Default::default()
+        };
+
+        let mut sensitive_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut sensitive_bytes);
+            tpm_sensitive.marshal(&mut writer).unwrap();
+            writer.len()
+        };
+
+        let private = Tpm2bPrivate::try_from(&sensitive_bytes[..len]).unwrap();
+
+        (public, private)
+    }
+
     #[test]
     fn invalid_cc_is_rejected_on_load() {
-        let pub_bytes = write_object(&Tpm2bPublic::default()).unwrap();
-        let priv_bytes = write_object(&Tpm2bPrivate::default()).unwrap();
+        let (public, private) = minimal_rsa_key_components();
+        let pub_bytes = write_object(&public).unwrap();
+        let priv_bytes = write_object(&private).unwrap();
 
         let bad_cmd = TpmPolicyCommandAsn1 {
             command_code: 0xFFFF_FF00,
@@ -565,8 +661,9 @@ mod tests {
 
     #[test]
     fn importable_without_secret_fails() {
-        let pub_bytes = write_object(&Tpm2bPublic::default()).unwrap();
-        let priv_bytes = write_object(&Tpm2bPrivate::default()).unwrap();
+        let (public, private) = minimal_rsa_key_components();
+        let pub_bytes = write_object(&public).unwrap();
+        let priv_bytes = write_object(&private).unwrap();
 
         let asn1 = TpmKeyAsn1 {
             key_type: OID_IMPORTABLE_KEY.clone(),
@@ -585,5 +682,52 @@ mod tests {
         let der = rasn::der::encode(&asn1).unwrap();
         let res = TpmKey::from_der(&der);
         assert!(matches!(res, Err(Error::MissingSecret)));
+    }
+
+    fn minimal_key() -> TpmKey {
+        let (public, private) = minimal_rsa_key_components();
+
+        TpmKey {
+            public,
+            private,
+            parent_handle: TpmHandle(0),
+            parent_public: None,
+            key_type: TpmAlgId::Rsa,
+            empty_auth: None,
+            policy: None,
+            auth_policy: None,
+            secret: None,
+            description: None,
+        }
+    }
+
+    #[test]
+    fn pem_roundtrip_ok() {
+        let key_a = minimal_key();
+        let pem = key_a.to_pem().unwrap();
+        let key_b = TpmKey::from_pem(pem.as_bytes()).unwrap();
+        assert_eq!(key_a, key_b);
+    }
+
+    #[test]
+    fn to_pem_guards_ok() {
+        let key = minimal_key();
+        let pem = key.to_pem().unwrap();
+        assert!(pem.starts_with("-----BEGIN TSS2 PRIVATE KEY-----"));
+        assert!(pem.ends_with("-----END TSS2 PRIVATE KEY-----\n"));
+    }
+
+    #[test]
+    fn from_pem_invalid_tag_err() {
+        let bad_pem = "-----BEGIN RSA PRIVATE KEY-----\nMQ==\n-----END RSA PRIVATE KEY-----\n";
+        let res = TpmKey::from_pem(bad_pem.as_bytes());
+        assert!(matches!(res, Err(Error::InvalidPemTag(tag)) if tag == "RSA PRIVATE KEY"));
+    }
+
+    #[test]
+    fn from_pem_malformed_data_err() {
+        let bad_pem = "not pem data at all";
+        let res = TpmKey::from_pem(bad_pem.as_bytes());
+        assert!(matches!(res, Err(Error::InvalidPem(_))));
     }
 }
