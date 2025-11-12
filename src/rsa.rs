@@ -10,11 +10,14 @@ use openssl::{
     md::Md,
     pkey::{PKey, Private},
     pkey_ctx::PkeyCtx,
+    rand::rand_bytes,
     rsa::{Padding, Rsa},
 };
+use rand::{CryptoRng, RngCore};
 use tpm2_protocol::data::{
-    Tpm2bDigest, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsRsaParms, TpmsSchemeHash, TpmtPublic,
-    TpmtRsaScheme, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+    Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsRsaParms,
+    TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId,
+    TpmuPublicParms,
 };
 
 /// RSA public key parameters.
@@ -84,7 +87,14 @@ impl TryFrom<&PKey<Private>> for RsaPublicKey {
 }
 
 impl PublicKey for RsaPublicKey {
-    /// Converts an `RsaPublicKey` to a `TpmtPublic` structure.
+    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error> {
+        let pkey = PKey::private_key_from_der(bytes).map_err(|_| Error::OperationFailed)?;
+        let public_key = RsaPublicKey::try_from(&pkey)?;
+        let rsa = pkey.rsa().map_err(|_| Error::InvalidRsaParameters)?;
+        let sensitive = rsa.p().ok_or(Error::OperationFailed)?.to_vec();
+        Ok((public_key, sensitive))
+    }
+
     fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic {
         TpmtPublic {
             object_type: TpmAlgId::Rsa,
@@ -104,18 +114,21 @@ impl PublicKey for RsaPublicKey {
         }
     }
 
-    /// # Errors
-    ///
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
-    /// when the DER parsing or key extraction fails.
-    /// Returns [`InvalidRsaParameters`](crate::Error::InvalidRsaParameters)
-    /// when the key is not a valid RSA key.
-    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error> {
-        let pkey = PKey::private_key_from_der(bytes).map_err(|_| Error::OperationFailed)?;
-        let public_key = RsaPublicKey::try_from(&pkey)?;
-        let rsa = pkey.rsa().map_err(|_| Error::InvalidRsaParameters)?;
-        let sensitive = rsa.p().ok_or(Error::OperationFailed)?.to_vec();
-        Ok((public_key, sensitive))
+    fn to_seed(
+        &self,
+        name_alg: Hash,
+        _rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), Error> {
+        let seed_size = name_alg.size();
+        let mut seed = vec![0u8; seed_size];
+        rand_bytes(&mut seed).map_err(|_| Error::OperationFailed)?;
+
+        let encrypted_seed_bytes = self.oaep(name_alg, &seed)?;
+
+        let encrypted_seed = Tpm2bEncryptedSecret::try_from(encrypted_seed_bytes.as_slice())
+            .map_err(|_| Error::OperationFailed)?;
+
+        Ok((seed, encrypted_seed))
     }
 }
 

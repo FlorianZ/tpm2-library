@@ -16,10 +16,14 @@ use openssl::{
 };
 use rand::{CryptoRng, RngCore};
 use strum::{Display, EnumString};
-use tpm2_protocol::data::{
-    Tpm2bDigest, Tpm2bEccParameter, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms, TpmsEccPoint,
-    TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmtSymDefObject, TpmuAsymScheme,
-    TpmuPublicId, TpmuPublicParms,
+use tpm2_protocol::{
+    constant::TPM_MAX_COMMAND_SIZE,
+    data::{
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmaObject,
+        TpmsEccParms, TpmsEccPoint, TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic,
+        TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+    },
+    TpmMarshal, TpmWriter,
 };
 
 /// TPM 2.0 ECC curves.
@@ -177,7 +181,14 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
 }
 
 impl PublicKey for EccPublicKey {
-    /// Converts an `EccPublicKey` to a `TpmtPublic` structure.
+    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error> {
+        let pkey = PKey::private_key_from_der(bytes).map_err(|_| Error::OperationFailed)?;
+        let public_key = EccPublicKey::try_from(&pkey)?;
+        let ec_key = pkey.ec_key().map_err(|_| Error::InvalidEccParameters)?;
+        let sensitive = ec_key.private_key().to_vec();
+        Ok((public_key, sensitive))
+    }
+
     fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic {
         tpm2_protocol::data::TpmtPublic {
             object_type: TpmAlgId::Ecc,
@@ -200,18 +211,27 @@ impl PublicKey for EccPublicKey {
         }
     }
 
-    /// # Errors
-    ///
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
-    /// when the DER parsing or key extraction fails.
-    /// Returns [`InvalidEccParameters`](crate::Error::InvalidEccParameters)
-    /// when the key is not a valid ECC key.
-    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error> {
-        let pkey = PKey::private_key_from_der(bytes).map_err(|_| Error::OperationFailed)?;
-        let public_key = EccPublicKey::try_from(&pkey)?;
-        let ec_key = pkey.ec_key().map_err(|_| Error::InvalidEccParameters)?;
-        let sensitive = ec_key.private_key().to_vec();
-        Ok((public_key, sensitive))
+    fn to_seed(
+        &self,
+        name_alg: Hash,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), Error> {
+        let (derived_seed, ephemeral_point) = self.ecdh(name_alg, rng)?;
+
+        let mut point_bytes_buf = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut point_bytes_buf);
+            ephemeral_point
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            writer.len()
+        };
+        let point_bytes = &point_bytes_buf[..len];
+
+        let secret =
+            Tpm2bEncryptedSecret::try_from(point_bytes).map_err(|_| Error::OperationFailed)?;
+
+        Ok((derived_seed, secret))
     }
 }
 

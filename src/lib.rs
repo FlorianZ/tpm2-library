@@ -12,9 +12,10 @@ mod error;
 mod hash;
 mod rsa;
 
+use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     constant::MAX_DIGEST_SIZE,
-    data::{Tpm2bName, TpmAlgId, TpmtPublic, TpmtSymDefObject},
+    data::{Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmtPublic, TpmtSymDefObject},
     TpmMarshal, TpmSized, TpmWriter,
 };
 
@@ -28,9 +29,6 @@ pub trait PublicKey
 where
     Self: Sized,
 {
-    /// Converts the public key to a `TpmtPublic` structure.
-    fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic;
-
     /// Parses a DER-encoded private key.
     ///
     /// Returns the public key structure and the sensitive private component.
@@ -44,6 +42,21 @@ where
     /// Returns [`InvalidEccParameters`](crate::Error::InvalidEccParameters)
     /// when the key is not a valid ECC key.
     fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error>;
+
+    /// Converts the public key to a `TpmtPublic` structure.
+    fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic;
+
+    /// Creates a seed and an encrypted seed (inSymSeed) for `TPM2_Import`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed) if the seed
+    /// generation or encryption fails.
+    fn to_seed(
+        &self,
+        name_alg: Hash,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), Error>;
 }
 
 pub const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
@@ -56,8 +69,12 @@ pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 ///
 /// # Errors
 ///
-/// Returns [`Error::OperationFailed`] when an internal
+/// Returns [`InvalidHash`](crate::Error::InvalidHash) when the hash algorithm
+/// is not recognized.
+/// Returns [`OperationFailed`](crate::Error::OperationFailed) when an internal
 /// cryptographic operation fails.
+/// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when memory allocation
+/// for temporary data fails.
 pub fn make_name(public: &TpmtPublic) -> Result<Tpm2bName, Error> {
     let name_alg = Hash::from(public.name_alg);
     let alg_bytes = (public.name_alg as u16).to_be_bytes();
