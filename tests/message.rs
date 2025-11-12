@@ -8,10 +8,9 @@
 mod common;
 
 use crate::common::{bytes_to_hex, hex_to_bytes, run_test, unmarshal_tpm_error_kind_str};
-use std::str::FromStr;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{TpmCc, TpmRc, TpmRcBase},
+    data::{TpmCc, TpmRc},
     frame::{
         tpm_marshal_response, tpm_unmarshal_command, tpm_unmarshal_response, TpmStartupResponse,
     },
@@ -39,8 +38,10 @@ fn main() {
             let cc_str = parts.remove(0);
             let outcome_str = parts.join(" ");
 
-            let cc = TpmCc::from_str(cc_str)
-                .unwrap_or_else(|_| panic!("unknown command code string: {cc_str}"));
+            let cc_u32 = u32::from_str_radix(cc_str, 16)
+                .unwrap_or_else(|_| panic!("malformed command code: {cc_str}"));
+            let cc = TpmCc::try_from(cc_u32)
+                .unwrap_or_else(|_| panic!("invalid command code: {cc_u32}"));
             let original_bytes = hex_to_bytes(dump_str).unwrap();
 
             match type_str {
@@ -71,53 +72,60 @@ fn main() {
                 "Response" => {
                     let unmarshal_result = tpm_unmarshal_response(cc, &original_bytes);
 
-                    if outcome_str == "Success" {
-                        let (body, sessions) = unmarshal_result
-                            .expect("unmarshaling failed on a success test case")
-                            .expect("expected success but got TpmRc error");
+                    if let Ok(expected_rc_u32) = u32::from_str_radix(&outcome_str, 16) {
+                        if expected_rc_u32 == 0x0000 {
+                            let (body, sessions) = unmarshal_result
+                                .expect("unmarshaling failed on a success test case")
+                                .expect("expected success but got TpmRc error");
 
-                        let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
-                        let built_len = {
-                            let mut writer = TpmWriter::new(&mut built_bytes);
-                            let rc = TpmRc::from(TpmRcBase::Success);
-                            body.marshal_frame(rc, &sessions, &mut writer).unwrap();
-                            writer.len()
-                        };
+                            let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+                            let built_len = {
+                                let mut writer = TpmWriter::new(&mut built_bytes);
+                                let rc = TpmRc::try_from(0x0000).unwrap();
+                                body.marshal_frame(rc, &sessions, &mut writer).unwrap();
+                                writer.len()
+                            };
 
-                        let rebuilt_slice = &built_bytes[..built_len];
-                        assert_eq!(
-                            rebuilt_slice,
-                            original_bytes.as_slice(),
-                            "\nOriginal: {}\nRebuilt:  {}\n",
-                            bytes_to_hex(&original_bytes),
-                            bytes_to_hex(rebuilt_slice)
-                        );
-                    } else if let Ok(expected_rc_base) = TpmRcBase::from_str(&outcome_str) {
-                        let actual_rc = unmarshal_result
-                            .expect("unmarshaling failed on a TpmRc test case")
-                            .err()
-                            .expect("expected a TpmRc error but got success");
+                            let rebuilt_slice = &built_bytes[..built_len];
+                            assert_eq!(
+                                rebuilt_slice,
+                                original_bytes.as_slice(),
+                                "\nOriginal: {}\nRebuilt:  {}\n",
+                                bytes_to_hex(&original_bytes),
+                                bytes_to_hex(rebuilt_slice)
+                            );
+                        } else {
+                            let expected_rc =
+                                TpmRc::try_from(expected_rc_u32).unwrap_or_else(|_| {
+                                    panic!("invalid expected TpmRc value in test: {outcome_str}")
+                                });
 
-                        assert_eq!(actual_rc.base(), expected_rc_base, "Mismatched TpmRc error");
+                            let actual_rc = unmarshal_result
+                                .expect("unmarshaling failed on a TpmRc test case")
+                                .err()
+                                .expect("expected a TpmRc error but got success");
 
-                        let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
-                        let built_len = {
-                            let mut writer = TpmWriter::new(&mut built_bytes);
-                            tpm_marshal_response(
-                                &TpmStartupResponse::default(),
-                                &[],
-                                actual_rc,
-                                &mut writer,
-                            )
-                            .unwrap();
-                            writer.len()
-                        };
-                        let rebuilt_slice = &built_bytes[..built_len];
-                        assert_eq!(
-                            rebuilt_slice,
-                            original_bytes.as_slice(),
-                            "Error response did not roundtrip correctly"
-                        );
+                            assert_eq!(actual_rc, expected_rc, "Mismatched TpmRc error");
+
+                            let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+                            let built_len = {
+                                let mut writer = TpmWriter::new(&mut built_bytes);
+                                tpm_marshal_response(
+                                    &TpmStartupResponse::default(),
+                                    &[],
+                                    actual_rc,
+                                    &mut writer,
+                                )
+                                .unwrap();
+                                writer.len()
+                            };
+                            let rebuilt_slice = &built_bytes[..built_len];
+                            assert_eq!(
+                                rebuilt_slice,
+                                original_bytes.as_slice(),
+                                "Error response did not roundtrip correctly"
+                            );
+                        }
                     } else {
                         let expected_err = unmarshal_tpm_error_kind_str(&outcome_str)
                             .unwrap_or_else(|e| {

@@ -86,45 +86,47 @@ impl core::fmt::UpperHex for TpmHandle {
     }
 }
 
-/// TPM protocol data error.
+/// TPM frame marshaling and unmarshaling error type containing variants
+/// for all the possible error conditions.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TpmProtocolError {
-    /// The amount data exceeds the maximum capacity of a type, as defined in
-    /// the TCG specifications.
-    CapacityExceeded,
+    /// Buffer contains more data than allowed by the TCG specifications.
+    BufferTooLarge,
     /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
     /// magic value.
     InvalidAttestMagic,
+    /// Boolean value was expected but the value is neither `0` nor `1`.
+    InvalidBoolean,
+    /// Non-existent command code encountered.
+    InvalidCc,
     /// Tag is neither [`Sessions`](crate::data::TpmSt::Sessions) nor
     /// [`NoSessions`](crate::data::TpmSt::NoSessions).
     InvalidTag,
-    /// A value is not defined for the type.
-    InvalidValue,
-    /// An enum variant is not valid for the context of use.
-    InvalidVariant,
     /// A cryptographic operation failed.
     OperationFailed,
-    /// The number of list items exceeds the maximum capability of a type, as
-    /// defined in the TCG specifications.
+    /// List contains more items than allowed by the TCG specifications.
     TooManyItems,
     /// Trailing data left after unmarshaling.
     TrailingData,
-    /// Not enough bytes to unmarshal.
+    /// Run out of bytes while unmarshaling.
     UnexpectedEnd,
+    /// The requested variant is not available.
+    VariantNotAvailable,
 }
 
 impl core::fmt::Display for TpmProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::CapacityExceeded => write!(f, "buffer capacity exceeded"),
-            Self::InvalidAttestMagic => write!(f, "invalid attestation magiC"),
+            Self::BufferTooLarge => write!(f, "buffer is too large"),
+            Self::InvalidAttestMagic => write!(f, "invalid attestation magic"),
+            Self::InvalidBoolean => write!(f, "invalid boolean value"),
+            Self::InvalidCc => write!(f, "invalid command code"),
             Self::InvalidTag => write!(f, "invalid tag"),
-            Self::InvalidValue => write!(f, "invalid value"),
-            Self::InvalidVariant => write!(f, "invalid variant"),
             Self::OperationFailed => write!(f, "operation failed"),
-            Self::TooManyItems => write!(f, "too many list items"),
+            Self::TooManyItems => write!(f, "list has too many items"),
             Self::TrailingData => write!(f, "trailing data"),
             Self::UnexpectedEnd => write!(f, "unexpected end"),
+            Self::VariantNotAvailable => write!(f, "variant is not available"),
         }
     }
 }
@@ -167,7 +169,7 @@ impl<'a> TpmWriter<'a> {
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmProtocolError::CapacityExceeded);
+            return Err(TpmProtocolError::BufferTooLarge);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;

@@ -77,18 +77,13 @@ tpm_enum! {
 pub type TpmiAlgCipherMode = TpmAlgId;
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
     pub enum TpmAt(u32) {
+        #[default]
         (Any, 0x0000_0000, "TPM_AT_ANY"),
         (Error, 0x0000_0001, "TPM_AT_ERROR"),
         (Pv1, 0x0000_0002, "TPM_AT_PV1"),
         (Vend, 0x8000_0000, "TPM_AT_VEND"),
-    }
-}
-
-impl Default for TpmAt {
-    fn default() -> Self {
-        Self::Any
     }
 }
 

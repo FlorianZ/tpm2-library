@@ -26,13 +26,16 @@ pub struct TpmDispatch {
 /// Represents the dualistic nature of responses.
 pub type TpmResponseResult = Result<(TpmResponse, TpmAuthResponses), TpmRc>;
 
-/// Unmarshals a command from a TPM command buffer.
+/// Unmarshals a TPM command.
 ///
 /// # Errors
 ///
-/// * `TpmProtocolError::UnexpectedEnd` if the buffer is too small
-/// * `TpmProtocolError::InvalidValue` if the buffer contains an unsupported command code or unexpected byte
-/// * `TpmProtocolError::TrailingData` if the command has after spurious data left
+/// Returns [`InvalidValue`](crate::TpmProtocolError::InvalidValue) when the
+/// command code is non-existent.
+/// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when after
+/// unmarshaling there is some data left.
+/// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when the
+/// buffer does not hold all the bytes.
 pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, TpmAuthCommands)> {
     if buf.len() < TPM_HEADER_SIZE as usize {
         return Err(TpmProtocolError::UnexpectedEnd);
@@ -40,7 +43,7 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
     let buf_len = buf.len();
 
     let (tag_raw, buf) = u16::unmarshal(buf)?;
-    let tag = TpmSt::try_from(tag_raw).map_err(|()| TpmProtocolError::InvalidValue)?;
+    let tag = TpmSt::try_from(tag_raw)?;
     let (size, buf) = u32::unmarshal(buf)?;
     let (cc_raw, body_buf) = u32::unmarshal(buf)?;
 
@@ -50,11 +53,11 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
         return Err(TpmProtocolError::TrailingData);
     }
 
-    let cc = TpmCc::try_from(cc_raw).map_err(|()| TpmProtocolError::InvalidValue)?;
+    let cc = TpmCc::try_from(cc_raw)?;
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
-        .map_err(|_| TpmProtocolError::InvalidValue)?;
+        .map_err(|_| TpmProtocolError::InvalidCc)?;
 
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
         return Err(TpmProtocolError::InvalidTag);
@@ -108,9 +111,12 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
 ///
 /// # Errors
 ///
-/// * `TpmProtocolError::UnexpectedEnd` if the buffer is too small
-/// * `TpmProtocolError::InvalidValue` if the buffer contains an unsupported command code
-/// * `TpmProtocolError::TrailingData` if the response has after spurious data left
+/// Returns [`InvalidValue`](crate::TpmProtocolError::InvalidValue) when the
+/// command code is non-existent.
+/// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when after
+/// unmarshaling there is some data left.
+/// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when the
+/// buffer does not hold all the bytes.
 pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult> {
     if buf.len() < TPM_HEADER_SIZE as usize {
         return Err(TpmProtocolError::UnexpectedEnd);
@@ -131,12 +137,12 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
         return Ok(Err(rc));
     }
 
-    let tag = TpmSt::try_from(tag_raw).map_err(|()| TpmProtocolError::InvalidValue)?;
+    let tag = TpmSt::try_from(tag_raw)?;
 
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
-        .map_err(|_| TpmProtocolError::InvalidValue)?;
+        .map_err(|_| TpmProtocolError::InvalidCc)?;
 
     let (body, mut session_area) = (dispatch.response_unmarshaler)(tag, body_buf)?;
 

@@ -19,16 +19,11 @@ use crate::{
 };
 use core::ops::Deref;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuAsymScheme {
-    Any(TpmsSchemeHash),
+    Hash(TpmsSchemeHash),
+    #[default]
     Null,
-}
-
-impl Default for TpmuAsymScheme {
-    fn default() -> Self {
-        Self::Null
-    }
 }
 
 impl TpmTagged for TpmuAsymScheme {
@@ -40,7 +35,7 @@ impl TpmSized for TpmuAsymScheme {
     const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
-            Self::Any(s) => s.len(),
+            Self::Hash(s) => s.len(),
             Self::Null => 0,
         }
     }
@@ -49,7 +44,7 @@ impl TpmSized for TpmuAsymScheme {
 impl TpmMarshal for TpmuAsymScheme {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         match self {
-            Self::Any(s) => s.marshal(writer),
+            Self::Hash(s) => s.marshal(writer),
             Self::Null => Ok(()),
         }
     }
@@ -57,11 +52,21 @@ impl TpmMarshal for TpmuAsymScheme {
 
 impl TpmUnmarshalTagged for TpmuAsymScheme {
     fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        if tag == TpmAlgId::Null {
-            Ok((Self::Null, buf))
-        } else {
-            let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-            Ok((Self::Any(val), buf))
+        match tag {
+            TpmAlgId::Rsassa
+            | TpmAlgId::Rsapss
+            | TpmAlgId::Ecdsa
+            | TpmAlgId::Ecdaa
+            | TpmAlgId::Sm2
+            | TpmAlgId::Ecschnorr
+            | TpmAlgId::Oaep
+            | TpmAlgId::Ecdh
+            | TpmAlgId::Ecmqv => {
+                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
+                Ok((Self::Hash(val), buf))
+            }
+            TpmAlgId::Rsaes | TpmAlgId::Null => Ok((Self::Null, buf)),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
@@ -140,8 +145,9 @@ impl TpmUnmarshalTagged for TpmuCapabilities {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuHa {
+    #[default]
     Null,
     Digest(TpmBuffer<MAX_DIGEST_SIZE>),
 }
@@ -165,10 +171,13 @@ impl TpmUnmarshalTagged for TpmuHa {
         let digest_size = match tag {
             TpmAlgId::Null => return Ok((Self::Null, buf)),
             TpmAlgId::Sha1 => 20,
-            TpmAlgId::Sha256 | TpmAlgId::Sm3_256 => 32,
-            TpmAlgId::Sha384 => 48,
-            TpmAlgId::Sha512 => 64,
-            _ => return Err(TpmProtocolError::InvalidVariant),
+            TpmAlgId::Shake256_192 => 24,
+            TpmAlgId::Sha256 | TpmAlgId::Sm3_256 | TpmAlgId::Sha3_256 | TpmAlgId::Shake256_256 => {
+                32
+            }
+            TpmAlgId::Sha384 | TpmAlgId::Sha3_384 => 48,
+            TpmAlgId::Sha512 | TpmAlgId::Sha3_512 | TpmAlgId::Shake256_512 => 64,
+            _ => return Err(TpmProtocolError::VariantNotAvailable),
         };
 
         if buf.len() < digest_size {
@@ -182,12 +191,6 @@ impl TpmUnmarshalTagged for TpmuHa {
         );
 
         Ok((digest, buf))
-    }
-}
-
-impl Default for TpmuHa {
-    fn default() -> Self {
-        Self::Null
     }
 }
 
@@ -213,12 +216,13 @@ impl Deref for TpmuHa {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub enum TpmuPublicId {
     KeyedHash(Tpm2bDigest),
     SymCipher(Tpm2bSymKey),
     Rsa(Tpm2bPublicKeyRsa),
     Ecc(TpmsEccPoint),
+    #[default]
     Null,
 }
 
@@ -272,14 +276,8 @@ impl TpmUnmarshalTagged for TpmuPublicId {
                 Ok((TpmuPublicId::Ecc(point), rest))
             }
             TpmAlgId::Null => Ok((TpmuPublicId::Null, buf)),
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
-    }
-}
-
-impl Default for TpmuPublicId {
-    fn default() -> Self {
-        Self::Null
     }
 }
 
@@ -342,7 +340,7 @@ impl TpmUnmarshalTagged for TpmuPublicParms {
                 Ok((Self::Ecc(details), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
@@ -407,29 +405,24 @@ impl TpmUnmarshalTagged for TpmuSensitiveComposite {
                 let (val, buf) = Tpm2bSymKey::unmarshal(buf)?;
                 Ok((TpmuSensitiveComposite::Sym(val), buf))
             }
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuSymKeyBits {
     Aes(u16),
     Sm4(u16),
     Camellia(u16),
     Xor(TpmAlgId),
+    #[default]
     Null,
 }
 
 impl TpmTagged for TpmuSymKeyBits {
     type Tag = TpmAlgId;
     type Value = ();
-}
-
-impl Default for TpmuSymKeyBits {
-    fn default() -> Self {
-        Self::Null
-    }
 }
 
 impl TpmSized for TpmuSymKeyBits {
@@ -473,29 +466,24 @@ impl TpmUnmarshalTagged for TpmuSymKeyBits {
                 Ok((TpmuSymKeyBits::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((TpmuSymKeyBits::Null, buf)),
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuSymMode {
     Aes(TpmAlgId),
     Sm4(TpmAlgId),
     Camellia(TpmAlgId),
     Xor(TpmAlgId),
+    #[default]
     Null,
 }
 
 impl TpmTagged for TpmuSymMode {
     type Tag = TpmAlgId;
     type Value = ();
-}
-
-impl Default for TpmuSymMode {
-    fn default() -> Self {
-        Self::Null
-    }
 }
 
 impl TpmSized for TpmuSymMode {
@@ -539,7 +527,7 @@ impl TpmUnmarshalTagged for TpmuSymMode {
                 Ok((TpmuSymMode::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((TpmuSymMode::Null, buf)),
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
@@ -618,7 +606,7 @@ impl TpmUnmarshalTagged for TpmuSignature {
                 Ok((Self::Hmac(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
@@ -707,7 +695,7 @@ impl TpmUnmarshalTagged for TpmuAttest {
                 let (val, buf) = TpmsNvDigestCertifyInfo::unmarshal(buf)?;
                 Ok((TpmuAttest::NvDigest(val), buf))
             }
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
@@ -758,22 +746,17 @@ impl TpmUnmarshalTagged for TpmuKeyedhashScheme {
                 Ok((Self::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuSigScheme {
-    Any(TpmsSchemeHash),
+    Hash(TpmsSchemeHash),
     Hmac(TpmsSchemeHmac),
+    #[default]
     Null,
-}
-
-impl Default for TpmuSigScheme {
-    fn default() -> Self {
-        Self::Null
-    }
 }
 
 impl TpmTagged for TpmuSigScheme {
@@ -785,7 +768,7 @@ impl TpmSized for TpmuSigScheme {
     const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
     fn len(&self) -> usize {
         match self {
-            Self::Any(s) | Self::Hmac(s) => s.len(),
+            Self::Hash(s) | Self::Hmac(s) => s.len(),
             Self::Null => 0,
         }
     }
@@ -794,7 +777,7 @@ impl TpmSized for TpmuSigScheme {
 impl TpmMarshal for TpmuSigScheme {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         match self {
-            Self::Any(s) | Self::Hmac(s) => s.marshal(writer),
+            Self::Hash(s) | Self::Hmac(s) => s.marshal(writer),
             Self::Null => Ok(()),
         }
     }
@@ -802,11 +785,22 @@ impl TpmMarshal for TpmuSigScheme {
 
 impl TpmUnmarshalTagged for TpmuSigScheme {
     fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        if tag == TpmAlgId::Null {
-            Ok((Self::Null, buf))
-        } else {
-            let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-            Ok((Self::Any(val), buf))
+        match tag {
+            TpmAlgId::Hmac => {
+                let (val, buf) = TpmsSchemeHmac::unmarshal(buf)?;
+                Ok((Self::Hmac(val), buf))
+            }
+            TpmAlgId::Rsassa
+            | TpmAlgId::Rsapss
+            | TpmAlgId::Ecdsa
+            | TpmAlgId::Ecdaa
+            | TpmAlgId::Sm2
+            | TpmAlgId::Ecschnorr => {
+                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
+                Ok((Self::Hash(val), buf))
+            }
+            TpmAlgId::Null => Ok((Self::Null, buf)),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }
@@ -859,7 +853,7 @@ impl TpmUnmarshalTagged for TpmuNvPublic2 {
                 let (val, buf) = TpmsNvPublic::unmarshal(buf)?;
                 Ok((Self::PermanentNv(val), buf))
             }
-            _ => Err(TpmProtocolError::InvalidVariant),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
         }
     }
 }

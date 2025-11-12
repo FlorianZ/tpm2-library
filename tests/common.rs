@@ -99,43 +99,11 @@ fn unmarshal_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'st
 #[allow(dead_code)]
 pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmProtocolError, &'static str> {
     match s {
-        "InvalidValue" => return Ok(TpmProtocolError::InvalidValue),
+        "InvalidValue" => return Ok(TpmProtocolError::InvalidCc),
         "UnexpectedEnd" => return Ok(TpmProtocolError::UnexpectedEnd),
         "TrailingData" => return Ok(TpmProtocolError::TrailingData),
+        "VariantNotAvailable" => return Ok(TpmProtocolError::VariantNotAvailable),
         _ => {}
-    }
-
-    if let Some(rest) = s.strip_prefix("InvalidValue") {
-        let content = rest
-            .trim()
-            .strip_prefix('(')
-            .and_then(|s| s.strip_suffix(')'))
-            .ok_or("InvalidValue: missing parentheses")?
-            .trim();
-
-        let mut parts = content.splitn(2, ',');
-        let type_name_part = parts.next().ok_or("InvalidValue: missing type_name part")?;
-        let value_part = parts.next().ok_or("InvalidValue: missing value part")?;
-
-        let type_name_val = type_name_part
-            .trim()
-            .strip_prefix('"')
-            .and_then(|s| s.strip_suffix('"'))
-            .ok_or("InvalidValue: malformed type_name string")?;
-
-        if type_name_val != "TpmSt" {
-            return Err("InvalidValue: unsupported type_name");
-        }
-
-        let value_str = value_part.trim();
-        if let Some(_) = value_str
-            .strip_prefix("Unsigned(")
-            .and_then(|s| s.strip_suffix(')'))
-        {
-            return Ok(TpmProtocolError::InvalidValue);
-        }
-
-        return Err("InvalidValue: unsupported value variant");
     }
 
     Err("unknown variant")

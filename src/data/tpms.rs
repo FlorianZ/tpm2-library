@@ -106,8 +106,7 @@ impl TpmUnmarshal for TpmsPcrSelect {
         }
 
         let (pcr_bytes, final_remainder) = remainder.split_at(size as usize);
-        let pcr_select =
-            Self::try_from(pcr_bytes).map_err(|_| TpmProtocolError::CapacityExceeded)?;
+        let pcr_select = Self::try_from(pcr_bytes)?;
         Ok((pcr_select, final_remainder))
     }
 }

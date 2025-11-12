@@ -45,17 +45,6 @@ macro_rules! tpm_bitflags {
             pub const fn contains(&self, other: Self) -> bool {
                 (self.0 & other.0) == other.0
             }
-
-            pub fn flag_names(&self) -> impl Iterator<Item = &'static str> + '_ {
-                [
-                    $(
-                        (Self::$field, $string_name),
-                    )*
-                ]
-                .into_iter()
-                .filter(move |(flag, _)| self.contains(*flag))
-                .map(|(_, name)| name)
-            }
         }
 
         impl core::ops::BitOr for $name {
@@ -126,7 +115,7 @@ macro_rules! tpm_bool {
                 match val {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
-                    _ => Err($crate::TpmProtocolError::InvalidValue),
+                    _ => Err($crate::TpmProtocolError::InvalidBoolean),
                 }
             }
         }

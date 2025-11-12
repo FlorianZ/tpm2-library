@@ -225,7 +225,7 @@ impl TryFrom<u32> for TpmRc {
             value
         };
 
-        let base = TpmRcBase::try_from(base_code).map_err(|()| TpmProtocolError::InvalidValue)?;
+        let base = TpmRcBase::try_from(base_code)?;
 
         if (value & TPM_RC_WARN) == TPM_RC_WARN {
             Ok(Self::Warn(base))

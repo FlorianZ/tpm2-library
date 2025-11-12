@@ -27,16 +27,16 @@ macro_rules! tpm_enum {
         }
 
         impl TryFrom<$repr> for $name {
-            type Error = ();
+            type Error = $crate::TpmProtocolError;
 
             #[allow(clippy::cognitive_complexity)]
-            fn try_from(value: $repr) -> Result<Self, ()> {
+            fn try_from(value: $repr) -> Result<Self, $crate::TpmProtocolError> {
                 $(
                     if value == $value {
                         return Ok(Self::$variant);
                     }
                 )*
-                Err(())
+                Err($crate::TpmProtocolError::VariantNotAvailable)
             }
         }
 
@@ -46,17 +46,6 @@ macro_rules! tpm_enum {
                     $(Self::$variant => $display),*
                 };
                 write!(f, "{}", s)
-            }
-        }
-
-        impl core::str::FromStr for $name {
-            type Err = ();
-
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
-                    $($display => Ok(Self::$variant),)*
-                    _ => Err(()),
-                }
             }
         }
 
@@ -77,7 +66,7 @@ macro_rules! tpm_enum {
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
                 let (val, buf) = <$repr>::unmarshal(buf)?;
-                let enum_val = Self::try_from(val).map_err(|()| $crate::TpmProtocolError::InvalidValue)?;
+                let enum_val = Self::try_from(val)?;
                 Ok((enum_val, buf))
             }
         }
