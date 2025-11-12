@@ -244,7 +244,7 @@ impl EccPublicKey {
         let ephemeral_x = &ephemeral_pub_bytes[1..=coord_len];
         let ephemeral_y = &ephemeral_pub_bytes[1 + coord_len..];
 
-        let seed_bits = u16::try_from(name_alg.size()? * 8).map_err(|_| Error::OperationFailed)?;
+        let seed_bits = u16::try_from(name_alg.size() * 8).map_err(|_| Error::OperationFailed)?;
         let context_u = ephemeral_x;
         let context_v = self.x.as_ref();
 

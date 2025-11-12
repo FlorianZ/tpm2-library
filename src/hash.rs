@@ -67,15 +67,28 @@ impl From<Hash> for TpmAlgId {
     }
 }
 
+impl From<Hash> for MessageDigest {
+    fn from(alg: Hash) -> Self {
+        match alg {
+            Hash::Sha1 => MessageDigest::sha1(),
+            Hash::Sha256 => MessageDigest::sha256(),
+            Hash::Sha384 => MessageDigest::sha384(),
+            Hash::Sha512 => MessageDigest::sha512(),
+            Hash::Sm3_256 | Hash::Sha3_512 => MessageDigest::sm3(),
+            Hash::Sha3_256 => MessageDigest::sha3_256(),
+            Hash::Sha3_384 => MessageDigest::sha3_384(),
+            Hash::Shake128 => MessageDigest::shake_128(),
+            Hash::Shake256 => MessageDigest::shake_256(),
+            Hash::Null => MessageDigest::null(),
+        }
+    }
+}
+
 impl Hash {
-    /// Returns the size of the digest for a given hash algorithm.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
-    /// when the hash algorithm is not recognized by OpenSSL.
-    pub fn size(&self) -> Result<usize, Error> {
-        (*self).to_md().map(|md| md.size())
+    /// Returns the size of the digest size.
+    #[must_use]
+    pub fn size(&self) -> usize {
+        Into::<MessageDigest>::into(*self).size()
     }
 
     /// Computes a cryptographic digest over a series of data chunks.
@@ -88,7 +101,7 @@ impl Hash {
     /// when the digest computation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
     pub fn digest(&self, data_chunks: &[&[u8]]) -> Result<Vec<u8>, Error> {
-        let md = (*self).to_md()?;
+        let md = (*self).into();
         let mut hasher = Hasher::new(md).map_err(|_| Error::OutOfMemory)?;
         for chunk in data_chunks {
             hasher.update(chunk).map_err(|_| Error::OperationFailed)?;
@@ -113,7 +126,7 @@ impl Hash {
         if key.is_empty() {
             return Err(Error::KeyIsEmpty);
         }
-        let md = (*self).to_md()?;
+        let md = (*self).into();
         let public_key = PKey::hmac(key).map_err(|_| Error::OutOfMemory)?;
         let mut signer = Signer::new(md, &public_key).map_err(|_| Error::OutOfMemory)?;
         for chunk in data_chunks {
@@ -239,17 +252,5 @@ impl Hash {
         }
 
         Ok(key_stream)
-    }
-
-    /// Maps a TPM hash algorithm to an OpenSSL message digest.
-    pub(crate) fn to_md(self) -> Result<MessageDigest, Error> {
-        match self {
-            Self::Sha1 => Ok(MessageDigest::sha1()),
-            Self::Sha256 => Ok(MessageDigest::sha256()),
-            Self::Sm3_256 => Ok(MessageDigest::sm3()),
-            Self::Sha384 => Ok(MessageDigest::sha384()),
-            Self::Sha512 => Ok(MessageDigest::sha512()),
-            _ => Err(Error::InvalidHash),
-        }
     }
 }

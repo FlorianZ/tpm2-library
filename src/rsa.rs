@@ -6,6 +6,7 @@
 use crate::{Error, Hash};
 use openssl::{
     bn::BigNum,
+    hash::MessageDigest,
     md::Md,
     pkey::{PKey, Private},
     pkey_ctx::PkeyCtx,
@@ -74,7 +75,7 @@ impl RsaPublicKey {
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation
     /// fails.
     pub fn oaep(&self, name_alg: Hash, seed: &[u8]) -> Result<Vec<u8>, Error> {
-        let md = name_alg.to_md()?;
+        let md = Into::<MessageDigest>::into(name_alg);
 
         let oaep_md = Md::from_nid(md.type_()).ok_or(Error::OperationFailed)?;
 
