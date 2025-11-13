@@ -101,15 +101,7 @@ impl std::str::FromStr for Alg {
                 params: AlgInfo::Ecc { curve_id },
             })
         } else if let Some(name_alg_str) = s.strip_prefix("keyedhash:") {
-            let name_alg = Hash::from_str(name_alg_str)
-                .map_err(|_| KeyError::InvalidAlgorithm(name_alg_str.to_string()))?
-                .into();
-            Ok(Self {
-                name: s.to_string(),
-                object_type: TpmAlgId::KeyedHash,
-                name_alg,
-                params: AlgInfo::KeyedHash,
-            })
+            Self::new_keyedhash(name_alg_str)
         } else {
             Err(KeyError::InvalidAlgorithmFormat(s.to_string()))
         }

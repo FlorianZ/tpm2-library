@@ -17,13 +17,13 @@ use std::{
     rc::Rc,
 };
 use thiserror::Error;
-use tpm2_crypto::{Error as CryptoError, Hash};
+use tpm2_crypto::{make_name as crypto_make_name, Error as CryptoError};
 use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Handle, HandleClass};
 use tpm2_protocol::{
-    data::{Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
-    frame::{TpmAuthCommands, TpmCommand},
+    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
     TpmHandle, TpmProtocolError,
 };
+use tpm2_tpmkey::Error as TpmKeyError;
 
 mod key;
 mod session;
@@ -54,11 +54,13 @@ pub enum VtpmError {
     #[error("trailing authorizations")]
     TrailingAuthorizations,
     #[error("unsupported name algorithm: {0}")]
-    UnsupportedNameAlgorithm(Hash),
+    UnsupportedNameAlgorithm(tpm2_crypto::Hash),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]
     Device(#[from] DeviceError),
+    #[error("policy data: {0}")]
+    PolicyData(#[from] TpmKeyError),
     #[error("policy language: {0}")]
     PolicyLanguage(#[from] PolicyLanguageError),
     #[error("int decode: {0}")]
@@ -171,6 +173,21 @@ impl<'a> VtpmCache<'a> {
             .map(|(_, key)| key)
     }
 
+    /// Finds a VTPM key by its `Tpm2bName`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Crypto`](crate::vtpm::VtpmError::Crypto) if name calculation fails.
+    pub fn find_by_name(&self, target_name: &Tpm2bName) -> Result<Option<&VtpmKey>, VtpmError> {
+        for (_, key) in self.key_iter() {
+            let name = crypto_make_name(&key.public.inner)?;
+            if name == *target_name {
+                return Ok(Some(key));
+            }
+        }
+        Ok(None)
+    }
+
     /// Finds a VTPM key corresponding to a physical handle.
     ///
     /// Reads the public area of a physical TPM handle and searches the cache
@@ -242,7 +259,7 @@ impl<'a> VtpmCache<'a> {
             }
 
             if let Some(parent_key) = self.find_by_public(&key.parent.inner) {
-                let parent_vhandle = parent_key.handle();
+                let parent_vhandle = parent_key.handle.0;
                 vtp_chain.push_front(Handle::new(HandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
@@ -318,7 +335,7 @@ impl<'a> VtpmCache<'a> {
     /// # Errors
     ///
     /// Returns [`VtpmError::Io`] when saving any of the dirty contexts fails.
-    /// Returns [`VtpmError::Tpm`] when serializing context data fails.
+    /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when serializing context data fails.
     pub fn save(&mut self) -> Result<(), VtpmError> {
         let vhandles_to_save: Vec<u32> = self.dirty.drain().collect();
         for vhandle in vhandles_to_save {
@@ -442,26 +459,24 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`VtpmError::Device`] when saving the context to the TPM fails.
     /// Returns [`VtpmError::NoHandles`] when no free VTPM handle slot is found.
     /// Returns [`VtpmError::Io`] when writing the cache file fails.
-    /// Returns [`VtpmError::Tpm`] when serializing context data fails.
+    /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when serializing context data fails.
     pub fn save_context(
         &mut self,
         device: &mut Device,
         handle: TpmHandle,
         public: &Tpm2bPublic,
         parent_public: &Tpm2bPublic,
-        policy: &Option<Vec<(TpmCommand, TpmAuthCommands)>>,
+        policy: &Option<Vec<u8>>,
     ) -> Result<u32, VtpmError> {
         let context = device.save_context(handle)?;
         for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
             if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
-                let policy_list = policy.clone().unwrap_or_default();
-
                 let key = VtpmKey {
                     context,
                     handle: TpmHandle(vhandle),
                     public: public.clone(),
                     parent: parent_public.clone(),
-                    policy: policy_list,
+                    policy: policy.clone().unwrap_or_default(),
                 };
                 e.insert(Box::new(key));
                 self.dirty.insert(vhandle);

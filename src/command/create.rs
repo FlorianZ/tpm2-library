@@ -14,6 +14,7 @@ use crate::{
     policy::visit_secret_handles,
     session::{Session, SessionError},
     template,
+    vtpm::VtpmKey,
 };
 use clap::Args;
 use std::collections::{HashMap, HashSet};
@@ -25,7 +26,7 @@ use tpm2_protocol::{
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
-use tpm2_tpmkey::TpmKey;
+use tpm2_tpmkey::TpmKey as TpmKeyFile;
 
 /// A template for creating a new TPM key object.
 pub struct TpmKeyTemplate<'a> {
@@ -198,14 +199,22 @@ impl Create {
 
             let empty_auth_flag = user_auth.is_empty();
 
-            TpmKey {
+            let tpm_key_policy = if let Some(commands) = &policy_commands {
+                Some(VtpmKey::command_list_to_tpmkey_policy(device, commands)?)
+            } else {
+                None
+            };
+
+            TpmKeyFile {
                 public: create_resp.out_public,
                 private: create_resp.out_private,
                 parent_handle,
                 parent_public: Some(parent_public_2b),
-                key_type: template.alg_desc.object_type,
                 empty_auth: empty_auth_flag.then_some(true),
-                policy: policy_commands,
+                policy: tpm_key_policy,
+                auth_policy: None,
+                secret: None,
+                description: None,
             }
         };
 

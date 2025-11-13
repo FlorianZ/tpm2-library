@@ -13,10 +13,10 @@ use std::io::IsTerminal;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmRh, TpmSe},
-    frame::{TpmAuthCommands, TpmCommand, TpmFrame, TpmUnsealCommand},
+    frame::{TpmCommand, TpmFrame, TpmUnsealCommand},
 };
 
-type KeyPolicyInfo = (Option<Vec<(TpmCommand, TpmAuthCommands)>>, TpmAlgId);
+type KeyPolicyInfo = (Vec<u8>, TpmAlgId);
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
@@ -38,12 +38,13 @@ impl Unseal {
     fn create_policy_session_from_blobs(
         job: &mut Session,
         device: &mut Device,
-        policy_commands: Option<&Vec<(TpmCommand, TpmAuthCommands)>>,
+        policy_blob: &[u8],
         key_name_alg: TpmAlgId,
     ) -> Result<Option<Auth>, CommandError> {
-        let Some(commands) = policy_commands else {
+        let Some(commands) = job.to_policy_command_list(device, policy_blob)? else {
             return Ok(None);
         };
+
         if commands.is_empty() {
             return Ok(None);
         }
@@ -79,7 +80,7 @@ impl Unseal {
                         )))
                     }
                 }
-                device.transmit(&command_body, auth_sessions)?;
+                device.transmit(&command_body, auth_sessions.as_ref())?;
             }
             Ok(())
         })();
@@ -119,9 +120,9 @@ impl Job for Unseal {
             let key_info: Option<KeyPolicyInfo> = if self.input.class() == HandleClass::Vtpm {
                 job.cache.find_by_vhandle(vhandle).ok().map(|key| {
                     let policy = if key.policy.is_empty() {
-                        None
+                        Vec::new()
                     } else {
-                        Some(key.policy.clone())
+                        key.policy.clone()
                     };
                     (policy, key.public.inner.name_alg)
                 })
@@ -130,15 +131,17 @@ impl Job for Unseal {
             };
 
             if self.auth_args.auths().as_ref() == [Auth::default()] {
-                if let Some((policy_commands, name_alg)) = key_info {
-                    if let Some(session_auth) = Unseal::create_policy_session_from_blobs(
-                        job,
-                        device,
-                        policy_commands.as_ref(),
-                        name_alg,
-                    )? {
-                        auths = vec![session_auth.clone()];
-                        policy_session_auth = Some(session_auth);
+                if let Some((policy_blob, name_alg)) = key_info {
+                    if !policy_blob.is_empty() {
+                        if let Some(session_auth) = Unseal::create_policy_session_from_blobs(
+                            job,
+                            device,
+                            &policy_blob,
+                            name_alg,
+                        )? {
+                            auths = vec![session_auth.clone()];
+                            policy_session_auth = Some(session_auth);
+                        }
                     }
                 }
             }

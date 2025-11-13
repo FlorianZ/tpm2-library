@@ -9,6 +9,7 @@ use crate::{
     device::{with_device, Device},
     io::read_file_input,
     session::Session,
+    vtpm::VtpmKey,
 };
 use clap::Args;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
@@ -57,12 +58,18 @@ impl Job for Load {
                 self.auth_args.auths().as_ref(),
             )?;
 
+            let policy_blob = if let Some(policy) = &tpm_key.policy {
+                Some(VtpmKey::policy_from_tpmkey_policy(policy)?)
+            } else {
+                None
+            };
+
             let vhandle = job.cache.save_context(
                 device,
                 object_handle,
                 &loaded_public,
                 &parent_public,
-                &tpm_key.policy,
+                &policy_blob,
             )?;
             writeln!(job.writer, "vtpm:{vhandle:08x}")?;
             Ok(())

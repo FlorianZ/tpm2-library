@@ -302,9 +302,11 @@ impl Convert {
             private: out_private,
             parent_handle,
             parent_public: Some(parent_public_2b),
-            key_type: public.object_type,
             empty_auth: Some(true),
             policy: None,
+            auth_policy: None,
+            secret: None,
+            description: None,
         };
 
         Ok(tpm_key)

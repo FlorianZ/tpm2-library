@@ -18,6 +18,7 @@ use std::{
 };
 
 use thiserror::Error;
+use tpm2_crypto::{make_name as crypto_make_name, Error as CryptoError};
 use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
@@ -62,6 +63,8 @@ pub enum DeviceError {
     Nix(#[from] nix::Error),
     #[error("protocol: {0}")]
     Protocol(#[from] TpmProtocolError),
+    #[error("crypto: {0}")]
+    InvalidCrypto(#[from] CryptoError),
     #[error("TPM return code: {0}")]
     TpmRc(TpmRc),
 }
@@ -446,6 +449,35 @@ impl Device {
                     if public == *target {
                         return Ok(Some((handle_val.into(), name)));
                     }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Finds a persistent handle by its `Tpm2bName`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `DeviceError` if fetching handles or reading public areas fails.
+    pub fn find_persistent_by_name(
+        &mut self,
+        target_name: &Tpm2bName,
+    ) -> Result<Option<TpmHandle>, DeviceError> {
+        let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
+        for handle in handles {
+            if let Some(handle_val) = handle.value() {
+                let Ok((public, name)) = self.read_public(handle_val.into()) else {
+                    continue;
+                };
+                if name == *target_name {
+                    return Ok(Some(handle_val.into()));
+                }
+                let Ok(calculated_name) = crypto_make_name(&public) else {
+                    continue;
+                };
+                if calculated_name == *target_name {
+                    return Ok(Some(handle_val.into()));
                 }
             }
         }

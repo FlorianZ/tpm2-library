@@ -8,22 +8,28 @@ use crate::{
     vtpm::{build_password_session, create_auth, VtpmCache, VtpmError, VtpmSession},
     write_object,
 };
+use hex;
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc};
 use thiserror::Error;
 use tpm2_crypto::{make_name as crypto_make_name, Error as CryptoError, Hash};
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
+    basic::TpmBuffer,
+    constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bEncryptedSecret, Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase, TpmRh, TpmSe, TpmaSession,
-        TpmsAuthCommand, TpmtSymDefObject,
+        Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmRcBase,
+        TpmRh, TpmSe, TpmaSession, TpmsAuthCommand, TpmtSymDefObject,
     },
     frame::{
-        TpmAuthResponses, TpmEvictControlCommand, TpmFrame, TpmResponse,
-        TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
+        TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
+        TpmResponse, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
-    TpmHandle,
+    TpmHandle, TpmSized, TpmUnmarshal,
 };
+use tpm2_tpmkey::TpmPolicyCommand;
+
+type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
 #[derive(Debug, Error)]
 pub enum SessionError {
@@ -31,6 +37,8 @@ pub enum SessionError {
     CapacityExceeded,
     #[error("handle not found: {0}{1:08x}")]
     HandleNotFound(&'static str, u32),
+    #[error("handle name not found: {}", hex::encode(.0.as_ref()))]
+    HandleNameNotFound(Tpm2bName),
     #[error("invalid auth")]
     InvalidAuth,
     #[error("invalid key format")]
@@ -78,6 +86,101 @@ impl<'a> Session<'a> {
             cache,
             writer,
         }
+    }
+
+    /// Resolves a `Tpm2bName` from a `PolicySecret` to a live `TpmHandle`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandleNameNotFound`](crate::session::SessionError::HandleNameNotFound)
+    /// if the name cannot be found in persistent memory or the VTPM cache.
+    pub fn fetch_handle_by_name(
+        &mut self,
+        device: &mut Device,
+        name: &Tpm2bName,
+    ) -> Result<TpmHandle, SessionError> {
+        if let Some(handle) = device.find_persistent_by_name(name)? {
+            return Ok(handle);
+        }
+
+        if let Some(key) = self.cache.find_by_name(name)? {
+            let vhandle = key.handle.0;
+            return self.load_context(device, &Handle::new(HandleClass::Vtpm, vhandle));
+        }
+
+        Err(SessionError::HandleNameNotFound(*name))
+    }
+
+    /// Converts the custom binary cache format into a "live" `TpmCommandList`.
+    ///
+    /// This performs "JIT resolution" for `PolicySecret`, converting the stored
+    /// `Tpm2bName` into a live `TpmHandle`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError`] if parsing the blob fails or if a handle name
+    /// cannot be resolved.
+    pub fn to_policy_command_list(
+        &mut self,
+        device: &mut Device,
+        policy_blob: &[u8],
+    ) -> Result<Option<TpmCommandList>, SessionError> {
+        if policy_blob.is_empty() {
+            return Ok(None);
+        }
+        let (count, mut remainder) =
+            u32::unmarshal(policy_blob).map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+        let mut commands = Vec::with_capacity(count as usize);
+
+        for _ in 0..count {
+            let (cc, rest) = TpmCc::unmarshal(remainder)
+                .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+            remainder = rest;
+
+            let (cmd, auth) = if cc == TpmCc::PolicySecret {
+                let (handle_hint, rest) = TpmHandle::unmarshal(remainder)
+                    .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+                let (object_name, rest) = Tpm2bName::unmarshal(rest)
+                    .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+                let (policy_ref, rest) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
+                    .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+                remainder = rest;
+
+                let live_handle = if object_name.is_empty() {
+                    log::warn!(
+                        "PolicySecret uses handle hint {:08x} but has no object name. Policy may fail.",
+                        handle_hint.0
+                    );
+                    handle_hint
+                } else {
+                    self.fetch_handle_by_name(device, &object_name)?
+                };
+
+                let tpm_cmd =
+                    TpmCommand::PolicySecret(tpm2_protocol::frame::TpmPolicySecretCommand {
+                        auth_handle: live_handle,
+                        policy_session: TpmHandle(0),
+                        nonce_tpm: Tpm2bNonce::default(),
+                        cp_hash_a: Tpm2bDigest::default(),
+                        policy_ref,
+                        expiration: 0,
+                    });
+                (tpm_cmd, TpmAuthCommands::new())
+            } else {
+                let (body_blob, rest) =
+                    TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)
+                        .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+                remainder = rest;
+
+                let policy_cmd = TpmPolicyCommand::from_raw(cc, body_blob.to_vec())
+                    .map_err(|e| SessionError::Key(KeyError::TpmKey(e)))?;
+                policy_cmd
+                    .to_command()
+                    .map_err(|e| SessionError::Key(KeyError::TpmKey(e)))?
+            };
+            commands.push((cmd, auth));
+        }
+        Ok(Some(commands))
     }
 
     /// Loads a TPM context from a handle, recursively loading its ancestors
