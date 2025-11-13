@@ -55,7 +55,14 @@ use rasn::{Decoder, Encoder};
 use std::convert::TryFrom;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmtSignature},
+    data::{
+        Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmlDigest,
+        TpmlPcrSelection, TpmtSignature,
+    },
+    frame::{
+        TpmAuthCommands, TpmCommand, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
+        TpmPolicyRestartCommand, TpmPolicySecretCommand,
+    },
     TpmHandle, TpmMarshal, TpmProtocolError, TpmUnmarshal, TpmWriter,
 };
 
@@ -75,6 +82,8 @@ fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError> {
     buf.truncate(len);
     Ok(buf)
 }
+
+const POLICY_SESSION: TpmHandle = TpmHandle(0);
 
 pub const OID_LOADABLE_KEY: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 3]));
@@ -233,6 +242,204 @@ impl TpmPolicyCommand {
     pub fn body(&self) -> &[u8] {
         &self.body
     }
+
+    /// Converts this policy step into a typed TPM command and an empty auth list.
+    ///
+    /// The resulting command uses a fixed policy session handle (`TPM_HANDLE(0)`)
+    /// because the ASN.1 representation does not carry handle data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when the body
+    /// cannot be decoded as the parameter area for `cc`, or when the
+    /// representation is intentionally not supported (e.g. `PolicyAuthorize`).
+    ///
+    /// Returns [`InvalidCc`](crate::Error::InvalidCc) when `cc` has no mapping
+    /// to a TPM command in this crate.
+    pub fn to_command(&self) -> Result<(TpmCommand, TpmAuthCommands), Error> {
+        let auth = TpmAuthCommands::new();
+        let command = match self.cc {
+            TpmCc::PolicyPcr => self.to_policy_pcr_command()?,
+            TpmCc::PolicyRestart => self.to_policy_restart_command()?,
+            TpmCc::PolicyOr => self.to_policy_or_command()?,
+            TpmCc::PolicySecret => self.to_policy_secret_command()?,
+            TpmCc::PolicyAuthorize => return Err(Error::InvalidPolicy),
+            other => return Err(Error::InvalidCc(other as u32)),
+        };
+        Ok((command, auth))
+    }
+
+    /// Constructs a `TpmPolicyCommand` from a typed TPM policy command.
+    ///
+    /// The authorization area is ignored because the `CommandPolicy`
+    /// representation does not store it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when the command
+    /// is not representable as a `CommandPolicy` step without additional
+    /// context (for example `TPM2_PolicySecret` without the object's name).
+    ///
+    /// Returns [`InvalidCc`](crate::Error::InvalidCc) when the command code is
+    /// not supported by this conversion.
+    pub fn from_command(cmd: &TpmCommand, _auth: &TpmAuthCommands) -> Result<Self, Error> {
+        match cmd {
+            TpmCommand::PolicyPcr(ref inner) => Self::from_policy_pcr_command(inner),
+            TpmCommand::PolicyRestart(inner) => Self::from_policy_restart_command(inner),
+            TpmCommand::PolicyOr(inner) => Self::from_policy_or_command(inner),
+            TpmCommand::PolicySecret(_) => Err(Error::InvalidPolicy),
+            _ => Err(Error::InvalidCc(cmd.cc() as u32)),
+        }
+    }
+
+    fn to_policy_restart_command(&self) -> Result<TpmCommand, Error> {
+        if !self.body.is_empty() {
+            return Err(Error::InvalidPolicy);
+        }
+
+        Ok(TpmCommand::PolicyRestart(TpmPolicyRestartCommand {
+            session_handle: POLICY_SESSION,
+        }))
+    }
+
+    fn from_policy_restart_command(_inner: &TpmPolicyRestartCommand) -> Result<Self, Error> {
+        Ok(Self {
+            cc: TpmCc::PolicyRestart,
+            body: Vec::new(),
+        })
+    }
+
+    fn to_policy_pcr_command(&self) -> Result<TpmCommand, Error> {
+        let (pcr_digest, rest) =
+            Tpm2bDigest::unmarshal(self.body.as_slice()).map_err(|_| Error::InvalidPolicy)?;
+        let (pcrs, rest) = TpmlPcrSelection::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+        if !rest.is_empty() {
+            return Err(Error::InvalidPolicy);
+        }
+
+        let inner = TpmPolicyPcrCommand {
+            policy_session: POLICY_SESSION,
+            pcr_digest,
+            pcrs,
+        };
+
+        Ok(TpmCommand::PolicyPcr(inner))
+    }
+
+    fn from_policy_pcr_command(inner: &TpmPolicyPcrCommand) -> Result<Self, Error> {
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            inner
+                .pcr_digest
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            inner
+                .pcrs
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            writer.len()
+        };
+        buf.truncate(len);
+
+        Ok(Self {
+            cc: TpmCc::PolicyPcr,
+            body: buf,
+        })
+    }
+
+    fn to_policy_or_command(&self) -> Result<TpmCommand, Error> {
+        let (p_hash_list, rest) =
+            TpmlDigest::unmarshal(self.body.as_slice()).map_err(|_| Error::InvalidPolicy)?;
+        if !rest.is_empty() {
+            return Err(Error::InvalidPolicy);
+        }
+
+        let inner = TpmPolicyOrCommand {
+            policy_session: POLICY_SESSION,
+            p_hash_list,
+        };
+
+        Ok(TpmCommand::PolicyOr(inner))
+    }
+
+    fn from_policy_or_command(inner: &TpmPolicyOrCommand) -> Result<Self, Error> {
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            inner
+                .p_hash_list
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            writer.len()
+        };
+        buf.truncate(len);
+
+        Ok(Self {
+            cc: TpmCc::PolicyOr,
+            body: buf,
+        })
+    }
+
+    fn to_policy_secret_command(&self) -> Result<TpmCommand, Error> {
+        let (auth_handle, rest) =
+            TpmHandle::unmarshal(self.body.as_slice()).map_err(|_| Error::InvalidPolicy)?;
+        let (_, rest) = Tpm2bName::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+        let (policy_ref, rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+        if !rest.is_empty() {
+            return Err(Error::InvalidPolicy);
+        }
+
+        let inner = TpmPolicySecretCommand {
+            auth_handle,
+            policy_session: POLICY_SESSION,
+            nonce_tpm: Default::default(),
+            cp_hash_a: Default::default(),
+            policy_ref,
+            expiration: 0,
+        };
+
+        Ok(TpmCommand::PolicySecret(inner))
+    }
+
+    /// Constructs a `PolicySecret` policy step from a typed command and the
+    /// object's name.
+    ///
+    /// This helper is more expressive than [`from_command`](Self::from_command)
+    /// for `PolicySecret` because the TPM command itself does not carry the
+    /// `TPM2B_NAME` required by the RFC encoding.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperationFailed`](crate::Error::OperationFailed) when
+    /// marshaling any of the components into the serialized policy body fails.
+    pub fn from_policy_secret_with_name(
+        inner: &TpmPolicySecretCommand,
+        object_name: &Tpm2bName,
+    ) -> Result<Self, Error> {
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            inner
+                .auth_handle
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            object_name
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            inner
+                .policy_ref
+                .marshal(&mut writer)
+                .map_err(|_| Error::OperationFailed)?;
+            writer.len()
+        };
+        buf.truncate(len);
+
+        Ok(Self {
+            cc: TpmCc::PolicySecret,
+            body: buf,
+        })
+    }
 }
 
 /// A policy branch (used for `auth_policy` list).
@@ -240,6 +447,49 @@ impl TpmPolicyCommand {
 pub struct TpmPolicy {
     pub name: Option<String>,
     pub policy: Vec<TpmPolicyCommand>,
+}
+
+/// List of typed TPM commands corresponding to a policy sequence.
+pub type PolicyCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
+
+impl TpmPolicy {
+    /// Converts the policy into a list of typed TPM commands and their
+    /// authorization areas.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) or
+    /// [`InvalidCc`](crate::Error::InvalidCc) when any policy step cannot be
+    /// converted into a TPM command.
+    pub fn to_command_list(&self) -> Result<PolicyCommandList, Error> {
+        self.policy
+            .iter()
+            .map(TpmPolicyCommand::to_command)
+            .collect()
+    }
+
+    /// Constructs a policy from a list of typed TPM commands and their
+    /// authorization areas.
+    ///
+    /// The `name` parameter becomes the policy branch name in the returned
+    /// [`TpmPolicy`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) or
+    /// [`InvalidCc`](crate::Error::InvalidCc) when any command is not
+    /// representable as a policy step.
+    pub fn from_command_list(
+        name: Option<String>,
+        commands: &[(TpmCommand, TpmAuthCommands)],
+    ) -> Result<Self, Error> {
+        let policy = commands
+            .iter()
+            .map(|(cmd, auth)| TpmPolicyCommand::from_command(cmd, auth))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self { name, policy })
+    }
 }
 
 /// High-level runtime representation of a TPM key.
@@ -610,8 +860,9 @@ mod tests {
     use super::*;
     use rstest::rstest;
     use tpm2_protocol::data::{
-        Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmsRsaParms, TpmtPublic, TpmtSensitive,
-        TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite, TpmuSignature,
+        Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmlDigest, TpmlPcrSelection, TpmsRsaParms,
+        TpmtPublic, TpmtSensitive, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+        TpmuSignature,
     };
 
     #[rstest]
@@ -818,5 +1069,135 @@ mod tests {
 
         assert_eq!(cmd.code(), TpmCc::PolicySecret);
         assert!(validate_policy_secret(cmd.body()).is_ok());
+    }
+
+    #[test]
+    fn policy_restart_to_and_from_command_roundtrip() {
+        let step = TpmPolicyCommand::zero(TpmCc::PolicyRestart).unwrap();
+        let (cmd, auth) = step.to_command().unwrap();
+
+        match cmd {
+            TpmCommand::PolicyRestart(inner) => {
+                assert_eq!(inner.session_handle, POLICY_SESSION);
+            }
+            other => panic!("unexpected command variant: {other:?}"),
+        }
+
+        assert_eq!(auth.len(), 0);
+
+        let back = TpmPolicyCommand::from_command(&cmd, &auth).unwrap();
+        assert_eq!(back.code(), TpmCc::PolicyRestart);
+        assert!(back.body().is_empty());
+    }
+
+    #[test]
+    fn policy_pcr_to_and_from_command_roundtrip() {
+        let mut body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut body);
+            Tpm2bDigest::default().marshal(&mut writer).unwrap();
+            TpmlPcrSelection::default().marshal(&mut writer).unwrap();
+            writer.len()
+        };
+        body.truncate(len);
+
+        let step = TpmPolicyCommand::from_raw(TpmCc::PolicyPcr, body).unwrap();
+        let (cmd, auth) = step.to_command().unwrap();
+
+        match cmd {
+            TpmCommand::PolicyPcr(inner) => {
+                assert_eq!(inner.policy_session, POLICY_SESSION);
+                let back = TpmPolicyCommand::from_command(&cmd, &auth).unwrap();
+                assert_eq!(back, step);
+            }
+            other => panic!("unexpected command variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn policy_or_to_and_from_command_roundtrip() {
+        let mut body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut body);
+            TpmlDigest::default().marshal(&mut writer).unwrap();
+            writer.len()
+        };
+        body.truncate(len);
+
+        let step = TpmPolicyCommand::from_raw(TpmCc::PolicyOr, body).unwrap();
+        let (cmd, auth) = step.to_command().unwrap();
+
+        match cmd {
+            TpmCommand::PolicyOr(inner) => {
+                assert_eq!(inner.policy_session, POLICY_SESSION);
+                let back = TpmPolicyCommand::from_command(&cmd, &auth).unwrap();
+                assert_eq!(back, step);
+            }
+            other => panic!("unexpected command variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn policy_secret_to_command_uses_fixed_session() {
+        let step = TpmPolicyCommand::secret(
+            TpmHandle(0x8100_0000),
+            &Tpm2bName::default(),
+            &Tpm2bDigest::default(),
+        )
+        .unwrap();
+
+        let (cmd, auth) = step.to_command().unwrap();
+        assert_eq!(auth.len(), 0);
+
+        match cmd {
+            TpmCommand::PolicySecret(inner) => {
+                assert_eq!(inner.auth_handle, TpmHandle(0x8100_0000));
+                assert_eq!(inner.policy_session, POLICY_SESSION);
+                assert_eq!(inner.expiration, 0);
+            }
+            other => panic!("unexpected command variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn policy_secret_from_command_requires_name() {
+        let mut cmd = TpmPolicySecretCommand::default();
+        cmd.auth_handle = TpmHandle(0x8100_0000);
+        cmd.policy_session = POLICY_SESSION;
+
+        let name = Tpm2bName::default();
+        let step = TpmPolicyCommand::from_policy_secret_with_name(&cmd, &name).unwrap();
+        assert_eq!(step.code(), TpmCc::PolicySecret);
+
+        let (decoded, _) = TpmHandle::unmarshal(step.body()).unwrap();
+        assert_eq!(decoded, TpmHandle(0x8100_0000));
+    }
+
+    #[test]
+    fn policy_to_and_from_command_list_roundtrip() {
+        let step_restart = TpmPolicyCommand::zero(TpmCc::PolicyRestart).unwrap();
+        let mut pcr_body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let pcr_len = {
+            let mut writer = TpmWriter::new(&mut pcr_body);
+            Tpm2bDigest::default().marshal(&mut writer).unwrap();
+            TpmlPcrSelection::default().marshal(&mut writer).unwrap();
+            writer.len()
+        };
+        pcr_body.truncate(pcr_len);
+        let step_pcr = TpmPolicyCommand::from_raw(TpmCc::PolicyPcr, pcr_body).unwrap();
+
+        let policy = TpmPolicy {
+            name: Some("test".to_string()),
+            policy: vec![step_restart.clone(), step_pcr.clone()],
+        };
+
+        let list = policy.to_command_list().unwrap();
+        assert_eq!(list.len(), 2);
+
+        let reconstructed = TpmPolicy::from_command_list(Some("test".to_string()), &list).unwrap();
+        assert_eq!(reconstructed.name, policy.name);
+        assert_eq!(reconstructed.policy.len(), 2);
+        assert_eq!(reconstructed.policy[0], step_restart);
+        assert_eq!(reconstructed.policy[1], step_pcr);
     }
 }

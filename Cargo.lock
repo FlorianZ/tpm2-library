@@ -634,9 +634,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.14.1"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5dc5e4ffb40af3ef6bf94a4298fc04d61d8278e92f2f5c29c9308b5f44e1d47f"
+checksum = "a08f57bc86ccc38e89ce28fa4b2070668364181848de7cc64c51fca0c88de1bb"
 
 [[package]]
 name = "tpm2-tpmkey"
