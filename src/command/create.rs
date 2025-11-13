@@ -72,13 +72,8 @@ impl Job for Create {
 }
 
 impl Create {
-    #[allow(clippy::too_many_lines)]
-    fn create_object(&self, job: &mut Session, device: &mut Device) -> Result<(), CommandError> {
-        let parent_handle = job.load_context(device, &self.parent)?;
-
-        let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
-
-        let sensitive_data = match (&self.data, &self.algorithm.params) {
+    fn get_sensitive_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
+        match (&self.data, &self.algorithm.params) {
             (Some(hex_data), AlgInfo::KeyedHash) => {
                 let bytes = hex::decode(hex_data)?;
                 if bytes.is_empty() {
@@ -91,17 +86,16 @@ impl Create {
             (None, AlgInfo::Rsa { .. } | AlgInfo::Ecc { .. }) => Ok(Tpm2bSensitiveData::default()),
             (Some(_), _) => Err(CommandError::SensitiveDataDenied),
             (None, AlgInfo::KeyedHash) => Err(CommandError::SensitiveDataMissing),
-        }?;
+        }
+    }
 
-        let template = TpmKeyTemplate {
-            alg_desc: &self.algorithm,
-            sensitive_data,
-        };
-
-        let (auth_policy_digest, policy_commands): (
-            Tpm2bDigest,
-            Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-        ) = if let Some(expression) = &self.creation_args.policy_expression {
+    #[allow(clippy::type_complexity)]
+    fn resolve_policy(
+        &self,
+        job: &mut Session,
+        device: &mut Device,
+    ) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
+        if let Some(expression) = &self.creation_args.policy_expression {
             let banks = pcr_get_bank_list(device)?;
             let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
 
@@ -137,10 +131,24 @@ impl Create {
             let (commands, final_digest) =
                 ast.to_command_list(session_hash_alg, &policy_context)?;
 
-            (final_digest, Some(commands))
+            Ok((final_digest, Some(commands)))
         } else {
-            (Tpm2bDigest::default(), None)
+            Ok((Tpm2bDigest::default(), None))
+        }
+    }
+
+    fn create_object(&self, job: &mut Session, device: &mut Device) -> Result<(), CommandError> {
+        let parent_handle = job.load_context(device, &self.parent)?;
+
+        let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
+        let sensitive_data = self.get_sensitive_data()?;
+
+        let template = TpmKeyTemplate {
+            alg_desc: &self.algorithm,
+            sensitive_data,
         };
+
+        let (auth_policy_digest, policy_commands) = self.resolve_policy(job, device)?;
 
         let tpm_key = {
             let public_template =
