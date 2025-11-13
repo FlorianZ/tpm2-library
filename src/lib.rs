@@ -451,7 +451,7 @@ pub struct TpmPolicy {
 }
 
 /// List of typed TPM commands corresponding to a policy sequence.
-pub type PolicyCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
+pub type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
 impl TpmPolicy {
     /// Converts the policy into a list of typed TPM commands and their
@@ -462,7 +462,7 @@ impl TpmPolicy {
     /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) or
     /// [`InvalidCc`](crate::Error::InvalidCc) when any policy step cannot be
     /// converted into a TPM command.
-    pub fn to_command_list(&self) -> Result<PolicyCommandList, Error> {
+    pub fn to_command_list(&self) -> Result<TpmCommandList, Error> {
         self.policy
             .iter()
             .map(TpmPolicyCommand::to_command)
