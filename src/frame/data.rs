@@ -2178,7 +2178,7 @@ tpm_struct! {
 }
 
 tpm_struct! {
-    #[derive(Debug, Default, PartialEq, Eq, Clone)]
+    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
     kind: Command,
     name: TpmPolicyOrCommand,
     cc: TpmCc::PolicyOr,
