@@ -14,7 +14,6 @@ pub mod pcr;
 pub mod policy;
 pub mod print;
 pub mod session;
-pub mod spinner;
 pub mod template;
 pub mod vtpm;
 

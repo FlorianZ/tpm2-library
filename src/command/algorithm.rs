@@ -35,7 +35,7 @@ impl Algorithm {
             },
         };
         let sessions = vec![];
-        device.execute(&cmd, &sessions).map(|(_, _)| ())
+        device.transmit(&cmd, &sessions).map(|(_, _)| ())
     }
 
     fn fetch_key_algorithms(device: &mut Device) -> Result<Vec<String>, CommandError> {

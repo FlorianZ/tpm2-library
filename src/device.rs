@@ -2,7 +2,8 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::LogFormat, print::TpmPrint, spinner::Spinner, TEARDOWN};
+use crate::{cli::LogFormat, print::TpmPrint, TEARDOWN};
+use indicatif::ProgressBar;
 use nix::poll::{poll, PollFd, PollFlags};
 use std::{
     cell::RefCell,
@@ -10,7 +11,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     num::TryFromIntError,
-    os::fd::{AsRawFd, BorrowedFd},
+    os::fd::AsFd,
     rc::Rc,
     sync::atomic::Ordering,
     time::{Duration, Instant},
@@ -113,6 +114,40 @@ impl Device {
         })
     }
 
+    fn receive(&mut self, buf: &mut [u8]) -> Result<usize, DeviceError> {
+        let fd = self.file.as_fd();
+        let mut fds = [PollFd::new(fd, PollFlags::POLLIN)];
+
+        let num_events = match poll(&mut fds, 100u16) {
+            Ok(num) => num,
+            Err(nix::Error::EINTR) => return Ok(0),
+            Err(e) => return Err(e.into()),
+        };
+
+        if num_events == 0 {
+            return Ok(0);
+        }
+
+        let revents = fds[0].revents().unwrap_or(PollFlags::empty());
+
+        if revents.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
+            return Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
+        }
+
+        if revents.contains(PollFlags::POLLIN) {
+            match self.file.read(buf) {
+                Ok(n) => Ok(n),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => Ok(0),
+                Err(e) => Err(e.into()),
+            }
+        } else if revents.contains(PollFlags::POLLHUP) {
+            Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()))
+        } else {
+            Ok(0)
+        }
+    }
+
     /// Performs the whole TPM command transmission process.
     ///
     /// # Errors
@@ -127,8 +162,7 @@ impl Device {
     /// either built command or parsed response is malformed.
     /// Returns [`TpmRc`](crate::device::DeviceError::TpmRc) when the chip
     /// responses with a return code.
-    #[allow(clippy::too_many_lines)]
-    pub fn execute<C: TpmCommandObject>(
+    pub fn transmit<C: TpmCommandObject>(
         &mut self,
         command: &C,
         sessions: &[TpmsAuthCommand],
@@ -136,15 +170,12 @@ impl Device {
         let command_vec = self.build_command_buffer(command, sessions)?;
         let cc = command.cc();
 
-        let mut spinner = Spinner::new("Waiting for TPM...");
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_message("Waiting for TPM...");
+        spinner.enable_steady_tick(Duration::from_millis(100));
 
         self.file.write_all(&command_vec)?;
         self.file.flush()?;
-
-        let raw = self.file.as_raw_fd();
-        let borrowed = unsafe { BorrowedFd::borrow_raw(raw) };
-
-        let mut fds = [PollFd::new(borrowed, PollFlags::POLLIN)];
 
         let start_time = Instant::now();
         let mut resp_buf = Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize);
@@ -159,48 +190,9 @@ impl Device {
                 break Err(DeviceError::Timeout);
             }
 
-            spinner.tick();
-
-            let num_events = match poll(&mut fds, 100u16) {
-                Ok(num) => num,
-                Err(nix::Error::EINTR) => continue,
-                Err(e) => break Err(e.into()),
-            };
-
-            if num_events == 0 {
-                continue;
-            }
-
-            let revents = fds[0].revents().unwrap_or(PollFlags::empty());
-
-            if revents.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
-                break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
-            }
-
-            if revents.contains(PollFlags::POLLIN) {
-                match self.file.read(&mut temp_buf) {
-                    Ok(0) => {
-                        if let Some(size) = total_size {
-                            if resp_buf.len() == size {
-                                break Ok(resp_buf);
-                            }
-                        }
-                        break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
-                    }
-                    Ok(n) => {
-                        resp_buf.extend_from_slice(&temp_buf[..n]);
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => (),
-                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => (),
-                    Err(e) => break Err(e.into()),
-                }
-            } else if revents.contains(PollFlags::POLLHUP) {
-                if let Some(size) = total_size {
-                    if resp_buf.len() == size {
-                        break Ok(resp_buf);
-                    }
-                }
-                break Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
+            let n = self.receive(&mut temp_buf)?;
+            if n > 0 {
+                resp_buf.extend_from_slice(&temp_buf[..n]);
             }
 
             if total_size.is_none() && resp_buf.len() >= 10 {
@@ -223,6 +215,8 @@ impl Device {
                 }
             }
         }?;
+
+        spinner.finish_and_clear();
 
         let result = tpm_unmarshal_response(cc, &resp_buf);
         if self.log_format == LogFormat::Pretty {
@@ -280,7 +274,7 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// This function will return an error if the underlying `execute` call fails
+    /// This function will return an error if the underlying `transmit` call fails
     /// or if the TPM returns a response of an unexpected type.
     pub fn get_capability<T, F, N>(
         &mut self,
@@ -359,7 +353,7 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// This function will return an error if the underlying `execute` call fails
+    /// This function will return an error if the underlying `transmit` call fails
     /// or if the TPM returns a response of an unexpected type.
     pub fn get_capability_page(
         &mut self,
@@ -374,7 +368,7 @@ impl Device {
         };
         let sessions = vec![];
 
-        let (resp, _) = self.execute(&cmd, &sessions)?;
+        let (resp, _) = self.transmit(&cmd, &sessions)?;
         let TpmGetCapabilityResponse {
             more_data,
             capability_data,
@@ -423,7 +417,7 @@ impl Device {
             object_handle: handle,
         };
         let sessions = vec![];
-        let (resp, _) = self.execute(&cmd, &sessions)?;
+        let (resp, _) = self.transmit(&cmd, &sessions)?;
 
         let read_public_resp = resp
             .ReadPublic()
@@ -467,7 +461,7 @@ impl Device {
     pub fn save_context(&mut self, save_handle: TpmHandle) -> Result<TpmsContext, DeviceError> {
         let cmd = TpmContextSaveCommand { save_handle };
         let sessions = vec![];
-        let (resp, _) = self.execute(&cmd, &sessions)?;
+        let (resp, _) = self.transmit(&cmd, &sessions)?;
         let save_resp = resp
             .ContextSave()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::ContextSave))?;
@@ -482,7 +476,7 @@ impl Device {
     pub fn load_context(&mut self, context: TpmsContext) -> Result<TpmHandle, DeviceError> {
         let cmd = TpmContextLoadCommand { context };
         let sessions = vec![];
-        let (resp, _) = self.execute(&cmd, &sessions)?;
+        let (resp, _) = self.transmit(&cmd, &sessions)?;
         let resp_inner = resp
             .ContextLoad()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::ContextLoad))?;
@@ -501,7 +495,7 @@ impl Device {
             flush_handle: handle,
         };
         let sessions = vec![];
-        self.execute(&cmd, &sessions)?;
+        self.transmit(&cmd, &sessions)?;
         Ok(())
     }
 
@@ -542,7 +536,7 @@ impl Device {
             object_handle: object_handle.0.into(),
             persistent_handle,
         };
-        let (resp, _) = self.execute(&cmd, sessions)?;
+        let (resp, _) = self.transmit(&cmd, sessions)?;
 
         resp.EvictControl()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;

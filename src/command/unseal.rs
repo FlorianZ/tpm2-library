@@ -79,7 +79,7 @@ impl Unseal {
                         )))
                     }
                 }
-                device.execute(&command_body, auth_sessions)?;
+                device.transmit(&command_body, auth_sessions)?;
             }
             Ok(())
         })();

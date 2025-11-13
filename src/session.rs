@@ -286,7 +286,7 @@ impl<'a> Session<'a> {
 
         let sessions = self.build_auth_area(device, command, handles, &effective_auth_list)?;
 
-        let (resp, auth_responses) = match device.execute(command, &sessions) {
+        let (resp, auth_responses) = match device.transmit(command, &sessions) {
             Ok((resp, auth_responses)) => (resp, auth_responses),
             Err(DeviceError::TpmRc(rc)) => {
                 if rc.base() == TpmRcBase::PolicyFail {
@@ -389,7 +389,7 @@ impl<'a> Session<'a> {
         };
         let sessions = vec![];
 
-        let (response_body, _) = device.execute(&cmd, &sessions)?;
+        let (response_body, _) = device.transmit(&cmd, &sessions)?;
 
         let resp = response_body
             .StartAuthSession()

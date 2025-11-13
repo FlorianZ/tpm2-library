@@ -12,8 +12,7 @@ use cli::{
     vtpm::VtpmCache,
 };
 use std::{
-    cell::RefCell, fs, io::Write, os::unix::io::AsRawFd, path::Path, process, rc::Rc,
-    sync::atomic::Ordering,
+    cell::RefCell, fs, os::unix::io::AsRawFd, path::Path, process, rc::Rc, sync::atomic::Ordering,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -29,9 +28,6 @@ fn main() {
 
     if ctrlc::set_handler(move || {
         cli::TEARDOWN.store(true, Ordering::Relaxed);
-        let mut stderr = std::io::stderr();
-        let _ = write!(stderr, "\x1B[?25h");
-        let _ = stderr.flush();
     })
     .is_err()
     {
