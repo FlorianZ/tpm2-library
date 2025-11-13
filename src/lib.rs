@@ -31,10 +31,26 @@
 //! The command body for `TPM2_PolicyAuthorize` has `TPM2B_PUBLIC`,
 //! `TPM2B_DIGEST` and `TPMT_SIGNATURE` serialized in sequence.
 //!
+//! For the time being, onversion is not supported in either direction and will
+//! return `Error::InvalidPolicy`.
+//!
 //! ## `TPM2_PolicySecret`
 //!
-//! The command body for `TPM2_PolicyAuthorize` has `TPM_HANDLE`, `TPM2B_NAME`
-//! and `TPM2B_DIGEST` serialized in sequence.
+//! The command body for `TPM2_PolicySecret` has `TPM_HANDLE`, `TPM2B_NAME` and
+//! `TPM2B_DIGEST` serialized in sequence.
+//!
+//! `TpmPolicyCommand::to_command` is implemented for `TPM2_PolicySecret` as
+//! folllows:
+//!
+//!   * `objectHandleHint`: copied to command's `authHandle`.
+//!   * `objectName`: discarded.
+//!   * `policyRef`: copied to command's `policyRef`.
+//!
+//! `TpmPolicyCommand::from_command` does a similar "lossy" conversion:
+//!
+//!   * `objectHandleHint`: copied from command's `authHandle`.
+//!   * `objectName`: set to empty `TPM2B_NAME`.
+//!   * `policyRef`: copied from command's `policyRef`.
 
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
@@ -280,7 +296,7 @@ impl TpmPolicyCommand {
     ///
     /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when the command
     /// is not representable as a `CommandPolicy` step without additional
-    /// context (for example `TPM2_PolicySecret` without the object's name).
+    /// context.
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when the command code is
     /// not supported by this conversion.
     pub fn from_command(cmd: &TpmCommand, _auth: &TpmAuthCommands) -> Result<Self, Error> {
@@ -288,7 +304,9 @@ impl TpmPolicyCommand {
             TpmCommand::PolicyPcr(ref inner) => Self::from_policy_pcr_command(inner),
             TpmCommand::PolicyRestart(inner) => Ok(Self::from_policy_restart_command(*inner)),
             TpmCommand::PolicyOr(inner) => Self::from_policy_or_command(inner),
-            TpmCommand::PolicySecret(_) => Err(Error::InvalidPolicy),
+            TpmCommand::PolicySecret(inner) => {
+                Self::from_policy_secret(inner, &Tpm2bName::default())
+            }
             _ => Err(Error::InvalidCc(cmd.cc() as u32)),
         }
     }
@@ -414,7 +432,7 @@ impl TpmPolicyCommand {
     ///
     /// Returns [`OperationFailed`](crate::Error::OperationFailed) when
     /// marshaling any of the components into the serialized policy body fails.
-    pub fn from_policy_secret_with_name(
+    pub fn from_policy_secret(
         inner: &TpmPolicySecretCommand,
         object_name: &Tpm2bName,
     ) -> Result<Self, Error> {
@@ -1170,7 +1188,7 @@ mod tests {
         };
         let name = Tpm2bName::default();
 
-        let step = TpmPolicyCommand::from_policy_secret_with_name(&cmd, &name).unwrap();
+        let step = TpmPolicyCommand::from_policy_secret(&cmd, &name).unwrap();
         assert_eq!(step.code(), TpmCc::PolicySecret);
 
         let (decoded, _) = TpmHandle::unmarshal(step.body()).unwrap();
