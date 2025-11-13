@@ -181,7 +181,7 @@ impl TpmPolicyCommand {
         policy_ref: &Tpm2bDigest,
         policy_signature: &TpmtSignature,
     ) -> Result<Self, Error> {
-        let mut body = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let mut body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
         let len = {
             let mut writer = TpmWriter::new(&mut body);
             key_sign
@@ -195,9 +195,10 @@ impl TpmPolicyCommand {
                 .map_err(|_| Error::OperationFailed)?;
             writer.len()
         };
+        body.truncate(len);
         Ok(Self {
             cc: TpmCc::PolicyAuthorize,
-            body: body[..len].to_vec(),
+            body,
         })
     }
 
@@ -211,7 +212,7 @@ impl TpmPolicyCommand {
         object_name: &Tpm2bName,
         policy_ref: &Tpm2bDigest,
     ) -> Result<Self, Error> {
-        let mut body = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let mut body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
         let len = {
             let mut writer = TpmWriter::new(&mut body);
             object_handle_hint
@@ -225,9 +226,10 @@ impl TpmPolicyCommand {
                 .map_err(|_| Error::OperationFailed)?;
             writer.len()
         };
+        body.truncate(len);
         Ok(Self {
             cc: TpmCc::PolicySecret,
-            body: body[..len].to_vec(),
+            body,
         })
     }
 
@@ -279,13 +281,12 @@ impl TpmPolicyCommand {
     /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when the command
     /// is not representable as a `CommandPolicy` step without additional
     /// context (for example `TPM2_PolicySecret` without the object's name).
-    ///
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when the command code is
     /// not supported by this conversion.
     pub fn from_command(cmd: &TpmCommand, _auth: &TpmAuthCommands) -> Result<Self, Error> {
         match cmd {
             TpmCommand::PolicyPcr(ref inner) => Self::from_policy_pcr_command(inner),
-            TpmCommand::PolicyRestart(inner) => Self::from_policy_restart_command(inner),
+            TpmCommand::PolicyRestart(inner) => Ok(Self::from_policy_restart_command(*inner)),
             TpmCommand::PolicyOr(inner) => Self::from_policy_or_command(inner),
             TpmCommand::PolicySecret(_) => Err(Error::InvalidPolicy),
             _ => Err(Error::InvalidCc(cmd.cc() as u32)),
@@ -302,11 +303,11 @@ impl TpmPolicyCommand {
         }))
     }
 
-    fn from_policy_restart_command(_inner: &TpmPolicyRestartCommand) -> Result<Self, Error> {
-        Ok(Self {
+    fn from_policy_restart_command(_inner: TpmPolicyRestartCommand) -> Self {
+        Self {
             cc: TpmCc::PolicyRestart,
             body: Vec::new(),
-        })
+        }
     }
 
     fn to_policy_pcr_command(&self) -> Result<TpmCommand, Error> {
@@ -393,8 +394,8 @@ impl TpmPolicyCommand {
         let inner = TpmPolicySecretCommand {
             auth_handle,
             policy_session: POLICY_SESSION,
-            nonce_tpm: Default::default(),
-            cp_hash_a: Default::default(),
+            nonce_tpm: Tpm2bDigest::default(),
+            cp_hash_a: Tpm2bDigest::default(),
             policy_ref,
             expiration: 0,
         };
@@ -1138,15 +1139,14 @@ mod tests {
     }
 
     #[test]
-    fn policy_secret_to_command_uses_fixed_session() {
+    fn policy_secret_to_command_uses_fixed_session() -> Result<(), Error> {
         let step = TpmPolicyCommand::secret(
             TpmHandle(0x8100_0000),
             &Tpm2bName::default(),
             &Tpm2bDigest::default(),
-        )
-        .unwrap();
+        )?;
 
-        let (cmd, auth) = step.to_command().unwrap();
+        let (cmd, auth) = step.to_command()?;
         assert_eq!(auth.len(), 0);
 
         match cmd {
@@ -1157,15 +1157,19 @@ mod tests {
             }
             other => panic!("unexpected command variant: {other:?}"),
         }
+
+        Ok(())
     }
 
     #[test]
     fn policy_secret_from_command_requires_name() {
-        let mut cmd = TpmPolicySecretCommand::default();
-        cmd.auth_handle = TpmHandle(0x8100_0000);
-        cmd.policy_session = POLICY_SESSION;
-
+        let cmd = TpmPolicySecretCommand {
+            auth_handle: TpmHandle(0x8100_0000),
+            policy_session: POLICY_SESSION,
+            ..Default::default()
+        };
         let name = Tpm2bName::default();
+
         let step = TpmPolicyCommand::from_policy_secret_with_name(&cmd, &name).unwrap();
         assert_eq!(step.code(), TpmCc::PolicySecret);
 
