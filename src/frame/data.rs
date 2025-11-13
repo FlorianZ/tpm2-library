@@ -2262,7 +2262,7 @@ tpm_struct! {
 }
 
 tpm_struct! (
-    #[derive(Debug, Default, PartialEq, Eq, Clone)]
+    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
     kind: Command,
     name: TpmPolicyPcrCommand,
     cc: TpmCc::PolicyPcr,
@@ -2285,7 +2285,7 @@ tpm_struct! (
 );
 
 tpm_struct! {
-    #[derive(Debug, PartialEq, Eq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
     kind: Command,
     name: TpmPolicyRestartCommand,
     cc: TpmCc::PolicyRestart,
