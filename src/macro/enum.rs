@@ -36,7 +36,7 @@ macro_rules! tpm_enum {
                         return Ok(Self::$variant);
                     }
                 )*
-                Err($crate::TpmProtocolError::VariantNotAvailable)
+                Err($crate::TpmProtocolError::VariantMissing)
             }
         }
 

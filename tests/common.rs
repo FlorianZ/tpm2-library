@@ -102,7 +102,7 @@ pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmProtocolError, &'stati
         "InvalidValue" => return Ok(TpmProtocolError::InvalidCc),
         "UnexpectedEnd" => return Ok(TpmProtocolError::UnexpectedEnd),
         "TrailingData" => return Ok(TpmProtocolError::TrailingData),
-        "VariantNotAvailable" => return Ok(TpmProtocolError::VariantNotAvailable),
+        "VariantMissing" => return Ok(TpmProtocolError::VariantMissing),
         _ => {}
     }
 

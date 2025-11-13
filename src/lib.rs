@@ -110,8 +110,8 @@ pub enum TpmProtocolError {
     TrailingData,
     /// Run out of bytes while unmarshaling.
     UnexpectedEnd,
-    /// The requested variant is not available.
-    VariantNotAvailable,
+    /// The requested variant is missing.
+    VariantMissing,
 }
 
 impl core::fmt::Display for TpmProtocolError {
@@ -126,7 +126,7 @@ impl core::fmt::Display for TpmProtocolError {
             Self::TooManyItems => write!(f, "list has too many items"),
             Self::TrailingData => write!(f, "trailing data"),
             Self::UnexpectedEnd => write!(f, "unexpected end"),
-            Self::VariantNotAvailable => write!(f, "variant is not available"),
+            Self::VariantMissing => write!(f, "variant missing"),
         }
     }
 }
