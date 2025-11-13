@@ -442,7 +442,7 @@ impl SoftwarePolicySession {
         update_policy_digest(
             &mut self.digest,
             self.hash_alg,
-            TpmCc::PolicyOR,
+            TpmCc::PolicyOr,
             &[&digests_as_bytes],
         )
     }

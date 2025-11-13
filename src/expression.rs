@@ -367,7 +367,7 @@ impl Expression {
             pcrs: *selections,
         };
 
-        command_list.push((TpmCommand::PolicyPcr(cmd.clone()), TpmAuthCommands::new()));
+        command_list.push((TpmCommand::PolicyPcr(cmd), TpmAuthCommands::new()));
         software_session.policy_pcr(&cmd)?;
 
         Ok(software_session.get_digest())
@@ -486,7 +486,7 @@ impl Expression {
             policy_session: 0.into(),
             p_hash_list: digest_list,
         };
-        command_list.push((TpmCommand::PolicyOr(or_cmd.clone()), TpmAuthCommands::new()));
+        command_list.push((TpmCommand::PolicyOr(or_cmd), TpmAuthCommands::new()));
         software_session.policy_or(&or_cmd)?;
 
         Ok(software_session.get_digest())
