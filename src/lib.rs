@@ -332,10 +332,13 @@ fn parse_pcr_call<'a>(
         Err(err) => {
             if let Some((selection_part, digest_part)) = buf.rsplit_once(':') {
                 let selections = parse_tpml_pcr_selection_str(selection_part, context)?;
-                hex::decode(digest_part).map_err(|_| LanguageError::InvalidPcrDigest)?;
+                let digest_bytes =
+                    hex::decode(digest_part).map_err(|_| LanguageError::InvalidPcrDigest)?;
+                let digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
+                    .map_err(|_| LanguageError::PcrDigestTooLarge)?;
                 Ok(TpmPolicyExpression::Pcr {
                     selections,
-                    digest: Some(digest_part.to_string()),
+                    digest: Some(digest),
                     count: None,
                 })
             } else {

@@ -26,7 +26,7 @@ pub enum LanguageError {
     #[error("invalid command code: {0:?}")]
     InvalidCc(TpmCc),
     #[error("invalid expression: {0}")]
-    InvalidExpression(TpmPolicyExpression),
+    InvalidExpression(Box<TpmPolicyExpression>),
     #[error("invalid token: {0}")]
     InvalidToken(String),
     #[error("invalid PCR digest")]
@@ -54,7 +54,7 @@ pub enum LanguageError {
     #[error("PCR selection size is too large")]
     PcrSelectionTooLarge,
     #[error("too many branches: {0}")]
-    TooManyBranches(TpmPolicyExpression),
+    TooManyBranches(Box<TpmPolicyExpression>),
     #[error("trailing data")]
     TrailingData,
     #[error("unexpected end")]

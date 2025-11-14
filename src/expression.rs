@@ -26,7 +26,7 @@ pub enum TpmPolicyExpression {
     Auth(Auth),
     Pcr {
         selections: TpmlPcrSelection,
-        digest: Option<String>,
+        digest: Option<Tpm2bDigest>,
         count: Option<u32>,
     },
     Secret {
@@ -131,7 +131,7 @@ impl fmt::Display for TpmPolicyExpression {
                 write!(f, "pcr({})", selection_strings.join("+"))?;
 
                 if let Some(d) = digest {
-                    write!(f, ":{d}")?;
+                    write!(f, ":{}", hex::encode(d.as_ref()))?;
                 }
                 if let Some(c) = count {
                     write!(f, ", count={c}")?;
@@ -214,7 +214,7 @@ impl TpmPolicyExpression {
                 }
                 TpmCommand::PolicyPcr(cmd) => {
                     let selections = cmd.pcrs;
-                    let digest = Some(hex::encode(cmd.pcr_digest.as_ref()));
+                    let digest = Some(cmd.pcr_digest);
                     let expr = TpmPolicyExpression::Pcr {
                         selections,
                         digest,
@@ -337,7 +337,7 @@ impl TpmPolicyExpression {
                 expr.to_command_list_walk_secret(command_list, software_session, context)
             }
             expr @ (TpmPolicyExpression::Auth { .. } | TpmPolicyExpression::Handle { .. }) => {
-                Err(LanguageError::InvalidExpression(expr.clone()).into())
+                Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into())
             }
         }
     }
@@ -351,19 +351,14 @@ impl TpmPolicyExpression {
             TpmPolicyExpression::Pcr {
                 selections, digest, ..
             } => (selections, digest),
-            expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
+            expr => return Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into()),
         };
 
-        let digest_string = digest.as_ref().ok_or(LanguageError::PcrDigestMissing)?;
-        let digest_bytes =
-            hex::decode(digest_string).map_err(|_| LanguageError::InvalidPcrDigest)?;
+        let pcr_digest = digest.ok_or(LanguageError::PcrDigestMissing)?;
 
-        if digest_bytes.len() != software_session.digest_size {
+        if pcr_digest.as_ref().len() != software_session.digest_size {
             return Err(LanguageError::InvalidPcrDigest.into());
         }
-
-        let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
-            .map_err(|_| LanguageError::OperationFailed)?;
 
         let cmd = TpmPolicyPcrCommand {
             policy_session: 0.into(),
@@ -388,13 +383,13 @@ impl TpmPolicyExpression {
                 auth_handle,
                 password,
             } => (auth_handle, password),
-            expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
+            expr => return Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into()),
         };
 
         let h_val = if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
             handle.value().ok_or(HandleError::PatternDenied)?
         } else {
-            return Err(LanguageError::InvalidExpression((**auth_handle).clone()).into());
+            return Err(LanguageError::InvalidExpression(Box::new((**auth_handle).clone())).into());
         };
 
         let ht_byte = (h_val >> 24) as u8;
@@ -405,7 +400,7 @@ impl TpmPolicyExpression {
                 context
                     .names
                     .get(&h_val)
-                    .ok_or_else(|| LanguageError::InvalidExpression(self.clone()))?,
+                    .ok_or_else(|| LanguageError::InvalidExpression(Box::new(self.clone())))?,
             ),
             TpmHt::Permanent => {
                 let rh = TpmRh::try_from(h_val).map_err(|_| HandleError::InvalidType(ht_byte))?;
@@ -465,7 +460,7 @@ impl TpmPolicyExpression {
     ) -> Result<Tpm2bDigest, Error> {
         let branches = match self {
             TpmPolicyExpression::Or(branches) => branches,
-            expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
+            expr => return Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into()),
         };
 
         let mut digest_list = TpmlDigest::new();
@@ -483,7 +478,7 @@ impl TpmPolicyExpression {
 
             digest_list
                 .push(digest)
-                .map_err(|_| LanguageError::TooManyBranches(self.clone()))?;
+                .map_err(|_| LanguageError::TooManyBranches(Box::new(self.clone())))?;
         }
 
         let or_cmd = TpmPolicyOrCommand {
