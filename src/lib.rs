@@ -76,8 +76,10 @@ use tpm2_protocol::{
         TpmlPcrSelection, TpmtSignature,
     },
     frame::{
-        TpmAuthCommands, TpmCommand, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
-        TpmPolicyRestartCommand, TpmPolicySecretCommand,
+        TpmAuthCommands, TpmCommand, TpmFrame, TpmPolicyAuthValueCommand,
+        TpmPolicyGetDigestCommand, TpmPolicyOrCommand, TpmPolicyPasswordCommand,
+        TpmPolicyPcrCommand, TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand,
+        TpmPolicySecretCommand,
     },
     TpmHandle, TpmMarshal, TpmProtocolError, TpmUnmarshal, TpmWriter,
 };
@@ -254,10 +256,10 @@ impl TpmPolicyCommand {
         let auth = TpmAuthCommands::new();
         let command = match self.cc {
             TpmCc::PolicyPcr => self.to_policy_pcr_command()?,
-            TpmCc::PolicyRestart => self.to_policy_restart_command()?,
             TpmCc::PolicyOr => self.to_policy_or_command()?,
             TpmCc::PolicySecret => self.to_policy_secret_command()?,
             TpmCc::PolicyAuthorize => return Err(Error::InvalidPolicy),
+            cc if ZERO_PARAM_CMDS.contains(&cc) => self.to_policy_zero_command()?,
             other => return Err(Error::InvalidCc(other as u32)),
         };
         Ok((command, auth))
@@ -278,28 +280,49 @@ impl TpmPolicyCommand {
     pub fn from_command(cmd: &TpmCommand, _auth: &TpmAuthCommands) -> Result<Self, Error> {
         match cmd {
             TpmCommand::PolicyPcr(ref inner) => Self::from_policy_pcr_command(inner),
-            TpmCommand::PolicyRestart(inner) => Ok(Self::from_policy_restart_command(*inner)),
             TpmCommand::PolicyOr(inner) => Self::from_policy_or_command(inner),
             TpmCommand::PolicySecret(inner) => {
                 Self::from_policy_secret(inner, &Tpm2bName::default())
             }
+            TpmCommand::PolicyAuthValue(_)
+            | TpmCommand::PolicyPassword(_)
+            | TpmCommand::PolicyGetDigest(_)
+            | TpmCommand::PolicyRestart(_)
+            | TpmCommand::PolicyPhysicalPresence(_) => Ok(Self::from_policy_zero_command(cmd.cc())),
             _ => Err(Error::InvalidCc(cmd.cc() as u32)),
         }
     }
 
-    fn to_policy_restart_command(&self) -> Result<TpmCommand, Error> {
+    fn to_policy_zero_command(&self) -> Result<TpmCommand, Error> {
         if !self.body.is_empty() {
             return Err(Error::InvalidPolicy);
         }
 
-        Ok(TpmCommand::PolicyRestart(TpmPolicyRestartCommand {
-            session_handle: POLICY_SESSION,
-        }))
+        match self.cc {
+            TpmCc::PolicyAuthValue => Ok(TpmCommand::PolicyAuthValue(TpmPolicyAuthValueCommand {
+                policy_session: POLICY_SESSION,
+            })),
+            TpmCc::PolicyPassword => Ok(TpmCommand::PolicyPassword(TpmPolicyPasswordCommand {
+                policy_session: POLICY_SESSION,
+            })),
+            TpmCc::PolicyGetDigest => Ok(TpmCommand::PolicyGetDigest(TpmPolicyGetDigestCommand {
+                policy_session: POLICY_SESSION,
+            })),
+            TpmCc::PolicyRestart => Ok(TpmCommand::PolicyRestart(TpmPolicyRestartCommand {
+                session_handle: POLICY_SESSION,
+            })),
+            TpmCc::PolicyPhysicalPresence => Ok(TpmCommand::PolicyPhysicalPresence(
+                TpmPolicyPhysicalPresenceCommand {
+                    policy_session: POLICY_SESSION,
+                },
+            )),
+            _ => Err(Error::InvalidCc(self.cc as u32)),
+        }
     }
 
-    fn from_policy_restart_command(_inner: TpmPolicyRestartCommand) -> Self {
+    fn from_policy_zero_command(cc: TpmCc) -> Self {
         Self {
-            cc: TpmCc::PolicyRestart,
+            cc,
             body: Vec::new(),
         }
     }
@@ -1030,22 +1053,30 @@ mod tests {
         assert!(validate_policy_secret(cmd.body()).is_ok());
     }
 
-    #[test]
-    fn policy_restart_to_and_from_command_roundtrip() {
-        let step = TpmPolicyCommand::zero(TpmCc::PolicyRestart).unwrap();
+    #[rstest]
+    #[case(TpmCc::PolicyAuthValue)]
+    #[case(TpmCc::PolicyPassword)]
+    #[case(TpmCc::PolicyGetDigest)]
+    #[case(TpmCc::PolicyRestart)]
+    #[case(TpmCc::PolicyPhysicalPresence)]
+    fn policy_zero_param_to_and_from_command_roundtrip(#[case] cc: TpmCc) {
+        let step = TpmPolicyCommand::zero(cc).unwrap();
         let (cmd, auth) = step.to_command().unwrap();
 
-        match cmd {
-            TpmCommand::PolicyRestart(inner) => {
-                assert_eq!(inner.session_handle, POLICY_SESSION);
-            }
-            other => panic!("unexpected command variant: {other:?}"),
-        }
-
+        assert_eq!(cmd.cc(), cc);
         assert_eq!(auth.len(), 0);
 
+        match &cmd {
+            TpmCommand::PolicyAuthValue(c) => assert_eq!(c.policy_session, POLICY_SESSION),
+            TpmCommand::PolicyPassword(c) => assert_eq!(c.policy_session, POLICY_SESSION),
+            TpmCommand::PolicyGetDigest(c) => assert_eq!(c.policy_session, POLICY_SESSION),
+            TpmCommand::PolicyRestart(c) => assert_eq!(c.session_handle, POLICY_SESSION),
+            TpmCommand::PolicyPhysicalPresence(c) => assert_eq!(c.policy_session, POLICY_SESSION),
+            _ => panic!("Unexpected command variant in zero-param test"),
+        }
+
         let back = TpmPolicyCommand::from_command(&cmd, &auth).unwrap();
-        assert_eq!(back.code(), TpmCc::PolicyRestart);
+        assert_eq!(back.code(), cc);
         assert!(back.body().is_empty());
     }
 
