@@ -4,7 +4,7 @@
 
 //! TPM 2.0 ECC curves and cryptographic operations.
 
-use crate::{Error, Hash, PublicKey, KDF_LABEL_DUPLICATE, UNCOMPRESSED_POINT_TAG};
+use crate::{Error, Hash, PublicKey, KDF_LABEL_DUPLICATE};
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::ops::bytes::ToBytes;
 use openssl::{
@@ -25,6 +25,8 @@ use tpm2_protocol::{
     },
     TpmMarshal, TpmWriter,
 };
+
+const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
 /// TPM 2.0 ECC curves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]

@@ -59,8 +59,6 @@ where
     ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), Error>;
 }
 
-pub const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
-
 pub const KDF_LABEL_DUPLICATE: &str = "DUPLICATE";
 pub const KDF_LABEL_INTEGRITY: &str = "INTEGRITY";
 pub const KDF_LABEL_STORAGE: &str = "STORAGE";
