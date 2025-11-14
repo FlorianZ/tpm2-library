@@ -15,7 +15,7 @@ hex = "0.4"
 pem = "3.0"
 rasn = "0.26"
 thiserror = "1.0"
-tpm2-protocol = "0.14.3"
+tpm2-protocol = "0.15.3"
 
 [dev-dependencies]
 rstest = "0.21"

@@ -767,7 +767,7 @@ impl TryFrom<TpmPolicyCommandAsn1> for TpmPolicyCommand {
 
     fn try_from(val: TpmPolicyCommandAsn1) -> Result<Self, Self::Error> {
         let cc =
-            TpmCc::try_from(val.command_code).map_err(|()| Error::InvalidCc(val.command_code))?;
+            TpmCc::try_from(val.command_code).map_err(|_| Error::InvalidCc(val.command_code))?;
         let body = val.command_policy.as_ref().to_vec();
         validate_policy_command(cc, &body)?;
         Ok(Self { cc, body })
