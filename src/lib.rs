@@ -101,11 +101,11 @@ fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError> {
 
 const POLICY_SESSION: TpmHandle = TpmHandle(0);
 
-pub const OID_LOADABLE_KEY: ObjectIdentifier =
+const OID_LOADABLE_KEY: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 3]));
-pub const OID_IMPORTABLE_KEY: ObjectIdentifier =
+const OID_IMPORTABLE_KEY: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 4]));
-pub const OID_SEALED_DATA: ObjectIdentifier =
+const OID_SEALED_DATA: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 5]));
 
 /// A single policy command step, directly compatible with ASN.1.
