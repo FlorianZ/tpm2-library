@@ -12,10 +12,16 @@ mod error;
 mod hash;
 mod rsa;
 
+use openssl::{
+    bn::BigNumContext,
+    ec::{EcGroupRef, EcPointRef, PointConversionForm},
+};
 use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     constant::MAX_DIGEST_SIZE,
-    data::{Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmtPublic, TpmtSymDefObject},
+    data::{
+        Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmtPublic, TpmtSymDefObject,
+    },
     TpmMarshal, TpmSized, TpmWriter,
 };
 
@@ -23,6 +29,8 @@ pub use ecc::*;
 pub use error::*;
 pub use hash::*;
 pub use rsa::*;
+
+const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
 /// Trait for cryptographic public keys.
 pub trait PublicKey
@@ -73,7 +81,7 @@ pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 /// cryptographic operation fails.
 /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when memory allocation
 /// for temporary data fails.
-pub fn make_name(public: &TpmtPublic) -> Result<Tpm2bName, Error> {
+pub fn make_tpm_name(public: &TpmtPublic) -> Result<Tpm2bName, Error> {
     let name_alg = Hash::from(public.name_alg);
     let alg_bytes = (public.name_alg as u16).to_be_bytes();
 
@@ -92,4 +100,35 @@ pub fn make_name(public: &TpmtPublic) -> Result<Tpm2bName, Error> {
     final_buf[2..2 + digest_len].copy_from_slice(&digest);
 
     Tpm2bName::try_from(&final_buf[..2 + digest_len]).map_err(|_| Error::OperationFailed)
+}
+
+/// Converts an OpenSSL `EcPoint` to TPM `(x, y)` coordinate buffers.
+///
+/// This function handles the uncompressed point byte representation.
+///
+/// # Errors
+///
+/// Returns [`OperationFailed`](crate::Error::OperationFailed) if the OpenSSL
+/// operation fails or the point format is invalid.
+/// Returns [`OutOfMemory`](crate::Error::OutOfMemory) if allocation fails.
+fn make_tpm_point(
+    point: &EcPointRef,
+    group: &EcGroupRef,
+    ctx: &mut BigNumContext,
+) -> Result<(Tpm2bEccParameter, Tpm2bEccParameter), Error> {
+    let pub_bytes = point
+        .to_bytes(group, PointConversionForm::UNCOMPRESSED, ctx)
+        .map_err(|_| Error::OperationFailed)?;
+
+    if pub_bytes.is_empty() || pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
+        return Err(Error::InvalidEccParameters);
+    }
+
+    let coord_len = (pub_bytes.len() - 1) / 2;
+    let x = Tpm2bEccParameter::try_from(&pub_bytes[1..=coord_len])
+        .map_err(|_| Error::OperationFailed)?;
+    let y = Tpm2bEccParameter::try_from(&pub_bytes[1 + coord_len..])
+        .map_err(|_| Error::OperationFailed)?;
+
+    Ok((x, y))
 }

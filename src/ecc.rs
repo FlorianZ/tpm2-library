@@ -10,7 +10,7 @@ use num_traits::ops::bytes::ToBytes;
 use openssl::{
     bn::{BigNum, BigNumContext},
     derive::Deriver,
-    ec::{EcGroup, EcKey, EcPoint, PointConversionForm},
+    ec::{EcGroup, EcKey, EcPoint},
     nid::Nid,
     pkey::{PKey, Private},
 };
@@ -25,8 +25,6 @@ use tpm2_protocol::{
     },
     TpmMarshal, TpmWriter,
 };
-
-const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
 /// TPM 2.0 ECC curves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
@@ -163,20 +161,7 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
         };
 
         let mut ctx = BigNumContext::new().map_err(|_| Error::OutOfMemory)?;
-        let pub_bytes = ec_key
-            .public_key()
-            .to_bytes(group, PointConversionForm::UNCOMPRESSED, &mut ctx)
-            .map_err(|_| Error::OperationFailed)?;
-
-        if pub_bytes.is_empty() || pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
-            return Err(Error::InvalidEccParameters);
-        }
-
-        let coord_len = (pub_bytes.len() - 1) / 2;
-        let x = Tpm2bEccParameter::try_from(&pub_bytes[1..=coord_len])
-            .map_err(|_| Error::OperationFailed)?;
-        let y = Tpm2bEccParameter::try_from(&pub_bytes[1 + coord_len..])
-            .map_err(|_| Error::OperationFailed)?;
+        let (x, y) = crate::make_tpm_point(ec_key.public_key(), group, &mut ctx)?;
 
         Ok(Self { curve, x, y })
     }
@@ -296,26 +281,18 @@ impl EccPublicKey {
             .derive_to_vec()
             .map_err(|_| Error::OperationFailed)?;
 
-        let ephemeral_pub_bytes = ephemeral_pub_point
-            .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
-            .map_err(|_| Error::OperationFailed)?;
-        if ephemeral_pub_bytes.is_empty() || ephemeral_pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
-            return Err(Error::OperationFailed);
-        }
-
-        let coord_len = (ephemeral_pub_bytes.len() - 1) / 2;
-        let ephemeral_x = &ephemeral_pub_bytes[1..=coord_len];
-        let ephemeral_y = &ephemeral_pub_bytes[1 + coord_len..];
+        let (ephemeral_x, ephemeral_y) =
+            crate::make_tpm_point(&ephemeral_pub_point, &group, &mut ctx)?;
 
         let seed_bits = u16::try_from(name_alg.size() * 8).map_err(|_| Error::OperationFailed)?;
-        let context_u = ephemeral_x;
+        let context_u = ephemeral_x.as_ref();
         let context_v = self.x.as_ref();
 
         let seed = name_alg.kdfe(&z, KDF_LABEL_DUPLICATE, context_u, context_v, seed_bits)?;
 
         let ephemeral_point_tpm = TpmsEccPoint {
-            x: Tpm2bEccParameter::try_from(ephemeral_x).map_err(|_| Error::OperationFailed)?,
-            y: Tpm2bEccParameter::try_from(ephemeral_y).map_err(|_| Error::OperationFailed)?,
+            x: ephemeral_x,
+            y: ephemeral_y,
         };
 
         Ok((seed, ephemeral_point_tpm))
