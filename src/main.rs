@@ -2,17 +2,67 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 //! Copyright (c) 2025 Opinsys Oy
 
-use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser};
-use cli::{
+#![deny(clippy::all)]
+#![deny(clippy::pedantic)]
+
+pub mod alg;
+pub mod cli;
+pub mod command;
+pub mod device;
+pub mod io;
+pub mod pcr;
+pub mod policy;
+pub mod print;
+pub mod task;
+pub mod template;
+pub mod vtpm;
+
+use crate::{
     cli::{Task, TopLevel},
     command::CommandError,
     device::Device,
     task::TaskState,
     vtpm::VtpmCache,
 };
+use clap::error::ErrorKind;
+use clap::{CommandFactory, Parser};
 use std::{cell::RefCell, fs, io::IsTerminal, path::Path, process, rc::Rc, sync::atomic::Ordering};
 use tracing_subscriber::EnvFilter;
+
+/// A global flag to signal graceful teardown of the application.
+///
+/// Set by the Ctrl-C handler to allow the main loop to finish its current
+/// operation and perform necessary teardown (e.g., flushing TPM contexts)
+/// before exiting.
+pub static TEARDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Serialize a type implementing `TpmMarshal` type into `Vec<u8>`.
+///
+/// # Errors
+///
+/// Returns a `TpmError` if the object cannot be serialized into the buffer.
+pub fn write_object<T: tpm2_protocol::TpmMarshal>(
+    obj: &T,
+) -> Result<Vec<u8>, tpm2_protocol::TpmProtocolError> {
+    let mut buf = vec![0u8; tpm2_protocol::constant::TPM_MAX_COMMAND_SIZE as usize];
+    let len = {
+        let mut writer = tpm2_protocol::TpmWriter::new(&mut buf);
+        obj.marshal(&mut writer)?;
+        writer.len()
+    };
+    buf.truncate(len);
+    Ok(buf)
+}
+
+/// Parses a hexadecimal string with an optional "0x" prefix into a `u32`.
+///
+/// # Errors
+///
+/// Returns an error if the string is not a valid hexadecimal number.
+pub fn parse_hex_u32(hex_str: &str) -> Result<u32, std::num::ParseIntError> {
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    u32::from_str_radix(hex_str, 16)
+}
 
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
 /// external signal indexed by the signal number.
@@ -25,7 +75,7 @@ fn main() {
         .init();
 
     if ctrlc::set_handler(move || {
-        cli::TEARDOWN.store(true, Ordering::Relaxed);
+        TEARDOWN.store(true, Ordering::Relaxed);
     })
     .is_err()
     {
@@ -75,7 +125,7 @@ fn main() {
         process::exit(1);
     }
 
-    if cli::TEARDOWN.load(Ordering::Relaxed) {
+    if TEARDOWN.load(Ordering::Relaxed) {
         process::exit(130);
     }
 }

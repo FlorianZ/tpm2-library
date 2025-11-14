@@ -10,10 +10,6 @@ edition = "2021"
 rust-version = "1.81"
 readme = "README.md"
 
-[lib]
-name = "cli"
-path = "src/lib.rs"
-
 [[bin]]
 name = "tpm2sh"
 path = "src/main.rs"
