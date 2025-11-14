@@ -153,13 +153,16 @@ impl VtpmContext for VtpmSession {
         let vhandle = self.handle();
         match device.load_context(self.context.clone()) {
             Ok(phandle) => match device.save_context(phandle) {
-                Ok(context) => match device.flush_context(phandle) {
-                    Ok(()) => Ok(RefreshAction::Updated(Box::new(context))),
-                    Err(e) => {
-                        log::warn!("vtpm:{vhandle:08x}: {e}");
-                        Ok(RefreshAction::Stale)
+                Ok(context) => {
+                    self.context = context;
+                    match device.flush_context(phandle) {
+                        Ok(()) => Ok(RefreshAction::Keep),
+                        Err(e) => {
+                            log::warn!("vtpm:{vhandle:08x}: {e}");
+                            Ok(RefreshAction::Stale)
+                        }
                     }
-                },
+                }
                 Err(e) => {
                     log::warn!("vtpm:{vhandle:08x}: {e}");
                     if let Err(e) = device.flush_context(phandle) {

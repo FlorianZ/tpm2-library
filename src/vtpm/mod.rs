@@ -20,7 +20,7 @@ use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, Error as CryptoError};
 use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Handle, HandleClass};
 use tpm2_protocol::{
-    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
+    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmtPublic},
     TpmHandle, TpmProtocolError,
 };
 use tpm2_tpmkey::Error as TpmKeyError;
@@ -75,9 +75,6 @@ pub enum RefreshAction {
     Keep,
     /// The context is no longer valid.
     Stale,
-    /// A new [`TpmsContext`](tpm2_protocol::data::TpmsContext) substituting
-    /// the old one.
-    Updated(Box<TpmsContext>),
 }
 
 /// A VTPM object.
