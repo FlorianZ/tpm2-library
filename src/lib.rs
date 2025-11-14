@@ -42,15 +42,15 @@
 //! `TpmPolicyCommand::to_command` is implemented for `TPM2_PolicySecret` as
 //! folllows:
 //!
-//!   * `objectHandleHint`: copied to command's `authHandle`.
-//!   * `objectName`: discarded.
-//!   * `policyRef`: copied to command's `policyRef`.
+//!    * `objectHandleHint`: copied to command's `authHandle`.
+//!    * `objectName`: discarded.
+//!    * `policyRef`: copied to command's `policyRef`.
 //!
 //! `TpmPolicyCommand::from_command` does a similar "lossy" conversion:
 //!
-//!   * `objectHandleHint`: copied from command's `authHandle`.
-//!   * `objectName`: set to empty `TPM2B_NAME`.
-//!   * `policyRef`: copied from command's `policyRef`.
+//!    * `objectHandleHint`: copied from command's `authHandle`.
+//!    * `objectName`: set to empty `TPM2B_NAME`.
+//!    * `policyRef`: copied from command's `policyRef`.
 
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
@@ -82,17 +82,19 @@ use tpm2_protocol::{
     TpmHandle, TpmMarshal, TpmProtocolError, TpmUnmarshal, TpmWriter,
 };
 
-/// Serialize a type implementing `TpmMarshal` into `Vec<u8>`.
+/// Serialize a sequence of objects implementing `TpmMarshal` into `Vec<u8>`.
 ///
 /// # Errors
 ///
 /// Returns [`TpmProtocolError`](tpm2_protocol::TpmProtocolError) when the
 /// value cannot be marshalled into the underlying TPM buffer.
-fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError> {
+fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmProtocolError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
-        obj.marshal(&mut writer)?;
+        for obj in objs {
+            obj.marshal(&mut writer)?;
+        }
         writer.len()
     };
     buf.truncate(len);
@@ -197,21 +199,8 @@ impl TpmPolicyCommand {
         policy_ref: &Tpm2bDigest,
         policy_signature: &TpmtSignature,
     ) -> Result<Self, Error> {
-        let mut body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-        let len = {
-            let mut writer = TpmWriter::new(&mut body);
-            key_sign
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            policy_ref
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            policy_signature
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            writer.len()
-        };
-        body.truncate(len);
+        let body = tpm_marshal_array(&[key_sign, policy_ref, policy_signature])
+            .map_err(|_| Error::OperationFailed)?;
         Ok(Self {
             cc: TpmCc::PolicyAuthorize,
             body,
@@ -228,21 +217,8 @@ impl TpmPolicyCommand {
         object_name: &Tpm2bName,
         policy_ref: &Tpm2bDigest,
     ) -> Result<Self, Error> {
-        let mut body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-        let len = {
-            let mut writer = TpmWriter::new(&mut body);
-            object_handle_hint
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            object_name
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            policy_ref
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            writer.len()
-        };
-        body.truncate(len);
+        let body = tpm_marshal_array(&[&object_handle_hint, object_name, policy_ref])
+            .map_err(|_| Error::OperationFailed)?;
         Ok(Self {
             cc: TpmCc::PolicySecret,
             body,
@@ -346,20 +322,8 @@ impl TpmPolicyCommand {
     }
 
     fn from_policy_pcr_command(inner: &TpmPolicyPcrCommand) -> Result<Self, Error> {
-        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            inner
-                .pcr_digest
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            inner
-                .pcrs
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            writer.len()
-        };
-        buf.truncate(len);
+        let buf = tpm_marshal_array(&[&inner.pcr_digest, &inner.pcrs])
+            .map_err(|_| Error::OperationFailed)?;
 
         Ok(Self {
             cc: TpmCc::PolicyPcr,
@@ -383,16 +347,7 @@ impl TpmPolicyCommand {
     }
 
     fn from_policy_or_command(inner: &TpmPolicyOrCommand) -> Result<Self, Error> {
-        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            inner
-                .p_hash_list
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            writer.len()
-        };
-        buf.truncate(len);
+        let buf = tpm_marshal_array(&[&inner.p_hash_list]).map_err(|_| Error::OperationFailed)?;
 
         Ok(Self {
             cc: TpmCc::PolicyOr,
@@ -436,23 +391,8 @@ impl TpmPolicyCommand {
         inner: &TpmPolicySecretCommand,
         object_name: &Tpm2bName,
     ) -> Result<Self, Error> {
-        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            inner
-                .auth_handle
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            object_name
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            inner
-                .policy_ref
-                .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
-            writer.len()
-        };
-        buf.truncate(len);
+        let buf = tpm_marshal_array(&[&inner.auth_handle, object_name, &inner.policy_ref])
+            .map_err(|_| Error::OperationFailed)?;
 
         Ok(Self {
             cc: TpmCc::PolicySecret,
@@ -650,7 +590,7 @@ impl TpmKey {
 
         let parent_pubkey_bytes = if let Some(parent_public) = &self.parent_public {
             Some(OctetString::copy_from_slice(
-                &write_object(parent_public).map_err(|_| Error::OperationFailed)?,
+                &tpm_marshal_array(&[parent_public]).map_err(|_| Error::OperationFailed)?,
             ))
         } else {
             None
@@ -680,10 +620,10 @@ impl TpmKey {
             parent_pubkey: parent_pubkey_bytes,
             parent: self.parent_handle.0,
             pubkey: OctetString::copy_from_slice(
-                &write_object(&self.public).map_err(|_| Error::OperationFailed)?,
+                &tpm_marshal_array(&[&self.public]).map_err(|_| Error::OperationFailed)?,
             ),
             privkey: OctetString::copy_from_slice(
-                &write_object(&self.private).map_err(|_| Error::OperationFailed)?,
+                &tpm_marshal_array(&[&self.private]).map_err(|_| Error::OperationFailed)?,
             ),
         })
     }
@@ -963,8 +903,8 @@ mod tests {
     #[test]
     fn invalid_cc_is_rejected_on_load() {
         let (public, private) = minimal_rsa_key_components();
-        let pub_bytes = write_object(&public).unwrap();
-        let priv_bytes = write_object(&private).unwrap();
+        let pub_bytes = tpm_marshal_array(&[&public]).unwrap();
+        let priv_bytes = tpm_marshal_array(&[&private]).unwrap();
 
         let bad_cmd = TpmPolicyCommandAsn1 {
             command_code: 0xFFFF_FF00,
@@ -996,8 +936,8 @@ mod tests {
     #[test]
     fn importable_without_secret_fails() {
         let (public, private) = minimal_rsa_key_components();
-        let pub_bytes = write_object(&public).unwrap();
-        let priv_bytes = write_object(&private).unwrap();
+        let pub_bytes = tpm_marshal_array(&[&public]).unwrap();
+        let priv_bytes = tpm_marshal_array(&[&private]).unwrap();
 
         let asn1 = TpmKeyAsn1 {
             key_type: OID_IMPORTABLE_KEY.clone(),
