@@ -239,9 +239,9 @@ pub trait TpmUnmarshalTagged: Sized {
         <Self as TpmTagged>::Tag: TpmUnmarshal + TpmMarshal;
 }
 
-tpm_integer!(u8, Unsigned);
-tpm_integer!(i8, Signed);
-tpm_integer!(i32, Signed);
-tpm_integer!(u16, Unsigned);
-tpm_integer!(u32, Unsigned);
-tpm_integer!(u64, Unsigned);
+tpm_integer!(u8);
+tpm_integer!(i8);
+tpm_integer!(i32);
+tpm_integer!(u16);
+tpm_integer!(u32);
+tpm_integer!(u64);

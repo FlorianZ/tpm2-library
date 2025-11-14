@@ -4,7 +4,7 @@
 
 #[macro_export]
 macro_rules! tpm_integer {
-    ($ty:ty, $variant:ident) => {
+    ($ty:ty) => {
         impl TpmUnmarshal for $ty {
             fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
                 let size = size_of::<$ty>();
