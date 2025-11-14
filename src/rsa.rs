@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: MIT OR Apache-2.0
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 //! TPM 2.0 RSA cryptographic operations.
 
 use crate::{Error, Hash, PublicKey};
