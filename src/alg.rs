@@ -2,8 +2,6 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-#![allow(clippy::no_effect_underscore_binding)]
-
 use std::str::FromStr;
 use thiserror::Error;
 use tpm2_crypto::{EccCurve, Hash};
