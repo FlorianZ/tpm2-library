@@ -104,6 +104,8 @@ pub enum TpmProtocolError {
     InvalidTag,
     /// A cryptographic operation failed.
     OperationFailed,
+    /// Writer's buffer is full.
+    OutOfMemory,
     /// List contains more items than allowed by the TCG specifications.
     TooManyItems,
     /// Trailing data left after unmarshaling.
@@ -123,6 +125,7 @@ impl core::fmt::Display for TpmProtocolError {
             Self::InvalidCc => write!(f, "invalid command code"),
             Self::InvalidTag => write!(f, "invalid tag"),
             Self::OperationFailed => write!(f, "operation failed"),
+            Self::OutOfMemory => write!(f, "out of memory"),
             Self::TooManyItems => write!(f, "list has too many items"),
             Self::TrailingData => write!(f, "trailing data"),
             Self::UnexpectedEnd => write!(f, "unexpected end"),
@@ -169,7 +172,7 @@ impl<'a> TpmWriter<'a> {
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self.cursor + bytes.len();
         if end > self.buffer.len() {
-            return Err(TpmProtocolError::BufferTooLarge);
+            return Err(TpmProtocolError::OutOfMemory);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
