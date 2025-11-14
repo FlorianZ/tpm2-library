@@ -5,7 +5,7 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
-    device::{with_device, Device, DeviceError},
+    device::{with_device, Device},
     io::{read_file_input, write_key_data},
     task::TaskState,
     write_object,
@@ -23,7 +23,7 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
-        TpmCc, TpmRcBase, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
+        TpmCc, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     frame::TpmImportCommand,
     TpmHandle, TpmMarshal, TpmProtocolError, TpmWriter,
@@ -230,20 +230,10 @@ impl Convert {
 
         let mut rng = rand::thread_rng();
 
-        let (parent_public, _) = match device.read_public(parent_handle) {
-            Ok(result) => result,
-            Err(DeviceError::TpmRc(rc)) => {
-                let base = rc.base();
-                if base == TpmRcBase::Handle
-                    || base == TpmRcBase::ReferenceH0
-                    || base == TpmRcBase::Type
-                {
-                    return Err(CommandError::InvalidParentHandle("tpm:", parent_handle.0));
-                }
-                return Err(DeviceError::TpmRc(rc).into());
-            }
-            Err(e) => return Err(e.into()),
-        };
+        let (parent_public, _) = device.read_public(parent_handle).map_err(|e| {
+            let context = format!("tpm:{:08x}", parent_handle.0);
+            crate::command::CommandError::from_device_error(e, context)
+        })?;
 
         let (public, sensitive_blob) = {
             let symmetric = TpmtSymDefObject::default();

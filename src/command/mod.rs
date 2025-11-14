@@ -107,8 +107,8 @@ pub enum CommandError {
     InvalidHandle,
     #[error("invalid input: {0}")]
     InvalidInput(String),
-    #[error("invalid parent object handle: {0}{1:08x}")]
-    InvalidParentHandle(&'static str, u32),
+    #[error("invalid parent object handle: {0}")]
+    InvalidParentHandle(String),
     #[error("invalid parent key type")]
     InvalidParentType,
     #[error("invalid policy expression: {0}")]
@@ -157,13 +157,45 @@ pub enum CommandError {
     Protocol(#[from] TpmProtocolError),
 }
 
+impl CommandError {
+    /// Maps common device errors to `CommandError::InvalidParentHandle`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CommandError::InvalidParentHandle` if the error is a `TpmRc`
+    /// with base `Handle`, `ReferenceH0`, or `Type`. Otherwise, returns
+    /// the error converted into a `CommandError`.
+    #[must_use]
+    pub fn from_device_error(err: DeviceError, context: String) -> Self {
+        if let DeviceError::TpmRc(rc) = &err {
+            let base = rc.base();
+            if base == TpmRcBase::Handle
+                || base == TpmRcBase::ReferenceH0
+                || base == TpmRcBase::Type
+            {
+                return Self::InvalidParentHandle(context);
+            }
+            if base == TpmRcBase::AuthFail || base == TpmRcBase::AuthMissing {
+                return Self::AuthenticationDenied;
+            }
+            if base == TpmRcBase::Lockout {
+                return Self::DictionaryAttackLocked;
+            }
+            if base == TpmRcBase::PolicyFail {
+                return Self::PolicyDenied;
+            }
+        }
+        Self::Device(err)
+    }
+}
+
 impl From<SessionError> for CommandError {
     fn from(err: SessionError) -> Self {
         match err {
             SessionError::Device(dev_err) => Self::from(dev_err),
             SessionError::InvalidParent(prefix, handle)
             | SessionError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) => {
-                Self::InvalidParentHandle(prefix, handle)
+                Self::InvalidParentHandle(format!("{prefix}{handle:08x}"))
             }
             SessionError::Vtpm(e) => Self::Cache(e),
             SessionError::Key(e) => Self::Key(e),
@@ -183,18 +215,6 @@ impl From<VtpmError> for CommandError {
 
 impl From<DeviceError> for CommandError {
     fn from(err: DeviceError) -> Self {
-        if let DeviceError::TpmRc(rc) = &err {
-            let base = rc.base();
-            if base == TpmRcBase::AuthFail || base == TpmRcBase::AuthMissing {
-                return Self::AuthenticationDenied;
-            }
-            if base == TpmRcBase::Lockout {
-                return Self::DictionaryAttackLocked;
-            }
-            if base == TpmRcBase::PolicyFail {
-                return Self::PolicyDenied;
-            }
-        }
-        Self::Device(err)
+        Self::from_device_error(err, String::new())
     }
 }

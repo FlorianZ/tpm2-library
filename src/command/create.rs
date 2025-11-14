@@ -8,7 +8,7 @@ use crate::{
     alg::{Alg, AlgInfo},
     cli::Task,
     command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
-    device::{with_device, Device, DeviceError},
+    device::{with_device, Device},
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
     task::{SessionError, TaskState},
@@ -24,7 +24,7 @@ use tpm2_policy_language::{Handle, HandleClass, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
-        TpmCc, TpmHt, TpmRcBase, TpmlPcrSelection, TpmsSensitiveCreate,
+        TpmCc, TpmHt, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -182,18 +182,15 @@ impl Create {
             let (resp, _) = task_state
                 .execute(device, &create_cmd, &handles, &self.auth_args.auths())
                 .map_err(|e| {
-                    if let SessionError::Device(DeviceError::TpmRc(rc)) = &e {
-                        if rc.base() == TpmRcBase::Type {
-                            if let Ok(key) =
-                                task_state.cache.find_by_phandle(device, parent_handle.0)
-                            {
-                                return CommandError::InvalidParentHandle(
-                                    "vtpm:",
-                                    key.context.saved_handle.0,
-                                );
-                            }
-                            return CommandError::InvalidParentHandle("tpm:", parent_handle.0);
-                        }
+                    if let SessionError::Device(dev_err) = e {
+                        let context = if let Ok(key) =
+                            task_state.cache.find_by_phandle(device, parent_handle.0)
+                        {
+                            format!("vtpm:{:08x}", key.context.saved_handle.0)
+                        } else {
+                            format!("tpm:{:08x}", parent_handle.0)
+                        };
+                        return crate::command::CommandError::from_device_error(dev_err, context);
                     }
                     e.into()
                 })?;
