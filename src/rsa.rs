@@ -126,7 +126,7 @@ impl PublicKey for RsaPublicKey {
         let encrypted_seed_bytes = self.oaep(name_alg, &seed)?;
 
         let encrypted_seed = Tpm2bEncryptedSecret::try_from(encrypted_seed_bytes.as_slice())
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| Error::OutOfMemory)?;
 
         Ok((seed, encrypted_seed))
     }

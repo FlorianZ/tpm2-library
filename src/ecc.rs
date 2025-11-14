@@ -229,7 +229,7 @@ impl PublicKey for EccPublicKey {
         let point_bytes = &point_bytes_buf[..len];
 
         let secret =
-            Tpm2bEncryptedSecret::try_from(point_bytes).map_err(|_| Error::OperationFailed)?;
+            Tpm2bEncryptedSecret::try_from(point_bytes).map_err(|_| Error::OutOfMemory)?;
 
         Ok((derived_seed, secret))
     }
