@@ -88,7 +88,7 @@ impl FromStr for Auth {
                     .map_err(|_| AuthError::InvalidHandleString(value.to_string()))?;
                 let ht_byte = (handle_val >> 24) as u8;
                 let ht =
-                    TpmHt::try_from(ht_byte).map_err(|()| AuthError::InvalidHandleType(ht_byte))?;
+                    TpmHt::try_from(ht_byte).map_err(|_| AuthError::InvalidHandleType(ht_byte))?;
 
                 match ht {
                     TpmHt::PolicySession | TpmHt::HmacSession => Ok(Self::Session(handle_val)),

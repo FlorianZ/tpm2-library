@@ -178,6 +178,6 @@ impl TryFrom<Handle> for TpmHt {
     fn try_from(handle: Handle) -> Result<Self, Self::Error> {
         let raw_handle = handle.value().ok_or(HandleError::PatternDenied)?;
         let ht_byte = (raw_handle >> 24) as u8;
-        TpmHt::try_from(ht_byte).map_err(|()| HandleError::InvalidType(ht_byte))
+        TpmHt::try_from(ht_byte).map_err(|_| HandleError::InvalidType(ht_byte))
     }
 }
