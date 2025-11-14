@@ -813,6 +813,8 @@ fn validate_policy_command(cc: TpmCc, body: &[u8]) -> Result<(), Error> {
     match cc {
         TpmCc::PolicyAuthorize => validate_policy_authorize(body),
         TpmCc::PolicySecret => validate_policy_secret(body),
+        TpmCc::PolicyPcr => validate_policy_pcr(body),
+        TpmCc::PolicyOr => validate_policy_or(body),
         _ => Ok(()),
     }
 }
@@ -831,6 +833,23 @@ fn validate_policy_secret(body: &[u8]) -> Result<(), Error> {
     let (.., rest) = TpmHandle::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
     let (.., rest) = Tpm2bName::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
     let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+    if !rest.is_empty() {
+        return Err(Error::InvalidPolicy);
+    }
+    Ok(())
+}
+
+fn validate_policy_pcr(body: &[u8]) -> Result<(), Error> {
+    let (.., rest) = Tpm2bDigest::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
+    let (.., rest) = TpmlPcrSelection::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+    if !rest.is_empty() {
+        return Err(Error::InvalidPolicy);
+    }
+    Ok(())
+}
+
+fn validate_policy_or(body: &[u8]) -> Result<(), Error> {
+    let (.., rest) = TpmlDigest::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
     if !rest.is_empty() {
         return Err(Error::InvalidPolicy);
     }
