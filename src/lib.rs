@@ -323,29 +323,26 @@ fn parse_pcr_call<'a>(
         }
     }
 
-    match parse_tpml_pcr_selection_str(&buf, context) {
-        Ok(selections) => Ok(TpmPolicyExpression::Pcr {
-            selections,
-            digest: None,
-            count: None,
-        }),
-        Err(err) => {
-            if let Some((selection_part, digest_part)) = buf.rsplit_once(':') {
-                let selections = parse_tpml_pcr_selection_str(selection_part, context)?;
-                let digest_bytes =
-                    hex::decode(digest_part).map_err(|_| LanguageError::InvalidPcrDigest)?;
-                let digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
-                    .map_err(|_| LanguageError::PcrDigestTooLarge)?;
-                Ok(TpmPolicyExpression::Pcr {
-                    selections,
-                    digest: Some(digest),
-                    count: None,
-                })
-            } else {
-                Err(err)
+    if let Some((selection_part, digest_part)) = buf.rsplit_once(':') {
+        if let Ok(selections) = parse_tpml_pcr_selection_str(selection_part, context) {
+            if let Ok(digest_bytes) = hex::decode(digest_part) {
+                if let Ok(digest) = Tpm2bDigest::try_from(digest_bytes.as_slice()) {
+                    return Ok(TpmPolicyExpression::Pcr {
+                        selections,
+                        digest: Some(digest),
+                        count: None,
+                    });
+                }
             }
         }
     }
+
+    let selections = parse_tpml_pcr_selection_str(&buf, context)?;
+    Ok(TpmPolicyExpression::Pcr {
+        selections,
+        digest: None,
+        count: None,
+    })
 }
 
 fn parse_secret_call<'a>(
