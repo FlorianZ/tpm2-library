@@ -143,7 +143,7 @@ impl RsaPublicKey {
     /// internal cryptographic operation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation
     /// fails.
-    pub fn oaep(&self, name_alg: Hash, seed: &[u8]) -> Result<Vec<u8>, Error> {
+    fn oaep(&self, name_alg: Hash, seed: &[u8]) -> Result<Vec<u8>, Error> {
         let md = Into::<MessageDigest>::into(name_alg);
 
         let oaep_md = Md::from_nid(md.type_()).ok_or(Error::OperationFailed)?;

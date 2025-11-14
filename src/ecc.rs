@@ -230,8 +230,7 @@ impl PublicKey for EccPublicKey {
         };
         let point_bytes = &point_bytes_buf[..len];
 
-        let secret =
-            Tpm2bEncryptedSecret::try_from(point_bytes).map_err(|_| Error::OutOfMemory)?;
+        let secret = Tpm2bEncryptedSecret::try_from(point_bytes).map_err(|_| Error::OutOfMemory)?;
 
         Ok((derived_seed, secret))
     }
@@ -250,7 +249,7 @@ impl EccPublicKey {
     /// Returns [`OperationFailed`](crate::Error::OperationFailed) when an internal
     /// cryptographic operation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
-    pub fn ecdh(
+    fn ecdh(
         &self,
         name_alg: Hash,
         rng: &mut (impl RngCore + CryptoRng),
