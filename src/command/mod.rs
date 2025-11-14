@@ -108,8 +108,6 @@ pub enum CommandError {
     InvalidHandle,
     #[error("invalid input: {0}")]
     InvalidInput(String),
-    #[error("invalid output: {0}")]
-    InvalidOutput(String),
     #[error("invalid parent object handle: {0}{1:08x}")]
     InvalidParentHandle(&'static str, u32),
     #[error("invalid parent key type")]
@@ -124,8 +122,6 @@ pub enum CommandError {
     SensitiveDataDenied,
     #[error("sensitive data missing")]
     SensitiveDataMissing,
-    #[error("too many authorizations provided")]
-    TooManyAuths,
     #[error("unknown handle: {0}")]
     UnknownHandle(String),
     #[error("unknown parent")]
@@ -134,8 +130,6 @@ pub enum CommandError {
     UnsupportedKeyAlgorithm(crate::alg::Alg),
     #[error("unsupported signature algorithm: {0}")]
     UnsupportedSignatureAlgorithm(crate::alg::Alg),
-    #[error("missing ECC curve parameters")]
-    MissingEccCurveParameters,
     #[error("cache: {0}")]
     Cache(VtpmError),
     #[error("task_state: {0}")]

@@ -39,22 +39,12 @@ pub enum VtpmError {
     CapacityExceeded,
     #[error("handle not found: {0}{1:08x}")]
     HandleNotFound(&'static str, u32),
-    #[error("invalid auth")]
-    InvalidAuth,
     #[error("invalid key bits: {0}")]
     InvalidKeyBits(String),
-    #[error("invalid parent: {0:08x}")]
-    InvalidParent(u32),
     #[error("no handles")]
     NoHandles,
     #[error("parent not found")]
     ParentNotFound,
-    #[error("parent not loaded")]
-    ParentNotLoaded,
-    #[error("trailing authorizations")]
-    TrailingAuthorizations,
-    #[error("unsupported name algorithm: {0}")]
-    UnsupportedNameAlgorithm(tpm2_crypto::Hash),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("device: {0}")]

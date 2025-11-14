@@ -23,8 +23,6 @@ use tpm2_protocol::{
 
 #[derive(Debug, Error)]
 pub enum PolicyError {
-    #[error("capacity exceeded")]
-    CapacityExceeded,
     #[error("cache: {0}")]
     Vtpm(#[from] VtpmError),
     #[error("crypto: {0}")]
@@ -35,18 +33,12 @@ pub enum PolicyError {
     HexDecode(#[from] hex::FromHexError),
     #[error("int decode: {0}")]
     IntDecode(#[from] ParseIntError),
-    #[error("invalid algorithm: {0:?}")]
-    InvalidAlgorithm(TpmAlgId),
     #[error("invalid expression: {0}")]
     InvalidTpmPolicyExpression(String),
     #[error("invalid secret: {0}")]
     InvalidSecret(String),
-    #[error("invalid value: {0}")]
-    InvalidValue(String),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[error("no valid branch found for OR policy")]
-    NoValidPolicyOrBranch,
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
     #[error("pcr index too large: {0}")]

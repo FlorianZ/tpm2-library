@@ -45,8 +45,6 @@ pub enum SessionError {
     HandleNameNotFound(Tpm2bName),
     #[error("invalid auth")]
     InvalidAuth,
-    #[error("invalid key format")]
-    InvalidFormat,
     #[error("invalid parent: {0}{1:08x}")]
     InvalidParent(&'static str, u32),
     #[error("malformed data")]
