@@ -7,13 +7,11 @@ use clap::{CommandFactory, Parser};
 use cli::{
     cli::{Job, TopLevel},
     command::CommandError,
-    device::{Device, DeviceError},
+    device::Device,
     session::Session,
     vtpm::VtpmCache,
 };
-use std::{
-    cell::RefCell, fs, os::unix::io::AsRawFd, path::Path, process, rc::Rc, sync::atomic::Ordering,
-};
+use std::{cell::RefCell, fs, path::Path, process, rc::Rc, sync::atomic::Ordering};
 use tracing_subscriber::EnvFilter;
 
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
@@ -86,21 +84,7 @@ fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
     let shared_device = if cli.command.is_local() {
         None
     } else {
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&cli.device)
-            .map_err(CommandError::Io)?;
-
-        let fd = file.as_raw_fd();
-        let flags = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFL)
-            .map_err(|e| CommandError::from(DeviceError::from(e)))?;
-        let mut oflags = nix::fcntl::OFlag::from_bits_truncate(flags);
-        oflags.insert(nix::fcntl::OFlag::O_NONBLOCK);
-        nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFL(oflags))
-            .map_err(|e| CommandError::from(DeviceError::from(e)))?;
-
-        let device = Device::new(file, cli.log_format)?;
+        let device = Device::open(&cli.device, cli.log_format)?;
         Some(Rc::new(RefCell::new(device)))
     };
 

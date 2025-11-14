@@ -4,14 +4,18 @@
 
 use crate::{cli::LogFormat, print::TpmPrint, TEARDOWN};
 use indicatif::ProgressBar;
-use nix::poll::{poll, PollFd, PollFlags};
+use nix::{
+    fcntl,
+    poll::{poll, PollFd, PollFlags},
+};
 use std::{
     cell::RefCell,
     collections::HashMap,
-    fs::File,
+    fs::{File, OpenOptions},
     io::{Read, Write},
     num::TryFromIntError,
-    os::fd::AsFd,
+    os::fd::{AsFd, AsRawFd},
+    path::Path,
     rc::Rc,
     sync::atomic::Ordering,
     time::{Duration, Instant},
@@ -104,12 +108,25 @@ pub struct Device {
 }
 
 impl Device {
-    /// Creates a new TPM device from an owned transport.
+    /// Opens the TPM device file and sets it to non-blocking mode.
     ///
     /// # Errors
     ///
-    /// Returns an error if the system poller cannot be created.
-    pub fn new(file: File, log_format: LogFormat) -> Result<Self, DeviceError> {
+    /// Returns an error if the device file cannot be opened, or if `fcntl`
+    /// fails to set the `O_NONBLOCK` flag.
+    pub fn open(path: &Path, log_format: LogFormat) -> Result<Self, DeviceError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .map_err(DeviceError::Io)?;
+
+        let fd = file.as_raw_fd();
+        let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL)?;
+        let mut oflags = fcntl::OFlag::from_bits_truncate(flags);
+        oflags.insert(fcntl::OFlag::O_NONBLOCK);
+        fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFL(oflags))?;
+
         Ok(Self {
             file,
             log_format,
