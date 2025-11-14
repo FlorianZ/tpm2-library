@@ -4,7 +4,7 @@
 
 //! This module contains the executor for the unified policy language.
 
-use tpm2_policy_language::{Error as PolicyLanguageError, Expression, HandleClass};
+use tpm2_policy_language::{Error as PolicyLanguageError, HandleClass, TpmPolicyExpression};
 
 use crate::{
     device::DeviceError,
@@ -38,7 +38,7 @@ pub enum PolicyError {
     #[error("invalid algorithm: {0:?}")]
     InvalidAlgorithm(TpmAlgId),
     #[error("invalid expression: {0}")]
-    InvalidExpression(String),
+    InvalidTpmPolicyExpression(String),
     #[error("invalid secret: {0}")]
     InvalidSecret(String),
     #[error("invalid value: {0}")]
@@ -60,7 +60,7 @@ pub enum PolicyError {
 }
 
 /// Pre-resolved data needed for policy execution.
-pub struct PolicyState {
+pub struct TpmPolicyState {
     /// List of available PCR banks.
     pub banks: Vec<pcr::PcrBank>,
     /// Map of persistent handle values to their TPM names.
@@ -124,9 +124,9 @@ pub trait PolicySession {
 ///
 /// Returns a `PolicyError` if the expression is not a file path or the file
 /// cannot be read.
-pub fn expression_to_bytes(expression: &Expression) -> Result<Vec<u8>, PolicyError> {
+pub fn expression_to_bytes(expression: &TpmPolicyExpression) -> Result<Vec<u8>, PolicyError> {
     match expression {
-        Expression::Auth(tpm2_policy_language::Auth::Password(value)) => Ok(value.clone()),
+        TpmPolicyExpression::Auth(tpm2_policy_language::Auth::Password(value)) => Ok(value.clone()),
         _ => Err(PolicyError::InvalidSecret(format!(
             "{expression:?}: expected 'password:<hex>'"
         ))),
@@ -139,52 +139,59 @@ pub fn expression_to_bytes(expression: &Expression) -> Result<Vec<u8>, PolicyErr
 ///
 /// Returns an error if any policy command fails.
 pub fn execute_policy(
-    ast: &Expression,
+    ast: &TpmPolicyExpression,
     session: &mut impl PolicySession,
-    context: &PolicyState,
+    context: &TpmPolicyState,
 ) -> Result<Tpm2bDigest, PolicyError> {
     match ast {
-        Expression::Auth(auth) => Err(PolicyError::InvalidExpression(auth.to_string())),
-        Expression::Pcr {
+        TpmPolicyExpression::Auth(auth) => {
+            Err(PolicyError::InvalidTpmPolicyExpression(auth.to_string()))
+        }
+        TpmPolicyExpression::Pcr {
             selections,
             digest,
             count: _,
         } => {
-            let digest_bytes =
-                hex::decode(digest.as_ref().ok_or(PolicyError::InvalidExpression(
+            let digest_bytes = hex::decode(digest.as_ref().ok_or(
+                PolicyError::InvalidTpmPolicyExpression(
                     "expected a hex string for optional digest in pcr()".to_string(),
-                ))?)?;
+                ),
+            )?)?;
             let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
                 .map_err(|_| PolicyError::CapacityExceeded)?;
             session.policy_pcr(&pcr_digest, *selections)?;
             session.get_digest()
         }
-        Expression::Secret {
+        TpmPolicyExpression::Secret {
             auth_handle,
             password,
         } => {
-            let h_val = if let Expression::Handle(handle) = &**auth_handle {
-                let val = handle.value().ok_or(PolicyError::InvalidExpression(
-                    "secret() handle cannot be a pattern".to_string(),
-                ))?;
+            let h_val = if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
+                let val = handle
+                    .value()
+                    .ok_or(PolicyError::InvalidTpmPolicyExpression(
+                        "secret() handle cannot be a pattern".to_string(),
+                    ))?;
 
                 if handle.class() != HandleClass::Tpm
                     || (val >> 24) as u8 != TpmHt::Persistent as u8
                 {
-                    return Err(PolicyError::InvalidExpression(
+                    return Err(PolicyError::InvalidTpmPolicyExpression(
                         "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
                             .to_string(),
                     ));
                 }
                 val
             } else {
-                return Err(PolicyError::InvalidExpression(
+                return Err(PolicyError::InvalidTpmPolicyExpression(
                     "secret() first argument must be a handle".to_string(),
                 ));
             };
 
             let name = context.names.get(&h_val).ok_or_else(|| {
-                PolicyError::InvalidExpression(format!("Handle tpm:{h_val:08x} name not found"))
+                PolicyError::InvalidTpmPolicyExpression(format!(
+                    "Handle tpm:{h_val:08x} name not found"
+                ))
             })?;
 
             let password_bytes = password
@@ -197,9 +204,11 @@ pub fn execute_policy(
 
             session.get_digest()
         }
-        Expression::And(expressions) => {
+        TpmPolicyExpression::And(expressions) => {
             let (last_expr, other_exprs) = expressions.split_last().ok_or_else(|| {
-                PolicyError::InvalidExpression("'and'-expression must be non-empty".to_string())
+                PolicyError::InvalidTpmPolicyExpression(
+                    "'and'-expression must be non-empty".to_string(),
+                )
             })?;
 
             for expr in other_exprs {
@@ -207,19 +216,21 @@ pub fn execute_policy(
             }
             execute_policy(last_expr, session, context)
         }
-        Expression::Or(branch_list) => {
+        TpmPolicyExpression::Or(branch_list) => {
             let mut digest_list = TpmlDigest::new();
             for branch in branch_list {
                 session.policy_restart()?;
                 let digest = execute_policy(branch, session, context)?;
                 digest_list
                     .push(digest)
-                    .map_err(|_| PolicyError::InvalidExpression(ast.to_string()))?;
+                    .map_err(|_| PolicyError::InvalidTpmPolicyExpression(ast.to_string()))?;
             }
             session.policy_or(&digest_list)?;
             session.get_digest()
         }
-        Expression::Handle(handle) => Err(PolicyError::InvalidExpression(handle.to_string())),
+        TpmPolicyExpression::Handle(handle) => {
+            Err(PolicyError::InvalidTpmPolicyExpression(handle.to_string()))
+        }
     }
 }
 
@@ -231,11 +242,11 @@ pub fn execute_policy(
 /// Returns a `PolicyError` if a PCR selection is malformed or if its value is
 /// not in the map.
 pub fn populate_pcr_digests<S: BuildHasher>(
-    ast: &mut Expression,
+    ast: &mut TpmPolicyExpression,
     pcr_map: &HashMap<String, Vec<u8>, S>,
 ) -> Result<(), PolicyError> {
     match ast {
-        Expression::Pcr {
+        TpmPolicyExpression::Pcr {
             selections, digest, ..
         } => {
             if digest.is_none() {
@@ -267,12 +278,12 @@ pub fn populate_pcr_digests<S: BuildHasher>(
                 *digest = Some(hex::encode(digest_bytes));
             }
         }
-        Expression::And(expressions) | Expression::Or(expressions) => {
+        TpmPolicyExpression::And(expressions) | TpmPolicyExpression::Or(expressions) => {
             for expr in expressions.iter_mut() {
                 populate_pcr_digests(expr, pcr_map)?;
             }
         }
-        Expression::Secret {
+        TpmPolicyExpression::Secret {
             auth_handle,
             password,
         } => {
@@ -281,7 +292,7 @@ pub fn populate_pcr_digests<S: BuildHasher>(
                 populate_pcr_digests(pwd_expr, pcr_map)?;
             }
         }
-        Expression::Auth(_) | Expression::Handle(_) => {}
+        TpmPolicyExpression::Auth(_) | TpmPolicyExpression::Handle(_) => {}
     }
     Ok(())
 }
@@ -292,23 +303,23 @@ pub fn populate_pcr_digests<S: BuildHasher>(
 ///
 /// Returns a `PolicyError` if the provided visitor closure returns an error.
 pub fn visit_pcr_expressions_mut<F>(
-    ast: &mut Expression,
+    ast: &mut TpmPolicyExpression,
     visitor: &mut F,
 ) -> Result<(), PolicyError>
 where
-    F: FnMut(&mut Expression) -> Result<(), PolicyError>,
+    F: FnMut(&mut TpmPolicyExpression) -> Result<(), PolicyError>,
 {
     match ast {
-        Expression::Pcr { .. } => visitor(ast)?,
-        Expression::And(branches) | Expression::Or(branches) => {
+        TpmPolicyExpression::Pcr { .. } => visitor(ast)?,
+        TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
             for branch in branches.iter_mut() {
                 visit_pcr_expressions_mut(branch, visitor)?;
             }
         }
-        Expression::Secret { auth_handle, .. } => {
+        TpmPolicyExpression::Secret { auth_handle, .. } => {
             visit_pcr_expressions_mut(auth_handle, visitor)?;
         }
-        Expression::Auth(_) | Expression::Handle(_) => {}
+        TpmPolicyExpression::Auth(_) | TpmPolicyExpression::Handle(_) => {}
     }
     Ok(())
 }
@@ -318,35 +329,39 @@ where
 ///
 /// # Errors
 ///
-/// Returns [`InvalidExpression`](crate::policy::PolicyError::InvalidExpression)
+/// Returns [`InvalidTpmPolicyExpression`](crate::policy::PolicyError::InvalidTpmPolicyExpression)
 /// if a secret is not pointing to a persistent handle.
 pub fn visit_secret_handles<S: BuildHasher>(
-    ast: &Expression,
+    ast: &TpmPolicyExpression,
     handles: &mut HashSet<u32, S>,
 ) -> Result<(), PolicyError> {
     match ast {
-        Expression::Pcr { .. } | Expression::Auth(_) | Expression::Handle(_) => {}
-        Expression::And(branches) | Expression::Or(branches) => {
+        TpmPolicyExpression::Pcr { .. }
+        | TpmPolicyExpression::Auth(_)
+        | TpmPolicyExpression::Handle(_) => {}
+        TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
             for branch in branches {
                 visit_secret_handles(branch, handles)?;
             }
         }
-        Expression::Secret { auth_handle, .. } => {
-            if let Expression::Handle(handle) = &**auth_handle {
-                let val = handle.value().ok_or(PolicyError::InvalidExpression(
-                    "secret() handle cannot be a pattern".to_string(),
-                ))?;
+        TpmPolicyExpression::Secret { auth_handle, .. } => {
+            if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
+                let val = handle
+                    .value()
+                    .ok_or(PolicyError::InvalidTpmPolicyExpression(
+                        "secret() handle cannot be a pattern".to_string(),
+                    ))?;
                 if handle.class() != HandleClass::Tpm
                     || (val >> 24) as u8 != TpmHt::Persistent as u8
                 {
-                    return Err(PolicyError::InvalidExpression(
+                    return Err(PolicyError::InvalidTpmPolicyExpression(
                         "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
                             .to_string(),
                     ));
                 }
                 handles.insert(val);
             } else {
-                return Err(PolicyError::InvalidExpression(
+                return Err(PolicyError::InvalidTpmPolicyExpression(
                     "secret() first argument must be a handle".to_string(),
                 ));
             }

@@ -13,7 +13,7 @@ use crate::{
 use std::collections::HashMap;
 use thiserror::Error;
 use tpm2_crypto::{Error as CryptoError, Hash};
-use tpm2_policy_language::Expression;
+use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     data::{
         TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection,
@@ -195,13 +195,13 @@ pub fn pcr_composite_digest(pcrs: &[Pcr], alg: TpmAlgId) -> Result<Vec<u8>, PcrE
 pub fn resolve_pcr_digests(
     job: &mut Session,
     device: &mut crate::device::Device,
-    ast: &mut Expression,
+    ast: &mut TpmPolicyExpression,
     session_hash_alg: TpmAlgId,
     banks: &[PcrBank],
 ) -> Result<(), CommandError> {
     let mut required_selections: Vec<TpmsPcrSelection> = Vec::new();
     visit_pcr_expressions_mut(ast, &mut |expr| -> Result<(), PolicyError> {
-        if let Expression::Pcr {
+        if let TpmPolicyExpression::Pcr {
             selections,
             digest: None,
             ..
@@ -218,8 +218,8 @@ pub fn resolve_pcr_digests(
         let merged_selection = crate::pcr::merge_pcr_selections(&required_selections, banks)?;
         let (pcr_values, _) = pcr_read(job, device, &merged_selection)?;
 
-        let mut populator = |expr: &mut Expression| -> Result<(), PolicyError> {
-            if let Expression::Pcr {
+        let mut populator = |expr: &mut TpmPolicyExpression| -> Result<(), PolicyError> {
+            if let TpmPolicyExpression::Pcr {
                 selections, digest, ..
             } = expr
             {

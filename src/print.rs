@@ -2,7 +2,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use std::{io::Write, vec::Vec};
+use std::io::Write;
 use tpm2_protocol::{
     self,
     basic::{TpmBuffer, TpmList},
@@ -83,18 +83,11 @@ macro_rules! tpm_print_bitflags {
                 indent: usize,
             ) -> Result<(), std::io::Error> {
                 let prefix = " ".repeat(indent * INDENT);
-                let flags: Vec<&str> = self.flag_names().collect();
-                let flags_str = if flags.is_empty() {
-                    "NONE".to_string()
-                } else {
-                    flags.join(" | ")
-                };
                 writeln!(
                     writer,
-                    "{prefix}{name}: {flags_str} ({value:#x})",
+                    "{prefix}{name}: {value:#x}",
                     name = name,
                     prefix = prefix,
-                    flags_str = flags_str,
                     value = self.bits()
                 )
             }
@@ -512,7 +505,7 @@ impl TpmPrint for TpmuAsymScheme {
     ) -> Result<(), std::io::Error> {
         let prefix = " ".repeat(indent * INDENT);
         match self {
-            Self::Any(s) => s.print(writer, &format!("{name} (any)"), indent),
+            Self::Hash(s) => s.print(writer, &format!("{name} (any)"), indent),
             Self::Null => writeln!(writer, "{prefix}{name}: null"),
         }
     }

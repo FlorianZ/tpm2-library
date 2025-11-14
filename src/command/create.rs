@@ -18,7 +18,7 @@ use crate::{
 };
 use clap::Args;
 use std::collections::{HashMap, HashSet};
-use tpm2_policy_language::{Expression, Handle};
+use tpm2_policy_language::{Handle, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
@@ -102,13 +102,13 @@ impl Create {
 
             let static_pcr_banks: Vec<TpmAlgId> = banks.iter().map(|b| b.alg).collect();
 
-            let tmp_policy_context = tpm2_policy_language::PolicyState {
+            let tmp_policy_context = tpm2_policy_language::TpmPolicyState {
                 pcr_count,
                 pcr_banks: static_pcr_banks.clone(),
                 names: HashMap::new(),
             };
 
-            let tmp_ast = Expression::new(expression, &tmp_policy_context)?;
+            let tmp_ast = TpmPolicyExpression::new(expression, &tmp_policy_context)?;
             let mut handles = HashSet::new();
             visit_secret_handles(&tmp_ast, &mut handles)?;
 
@@ -118,13 +118,13 @@ impl Create {
                 names.insert(handle, name);
             }
 
-            let policy_context = tpm2_policy_language::PolicyState {
+            let policy_context = tpm2_policy_language::TpmPolicyState {
                 pcr_count,
                 pcr_banks: static_pcr_banks,
                 names,
             };
 
-            let mut ast = Expression::new(expression, &policy_context)?;
+            let mut ast = TpmPolicyExpression::new(expression, &policy_context)?;
             let session_hash_alg = self.algorithm.name_alg;
 
             resolve_pcr_digests(job, device, &mut ast, session_hash_alg, &banks)?;

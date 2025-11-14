@@ -123,8 +123,7 @@ impl TpmMarshal for VtpmKey {
         self.handle.marshal(writer)?;
         self.public.marshal(writer)?;
         self.parent.marshal(writer)?;
-        TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(self.policy.as_slice())
-            .map_err(|_| TpmProtocolError::CapacityExceeded)?
+        TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(self.policy.as_slice())?
             .marshal(writer)?;
         Ok(())
     }
