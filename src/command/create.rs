@@ -249,16 +249,14 @@ fn visit_secret_handles<S: BuildHasher>(
         }
         TpmPolicyExpression::Secret { auth_handle, .. } => {
             if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
-                let val = handle.value().ok_or(CommandError::InvalidPolicyExpression(
-                    "secret() handle cannot be a pattern".to_string(),
-                ))?;
+                let Some(val) = handle.value() else {
+                    return Err(CommandError::PatternNotAllowed(auth_handle.to_string()));
+                };
+
                 if handle.class() != HandleClass::Tpm
                     || (val >> 24) as u8 != TpmHt::Persistent as u8
                 {
-                    return Err(CommandError::InvalidPolicyExpression(
-                        "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
-                            .to_string(),
-                    ));
+                    return Err(CommandError::InvalidHandle);
                 }
                 handles.insert(val);
             } else {
