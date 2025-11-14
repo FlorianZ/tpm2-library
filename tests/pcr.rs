@@ -9,7 +9,7 @@
 
 use rstest::rstest;
 use std::collections::HashMap;
-use tpm2_policy_language::{Expression, PolicyState};
+use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::data::TpmAlgId;
 
 #[rstest]
@@ -37,17 +37,17 @@ fn pcr_roundtrip(
     #[case] pcr_banks: Vec<TpmAlgId>,
     #[case] session_alg: TpmAlgId,
 ) {
-    let policy_state = PolicyState {
+    let policy_state = TpmPolicyState {
         pcr_count,
         pcr_banks,
         names: HashMap::new(),
     };
 
-    let original_ast = Expression::new(input, &policy_state).unwrap();
+    let original_ast = TpmPolicyExpression::new(input, &policy_state).unwrap();
     let (cmds, _) = original_ast
         .to_command_list(session_alg, &policy_state)
         .unwrap();
-    let roundtripped_ast = Expression::from_command_list(&cmds).unwrap();
+    let roundtripped_ast = TpmPolicyExpression::from_command_list(&cmds).unwrap();
 
     assert_eq!(roundtripped_ast, original_ast);
     assert_eq!(roundtripped_ast.to_string(), original_ast.to_string());

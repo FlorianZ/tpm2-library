@@ -44,7 +44,7 @@ use tpm2_protocol::{
 /// This structure must be populated by the caller and passed to
 /// [`Expression::to_command_list()`].
 #[derive(Debug, Clone, Default)]
-pub struct PolicyState {
+pub struct TpmPolicyState {
     /// Number of PCRs.
     pub pcr_count: usize,
     /// List of available PCR banks.
@@ -57,7 +57,7 @@ pub struct PolicyState {
 /// `TpmlPcrSelection` using context from the `PolicyState`.
 fn parse_tpml_pcr_selection_str(
     selection_str: &str,
-    context: &PolicyState,
+    context: &TpmPolicyState,
 ) -> Result<TpmlPcrSelection, LanguageError> {
     let mut list = TpmlPcrSelection::new();
     let pcr_select_size = context.pcr_count.div_ceil(8);
@@ -161,8 +161,8 @@ fn tokenize(input: &str) -> Vec<Token<'_>> {
 
 fn parse_expression<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &PolicyState,
-) -> Result<Expression, Error> {
+    context: &TpmPolicyState,
+) -> Result<TpmPolicyExpression, Error> {
     parse_or(tokens, context)
 }
 
@@ -171,11 +171,14 @@ fn parse_binary_expression<'a, F, G>(
     mut operand_parser: F,
     operator: &Token,
     mut expression_combiner: G,
-    context: &PolicyState,
-) -> Result<Expression, Error>
+    context: &TpmPolicyState,
+) -> Result<TpmPolicyExpression, Error>
 where
-    F: FnMut(&mut Peekable<Iter<'a, Token<'a>>>, &PolicyState) -> Result<Expression, Error>,
-    G: FnMut(Expression, Expression) -> Expression,
+    F: FnMut(
+        &mut Peekable<Iter<'a, Token<'a>>>,
+        &TpmPolicyState,
+    ) -> Result<TpmPolicyExpression, Error>,
+    G: FnMut(TpmPolicyExpression, TpmPolicyExpression) -> TpmPolicyExpression,
 {
     let mut node = operand_parser(tokens, context)?;
     while tokens.peek() == Some(&operator) {
@@ -188,18 +191,18 @@ where
 
 fn parse_or<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &PolicyState,
-) -> Result<Expression, Error> {
+    context: &TpmPolicyState,
+) -> Result<TpmPolicyExpression, Error> {
     parse_binary_expression(
         tokens,
         parse_and,
         &Token::Or,
         |lhs, rhs| match lhs {
-            Expression::Or(mut terms) => {
+            TpmPolicyExpression::Or(mut terms) => {
                 terms.push(rhs);
-                Expression::Or(terms)
+                TpmPolicyExpression::Or(terms)
             }
-            _ => Expression::Or(vec![lhs, rhs]),
+            _ => TpmPolicyExpression::Or(vec![lhs, rhs]),
         },
         context,
     )
@@ -207,18 +210,18 @@ fn parse_or<'a>(
 
 fn parse_and<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &PolicyState,
-) -> Result<Expression, Error> {
+    context: &TpmPolicyState,
+) -> Result<TpmPolicyExpression, Error> {
     parse_binary_expression(
         tokens,
         parse_primary,
         &Token::And,
         |lhs, rhs| match lhs {
-            Expression::And(mut factors) => {
+            TpmPolicyExpression::And(mut factors) => {
                 factors.push(rhs);
-                Expression::And(factors)
+                TpmPolicyExpression::And(factors)
             }
-            _ => Expression::And(vec![lhs, rhs]),
+            _ => TpmPolicyExpression::And(vec![lhs, rhs]),
         },
         context,
     )
@@ -226,8 +229,8 @@ fn parse_and<'a>(
 
 fn parse_primary<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &PolicyState,
-) -> Result<Expression, Error> {
+    context: &TpmPolicyState,
+) -> Result<TpmPolicyExpression, Error> {
     let token = tokens.next().ok_or(LanguageError::UnexpectedEnd)?;
 
     match token {
@@ -247,12 +250,12 @@ fn parse_primary<'a>(
     }
 }
 
-fn parse_literal(s: &str) -> Result<Expression, Error> {
+fn parse_literal(s: &str) -> Result<TpmPolicyExpression, Error> {
     use std::str::FromStr;
     if let Ok(auth) = Auth::from_str(s) {
-        Ok(Expression::Auth(auth))
+        Ok(TpmPolicyExpression::Auth(auth))
     } else if let Ok(handle) = Handle::from_str(s) {
-        Ok(Expression::Handle(handle))
+        Ok(TpmPolicyExpression::Handle(handle))
     } else {
         Err(LanguageError::InvalidToken(s.to_string()).into())
     }
@@ -260,8 +263,8 @@ fn parse_literal(s: &str) -> Result<Expression, Error> {
 
 fn parse_call_args<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &PolicyState,
-) -> Result<Vec<Expression>, Error> {
+    context: &TpmPolicyState,
+) -> Result<Vec<TpmPolicyExpression>, Error> {
     match tokens.next() {
         Some(Token::LParen) => {}
         Some(actual_token) => {
@@ -295,8 +298,8 @@ fn parse_call_args<'a>(
 
 fn parse_pcr_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &PolicyState,
-) -> Result<Expression, LanguageError> {
+    context: &TpmPolicyState,
+) -> Result<TpmPolicyExpression, LanguageError> {
     match tokens.next() {
         Some(Token::LParen) => {}
         Some(actual_token) => {
@@ -321,7 +324,7 @@ fn parse_pcr_call<'a>(
     }
 
     match parse_tpml_pcr_selection_str(&buf, context) {
-        Ok(selections) => Ok(Expression::Pcr {
+        Ok(selections) => Ok(TpmPolicyExpression::Pcr {
             selections,
             digest: None,
             count: None,
@@ -330,7 +333,7 @@ fn parse_pcr_call<'a>(
             if let Some((selection_part, digest_part)) = buf.rsplit_once(':') {
                 let selections = parse_tpml_pcr_selection_str(selection_part, context)?;
                 hex::decode(digest_part).map_err(|_| LanguageError::InvalidPcrDigest)?;
-                Ok(Expression::Pcr {
+                Ok(TpmPolicyExpression::Pcr {
                     selections,
                     digest: Some(digest_part.to_string()),
                     count: None,
@@ -344,8 +347,8 @@ fn parse_pcr_call<'a>(
 
 fn parse_secret_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &PolicyState,
-) -> Result<Expression, Error> {
+    context: &TpmPolicyState,
+) -> Result<TpmPolicyExpression, Error> {
     let args = parse_call_args(tokens, context)?;
 
     if args.is_empty() || args.len() > 2 {
@@ -360,14 +363,14 @@ fn parse_secret_call<'a>(
     };
     let password = arg_iter.next().map(Box::new);
 
-    Ok(Expression::Secret {
+    Ok(TpmPolicyExpression::Secret {
         auth_handle,
         password,
     })
 }
 
 /// A session that simulates TPM policy digest calculations in software.
-struct SoftwarePolicySession {
+struct TpmPolicySession {
     digest: Tpm2bDigest,
     hash_alg: TpmAlgId,
     digest_size: usize,
@@ -396,7 +399,7 @@ fn update_policy_digest(
     Ok(())
 }
 
-impl SoftwarePolicySession {
+impl TpmPolicySession {
     /// Creates a new software policy session.
     fn new(hash_alg: TpmAlgId) -> Result<Self, LanguageError> {
         let digest_size = Hash::from(hash_alg).size();
@@ -481,13 +484,13 @@ impl SoftwarePolicySession {
 
 /// Conditionally wraps a list of expressions in `Expression::And`.
 /// If the list contains exactly one item, it is returned directly.
-fn build_and_branch(mut branch: Vec<Expression>) -> Expression {
+fn build_and_branch(mut branch: Vec<TpmPolicyExpression>) -> TpmPolicyExpression {
     if branch.len() == 1 {
         match branch.pop() {
             Some(expr) => expr,
-            None => Expression::And(Vec::new()),
+            None => TpmPolicyExpression::And(Vec::new()),
         }
     } else {
-        Expression::And(branch)
+        TpmPolicyExpression::And(branch)
     }
 }

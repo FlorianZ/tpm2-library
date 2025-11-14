@@ -2,7 +2,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::Expression;
+use crate::TpmPolicyExpression;
 use thiserror::Error;
 use tpm2_crypto::Hash;
 use tpm2_protocol::data::TpmCc;
@@ -26,7 +26,7 @@ pub enum LanguageError {
     #[error("invalid command code: {0:?}")]
     InvalidCc(TpmCc),
     #[error("invalid expression: {0}")]
-    InvalidExpression(Expression),
+    InvalidExpression(TpmPolicyExpression),
     #[error("invalid token: {0}")]
     InvalidToken(String),
     #[error("invalid PCR digest")]
@@ -54,7 +54,7 @@ pub enum LanguageError {
     #[error("PCR selection size is too large")]
     PcrSelectionTooLarge,
     #[error("too many branches: {0}")]
-    TooManyBranches(Expression),
+    TooManyBranches(TpmPolicyExpression),
     #[error("trailing data")]
     TrailingData,
     #[error("unexpected end")]

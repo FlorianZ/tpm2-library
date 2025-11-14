@@ -3,8 +3,8 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    build_and_branch, Auth, Error, Handle, HandleClass, HandleError, LanguageError, PolicyState,
-    SoftwarePolicySession,
+    build_and_branch, Auth, Error, Handle, HandleClass, HandleError, LanguageError,
+    TpmPolicySession, TpmPolicyState,
 };
 use std::borrow::Cow;
 use std::fmt;
@@ -22,7 +22,7 @@ use tpm2_protocol::{
 
 /// The Abstract Syntax Tree (AST) for the unified policy language.
 #[derive(Debug, Eq, Clone)]
-pub enum Expression {
+pub enum TpmPolicyExpression {
     Auth(Auth),
     Pcr {
         selections: TpmlPcrSelection,
@@ -30,27 +30,30 @@ pub enum Expression {
         count: Option<u32>,
     },
     Secret {
-        auth_handle: Box<Expression>,
-        password: Option<Box<Expression>>,
+        auth_handle: Box<TpmPolicyExpression>,
+        password: Option<Box<TpmPolicyExpression>>,
     },
-    And(Vec<Expression>),
-    Or(Vec<Expression>),
+    And(Vec<TpmPolicyExpression>),
+    Or(Vec<TpmPolicyExpression>),
     Handle(Handle),
 }
 
 /// Compares two password expressions semantically, treating `None` as equal to
 /// an empty password.
-fn compare_passwords(left: Option<&Expression>, right: Option<&Expression>) -> bool {
+fn compare_passwords(
+    left: Option<&TpmPolicyExpression>,
+    right: Option<&TpmPolicyExpression>,
+) -> bool {
     /// Maps an expression to a comparable password slice.
     ///
     /// - `None` (no arg) is treated as `Some(&[])` (empty password).
     /// - `Some(Password(p))` is treated as `Some(p)`.
     /// - Anything else is `None` (not a comparable password).
-    fn get_pw_slice(expr_opt: Option<&Expression>) -> Option<&[u8]> {
+    fn get_pw_slice(expr_opt: Option<&TpmPolicyExpression>) -> Option<&[u8]> {
         match expr_opt {
             None => Some(&[] as &[u8]),
             Some(expr) => match expr {
-                Expression::Auth(Auth::Password(p)) => Some(p.as_slice()),
+                TpmPolicyExpression::Auth(Auth::Password(p)) => Some(p.as_slice()),
                 _ => None,
             },
         }
@@ -62,7 +65,7 @@ fn compare_passwords(left: Option<&Expression>, right: Option<&Expression>) -> b
     }
 }
 
-impl PartialEq for Expression {
+impl PartialEq for TpmPolicyExpression {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
@@ -98,11 +101,11 @@ impl PartialEq for Expression {
     }
 }
 
-impl fmt::Display for Expression {
+impl fmt::Display for TpmPolicyExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expression::Auth(auth) => write!(f, "{auth}"),
-            Expression::Pcr {
+            TpmPolicyExpression::Auth(auth) => write!(f, "{auth}"),
+            TpmPolicyExpression::Pcr {
                 selections,
                 digest,
                 count,
@@ -135,32 +138,33 @@ impl fmt::Display for Expression {
                 }
                 write!(f, ")")
             }
-            Expression::Secret {
+            TpmPolicyExpression::Secret {
                 auth_handle,
                 password,
             } => {
                 write!(f, "secret({auth_handle}")?;
                 if let Some(p) = password {
-                    if !matches!(&**p, Expression::Auth(Auth::Password(pw)) if pw.is_empty()) {
+                    if !matches!(&**p, TpmPolicyExpression::Auth(Auth::Password(pw)) if pw.is_empty())
+                    {
                         write!(f, ", {p}")?;
                     }
                 }
                 write!(f, ")")
             }
-            Expression::And(expressions) => {
+            TpmPolicyExpression::And(expressions) => {
                 let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
                 write!(f, "({})", s.join(" and "))
             }
-            Expression::Or(expressions) => {
+            TpmPolicyExpression::Or(expressions) => {
                 let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
                 write!(f, "({})", s.join(" or "))
             }
-            Expression::Handle(handle) => write!(f, "{handle}"),
+            TpmPolicyExpression::Handle(handle) => write!(f, "{handle}"),
         }
     }
 }
 
-impl Expression {
+impl TpmPolicyExpression {
     /// Parses a policy expression string into an
     /// [`Expression`](crate::Expression) AST.
     ///
@@ -169,7 +173,7 @@ impl Expression {
     /// Returns a [`Error`] variant if parsing fails due to syntactic errors,
     /// malformed literals (handles, auth strings, PCR selections), or other
     /// structural problems in the input string.
-    pub fn new(input: &str, context: &PolicyState) -> Result<Expression, Error> {
+    pub fn new(input: &str, context: &TpmPolicyState) -> Result<TpmPolicyExpression, Error> {
         let tokens = crate::tokenize(input);
         let mut iter = tokens.iter().peekable();
         let expr = crate::parse_expression(&mut iter, context)?;
@@ -198,8 +202,8 @@ impl Expression {
     /// logically inconsistent (e.g., mismatched policy branches).
     pub fn from_command_list(
         command_list: &[(TpmCommand, TpmAuthCommands)],
-    ) -> Result<Expression, Error> {
-        let mut stack: Vec<Vec<Expression>> = vec![vec![]];
+    ) -> Result<TpmPolicyExpression, Error> {
+        let mut stack: Vec<Vec<TpmPolicyExpression>> = vec![vec![]];
 
         for (command_body, auth_sessions) in command_list {
             let current_branch = stack.last_mut().ok_or(LanguageError::OperationFailed)?;
@@ -211,7 +215,7 @@ impl Expression {
                 TpmCommand::PolicyPcr(cmd) => {
                     let selections = cmd.pcrs;
                     let digest = Some(hex::encode(cmd.pcr_digest.as_ref()));
-                    let expr = Expression::Pcr {
+                    let expr = TpmPolicyExpression::Pcr {
                         selections,
                         digest,
                         count: None,
@@ -219,14 +223,14 @@ impl Expression {
                     current_branch.push(expr);
                 }
                 TpmCommand::PolicySecret(cmd) => {
-                    let auth_handle = Box::new(Expression::Handle(Handle::new(
+                    let auth_handle = Box::new(TpmPolicyExpression::Handle(Handle::new(
                         HandleClass::Tpm,
                         cmd.auth_handle.into(),
                     )));
 
                     let password = auth_sessions.iter().find_map(|auth| {
                         if auth.session_handle.0 == TpmRh::Pw as u32 {
-                            Some(Box::new(Expression::Auth(Auth::Password(
+                            Some(Box::new(TpmPolicyExpression::Auth(Auth::Password(
                                 auth.hmac.as_ref().to_vec(),
                             ))))
                         } else {
@@ -234,7 +238,7 @@ impl Expression {
                         }
                     });
 
-                    let expr = Expression::Secret {
+                    let expr = TpmPolicyExpression::Secret {
                         auth_handle,
                         password,
                     };
@@ -256,7 +260,7 @@ impl Expression {
                     }
 
                     branches.reverse();
-                    let expr = Expression::Or(branches);
+                    let expr = TpmPolicyExpression::Or(branches);
 
                     if let Some(branch_to_push_to) = stack.last_mut() {
                         branch_to_push_to.push(expr);
@@ -300,10 +304,10 @@ impl Expression {
     pub fn to_command_list(
         &self,
         session_hash_alg: TpmAlgId,
-        context: &PolicyState,
+        context: &TpmPolicyState,
     ) -> Result<(Vec<(TpmCommand, TpmAuthCommands)>, Tpm2bDigest), Error> {
         let mut command_list: Vec<(TpmCommand, TpmAuthCommands)> = Vec::new();
-        let mut software_session = SoftwarePolicySession::new(session_hash_alg)?;
+        let mut software_session = TpmPolicySession::new(session_hash_alg)?;
 
         let final_digest =
             self.to_command_list_walk(&mut command_list, &mut software_session, context)?;
@@ -313,26 +317,26 @@ impl Expression {
     fn to_command_list_walk<'a>(
         &'a self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
-        software_session: &mut SoftwarePolicySession,
-        context: &'a PolicyState,
+        software_session: &mut TpmPolicySession,
+        context: &'a TpmPolicyState,
     ) -> Result<Tpm2bDigest, Error> {
         match self {
-            Expression::And(branches) => {
+            TpmPolicyExpression::And(branches) => {
                 for branch in branches {
                     branch.to_command_list_walk(command_list, software_session, context)?;
                 }
                 Ok(software_session.get_digest())
             }
-            expr @ Expression::Or { .. } => {
+            expr @ TpmPolicyExpression::Or { .. } => {
                 expr.to_command_list_walk_or(command_list, software_session, context)
             }
-            expr @ Expression::Pcr { .. } => {
+            expr @ TpmPolicyExpression::Pcr { .. } => {
                 expr.to_command_list_walk_pcr(command_list, software_session)
             }
-            expr @ Expression::Secret { .. } => {
+            expr @ TpmPolicyExpression::Secret { .. } => {
                 expr.to_command_list_walk_secret(command_list, software_session, context)
             }
-            expr @ (Expression::Auth { .. } | Expression::Handle { .. }) => {
+            expr @ (TpmPolicyExpression::Auth { .. } | TpmPolicyExpression::Handle { .. }) => {
                 Err(LanguageError::InvalidExpression(expr.clone()).into())
             }
         }
@@ -341,10 +345,10 @@ impl Expression {
     fn to_command_list_walk_pcr(
         &self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
-        software_session: &mut SoftwarePolicySession,
+        software_session: &mut TpmPolicySession,
     ) -> Result<Tpm2bDigest, Error> {
         let (selections, digest) = match self {
-            Expression::Pcr {
+            TpmPolicyExpression::Pcr {
                 selections, digest, ..
             } => (selections, digest),
             expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
@@ -376,18 +380,18 @@ impl Expression {
     fn to_command_list_walk_secret<'a>(
         &'a self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
-        software_session: &mut SoftwarePolicySession,
-        context: &'a PolicyState,
+        software_session: &mut TpmPolicySession,
+        context: &'a TpmPolicyState,
     ) -> Result<Tpm2bDigest, Error> {
         let (auth_handle, password) = match self {
-            Expression::Secret {
+            TpmPolicyExpression::Secret {
                 auth_handle,
                 password,
             } => (auth_handle, password),
             expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
         };
 
-        let h_val = if let Expression::Handle(handle) = &**auth_handle {
+        let h_val = if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
             handle.value().ok_or(HandleError::PatternDenied)?
         } else {
             return Err(LanguageError::InvalidExpression((**auth_handle).clone()).into());
@@ -429,7 +433,7 @@ impl Expression {
 
         let password_bytes = if let Some(p) = password {
             match &**p {
-                Expression::Auth(Auth::Password(value)) => value.clone(),
+                TpmPolicyExpression::Auth(Auth::Password(value)) => value.clone(),
                 _ => Vec::new(),
             }
         } else {
@@ -456,11 +460,11 @@ impl Expression {
     fn to_command_list_walk_or<'a>(
         &'a self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
-        software_session: &mut SoftwarePolicySession,
-        context: &'a PolicyState,
+        software_session: &mut TpmPolicySession,
+        context: &'a TpmPolicyState,
     ) -> Result<Tpm2bDigest, Error> {
         let branches = match self {
-            Expression::Or(branches) => branches,
+            TpmPolicyExpression::Or(branches) => branches,
             expr => return Err(LanguageError::InvalidExpression(expr.clone()).into()),
         };
 
