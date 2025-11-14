@@ -2,7 +2,7 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 //! Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, command::CommandError, parse_hex_u32, session::Session};
+use crate::{cli::Task, command::CommandError, parse_hex_u32, task::TaskState};
 use clap::Args;
 use tpm2_protocol::data::TpmRc;
 
@@ -20,8 +20,8 @@ pub struct ReturnCode {
 }
 
 impl Task for ReturnCode {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        writeln!(job.writer, "{}", self.rc)?;
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+        writeln!(task_state.writer, "{}", self.rc)?;
         Ok(())
     }
 

@@ -7,7 +7,7 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::{read_file_input, write_key_data},
-    session::Session,
+    task::TaskState,
     write_object,
 };
 use clap::Args;
@@ -50,19 +50,21 @@ pub struct Convert {
 }
 
 impl Task for Convert {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
         self.parent
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
-        with_device(job.device.clone(), |device| {
+        with_device(task_state.device.clone(), |device| {
             let parent_handle = match self.parent.class() {
                 HandleClass::Tpm => self
                     .parent
                     .value()
                     .map(TpmHandle)
                     .ok_or(CommandError::InvalidHandle),
-                HandleClass::Vtpm => job.load_context(device, &self.parent).map_err(Into::into),
+                HandleClass::Vtpm => task_state
+                    .load_context(device, &self.parent)
+                    .map_err(Into::into),
             }?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
@@ -70,7 +72,7 @@ impl Task for Convert {
                 return Ok(());
             }
             let tpm_key = Self::create_external_key(
-                job,
+                task_state,
                 device,
                 parent_handle,
                 &input_bytes,
@@ -78,7 +80,7 @@ impl Task for Convert {
             )?;
 
             write_key_data(
-                &mut job.writer,
+                &mut task_state.writer,
                 &tpm_key,
                 self.output_args.output.as_deref(),
                 self.output_encoding_args.output_encoding,
@@ -206,7 +208,7 @@ impl Convert {
     }
 
     fn create_external_key(
-        job: &mut Session,
+        task_state: &mut TaskState,
         device: &mut Device,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
@@ -284,7 +286,7 @@ impl Convert {
         };
 
         let handles = [parent_handle.0];
-        let (resp, _) = job.execute(device, &import_cmd, &handles, &auth_args.auths())?;
+        let (resp, _) = task_state.execute(device, &import_cmd, &handles, &auth_args.auths())?;
 
         let import_resp = resp
             .Import()

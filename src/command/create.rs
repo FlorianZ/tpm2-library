@@ -12,7 +12,7 @@ use crate::{
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
     policy::visit_secret_handles,
-    session::{Session, SessionError},
+    task::{SessionError, TaskState},
     template,
     vtpm::VtpmKey,
 };
@@ -63,12 +63,14 @@ pub struct Create {
 }
 
 impl Task for Create {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
         self.parent
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
-        with_device(job.device.clone(), |device| self.create_object(job, device))
+        with_device(task_state.device.clone(), |device| {
+            self.create_object(task_state, device)
+        })
     }
 }
 
@@ -93,7 +95,7 @@ impl Create {
     #[allow(clippy::type_complexity)]
     fn resolve_policy(
         &self,
-        job: &mut Session,
+        task_state: &mut TaskState,
         device: &mut Device,
     ) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
         if let Some(expression) = &self.creation_args.policy_expression {
@@ -127,7 +129,7 @@ impl Create {
             let mut ast = TpmPolicyExpression::new(expression, &policy_context)?;
             let session_hash_alg = self.algorithm.name_alg;
 
-            resolve_pcr_digests(job, device, &mut ast, session_hash_alg, &banks)?;
+            resolve_pcr_digests(task_state, device, &mut ast, session_hash_alg, &banks)?;
 
             let (commands, final_digest) =
                 ast.to_command_list(session_hash_alg, &policy_context)?;
@@ -138,8 +140,12 @@ impl Create {
         }
     }
 
-    fn create_object(&self, job: &mut Session, device: &mut Device) -> Result<(), CommandError> {
-        let parent_handle = job.load_context(device, &self.parent)?;
+    fn create_object(
+        &self,
+        task_state: &mut TaskState,
+        device: &mut Device,
+    ) -> Result<(), CommandError> {
+        let parent_handle = task_state.load_context(device, &self.parent)?;
 
         let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
         let sensitive_data = self.get_sensitive_data()?;
@@ -149,7 +155,7 @@ impl Create {
             sensitive_data,
         };
 
-        let (auth_policy_digest, policy_commands) = self.resolve_policy(job, device)?;
+        let (auth_policy_digest, policy_commands) = self.resolve_policy(task_state, device)?;
 
         let tpm_key = {
             let public_template =
@@ -171,12 +177,14 @@ impl Create {
             };
 
             let handles = [parent_handle.0];
-            let (resp, _) = job
+            let (resp, _) = task_state
                 .execute(device, &create_cmd, &handles, &self.auth_args.auths())
                 .map_err(|e| {
                     if let SessionError::Device(DeviceError::TpmRc(rc)) = &e {
                         if rc.base() == TpmRcBase::Type {
-                            if let Ok(key) = job.cache.find_by_phandle(device, parent_handle.0) {
+                            if let Ok(key) =
+                                task_state.cache.find_by_phandle(device, parent_handle.0)
+                            {
                                 return CommandError::InvalidParentHandle(
                                     "vtpm:",
                                     key.context.saved_handle.0,
@@ -219,7 +227,7 @@ impl Create {
         };
 
         write_key_data(
-            &mut job.writer,
+            &mut task_state.writer,
             &tpm_key,
             self.output_args.output.as_deref(),
             self.output_encoding_args.output_encoding,

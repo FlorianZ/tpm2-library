@@ -13,7 +13,7 @@ pub mod io;
 pub mod pcr;
 pub mod policy;
 pub mod print;
-pub mod session;
+pub mod task;
 pub mod template;
 pub mod vtpm;
 

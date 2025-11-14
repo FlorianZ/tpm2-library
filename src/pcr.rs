@@ -8,7 +8,7 @@ use crate::{
     command::CommandError,
     device::{Device, DeviceError},
     policy::{visit_pcr_expressions_mut, PolicyError},
-    session::{Session, SessionError},
+    task::{SessionError, TaskState},
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -135,7 +135,7 @@ pub(crate) fn merge_pcr_selections(
 /// Returns a `PcrError` if the `TPM2_PcrRead` command fails or if the TPM's
 /// response does not contain the expected number of digests for the selection.
 pub fn pcr_read(
-    session: &mut Session,
+    session: &mut TaskState,
     device: &mut Device,
     pcr_selection_in: &TpmlPcrSelection,
 ) -> Result<(Vec<Pcr>, u32), PcrError> {
@@ -193,7 +193,7 @@ pub fn pcr_composite_digest(pcrs: &[Pcr], alg: TpmAlgId) -> Result<Vec<u8>, PcrE
 /// merging PCR selections, reading PCRs, or calculating the composite digest
 /// fails.
 pub fn resolve_pcr_digests(
-    job: &mut Session,
+    job: &mut TaskState,
     device: &mut crate::device::Device,
     ast: &mut TpmPolicyExpression,
     session_hash_alg: TpmAlgId,

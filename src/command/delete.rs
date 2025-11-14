@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    session::Session,
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_policy_language::{Handle, HandleClass};
@@ -23,21 +23,21 @@ pub struct Delete {
 }
 
 impl Task for Delete {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
         match self.input.class() {
-            HandleClass::Tpm => delete_tpm_handles(job, &self.input, &self.auth_args),
-            HandleClass::Vtpm => delete_vtpm_handles(job, &self.input),
+            HandleClass::Tpm => delete_tpm_handles(task_state, &self.input, &self.auth_args),
+            HandleClass::Vtpm => delete_vtpm_handles(task_state, &self.input),
         }
     }
 }
 
 /// Deletes TPM objects matching a pattern across sessions, transient, and persistent handles.
 fn delete_tpm_handles(
-    job: &mut Session,
+    task_state: &mut TaskState,
     pattern: &Handle,
     auth_args: &AuthArgs,
 ) -> Result<(), CommandError> {
-    with_device(job.device.clone(), |dev| {
+    with_device(task_state.device.clone(), |dev| {
         for class in [
             TpmHt::HmacSession,
             TpmHt::PolicySession,
@@ -55,12 +55,12 @@ fn delete_tpm_handles(
                         TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
                             dev.flush_context(TpmHandle(handle_val))?;
                             if class == TpmHt::Transient {
-                                job.cache.untrack(handle_val);
+                                task_state.cache.untrack(handle_val);
                             }
                         }
                         TpmHt::Persistent => {
                             let persistent_handle = TpmHandle(handle_val);
-                            job.evict_control(
+                            task_state.evict_control(
                                 dev,
                                 persistent_handle,
                                 persistent_handle,
@@ -69,7 +69,7 @@ fn delete_tpm_handles(
                         }
                         _ => {}
                     }
-                    writeln!(job.writer, "{handle}")?;
+                    writeln!(task_state.writer, "{handle}")?;
                 }
             }
         }
@@ -78,8 +78,8 @@ fn delete_tpm_handles(
 }
 
 /// Deletes vTPM objects (keys and sessions) matching the pattern.
-fn delete_vtpm_handles(job: &mut Session, pattern: &Handle) -> Result<(), CommandError> {
-    let matched_handles: Vec<u32> = job
+fn delete_vtpm_handles(task_state: &mut TaskState, pattern: &Handle) -> Result<(), CommandError> {
+    let matched_handles: Vec<u32> = task_state
         .cache
         .contexts
         .keys()
@@ -91,15 +91,15 @@ fn delete_vtpm_handles(job: &mut Session, pattern: &Handle) -> Result<(), Comman
         return Ok(());
     }
 
-    with_device(job.device.clone(), |dev| {
+    with_device(task_state.device.clone(), |dev| {
         for vhandle in matched_handles {
-            if !job.cache.contexts.contains_key(&vhandle) {
+            if !task_state.cache.contexts.contains_key(&vhandle) {
                 continue;
             }
 
-            let all_deleted_handles = job.cache.remove(dev, vhandle)?;
+            let all_deleted_handles = task_state.cache.remove(dev, vhandle)?;
             for deleted_vhandle in all_deleted_handles {
-                writeln!(job.writer, "vtpm:{deleted_vhandle:08x}")?;
+                writeln!(task_state.writer, "vtpm:{deleted_vhandle:08x}")?;
             }
         }
         Ok(())

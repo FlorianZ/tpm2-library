@@ -7,7 +7,7 @@ use crate::{
     cli::Task,
     command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
-    session::Session,
+    task::TaskState,
     template::build_public,
 };
 use clap::Args;
@@ -37,8 +37,8 @@ pub struct CreatePrimary {
 }
 
 impl Task for CreatePrimary {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        with_device(job.device.clone(), |device| {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+        with_device(task_state.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
 
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
@@ -63,22 +63,22 @@ impl Task for CreatePrimary {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let (resp, _) = job.execute(device, &cmd, &handles, &self.auth_args.auths())?;
+            let (resp, _) = task_state.execute(device, &cmd, &handles, &self.auth_args.auths())?;
 
             let resp = resp
                 .CreatePrimary()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
 
             let object_handle = resp.object_handle;
-            job.cache.track(object_handle)?;
-            let vhandle = job.cache.save_context(
+            task_state.cache.track(object_handle)?;
+            let vhandle = task_state.cache.save_context(
                 device,
                 object_handle,
                 &resp.out_public,
                 &Tpm2bPublic::default(),
                 &None,
             )?;
-            writeln!(job.writer, "vtpm:{vhandle:08x}")?;
+            writeln!(task_state.writer, "vtpm:{vhandle:08x}")?;
             Ok(())
         })
     }

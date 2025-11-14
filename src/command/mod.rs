@@ -39,7 +39,7 @@ use crate::{
     device::DeviceError,
     pcr::PcrError,
     policy::PolicyError,
-    session::{Session, SessionError},
+    task::{SessionError, TaskState},
     vtpm::VtpmError,
 };
 use openssl::error::ErrorStack;
@@ -60,7 +60,7 @@ use tpm2_protocol::{
 /// # Errors
 ///
 /// Returns [`Io`](CommandError::Io) if writing to the writer fails.
-pub fn print_table<T>(session: &mut Session, items: &[T]) -> Result<(), CommandError>
+pub fn print_table<T>(session: &mut TaskState, items: &[T]) -> Result<(), CommandError>
 where
     T: Tabled,
 {
@@ -138,7 +138,7 @@ pub enum CommandError {
     MissingEccCurveParameters,
     #[error("cache: {0}")]
     Cache(VtpmError),
-    #[error("job: {0}")]
+    #[error("task_state: {0}")]
     Session(SessionError),
     #[error("device: {0}")]
     Device(DeviceError),

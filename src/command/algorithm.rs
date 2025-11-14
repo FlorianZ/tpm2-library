@@ -5,7 +5,7 @@ use crate::{
     cli::Task,
     command::CommandError,
     device::{with_device, Device, DeviceError},
-    session::Session,
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_crypto::{EccCurve, Hash};
@@ -100,13 +100,13 @@ impl Algorithm {
 }
 
 impl Task for Algorithm {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        with_device(job.device.clone(), |device| {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+        with_device(task_state.device.clone(), |device| {
             let mut results: Vec<String> = Vec::new();
             results.extend(Algorithm::fetch_key_algorithms(device)?);
             results.sort();
             for alg in results {
-                writeln!(job.writer, "{alg}")?;
+                writeln!(task_state.writer, "{alg}")?;
             }
             Ok(())
         })

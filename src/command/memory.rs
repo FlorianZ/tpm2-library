@@ -7,7 +7,7 @@ use crate::{
     cli::Task,
     command::{print_table, AuthArgs, CommandError},
     device::{self, Device, DeviceError},
-    session::Session,
+    task::TaskState,
 };
 use clap::Args;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
@@ -53,7 +53,7 @@ pub struct Memory {
 }
 
 impl Task for Memory {
-    fn run(&self, session: &mut Session) -> Result<(), CommandError> {
+    fn run(&self, session: &mut TaskState) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
             handle
                 .value()
@@ -67,7 +67,7 @@ impl Task for Memory {
 
 impl Memory {
     fn inspect_handle(
-        session: &mut Session,
+        session: &mut TaskState,
         handle: Handle,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
@@ -93,7 +93,7 @@ impl Memory {
         })
     }
 
-    fn list_all_memory(session: &mut Session, auth_args: &AuthArgs) -> Result<(), CommandError> {
+    fn list_all_memory(session: &mut TaskState, auth_args: &AuthArgs) -> Result<(), CommandError> {
         device::with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
             Self::fetch_rows(
@@ -181,7 +181,7 @@ impl Memory {
     }
 
     fn read_nv_index(
-        session: &mut Session,
+        session: &mut TaskState,
         device: &mut Device,
         handle: u32,
         auth_args: &AuthArgs,
@@ -246,7 +246,7 @@ impl Memory {
     }
 
     fn fetch_certificate(
-        session: &mut Session,
+        session: &mut TaskState,
         device: &mut Device,
         handle: u32,
         auth_args: &AuthArgs,
@@ -265,7 +265,7 @@ impl Memory {
     }
 
     fn fetch_rows<F>(
-        session: &mut Session,
+        session: &mut TaskState,
         device: &mut Device,
         rows: &mut Vec<MemoryRow>,
         class: TpmHt,
@@ -275,7 +275,7 @@ impl Memory {
     ) -> Result<(), CommandError>
     where
         F: FnMut(
-            &mut Session,
+            &mut TaskState,
             &mut Device,
             &Handle,
             &AuthArgs,

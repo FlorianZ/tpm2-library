@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    session::Session,
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_protocol::{
@@ -22,13 +22,14 @@ pub struct ResetLock {
 }
 
 impl Task for ResetLock {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        with_device(job.device.clone(), |device| {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+        with_device(task_state.device.clone(), |device| {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand { lock_handle };
             let handles = [TpmRh::Lockout as u32];
 
-            let (resp, _) = job.execute(device, &command, &handles, &self.auth_args.auths())?;
+            let (resp, _) =
+                task_state.execute(device, &command, &handles, &self.auth_args.auths())?;
 
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;

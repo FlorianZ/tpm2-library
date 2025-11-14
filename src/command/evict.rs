@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    session::Session,
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_policy_language::{Handle, HandleClass};
@@ -26,7 +26,7 @@ pub struct Evict {
 }
 
 impl Task for Evict {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
         let vhandle = self
             .input
             .value()
@@ -36,26 +36,29 @@ impl Task for Evict {
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.output.to_string()))?;
 
-        with_device(job.device.clone(), |dev| -> Result<(), CommandError> {
-            if self.output.class() != HandleClass::Tpm {
-                return Err(CommandError::InvalidHandle);
-            }
-            let persistent_handle = TpmHandle(persistent_handle_val);
+        with_device(
+            task_state.device.clone(),
+            |dev| -> Result<(), CommandError> {
+                if self.output.class() != HandleClass::Tpm {
+                    return Err(CommandError::InvalidHandle);
+                }
+                let persistent_handle = TpmHandle(persistent_handle_val);
 
-            let transient_handle = job.load_context(dev, &self.input)?;
+                let transient_handle = task_state.load_context(dev, &self.input)?;
 
-            job.evict_control(
-                dev,
-                transient_handle,
-                persistent_handle,
-                &self.auth_args.auths(),
-            )?;
+                task_state.evict_control(
+                    dev,
+                    transient_handle,
+                    persistent_handle,
+                    &self.auth_args.auths(),
+                )?;
 
-            job.cache.remove(dev, vhandle)?;
+                task_state.cache.remove(dev, vhandle)?;
 
-            job.cache.untrack(transient_handle.0);
+                task_state.cache.untrack(transient_handle.0);
 
-            Ok(())
-        })
+                Ok(())
+            },
+        )
     }
 }

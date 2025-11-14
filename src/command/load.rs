@@ -8,7 +8,7 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
     io::read_file_input,
-    session::Session,
+    task::TaskState,
     vtpm::VtpmKey,
 };
 use clap::Args;
@@ -32,54 +32,57 @@ pub struct Load {
 }
 
 impl Task for Load {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        with_device(job.device.clone(), |device| -> Result<(), CommandError> {
-            let input_bytes = read_file_input(self.input_args.input.as_deref())?;
-            if input_bytes.is_empty() {
-                return Ok(());
-            }
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+        with_device(
+            task_state.device.clone(),
+            |device| -> Result<(), CommandError> {
+                let input_bytes = read_file_input(self.input_args.input.as_deref())?;
+                if input_bytes.is_empty() {
+                    return Ok(());
+                }
 
-            let tpm_key = TpmKey::from_pem(&input_bytes)
-                .or_else(|_| TpmKey::from_der(&input_bytes).map_err(KeyError::from))?;
+                let tpm_key = TpmKey::from_pem(&input_bytes)
+                    .or_else(|_| TpmKey::from_der(&input_bytes).map_err(KeyError::from))?;
 
-            let parent_public = tpm_key
-                .parent_public()
-                .cloned()
-                .ok_or(CommandError::InvalidInput("parent missing".to_string()))?;
+                let parent_public = tpm_key
+                    .parent_public()
+                    .cloned()
+                    .ok_or(CommandError::InvalidInput("parent missing".to_string()))?;
 
-            let parent_handle = Self::fetch_parent(job, device, &parent_public)?;
+                let parent_handle = Self::fetch_parent(task_state, device, &parent_public)?;
 
-            let (object_handle, _, loaded_public) = Self::run_load(
-                job,
-                device,
-                parent_handle,
-                tpm_key.private(),
-                tpm_key.public(),
-                self.auth_args.auths().as_ref(),
-            )?;
+                let (object_handle, _, loaded_public) = Self::run_load(
+                    task_state,
+                    device,
+                    parent_handle,
+                    tpm_key.private(),
+                    tpm_key.public(),
+                    self.auth_args.auths().as_ref(),
+                )?;
 
-            let policy_blob = if let Some(policy) = &tpm_key.policy {
-                Some(VtpmKey::policy_from_tpmkey_policy(policy)?)
-            } else {
-                None
-            };
+                let policy_blob = if let Some(policy) = &tpm_key.policy {
+                    Some(VtpmKey::policy_from_tpmkey_policy(policy)?)
+                } else {
+                    None
+                };
 
-            let vhandle = job.cache.save_context(
-                device,
-                object_handle,
-                &loaded_public,
-                &parent_public,
-                &policy_blob,
-            )?;
-            writeln!(job.writer, "vtpm:{vhandle:08x}")?;
-            Ok(())
-        })
+                let vhandle = task_state.cache.save_context(
+                    device,
+                    object_handle,
+                    &loaded_public,
+                    &parent_public,
+                    &policy_blob,
+                )?;
+                writeln!(task_state.writer, "vtpm:{vhandle:08x}")?;
+                Ok(())
+            },
+        )
     }
 }
 
 impl Load {
     fn fetch_parent(
-        job: &mut Session,
+        task_state: &mut TaskState,
         device: &mut Device,
         parent_public: &Tpm2bPublic,
     ) -> Result<TpmHandle, CommandError> {
@@ -87,21 +90,21 @@ impl Load {
             return Ok(phandle);
         }
 
-        let vhandle_opt = job
+        let vhandle_opt = task_state
             .cache
             .key_iter()
             .find(|(_, key)| key.public == *parent_public)
             .map(|(vhandle, _)| *vhandle);
 
         if let Some(vhandle) = vhandle_opt {
-            return Ok(job.load_context(device, &Handle::new(HandleClass::Vtpm, vhandle))?);
+            return Ok(task_state.load_context(device, &Handle::new(HandleClass::Vtpm, vhandle))?);
         }
 
         Err(CommandError::UnknownParent)
     }
 
     fn run_load(
-        job: &mut Session,
+        task_state: &mut TaskState,
         device: &mut Device,
         parent_handle: TpmHandle,
         in_private: &tpm2_protocol::data::Tpm2bPrivate,
@@ -115,13 +118,13 @@ impl Load {
         };
         let handles = [parent_handle.0];
 
-        let (resp, _) = job.execute(device, &cmd, &handles, auths)?;
+        let (resp, _) = task_state.execute(device, &cmd, &handles, auths)?;
 
         let resp = resp
             .Load()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Load))?;
 
-        job.cache.track(resp.object_handle)?;
+        task_state.cache.track(resp.object_handle)?;
         Ok((resp.object_handle, resp.name, in_public.clone()))
     }
 }

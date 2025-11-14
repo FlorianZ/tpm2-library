@@ -8,7 +8,7 @@ use cli::{
     cli::{Task, TopLevel},
     command::CommandError,
     device::Device,
-    session::Session,
+    task::TaskState,
     vtpm::VtpmCache,
 };
 use std::{cell::RefCell, fs, io::IsTerminal, path::Path, process, rc::Rc, sync::atomic::Ordering};
@@ -92,6 +92,6 @@ fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
     let is_tty = stdout.is_terminal();
     let mut cache = VtpmCache::new(cache_dir)?;
 
-    let mut job = Session::new(shared_device, &mut cache, &mut stdout, is_tty);
+    let mut job = TaskState::new(shared_device, &mut cache, &mut stdout, is_tty);
     cli.command.run(&mut job)
 }

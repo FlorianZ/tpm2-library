@@ -71,14 +71,14 @@ pub enum SessionError {
     IntDecode(#[from] TryFromIntError),
 }
 
-pub struct Session<'a> {
+pub struct TaskState<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
     pub cache: &'a mut VtpmCache<'a>,
     pub writer: &'a mut dyn Write,
     pub is_tty: bool,
 }
 
-impl<'a> Session<'a> {
+impl<'a> TaskState<'a> {
     /// Creates a new `Session`.
     #[must_use]
     pub fn new(
@@ -370,7 +370,7 @@ impl<'a> Session<'a> {
 
         for auth in auth_list {
             if *auth == Auth::default() {
-                let (resp, nonce_caller) = Session::start_session(
+                let (resp, nonce_caller) = TaskState::start_session(
                     device,
                     TpmSe::Hmac,
                     TpmAlgId::Sha256,
@@ -520,7 +520,7 @@ impl<'a> Session<'a> {
     }
 }
 
-impl Drop for Session<'_> {
+impl Drop for TaskState<'_> {
     fn drop(&mut self) {
         self.cache.teardown(self.device.clone());
     }

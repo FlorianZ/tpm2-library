@@ -8,7 +8,7 @@ use crate::{
     io::read_file_input,
     parse_hex_u32,
     pcr::pcr_get_bank_list,
-    session::Session,
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_crypto::Hash;
@@ -40,8 +40,8 @@ pub struct PcrEvent {
 }
 
 impl Task for PcrEvent {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
-        with_device(job.device.clone(), |device| {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+        with_device(task_state.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
 
@@ -54,7 +54,8 @@ impl Task for PcrEvent {
                 event_data,
             };
 
-            let (resp, _) = job.execute(device, &command, &handles, &self.auth_args.auths())?;
+            let (resp, _) =
+                task_state.execute(device, &command, &handles, &self.auth_args.auths())?;
 
             let pcr_resp = resp
                 .PcrEvent()
@@ -77,7 +78,7 @@ impl Task for PcrEvent {
                 })
                 .collect();
 
-            writeln!(job.writer, "{}", clauses.join("+"))?;
+            writeln!(task_state.writer, "{}", clauses.join("+"))?;
 
             Ok(())
         })

@@ -5,7 +5,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::{with_device, Device},
-    session::{Session, SessionError},
+    task::{SessionError, TaskState},
     vtpm::VtpmSession,
 };
 use clap::Args;
@@ -35,12 +35,12 @@ pub struct Unseal {
 impl Unseal {
     /// Creates and executes a policy session from a key's embedded policy blobs.
     fn create_policy_session_from_blobs(
-        job: &mut Session,
+        task_state: &mut TaskState,
         device: &mut Device,
         policy_blob: &[u8],
         key_name_alg: TpmAlgId,
     ) -> Result<Option<Auth>, CommandError> {
-        let Some(commands) = job.to_policy_command_list(device, policy_blob)? else {
+        let Some(commands) = task_state.to_policy_command_list(device, policy_blob)? else {
             return Ok(None);
         };
 
@@ -48,7 +48,7 @@ impl Unseal {
             return Ok(None);
         }
 
-        let (resp, nonce_caller) = Session::start_session(
+        let (resp, nonce_caller) = TaskState::start_session(
             device,
             TpmSe::Policy,
             key_name_alg,
@@ -56,7 +56,7 @@ impl Unseal {
         )?;
 
         let temp_session = VtpmSession::new(key_name_alg, nonce_caller, &resp, &[])?;
-        let vhandle = job.cache.add_session(temp_session);
+        let vhandle = task_state.cache.add_session(temp_session);
         let policy_phandle = resp.session_handle;
 
         let execution_result: Result<(), CommandError> = (|| {
@@ -87,16 +87,16 @@ impl Unseal {
         match execution_result {
             Ok(()) => {
                 let new_context = device.save_context(policy_phandle)?;
-                let session = job
+                let session = task_state
                     .cache
                     .get_mut_session(vhandle)
                     .ok_or(CommandError::InvalidHandle)?;
                 session.context = new_context;
-                job.cache.save()?;
+                task_state.cache.save()?;
                 Ok(Some(Auth::Session(vhandle)))
             }
             Err(e) => {
-                let _ = job.cache.remove(device, vhandle);
+                let _ = task_state.cache.remove(device, vhandle);
                 Err(e)
             }
         }
@@ -104,20 +104,20 @@ impl Unseal {
 }
 
 impl Task for Unseal {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
         let vhandle = self
             .input
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.input.to_string()))?;
 
-        with_device(job.device.clone(), |device| {
-            let item_handle = job.load_context(device, &self.input)?;
+        with_device(task_state.device.clone(), |device| {
+            let item_handle = task_state.load_context(device, &self.input)?;
 
             let mut auths = self.auth_args.auths().to_vec();
             let mut policy_session_auth: Option<Auth> = None;
 
             let key_info: Option<KeyPolicyInfo> = if self.input.class() == HandleClass::Vtpm {
-                job.cache.find_by_vhandle(vhandle).ok().map(|key| {
+                task_state.cache.find_by_vhandle(vhandle).ok().map(|key| {
                     let policy = if key.policy.is_empty() {
                         Vec::new()
                     } else {
@@ -133,7 +133,7 @@ impl Task for Unseal {
                 if let Some((policy_blob, name_alg)) = key_info {
                     if !policy_blob.is_empty() {
                         if let Some(session_auth) = Unseal::create_policy_session_from_blobs(
-                            job,
+                            task_state,
                             device,
                             &policy_blob,
                             name_alg,
@@ -150,11 +150,11 @@ impl Task for Unseal {
             };
             let unseal_handles = [item_handle.0];
 
-            let (resp, _) = job
+            let (resp, _) = task_state
                 .execute(device, &unseal_cmd, &unseal_handles, &auths)
                 .map_err(|e: SessionError| {
                     if let Some(Auth::Session(vhandle)) = policy_session_auth {
-                        if let Err(e) = job.cache.remove(device, vhandle) {
+                        if let Err(e) = task_state.cache.remove(device, vhandle) {
                             log::error!("Failed to clean up policy session: {e}");
                         }
                     }
@@ -162,7 +162,7 @@ impl Task for Unseal {
                 })?;
 
             if let Some(Auth::Session(vhandle)) = policy_session_auth {
-                if let Err(e) = job.cache.remove(device, vhandle) {
+                if let Err(e) = task_state.cache.remove(device, vhandle) {
                     log::error!("Failed to clean up policy session: {e}");
                 }
             }
@@ -172,10 +172,10 @@ impl Task for Unseal {
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
                 .out_data;
 
-            if self.hex || job.is_tty {
-                writeln!(job.writer, "{}", hex::encode(out_data.as_ref()))?;
+            if self.hex || task_state.is_tty {
+                writeln!(task_state.writer, "{}", hex::encode(out_data.as_ref()))?;
             } else {
-                job.writer.write_all(out_data.as_ref())?;
+                task_state.writer.write_all(out_data.as_ref())?;
             }
             Ok(())
         })

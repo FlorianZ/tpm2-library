@@ -9,7 +9,7 @@ use crate::{
         Algorithm, Cache, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load,
         Memory, PcrEvent, ResetLock, ReturnCode, Unseal,
     },
-    session::Session,
+    task::TaskState,
 };
 use clap::{
     builder::styling::{Style, Styles},
@@ -32,7 +32,7 @@ pub trait Task {
     /// # Errors
     ///
     /// Returns an error if the execution fails.
-    fn run(&self, job: &mut Session) -> Result<(), CommandError>;
+    fn run(&self, job: &mut TaskState) -> Result<(), CommandError>;
 
     /// Returns `true` if the command can be run without a TPM device.
     #[must_use]
@@ -103,7 +103,7 @@ impl Command {
 }
 
 impl Task for Command {
-    fn run(&self, job: &mut Session) -> Result<(), CommandError> {
+    fn run(&self, job: &mut TaskState) -> Result<(), CommandError> {
         self.as_task().run(job)
     }
 
