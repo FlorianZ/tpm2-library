@@ -38,7 +38,6 @@ use crate::{
     alg::{AlgInfo, KeyError},
     device::DeviceError,
     pcr::PcrError,
-    policy::PolicyError,
     task::{SessionError, TaskState},
     vtpm::VtpmError,
 };
@@ -112,6 +111,8 @@ pub enum CommandError {
     InvalidParentHandle(&'static str, u32),
     #[error("invalid parent key type")]
     InvalidParentType,
+    #[error("invalid policy expression: {0}")]
+    InvalidPolicyExpression(String),
     #[error("handle pattern not allowed: {0}")]
     PatternNotAllowed(String),
     #[error("policy denied")]
@@ -142,8 +143,6 @@ pub enum CommandError {
     Key(#[from] KeyError),
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
-    #[error("policy: {0}")]
-    Policy(#[from] PolicyError),
     #[error("policy parse: {0}")]
     PolicyLanguage(#[from] tpm2_policy_language::Error),
     #[error("ECDH private key generation failed")]

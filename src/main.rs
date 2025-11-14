@@ -11,7 +11,6 @@ pub mod command;
 pub mod device;
 pub mod io;
 pub mod pcr;
-pub mod policy;
 pub mod print;
 pub mod task;
 pub mod template;

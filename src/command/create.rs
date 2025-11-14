@@ -11,18 +11,20 @@ use crate::{
     device::{with_device, Device, DeviceError},
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
-    policy::visit_secret_handles,
     task::{SessionError, TaskState},
     template,
     vtpm::VtpmKey,
 };
-use clap::Args;
+
 use std::collections::{HashMap, HashSet};
-use tpm2_policy_language::{Handle, TpmPolicyExpression};
+use std::hash::BuildHasher;
+
+use clap::Args;
+use tpm2_policy_language::{Handle, HandleClass, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
-        TpmCc, TpmRcBase, TpmlPcrSelection, TpmsSensitiveCreate,
+        TpmCc, TpmHt, TpmRcBase, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -233,4 +235,41 @@ impl Create {
             self.output_encoding_args.output_encoding,
         )
     }
+}
+
+fn visit_secret_handles<S: BuildHasher>(
+    ast: &TpmPolicyExpression,
+    handles: &mut HashSet<u32, S>,
+) -> Result<(), CommandError> {
+    match ast {
+        TpmPolicyExpression::Pcr { .. }
+        | TpmPolicyExpression::Auth(_)
+        | TpmPolicyExpression::Handle(_) => {}
+        TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
+            for branch in branches {
+                visit_secret_handles(branch, handles)?;
+            }
+        }
+        TpmPolicyExpression::Secret { auth_handle, .. } => {
+            if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
+                let val = handle.value().ok_or(CommandError::InvalidPolicyExpression(
+                    "secret() handle cannot be a pattern".to_string(),
+                ))?;
+                if handle.class() != HandleClass::Tpm
+                    || (val >> 24) as u8 != TpmHt::Persistent as u8
+                {
+                    return Err(CommandError::InvalidPolicyExpression(
+                        "secret() handle must be a persistent TPM handle ('tpm:81xxxxxx')"
+                            .to_string(),
+                    ));
+                }
+                handles.insert(val);
+            } else {
+                return Err(CommandError::InvalidPolicyExpression(
+                    "secret() first argument must be a handle".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }

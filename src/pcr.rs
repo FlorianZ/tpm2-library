@@ -7,7 +7,6 @@
 use crate::{
     command::CommandError,
     device::{Device, DeviceError},
-    policy::{visit_pcr_expressions_mut, PolicyError},
     task::{SessionError, TaskState},
 };
 use std::collections::HashMap;
@@ -200,7 +199,7 @@ pub fn resolve_pcr_digests(
     banks: &[PcrBank],
 ) -> Result<(), CommandError> {
     let mut required_selections: Vec<TpmsPcrSelection> = Vec::new();
-    visit_pcr_expressions_mut(ast, &mut |expr| -> Result<(), PolicyError> {
+    visit_pcr_expressions_mut(ast, &mut |expr| -> Result<(), PcrError> {
         if let TpmPolicyExpression::Pcr {
             selections,
             digest: None,
@@ -218,7 +217,7 @@ pub fn resolve_pcr_digests(
         let merged_selection = crate::pcr::merge_pcr_selections(&required_selections, banks)?;
         let (pcr_values, _) = pcr_read(job, device, &merged_selection)?;
 
-        let mut populator = |expr: &mut TpmPolicyExpression| -> Result<(), PolicyError> {
+        let mut populator = |expr: &mut TpmPolicyExpression| -> Result<(), PcrError> {
             if let TpmPolicyExpression::Pcr {
                 selections, digest, ..
             } = expr
@@ -252,6 +251,28 @@ pub fn resolve_pcr_digests(
             Ok(())
         };
         visit_pcr_expressions_mut(ast, &mut populator)?;
+    }
+    Ok(())
+}
+
+fn visit_pcr_expressions_mut<F>(
+    ast: &mut TpmPolicyExpression,
+    visitor: &mut F,
+) -> Result<(), PcrError>
+where
+    F: FnMut(&mut TpmPolicyExpression) -> Result<(), PcrError>,
+{
+    match ast {
+        TpmPolicyExpression::Pcr { .. } => visitor(ast)?,
+        TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
+            for branch in branches.iter_mut() {
+                visit_pcr_expressions_mut(branch, visitor)?;
+            }
+        }
+        TpmPolicyExpression::Secret { auth_handle, .. } => {
+            visit_pcr_expressions_mut(auth_handle, visitor)?;
+        }
+        TpmPolicyExpression::Auth(_) | TpmPolicyExpression::Handle(_) => {}
     }
     Ok(())
 }
