@@ -5,7 +5,6 @@
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
 use crate::{
-    command::CommandError,
     device::{Device, DeviceError},
     task::{SessionError, TaskState},
 };
@@ -197,7 +196,7 @@ pub fn resolve_pcr_digests(
     ast: &mut TpmPolicyExpression,
     session_hash_alg: TpmAlgId,
     banks: &[PcrBank],
-) -> Result<(), CommandError> {
+) -> Result<(), PcrError> {
     let mut required_selections: Vec<TpmsPcrSelection> = Vec::new();
     visit_pcr_expressions_mut(ast, &mut |expr| -> Result<(), PcrError> {
         if let TpmPolicyExpression::Pcr {
