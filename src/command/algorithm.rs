@@ -52,18 +52,17 @@ impl Algorithm {
         if all_algs.contains(&TpmAlgId::Rsa) {
             let rsa_key_sizes = [2048, 3072, 4096];
             for key_bits in rsa_key_sizes {
-                match Self::test_rsa_parms(device, key_bits) {
-                    Ok(()) => {
-                        for &name_alg in &name_algs {
-                            results.push(format!("rsa-{}:{}", key_bits, Hash::from(name_alg)));
+                if let Err(e) = Self::test_rsa_parms(device, key_bits) {
+                    if let DeviceError::TpmRc(rc) = e {
+                        if rc.base() == TpmRcBase::Value {
+                            continue;
                         }
                     }
-                    Err(DeviceError::TpmRc(rc)) => {
-                        if rc.base() != TpmRcBase::Value {
-                            return Err(DeviceError::TpmRc(rc).into());
-                        }
-                    }
-                    Err(e) => return Err(e.into()),
+                    return Err(e.into());
+                }
+
+                for &name_alg in &name_algs {
+                    results.push(format!("rsa-{}:{}", key_bits, Hash::from(name_alg)));
                 }
             }
         }
