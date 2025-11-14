@@ -342,7 +342,10 @@ macro_rules! tpm2b_struct {
             }
         }
 
-        impl $crate::TpmMarshal for $wrapper_ty {
+        impl $crate::TpmMarshal for $wrapper_ty
+        where
+            $inner_ty: $crate::TpmSized,
+        {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 u16::try_from(inner_len)

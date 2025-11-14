@@ -196,7 +196,7 @@ pub trait TpmSized {
     }
 }
 
-pub trait TpmMarshal: TpmSized {
+pub trait TpmMarshal {
     /// Marshals the object into the given writer.
     ///
     /// # Errors
