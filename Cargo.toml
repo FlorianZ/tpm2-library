@@ -14,8 +14,8 @@ version = "0.6.2"
 hex = "0.4"
 strum = { version = "0.26", features = ["derive"] }
 thiserror = "1.0"
-tpm2-crypto = "0.6.2"
-tpm2-protocol = "0.15.3"
+tpm2-crypto = "0.6.3"
+tpm2-protocol = "0.15.4"
 
 [dev-dependencies]
 rstest = "0.21"
