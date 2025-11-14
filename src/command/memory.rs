@@ -14,7 +14,7 @@ use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
 use strum::Display;
 use tabled::Tabled;
-use tpm2_crypto::Hash;
+use tpm2_crypto::{EccCurve, Hash};
 use tpm2_policy_language::{Auth, Handle};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
@@ -343,10 +343,10 @@ impl Memory {
             PKeyId::EC => {
                 let ec_key = pkey.ec_key()?;
                 let curve_nid = ec_key.group().curve_name();
-                let curve_str = match curve_nid {
-                    Some(Nid::X9_62_PRIME256V1) => "nist-p256",
-                    Some(Nid::SECP384R1) => "nist-p384",
-                    Some(Nid::SECP521R1) => "nist-p521",
+                let curve = match curve_nid {
+                    Some(Nid::X9_62_PRIME256V1) => EccCurve::NistP256,
+                    Some(Nid::SECP384R1) => EccCurve::NistP384,
+                    Some(Nid::SECP521R1) => EccCurve::NistP521,
                     _ => {
                         let name = curve_nid
                             .and_then(|n| n.long_name().ok())
@@ -359,7 +359,7 @@ impl Memory {
                         }));
                     }
                 };
-                Ok(format!("ecc-{curve_str}:{sig_alg_str}"))
+                Ok(format!("ecc-{curve}:{sig_alg_str}"))
             }
             _ => Err(CommandError::UnsupportedKeyAlgorithm(Alg {
                 name: format!("{:?}", pkey.id()),
