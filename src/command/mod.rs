@@ -45,7 +45,7 @@ use crate::{
 use openssl::error::ErrorStack;
 use std::num::TryFromIntError;
 use tabled::{
-    settings::{object::Rows, Format, Modify, Padding, Style},
+    settings::{object::Rows, Color, Modify, Padding, Style},
     Table, Tabled,
 };
 use thiserror::Error;
@@ -73,10 +73,7 @@ where
     table.with(Style::blank()).with(Padding::new(0, 2, 0, 0));
 
     if session.is_tty {
-        table.with(
-            Modify::new(Rows::first())
-                .with(Format::content(|s: &str| format!("\\x1b[1m{s}\\x1b[0m"))),
-        );
+        table.with(Modify::new(Rows::first()).with(Color::BOLD));
     }
 
     writeln!(session.writer, "{table}").map_err(CommandError::Io)?;
