@@ -3,7 +3,6 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{cli::LogFormat, print::TpmPrint, TEARDOWN};
-use indicatif::ProgressBar;
 use nix::{
     fcntl,
     poll::{poll, PollFd, PollFlags},
@@ -18,7 +17,7 @@ use std::{
     path::Path,
     rc::Rc,
     sync::atomic::Ordering,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use thiserror::Error;
@@ -190,10 +189,6 @@ impl Device {
         let command_vec = self.build_command_buffer(command, sessions)?;
         let cc = command.cc();
 
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_message("Waiting for TPM...");
-        spinner.enable_steady_tick(Duration::from_millis(100));
-
         self.file.write_all(&command_vec)?;
         self.file.flush()?;
 
@@ -206,7 +201,7 @@ impl Device {
             if TEARDOWN.load(Ordering::Relaxed) {
                 break Err(DeviceError::Interrupted);
             }
-            if start_time.elapsed() > Duration::from_secs(120) {
+            if start_time.elapsed() > std::time::Duration::from_secs(120) {
                 break Err(DeviceError::Timeout);
             }
 
@@ -235,8 +230,6 @@ impl Device {
                 }
             }
         }?;
-
-        spinner.finish_and_clear();
 
         let result = tpm_unmarshal_response(cc, &resp_buf);
         if self.log_format == LogFormat::Pretty {

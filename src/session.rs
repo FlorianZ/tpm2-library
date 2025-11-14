@@ -9,8 +9,12 @@ use crate::{
     write_object,
 };
 use hex;
+use indicatif::ProgressBar;
 use rand::{thread_rng, RngCore};
-use std::{cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc};
+use std::{
+    cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc,
+    time::Duration,
+};
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, Error as CryptoError, Hash};
 use tpm2_policy_language::{Auth, Handle, HandleClass};
@@ -390,11 +394,19 @@ impl<'a> Session<'a> {
             self.cache.track(handle)?;
         }
 
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_message("Waiting for TPM...");
+        spinner.enable_steady_tick(Duration::from_millis(100));
+
         let sessions = self.build_auth_area(device, command, handles, &effective_auth_list)?;
 
         let (resp, auth_responses) = match device.transmit(command, &sessions) {
-            Ok((resp, auth_responses)) => (resp, auth_responses),
+            Ok((resp, auth_responses)) => {
+                spinner.finish_and_clear();
+                (resp, auth_responses)
+            }
             Err(DeviceError::TpmRc(rc)) => {
+                spinner.finish_and_clear();
                 if rc.base() == TpmRcBase::PolicyFail {
                     for auth in auth_list {
                         if let Auth::Session(vhandle) = auth {
@@ -405,7 +417,10 @@ impl<'a> Session<'a> {
                 }
                 return Err(SessionError::Device(DeviceError::TpmRc(rc)));
             }
-            Err(err) => return Err(SessionError::Device(err)),
+            Err(err) => {
+                spinner.finish_and_clear();
+                return Err(SessionError::Device(err));
+            }
         };
 
         let mut used_auth_list = HashSet::new();
