@@ -2,7 +2,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::Job,
+    cli::Task,
     command::{AuthArgs, CommandError},
     device::{with_device, Device},
     session::{Session, SessionError},
@@ -103,7 +103,7 @@ impl Unseal {
     }
 }
 
-impl Job for Unseal {
+impl Task for Unseal {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         let vhandle = self
             .input

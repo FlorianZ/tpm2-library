@@ -4,7 +4,7 @@
 
 use crate::{
     alg::{Alg, AlgInfo},
-    cli::Job,
+    cli::Task,
     command::{print_table, AuthArgs, CommandError},
     device::{self, Device, DeviceError},
     session::Session,
@@ -52,7 +52,7 @@ pub struct Memory {
     pub auth_args: AuthArgs,
 }
 
-impl Job for Memory {
+impl Task for Memory {
     fn run(&self, session: &mut Session) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
             handle

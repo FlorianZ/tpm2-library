@@ -3,7 +3,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::Job,
+    cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
     session::Session,
@@ -22,7 +22,7 @@ pub struct Delete {
     pub auth_args: AuthArgs,
 }
 
-impl Job for Delete {
+impl Task for Delete {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         match self.input.class() {
             HandleClass::Tpm => delete_tpm_handles(job, &self.input, &self.auth_args),

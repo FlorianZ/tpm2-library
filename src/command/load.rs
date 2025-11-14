@@ -4,7 +4,7 @@
 
 use crate::{
     alg::KeyError,
-    cli::Job,
+    cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
     io::read_file_input,
@@ -31,7 +31,7 @@ pub struct Load {
     pub input_args: InputArgs,
 }
 
-impl Job for Load {
+impl Task for Load {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| -> Result<(), CommandError> {
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;

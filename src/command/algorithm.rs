@@ -2,7 +2,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 use crate::{
-    cli::Job,
+    cli::Task,
     command::CommandError,
     device::{with_device, Device, DeviceError},
     session::Session,
@@ -99,7 +99,7 @@ impl Algorithm {
     }
 }
 
-impl Job for Algorithm {
+impl Task for Algorithm {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let mut results: Vec<String> = Vec::new();

@@ -3,7 +3,7 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::Job,
+    cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
     session::Session,
@@ -25,7 +25,7 @@ pub struct Evict {
     pub auth_args: AuthArgs,
 }
 
-impl Job for Evict {
+impl Task for Evict {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         let vhandle = self
             .input

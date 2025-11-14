@@ -3,7 +3,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::Job,
+    cli::Task,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::{read_file_input, write_key_data},
@@ -49,7 +49,7 @@ pub struct Convert {
     pub output_encoding_args: OutputEncodingArgs,
 }
 
-impl Job for Convert {
+impl Task for Convert {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         self.parent
             .value()

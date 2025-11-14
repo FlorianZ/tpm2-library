@@ -2,7 +2,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::Job,
+    cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
     device::with_device,
     io::read_file_input,
@@ -39,7 +39,7 @@ pub struct PcrEvent {
     pub input_args: InputArgs,
 }
 
-impl Job for PcrEvent {
+impl Task for PcrEvent {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;

@@ -6,7 +6,7 @@
 
 use crate::{
     alg::{Alg, AlgInfo},
-    cli::Job,
+    cli::Task,
     command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device, DeviceError},
     io::write_key_data,
@@ -62,7 +62,7 @@ pub struct Create {
     pub creation_args: CreationArgs,
 }
 
-impl Job for Create {
+impl Task for Create {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         self.parent
             .value()

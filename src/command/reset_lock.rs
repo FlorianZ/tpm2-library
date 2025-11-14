@@ -3,7 +3,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 
 use crate::{
-    cli::Job,
+    cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
     session::Session,
@@ -21,7 +21,7 @@ pub struct ResetLock {
     pub auth_args: AuthArgs,
 }
 
-impl Job for ResetLock {
+impl Task for ResetLock {
     fn run(&self, job: &mut Session) -> Result<(), CommandError> {
         with_device(job.device.clone(), |device| {
             let lock_handle = (TpmRh::Lockout as u32).into();
