@@ -17,7 +17,7 @@ use std::{
     rc::Rc,
 };
 use thiserror::Error;
-use tpm2_crypto::{make_name as crypto_make_name, Error as CryptoError};
+use tpm2_crypto::{tpm_make_name, Error as CryptoError};
 use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Handle, HandleClass};
 use tpm2_protocol::{
     data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
@@ -180,7 +180,7 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`Crypto`](crate::vtpm::VtpmError::Crypto) if name calculation fails.
     pub fn find_by_name(&self, target_name: &Tpm2bName) -> Result<Option<&VtpmKey>, VtpmError> {
         for (_, key) in self.key_iter() {
-            let name = crypto_make_name(&key.public.inner)?;
+            let name = tpm_make_name(&key.public.inner)?;
             if name == *target_name {
                 return Ok(Some(key));
             }

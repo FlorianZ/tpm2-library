@@ -14,8 +14,8 @@ use clap::Args;
 use openssl::symm::{encrypt, Cipher};
 use rand;
 use tpm2_crypto::{
-    make_name as crypto_make_name, EccPublicKey, Error as CryptoError, Hash, PublicKey,
-    RsaPublicKey, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
+    tpm_make_name, EccPublicKey, Error as CryptoError, Hash, PublicKey, RsaPublicKey,
+    KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
@@ -262,7 +262,7 @@ impl Convert {
             }
         }?;
 
-        let object_name = crypto_make_name(&public).map_err(CommandError::Crypto)?;
+        let object_name = tpm_make_name(&public).map_err(CommandError::Crypto)?;
 
         let (duplicate, in_sym_seed, encryption_key) = Self::create_import_blob(
             &parent_public,

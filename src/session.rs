@@ -12,7 +12,7 @@ use hex;
 use rand::{thread_rng, RngCore};
 use std::{cell::RefCell, collections::HashSet, io, io::Write, num::TryFromIntError, rc::Rc};
 use thiserror::Error;
-use tpm2_crypto::{make_name as crypto_make_name, Error as CryptoError, Hash};
+use tpm2_crypto::{tpm_make_name, Error as CryptoError, Hash};
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     basic::TpmBuffer,
@@ -244,7 +244,7 @@ impl<'a> Session<'a> {
             let parent_phandle = phandle.ok_or(SessionError::ParentNotFound)?;
             let loaded_phandle = device.load_context(key.context.clone())?;
 
-            if device.read_public(parent_phandle)?.1 != crypto_make_name(&key.parent.inner)? {
+            if device.read_public(parent_phandle)?.1 != tpm_make_name(&key.parent.inner)? {
                 self.cache.untrack(loaded_phandle.0);
                 device.flush_context(loaded_phandle)?;
                 return Err(SessionError::InvalidParent("vtpm:", vhandle));

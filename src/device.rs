@@ -18,7 +18,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tpm2_crypto::{make_name as crypto_make_name, Error as CryptoError};
+use tpm2_crypto::{tpm_make_name, Error as CryptoError};
 use tpm2_policy_language::{Handle, HandleClass};
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
@@ -473,7 +473,7 @@ impl Device {
                 if name == *target_name {
                     return Ok(Some(handle_val.into()));
                 }
-                let Ok(calculated_name) = crypto_make_name(&public) else {
+                let Ok(calculated_name) = tpm_make_name(&public) else {
                     continue;
                 };
                 if calculated_name == *target_name {
