@@ -16,7 +16,7 @@ use tpm2_crypto::{Error as CryptoError, Hash};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     data::{
-        TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection,
+        Tpm2bDigest, TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection,
         TpmuCapabilities,
     },
     frame::TpmPcrReadCommand,
@@ -246,7 +246,7 @@ pub fn resolve_pcr_digests(
                     }
 
                     let composite_digest = pcr_composite_digest(&pcr_subset, session_hash_alg)?;
-                    *digest = Some(hex::encode(composite_digest));
+                    *digest = Some(Tpm2bDigest::try_from(composite_digest.as_slice())?);
                 }
             }
             Ok(())

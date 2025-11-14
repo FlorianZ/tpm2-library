@@ -152,13 +152,9 @@ pub fn execute_policy(
             digest,
             count: _,
         } => {
-            let digest_bytes = hex::decode(digest.as_ref().ok_or(
-                PolicyError::InvalidTpmPolicyExpression(
-                    "expected a hex string for optional digest in pcr()".to_string(),
-                ),
-            )?)?;
-            let pcr_digest = Tpm2bDigest::try_from(digest_bytes.as_slice())
-                .map_err(|_| PolicyError::CapacityExceeded)?;
+            let pcr_digest = digest.ok_or(PolicyError::InvalidTpmPolicyExpression(
+                "expected a hex string for optional digest in pcr()".to_string(),
+            ))?;
             session.policy_pcr(&pcr_digest, *selections)?;
             session.get_digest()
         }
@@ -275,7 +271,7 @@ pub fn populate_pcr_digests<S: BuildHasher>(
                 let digest_bytes = pcr_map
                     .get(&selection_str)
                     .ok_or(PolicyError::PcrValueMissing(selection_str))?;
-                *digest = Some(hex::encode(digest_bytes));
+                *digest = Some(Tpm2bDigest::try_from(digest_bytes.as_slice())?);
             }
         }
         TpmPolicyExpression::And(expressions) | TpmPolicyExpression::Or(expressions) => {
