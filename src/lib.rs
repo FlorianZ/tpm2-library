@@ -81,7 +81,7 @@ pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 /// cryptographic operation fails.
 /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when memory allocation
 /// for temporary data fails.
-pub fn make_tpm_name(public: &TpmtPublic) -> Result<Tpm2bName, Error> {
+pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, Error> {
     let name_alg = Hash::from(public.name_alg);
     let alg_bytes = (public.name_alg as u16).to_be_bytes();
 
@@ -111,7 +111,7 @@ pub fn make_tpm_name(public: &TpmtPublic) -> Result<Tpm2bName, Error> {
 /// Returns [`OperationFailed`](crate::Error::OperationFailed) if the OpenSSL
 /// operation fails or the point format is invalid.
 /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) if allocation fails.
-fn make_tpm_point(
+fn tpm_make_point(
     point: &EcPointRef,
     group: &EcGroupRef,
     ctx: &mut BigNumContext,

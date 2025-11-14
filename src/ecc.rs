@@ -168,7 +168,7 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
         let curve = EccCurve::try_from(nid)?;
 
         let mut ctx = BigNumContext::new().map_err(|_| Error::OutOfMemory)?;
-        let (x, y) = crate::make_tpm_point(ec_key.public_key(), group, &mut ctx)?;
+        let (x, y) = crate::tpm_make_point(ec_key.public_key(), group, &mut ctx)?;
 
         Ok(Self { curve, x, y })
     }
@@ -289,7 +289,7 @@ impl EccPublicKey {
             .map_err(|_| Error::OperationFailed)?;
 
         let (ephemeral_x, ephemeral_y) =
-            crate::make_tpm_point(&ephemeral_pub_point, &group, &mut ctx)?;
+            crate::tpm_make_point(&ephemeral_pub_point, &group, &mut ctx)?;
 
         let seed_bits = u16::try_from(name_alg.size() * 8).map_err(|_| Error::OperationFailed)?;
         let context_u = ephemeral_x.as_ref();
