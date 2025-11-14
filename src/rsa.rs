@@ -105,7 +105,7 @@ impl PublicKey for RsaPublicKey {
                 symmetric,
                 scheme: TpmtRsaScheme {
                     scheme: TpmAlgId::Oaep,
-                    details: TpmuAsymScheme::Any(TpmsSchemeHash { hash_alg }),
+                    details: TpmuAsymScheme::Hash(TpmsSchemeHash { hash_alg }),
                 },
                 key_bits: self.key_bits,
                 exponent: 0,

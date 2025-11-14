@@ -41,10 +41,10 @@ fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
         assert_eq!(params.key_bits, key_bits);
         assert_eq!(params.exponent, 0);
         assert_eq!(params.scheme.scheme, TpmAlgId::Oaep);
-        if let TpmuAsymScheme::Any(details) = params.scheme.details {
+        if let TpmuAsymScheme::Hash(details) = params.scheme.details {
             assert_eq!(details.hash_alg, hash_alg);
         } else {
-            panic!("Incorrect scheme details type: expected Any");
+            panic!("Incorrect scheme details type: expected Hash");
         }
         assert_eq!(params.symmetric, symmetric);
     } else {
@@ -83,10 +83,10 @@ fn test_ecc_to_public(
     if let TpmuPublicParms::Ecc(params) = public.parameters {
         assert_eq!(params.curve_id, curve.into());
         assert_eq!(params.scheme.scheme, TpmAlgId::Ecdh);
-        if let TpmuAsymScheme::Any(details) = params.scheme.details {
+        if let TpmuAsymScheme::Hash(details) = params.scheme.details {
             assert_eq!(details.hash_alg, hash_alg);
         } else {
-            panic!("Incorrect scheme details type: expected Any");
+            panic!("Incorrect scheme details type: expected Hash");
         }
         assert_eq!(params.symmetric, symmetric);
     } else {

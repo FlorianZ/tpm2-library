@@ -199,7 +199,7 @@ impl PublicKey for EccPublicKey {
                 symmetric,
                 scheme: TpmtEccScheme {
                     scheme: TpmAlgId::Ecdh,
-                    details: TpmuAsymScheme::Any(TpmsSchemeHash { hash_alg }),
+                    details: TpmuAsymScheme::Hash(TpmsSchemeHash { hash_alg }),
                 },
                 curve_id: self.curve.into(),
                 kdf: TpmtKdfScheme::default(),
