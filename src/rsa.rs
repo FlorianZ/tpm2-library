@@ -73,9 +73,6 @@ impl TryFrom<&PKey<Private>> for RsaPublicKey {
             return Err(Error::InvalidRsaParameters);
         }
         let e_bytes = e_bn.to_vec();
-        if e_bytes.len() > 4 {
-            return Err(Error::InvalidRsaParameters);
-        }
         let mut e_buf = [0u8; 4];
         e_buf[4 - e_bytes.len()..].copy_from_slice(&e_bytes);
         let e = u32::from_be_bytes(e_buf);
