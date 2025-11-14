@@ -71,6 +71,7 @@ pub struct Session<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
     pub cache: &'a mut VtpmCache<'a>,
     pub writer: &'a mut dyn Write,
+    pub is_tty: bool,
 }
 
 impl<'a> Session<'a> {
@@ -80,11 +81,13 @@ impl<'a> Session<'a> {
         device: Option<Rc<RefCell<Device>>>,
         cache: &'a mut VtpmCache<'a>,
         writer: &'a mut dyn Write,
+        is_tty: bool,
     ) -> Self {
         Self {
             device,
             cache,
             writer,
+            is_tty,
         }
     }
 

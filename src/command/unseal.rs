@@ -9,7 +9,6 @@ use crate::{
     vtpm::VtpmSession,
 };
 use clap::Args;
-use std::io::IsTerminal;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmRh, TpmSe},
@@ -173,7 +172,7 @@ impl Job for Unseal {
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
                 .out_data;
 
-            if self.hex || std::io::stdout().is_terminal() {
+            if self.hex || job.is_tty {
                 writeln!(job.writer, "{}", hex::encode(out_data.as_ref()))?;
             } else {
                 job.writer.write_all(out_data.as_ref())?;

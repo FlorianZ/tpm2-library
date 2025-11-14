@@ -39,14 +39,11 @@ use crate::{
     device::DeviceError,
     pcr::PcrError,
     policy::PolicyError,
-    session::SessionError,
+    session::{Session, SessionError},
     vtpm::VtpmError,
 };
 use openssl::error::ErrorStack;
-use std::{
-    io::{IsTerminal, Write},
-    num::TryFromIntError,
-};
+use std::num::TryFromIntError;
 use tabled::{
     settings::{object::Rows, Format, Modify, Padding, Style},
     Table, Tabled,
@@ -63,7 +60,7 @@ use tpm2_protocol::{
 /// # Errors
 ///
 /// Returns [`Io`](CommandError::Io) if writing to the writer fails.
-pub fn print_table<T>(writer: &mut dyn Write, items: &[T]) -> Result<(), CommandError>
+pub fn print_table<T>(session: &mut Session, items: &[T]) -> Result<(), CommandError>
 where
     T: Tabled,
 {
@@ -75,14 +72,14 @@ where
 
     table.with(Style::blank()).with(Padding::new(0, 2, 0, 0));
 
-    if std::io::stdout().is_terminal() {
+    if session.is_tty {
         table.with(
             Modify::new(Rows::first())
-                .with(Format::content(|s: &str| format!("\x1b[1m{s}\x1b[0m"))),
+                .with(Format::content(|s: &str| format!("\\x1b[1m{s}\\x1b[0m"))),
         );
     }
 
-    writeln!(writer, "{table}").map_err(CommandError::Io)?;
+    writeln!(session.writer, "{table}").map_err(CommandError::Io)?;
     Ok(())
 }
 

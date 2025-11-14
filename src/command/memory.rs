@@ -175,7 +175,7 @@ impl Memory {
             )?;
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
-            print_table(&mut session.writer, &rows)?;
+            print_table(session, &rows)?;
             Ok(())
         })
     }

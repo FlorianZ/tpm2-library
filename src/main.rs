@@ -11,7 +11,7 @@ use cli::{
     session::Session,
     vtpm::VtpmCache,
 };
-use std::{cell::RefCell, fs, path::Path, process, rc::Rc, sync::atomic::Ordering};
+use std::{cell::RefCell, fs, io::IsTerminal, path::Path, process, rc::Rc, sync::atomic::Ordering};
 use tracing_subscriber::EnvFilter;
 
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
@@ -89,8 +89,9 @@ fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
     };
 
     let mut stdout = std::io::stdout();
+    let is_tty = stdout.is_terminal();
     let mut cache = VtpmCache::new(cache_dir)?;
 
-    let mut job = Session::new(shared_device, &mut cache, &mut stdout);
+    let mut job = Session::new(shared_device, &mut cache, &mut stdout, is_tty);
     cli.command.run(&mut job)
 }

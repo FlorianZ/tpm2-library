@@ -100,7 +100,7 @@ impl Job for Cache {
             .collect();
         rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
-        print_table(&mut job.writer, &rows)?;
+        print_table(job, &rows)?;
         Ok(())
     }
 }
