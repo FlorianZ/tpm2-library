@@ -4,6 +4,7 @@
 
 use crate::{
     alg::AlgError,
+    command::AuthArgs,
     device::{Device, DeviceError, TpmCommandObject},
     vtpm::{build_password_session, create_auth, VtpmCache, VtpmError, VtpmSession},
     write_object,
@@ -110,8 +111,19 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`HandleNameNotFound`](crate::task::SessionError::HandleNameNotFound)
-    /// if the name cannot be found in persistent memory or the VTPM cache.
+    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when a cache operation fails.
+    /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
+    /// the name cannot be found.
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when the
+    /// `TpmHandleRef` is invalid.
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
+    /// handle is not in the cache.
+    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
+    /// parent handle is not found.
+    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
+    /// loaded key's parent is incorrect.
     pub fn fetch_handle_by_name(
         &mut self,
         device: &mut Device,
@@ -136,8 +148,24 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`SessionError`] if parsing the blob fails or if a handle name
-    /// cannot be resolved.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when parsing the policy blob
+    /// fails.
+    /// Returns [`Key`](crate::TaskError::Key) when parsing a policy command
+    /// fails.
+    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when an
+    /// auth list is too large.
+    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
+    /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
+    /// a policy secret handle cannot be found.
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a
+    /// `TpmHandleRef` is invalid.
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
+    /// handle is not in the cache.
+    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
+    /// parent handle is not found.
+    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
+    /// loaded key's parent is incorrect.
     pub fn to_policy_command_list(
         &mut self,
         device: &mut Device,
@@ -214,13 +242,26 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`MalformedData`](crate::task::SessionError::MalformedData) if
-    /// an unsupported policy command is encountered.
-    /// Returns [`HandleNotFound`](crate::task::SessionError::HandleNotFound) if
-    /// the temporary session handle cannot be found in the cache after creation.
-    /// Returns [`Device`](crate::task::SessionError::Device) if a TPM command fails.
-    /// Returns [`Vtpm`](crate::task::SessionError::Vtpm) if session creation or
-    /// saving fails.
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a
+    /// non-password auth is provided.
+    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when an
+    /// unsupported policy command is found.
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when the
+    /// temporary session handle is lost.
+    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when session creation, saving, or
+    /// parsing fails.
+    /// Returns [`Key`](crate::TaskError::Key) when parsing a policy command
+    /// fails.
+    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when an
+    /// auth list is too large.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
+    /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
+    /// a policy secret handle cannot be found.
+    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
+    /// loaded key's parent is incorrect.
+    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
+    /// parent handle is not found.
     pub fn build_policy_session(
         &mut self,
         device: &mut Device,
@@ -298,21 +339,84 @@ impl<'a> TaskState<'a> {
         }
     }
 
+    /// Prepares the final authorization vector for a command.
+    ///
+    /// This function contains the common logic to split user authentication,
+    /// build policy sessions if needed, and return the final `auths` vector
+    /// and the temporary `policy_session_auth` for cleanup.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a
+    /// non-password auth is provided.
+    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when an
+    /// unsupported policy command is found.
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a
+    /// temporary session handle is lost.
+    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when session creation, saving, or
+    /// parsing fails.
+    /// Returns [`Key`](crate::TaskError::Key) when parsing a policy command
+    /// fails.
+    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when an
+    /// auth list is too large.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
+    /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
+    /// a policy secret handle cannot be found.
+    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
+    /// loaded key's parent is incorrect.
+    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
+    /// parent handle is not found.
+    pub fn build_auth(
+        &mut self,
+        device: &mut Device,
+        policy_blob: &[u8],
+        name_alg: TpmAlgId,
+        empty_auth: bool,
+        auth_args: &AuthArgs,
+    ) -> Result<(Vec<Auth>, Option<Auth>), TaskError> {
+        let mut policy_session_auth: Option<Auth> = None;
+        let all_auths = auth_args.auths(empty_auth);
+        let (cmd_auths, policy_auths) = if empty_auth {
+            (Vec::new(), all_auths.as_ref())
+        } else {
+            (
+                vec![all_auths.first().cloned().unwrap_or_default()],
+                all_auths.get(1..).unwrap_or_default(),
+            )
+        };
+
+        let mut auths = cmd_auths;
+
+        if !policy_blob.is_empty() {
+            if let Some(session_auth) =
+                self.build_policy_session(device, policy_blob, name_alg, policy_auths)?
+            {
+                auths = vec![session_auth.clone()];
+                policy_session_auth = Some(session_auth);
+            }
+        }
+
+        Ok((auths, policy_session_auth))
+    }
+
     /// Loads a TPM context from a handle, recursively loading its ancestors
     /// first.
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::task::SessionError::Device) when the transmission
-    /// fails.
-    /// Returns [`HandleNotFound`](crate::task::SessionError::HandleNotFound) when the
-    /// target handle or any parent handle cannot be found, or if the chain is empty.
-    /// Returns [`ParentNotFound`](crate::task::SessionError::ParentNotFound) when a
+    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when the
+    /// target handle or a parent handle cannot be found.
+    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
     /// necessary parent handle isn't found in cache or persistent storage.
-    /// Returns [`Vtpm`](crate::task::SessionError::Vtpm) when tracking the loaded
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when tracking the loaded
     /// handle fails.
-    /// Returns [`InvalidParent`](crate::task::SessionError::InvalidParent) when
+    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when a
     /// loaded key's parent does not match the expected parent in the chain.
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when the target
+    /// `TpmHandleRef` is invalid.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
     pub fn load_context(
         &mut self,
         device: &mut Device,
@@ -374,16 +478,20 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Auth`](crate::task::SessionError::Auth) when extracting a session
-    /// handle fails.
-    /// Returns [`HandleNotFound`](crate::task::SessionError::HandleNotFound) when a
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a
     /// session handle in `auth_list` is not found.
-    /// Returns [`InvalidAuth`](crate::task::SessionError::InvalidAuth) when a `Policy`
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a `Policy`
     /// auth class is encountered.
-    /// Returns [`MalformedData`](crate::task::SessionError::MalformedData) when the
-    /// session's hash algorithm is unsupported.
-    /// Returns [`TrailingAuthorizations`](crate::task::SessionError::TrailingAuthorizations)
+    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when
+    /// serializing the command fails.
+    /// Returns [`TrailingAuthorizations`](crate::TaskError::TrailingAuthorizations)
     /// when more auth values are provided than handles requiring authorization.
+    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when
+    /// an auth struct is too large.
+    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when an auth calculation
+    /// fails.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when a cache operation fails.
     fn build_auth_area<C: TpmFrame>(
         &self,
         device: &mut Device,
@@ -459,9 +567,20 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Auth`](crate::task::SessionError::Auth) when extracting a session
-    /// handle fails.
-    /// Returns [`Device`](crate::task::SessionError::Device) when the transmission
+    /// Returns [`Device`](crate::TaskError::Device) when the transmission
+    /// fails or the TPM returns an error.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when a session operation fails.
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a
+    /// session handle is not found.
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a `Policy`
+    /// auth class is encountered.
+    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when
+    /// serializing the command fails.
+    /// Returns [`TrailingAuthorizations`](crate::TaskError::TrailingAuthorizations)
+    /// when more auth values are provided than handles.
+    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when
+    /// an auth struct is too large.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when an auth calculation
     /// fails.
     pub fn execute<C: TpmCommandObject>(
         &mut self,
@@ -554,10 +673,23 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::task::SessionError::Device) when the transmission
+    /// Returns [`Device`](crate::TaskError::Device) when the transmission
     /// fails.
-    /// Returns [`ResponseMismatch`](crate::task::SessionError::ResponseMismatch) when
+    /// Returns [`ResponseMismatch`](crate::TaskError::ResponseMismatch) when
     /// the TPM command returns an unexpected response type.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when a session operation fails.
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a
+    /// session handle is not found.
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a `Policy`
+    /// auth class is encountered.
+    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when
+    /// serializing the command fails.
+    /// Returns [`TrailingAuthorizations`](crate::TaskError::TrailingAuthorizations)
+    /// when more auth values are provided than handles.
+    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when
+    /// an auth struct is too large.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when an auth calculation
+    /// fails.
     pub fn evict_control(
         &mut self,
         device: &mut Device,
@@ -589,10 +721,12 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::task::SessionError::Device) when the transmission
+    /// Returns [`Device`](crate::TaskError::Device) when the transmission
     /// fails.
-    /// Returns [`ResponseMismatch`](crate::task::SessionError::ResponseMismatch) when
+    /// Returns [`ResponseMismatch`](crate::TaskError::ResponseMismatch) when
     /// the TPM command returns an unexpected response type.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when `Tpm2bNonce` conversion
+    /// fails.
     pub fn start_session(
         device: &mut Device,
         session_type: TpmSe,

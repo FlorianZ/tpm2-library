@@ -154,8 +154,6 @@ impl Create {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
         let parent_phys_handle = task_state.load_context(device, &self.parent)?;
 
-        let mut policy_session_auth: Option<Auth> = None;
-
         let (policy_blob, name_alg, parent_empty_auth) =
             if self.parent.class() == TpmHandleClass::Vtpm {
                 task_state.cache.fetch_policy(parent_virt_handle)?
@@ -170,26 +168,13 @@ impl Create {
                 (Vec::new(), public.name_alg, empty)
             };
 
-        let all_auths = self.auth_args.auths(parent_empty_auth);
-        let (cmd_auths, policy_auths) = if parent_empty_auth {
-            (Vec::new(), all_auths.as_ref())
-        } else {
-            (
-                vec![all_auths.first().cloned().unwrap_or_default()],
-                all_auths.get(1..).unwrap_or_default(),
-            )
-        };
-
-        let mut auths = cmd_auths;
-
-        if !policy_blob.is_empty() {
-            if let Some(session_auth) =
-                task_state.build_policy_session(device, &policy_blob, name_alg, policy_auths)?
-            {
-                auths = vec![session_auth.clone()];
-                policy_session_auth = Some(session_auth);
-            }
-        }
+        let (auths, policy_session_auth) = task_state.build_auth(
+            device,
+            &policy_blob,
+            name_alg,
+            parent_empty_auth,
+            &self.auth_args,
+        )?;
 
         let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
         let sensitive_data = self.get_sensitive_data()?;

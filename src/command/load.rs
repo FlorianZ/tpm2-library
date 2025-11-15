@@ -51,8 +51,6 @@ impl Task for Load {
 
                 let parent_handle = Self::fetch_parent(task_state, device, &parent_public)?;
 
-                let mut policy_session_auth: Option<Auth> = None;
-
                 let parent_vhandle_opt = task_state
                     .cache
                     .key_iter()
@@ -77,29 +75,13 @@ impl Task for Load {
                         )
                     };
 
-                let all_auths = self.auth_args.auths(parent_empty_auth);
-                let (cmd_auths, policy_auths) = if parent_empty_auth {
-                    (Vec::new(), all_auths.as_ref())
-                } else {
-                    (
-                        vec![all_auths.first().cloned().unwrap_or_default()],
-                        all_auths.get(1..).unwrap_or_default(),
-                    )
-                };
-
-                let mut auths = cmd_auths;
-
-                if !policy_blob.is_empty() {
-                    if let Some(session_auth) = task_state.build_policy_session(
-                        device,
-                        &policy_blob,
-                        name_alg,
-                        policy_auths,
-                    )? {
-                        auths = vec![session_auth.clone()];
-                        policy_session_auth = Some(session_auth);
-                    }
-                }
+                let (auths, policy_session_auth) = task_state.build_auth(
+                    device,
+                    &policy_blob,
+                    name_alg,
+                    parent_empty_auth,
+                    &self.auth_args,
+                )?;
 
                 let (object_handle, _, loaded_public) = Self::run_load(
                     task_state,
