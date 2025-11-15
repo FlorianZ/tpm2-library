@@ -330,13 +330,13 @@ impl TpmPolicyExpression {
         };
 
         let h_val = if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
-            handle.value().ok_or(HandleError::PatternDenied)?
+            handle.value().ok_or(HandleError::HandlePatternNotAllowed)?
         } else {
             return Err(LanguageError::InvalidExpression(Box::new((**auth_handle).clone())).into());
         };
 
         let ht_byte = (h_val >> 24) as u8;
-        let ht = TpmHt::try_from(ht_byte).map_err(|_| HandleError::InvalidType(ht_byte))?;
+        let ht = TpmHt::try_from(ht_byte).map_err(|_| HandleError::InvalidHandleType(ht_byte))?;
 
         let name = match ht {
             TpmHt::Persistent => Cow::Borrowed(
@@ -346,18 +346,19 @@ impl TpmPolicyExpression {
                     .ok_or_else(|| LanguageError::InvalidExpression(Box::new(self.clone())))?,
             ),
             TpmHt::Permanent => {
-                let rh = TpmRh::try_from(h_val).map_err(|_| HandleError::InvalidType(ht_byte))?;
+                let rh =
+                    TpmRh::try_from(h_val).map_err(|_| HandleError::InvalidHandleType(ht_byte))?;
                 match rh {
                     TpmRh::Owner | TpmRh::Endorsement | TpmRh::Platform | TpmRh::Lockout => {
                         let handle_bytes = (rh as u32).to_be_bytes();
                         let name = Tpm2bName::try_from(handle_bytes.as_slice())
-                            .map_err(|_| HandleError::InvalidType(ht_byte))?;
+                            .map_err(|_| HandleError::InvalidHandleType(ht_byte))?;
                         Cow::Owned(name)
                     }
-                    _ => return Err(HandleError::InvalidType(ht_byte).into()),
+                    _ => return Err(HandleError::InvalidHandleType(ht_byte).into()),
                 }
             }
-            _ => return Err(HandleError::InvalidType(ht_byte).into()),
+            _ => return Err(HandleError::InvalidHandleType(ht_byte).into()),
         };
 
         let policy_ref = copy_ref.unwrap_or_default();

@@ -337,20 +337,20 @@ fn parse_secret_call<'a>(
 
             let (key, value) = copy_ref_ident
                 .split_once(':')
-                .ok_or_else(|| LanguageError::InvalidToken(copy_ref_ident.to_string()))?;
+                .ok_or_else(|| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
 
             if key != "copy_ref" {
-                return Err(LanguageError::InvalidToken(copy_ref_ident.to_string()));
+                return Err(LanguageError::InvalidToken((*copy_ref_ident).to_string()));
             }
 
             let bytes = hex::decode(value)
-                .map_err(|_| LanguageError::InvalidToken(copy_ref_ident.to_string()))?;
+                .map_err(|_| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
 
             if bytes.is_empty() {
                 None
             } else {
                 let digest = Tpm2bDigest::try_from(bytes.as_slice())
-                    .map_err(|_| LanguageError::InvalidToken(copy_ref_ident.to_string()))?;
+                    .map_err(|_| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
                 Some(digest)
             }
         }
