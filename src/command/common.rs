@@ -8,30 +8,30 @@ use crate::{
     command::CommandError,
 };
 use clap::{Args, ValueEnum};
-use std::{borrow::Cow, path::PathBuf, str::FromStr};
+use std::{borrow::Cow, path::PathBuf};
 use strum::{Display, EnumString};
 use tpm2_policy_language::Auth;
 use tpm2_protocol::data::{Tpm2bAuth, TpmaObject};
 
-/// Validates that the authorization string is a password authorization.
+/// Parses an authentication string as 'empty' or a hex string.
 ///
 /// # Errors
 ///
-/// Returns an error if the string is not a valid `Auth` or is not the
-/// `Auth::Password` variant.
-fn validate_password_auth(s: &str) -> Result<Auth, String> {
-    let auth = Auth::from_str(s).map_err(|e| e.to_string())?;
-    if matches!(auth, Auth::Password(_)) {
-        Ok(auth)
+/// Returns an error if the string is not 'empty' and is not valid hex.
+fn parse_auth_password(s: &str) -> Result<Auth, String> {
+    if s == "empty" {
+        Ok(Auth::Password(Vec::new()))
     } else {
-        Err("Only 'password:<hex>' authorizations are supported".to_string())
+        hex::decode(s)
+            .map(Auth::Password)
+            .map_err(|e| e.to_string())
     }
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AuthArgs {
-    /// List of 'password:<hex>' entries.
-    #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = validate_password_auth)]
+    /// Authentication value: 'empty' or '<hex string>'
+    #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = parse_auth_password)]
     pub auth: Vec<Auth>,
 }
 
