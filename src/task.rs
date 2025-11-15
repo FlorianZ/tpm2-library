@@ -3,7 +3,7 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::KeyError,
+    alg::AlgError,
     device::{Device, DeviceError, TpmCommandObject},
     vtpm::{build_password_session, create_auth, VtpmCache, VtpmError, VtpmSession},
     write_object,
@@ -58,7 +58,7 @@ pub enum TaskError {
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
     #[error("key error: {0}")]
-    Key(#[from] KeyError),
+    Key(#[from] AlgError),
     #[error("cache: {0}")]
     Vtpm(#[from] VtpmError),
     #[error("device: {0}")]
@@ -178,10 +178,10 @@ impl<'a> TaskState<'a> {
                 remainder = rest;
 
                 let policy_cmd = TpmPolicyCommand::from_raw(cc, body_blob.to_vec())
-                    .map_err(|e| TaskError::Key(KeyError::TpmKey(e)))?;
+                    .map_err(|e| TaskError::Key(AlgError::TpmKey(e)))?;
                 policy_cmd
                     .to_command()
-                    .map_err(|e| TaskError::Key(KeyError::TpmKey(e)))?
+                    .map_err(|e| TaskError::Key(AlgError::TpmKey(e)))?
             };
             commands.push((cmd, auth));
         }

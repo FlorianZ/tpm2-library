@@ -35,7 +35,7 @@ pub use return_code::*;
 pub use unseal::*;
 
 use crate::{
-    alg::{AlgInfo, KeyError},
+    alg::{AlgError, AlgInfo},
     device::DeviceError,
     pcr::PcrError,
     task::{TaskError, TaskState},
@@ -140,7 +140,7 @@ pub enum CommandError {
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("key error: {0}")]
-    Key(#[from] KeyError),
+    Key(#[from] AlgError),
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
     #[error("policy parse: {0}")]

@@ -3,7 +3,7 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::KeyError,
+    alg::AlgError,
     command::{CommandError, OutputEncoding},
 };
 use std::{
@@ -47,8 +47,8 @@ pub fn write_key_data(
     encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
     let output_bytes = match encoding {
-        OutputEncoding::Der => tpm_key.to_der().map_err(KeyError::from)?,
-        OutputEncoding::Pem => tpm_key.to_pem().map_err(KeyError::from)?.into_bytes(),
+        OutputEncoding::Der => tpm_key.to_der().map_err(AlgError::from)?,
+        OutputEncoding::Pem => tpm_key.to_pem().map_err(AlgError::from)?.into_bytes(),
     };
 
     write_data(writer, output, &output_bytes)

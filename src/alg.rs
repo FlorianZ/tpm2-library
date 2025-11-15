@@ -9,7 +9,7 @@ use tpm2_protocol::data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms};
 use tpm2_tpmkey::Error as TpmKeyError;
 
 #[derive(Debug, Error)]
-pub enum KeyError {
+pub enum AlgError {
     #[error("unsupported name algorithm: {0}")]
     InvalidAlgorithm(String),
     #[error("invalid algorithm format: '{0}'")]
@@ -43,9 +43,9 @@ impl Alg {
     /// # Errors
     ///
     /// Returns an `KeyError` if the provided hash algorithm string is invalid.
-    pub fn new_keyedhash(hash_alg: &str) -> Result<Self, KeyError> {
+    pub fn new_keyedhash(hash_alg: &str) -> Result<Self, AlgError> {
         let name_alg = Hash::from_str(hash_alg)
-            .map_err(|_| KeyError::InvalidAlgorithm(hash_alg.to_string()))?
+            .map_err(|_| AlgError::InvalidAlgorithm(hash_alg.to_string()))?
             .into();
         Ok(Self {
             name: format!("keyedhash:{hash_alg}"),
@@ -63,18 +63,18 @@ impl std::fmt::Display for Alg {
 }
 
 impl std::str::FromStr for Alg {
-    type Err = KeyError;
+    type Err = AlgError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(rest) = s.strip_prefix("rsa-") {
             let (bits_str, name_alg_str) = rest
                 .split_once(':')
-                .ok_or_else(|| KeyError::InvalidAlgorithmFormat(s.to_string()))?;
+                .ok_or_else(|| AlgError::InvalidAlgorithmFormat(s.to_string()))?;
             let key_bits: u16 = bits_str
                 .parse()
-                .map_err(|_| KeyError::InvalidRsaKeyBits(bits_str.to_string()))?;
+                .map_err(|_| AlgError::InvalidRsaKeyBits(bits_str.to_string()))?;
             let name_alg = Hash::from_str(name_alg_str)
-                .map_err(|_| KeyError::InvalidAlgorithm(name_alg_str.to_string()))?
+                .map_err(|_| AlgError::InvalidAlgorithm(name_alg_str.to_string()))?
                 .into();
             Ok(Self {
                 name: s.to_string(),
@@ -85,12 +85,12 @@ impl std::str::FromStr for Alg {
         } else if let Some(rest) = s.strip_prefix("ecc-") {
             let (curve_str, name_alg_str) = rest
                 .split_once(':')
-                .ok_or_else(|| KeyError::InvalidAlgorithmFormat(s.to_string()))?;
+                .ok_or_else(|| AlgError::InvalidAlgorithmFormat(s.to_string()))?;
             let curve_id: TpmEccCurve = EccCurve::from_str(curve_str)
-                .map_err(|_| KeyError::InvalidEccCurve(curve_str.to_string()))?
+                .map_err(|_| AlgError::InvalidEccCurve(curve_str.to_string()))?
                 .into();
             let name_alg = Hash::from_str(name_alg_str)
-                .map_err(|_| KeyError::InvalidAlgorithm(name_alg_str.to_string()))?
+                .map_err(|_| AlgError::InvalidAlgorithm(name_alg_str.to_string()))?
                 .into();
             Ok(Self {
                 name: s.to_string(),
@@ -101,7 +101,7 @@ impl std::str::FromStr for Alg {
         } else if let Some(name_alg_str) = s.strip_prefix("keyedhash:") {
             Self::new_keyedhash(name_alg_str)
         } else {
-            Err(KeyError::InvalidAlgorithmFormat(s.to_string()))
+            Err(AlgError::InvalidAlgorithmFormat(s.to_string()))
         }
     }
 }
