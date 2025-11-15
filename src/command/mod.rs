@@ -95,8 +95,10 @@ pub fn deny_keyedhash(algorithm: &crate::alg::Alg) -> Result<(), CommandError> {
 
 #[derive(Debug, Error)]
 pub enum CommandError {
-    #[error("authentication denied")]
-    AuthenticationDenied,
+    #[error("access denied")]
+    AccessDenied,
+    #[error("authentication missing")]
+    AuthenticationMissing,
     #[error("capacity exceeded")]
     CapacityExceeded,
     #[error("dictionary attack lockout is active")]
@@ -175,8 +177,11 @@ impl CommandError {
             {
                 return Self::InvalidParentHandle(context);
             }
-            if base == TpmRcBase::AuthFail || base == TpmRcBase::AuthMissing {
-                return Self::AuthenticationDenied;
+            if base == TpmRcBase::AuthFail {
+                return Self::AccessDenied;
+            }
+            if base == TpmRcBase::AuthMissing {
+                return Self::AuthenticationMissing;
             }
             if base == TpmRcBase::Lockout {
                 return Self::DictionaryAttackLocked;
