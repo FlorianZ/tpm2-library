@@ -310,23 +310,22 @@ impl<'a> VtpmCache<'a> {
             };
 
             let ht = (vhandle >> 24) as u8;
-            let context_result: Result<Box<dyn VtpmContext>, VtpmError> =
-                if ht == TpmHt::Transient as u8 {
-                    VtpmKey::load_from_path(&path).map(|k| Box::new(k) as Box<dyn VtpmContext>)
-                } else if ht == TpmHt::HmacSession as u8 || ht == TpmHt::PolicySession as u8 {
-                    VtpmSession::load_from_path(&path).map(|s| Box::new(s) as Box<dyn VtpmContext>)
-                } else {
-                    log::warn!("invalid type prefix: {}", path.display());
-                    continue;
-                };
-
-            match context_result {
-                Ok(context) => {
-                    self.contexts.insert(vhandle, context);
+            if ht == TpmHt::Transient as u8 {
+                match VtpmKey::load_from_path(&path) {
+                    Ok(key) => {
+                        self.contexts.insert(vhandle, Box::new(key));
+                    }
+                    Err(e) => {
+                        log::warn!("{}: {}", path.display(), e);
+                    }
                 }
-                Err(e) => {
-                    log::warn!("{}: {}", path.display(), e);
+            } else if ht == TpmHt::HmacSession as u8 || ht == TpmHt::PolicySession as u8 {
+                log::debug!("removing stale session file: {}", path.display());
+                if let Err(e) = fs::remove_file(&path) {
+                    log::warn!("failed to remove stale session {}: {}", path.display(), e);
                 }
+            } else {
+                log::warn!("invalid type prefix: {}", path.display());
             }
         }
         Ok(())
@@ -494,7 +493,6 @@ impl<'a> VtpmCache<'a> {
     pub fn add_session(&mut self, session: VtpmSession) -> u32 {
         let vhandle = session.handle();
         self.contexts.insert(vhandle, Box::new(session));
-        self.dirty.insert(vhandle);
         vhandle
     }
 

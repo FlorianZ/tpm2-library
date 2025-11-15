@@ -3,10 +3,7 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{RefreshAction, VtpmContext, VtpmError};
-use crate::{
-    device::{Device, DeviceError},
-    write_object,
-};
+use crate::device::{Device, DeviceError};
 use std::{any::Any, fs, path::Path};
 use tpm2_crypto::Hash;
 use tpm2_protocol::{
@@ -16,7 +13,7 @@ use tpm2_protocol::{
         TpmsAuthCommand, TpmsContext,
     },
     frame::TpmStartAuthSessionResponse,
-    TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
+    TpmHandle, TpmSized,
 };
 
 /// Manages the state of an active authorization session.
@@ -74,31 +71,6 @@ impl VtpmSession {
             auth_hash,
         })
     }
-
-    /// Loads a session from a binary file.
-    pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
-        let session_bytes = fs::read(path)?;
-        let (context, remainder) =
-            TpmsContext::unmarshal(&session_bytes).map_err(VtpmError::Protocol)?;
-        let (nonce_tpm, remainder) =
-            Tpm2bNonce::unmarshal(remainder).map_err(VtpmError::Protocol)?;
-        let (attributes, remainder) =
-            TpmaSession::unmarshal(remainder).map_err(VtpmError::Protocol)?;
-        let (hmac_key, remainder) = Tpm2bAuth::unmarshal(remainder).map_err(VtpmError::Protocol)?;
-        let (auth_hash, remainder) = TpmAlgId::unmarshal(remainder).map_err(VtpmError::Protocol)?;
-
-        if !remainder.is_empty() {
-            log::warn!("trailing data");
-        }
-
-        Ok(Self {
-            context,
-            nonce_tpm,
-            attributes,
-            hmac_key,
-            auth_hash,
-        })
-    }
 }
 
 impl VtpmContext for VtpmSession {
@@ -126,9 +98,7 @@ impl VtpmContext for VtpmSession {
         String::new()
     }
 
-    fn save(&self, path: &Path) -> Result<(), VtpmError> {
-        let bytes = write_object(self).map_err(VtpmError::Protocol)?;
-        fs::write(path, bytes)?;
+    fn save(&self, _path: &Path) -> Result<(), VtpmError> {
         Ok(())
     }
 
@@ -183,27 +153,6 @@ impl VtpmContext for VtpmSession {
     }
 }
 
-impl TpmSized for VtpmSession {
-    const SIZE: usize = 0;
-    fn len(&self) -> usize {
-        self.context.len()
-            + self.nonce_tpm.len()
-            + self.attributes.len()
-            + self.hmac_key.len()
-            + self.auth_hash.len()
-    }
-}
-
-impl TpmMarshal for VtpmSession {
-    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmProtocolError> {
-        self.context.marshal(writer)?;
-        self.nonce_tpm.marshal(writer)?;
-        self.attributes.marshal(writer)?;
-        self.hmac_key.marshal(writer)?;
-        self.auth_hash.marshal(writer)
-    }
-}
-
 /// Creates a password authorization session command structure.
 ///
 /// # Errors
@@ -247,9 +196,15 @@ pub fn create_auth(
                     .map_err(VtpmError::Device)
             } else {
                 let mut buf = [0u8; TpmHandle::SIZE];
-                let mut writer = TpmWriter::new(&mut buf);
-                TpmHandle(handle).marshal(&mut writer)?;
-                let len = writer.len();
+                let mut pos = 0;
+                handle.to_be_bytes().iter().for_each(|b| {
+                    if pos < buf.len() {
+                        buf[pos] = *b;
+                        pos += 1;
+                    }
+                });
+                let len = pos;
+
                 if let Ok(name) = Tpm2bName::try_from(&buf[..len]) {
                     Ok(name)
                 } else {
