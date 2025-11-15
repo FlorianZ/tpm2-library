@@ -51,14 +51,55 @@ impl Task for Load {
 
                 let parent_handle = Self::fetch_parent(task_state, device, &parent_public)?;
 
-                let parent_empty_auth = parent_public
-                    .inner
-                    .object_attributes
-                    .contains(TpmaObject::ADMIN_WITH_POLICY)
-                    && !parent_public
-                        .inner
-                        .object_attributes
-                        .contains(TpmaObject::USER_WITH_AUTH);
+                let mut policy_session_auth: Option<Auth> = None;
+
+                let parent_vhandle_opt = task_state
+                    .cache
+                    .key_iter()
+                    .find(|(_, key)| key.public == parent_public)
+                    .map(|(vhandle, _)| *vhandle);
+
+                let (policy_blob, name_alg, parent_empty_auth) =
+                    if let Some(parent_vhandle) = parent_vhandle_opt {
+                        task_state.cache.fetch_policy(parent_vhandle)?
+                    } else {
+                        (
+                            Vec::new(),
+                            parent_public.inner.name_alg,
+                            parent_public
+                                .inner
+                                .object_attributes
+                                .contains(TpmaObject::ADMIN_WITH_POLICY)
+                                && !parent_public
+                                    .inner
+                                    .object_attributes
+                                    .contains(TpmaObject::USER_WITH_AUTH),
+                        )
+                    };
+
+                let all_auths = self.auth_args.auths(parent_empty_auth);
+                let (cmd_auths, policy_auths) = if parent_empty_auth {
+                    (Vec::new(), all_auths.as_ref())
+                } else {
+                    (
+                        vec![all_auths.first().cloned().unwrap_or_default()],
+                        all_auths.get(1..).unwrap_or_default(),
+                    )
+                };
+
+                let mut auths = cmd_auths;
+
+                if !policy_blob.is_empty() {
+                    if let Some(session_auth) = task_state.build_policy_session(
+                        device,
+                        &policy_blob,
+                        name_alg,
+                        policy_auths,
+                    )? {
+                        auths = vec![session_auth.clone()];
+                        policy_session_auth = Some(session_auth);
+                    }
+                }
 
                 let (object_handle, _, loaded_public) = Self::run_load(
                     task_state,
@@ -66,8 +107,22 @@ impl Task for Load {
                     parent_handle,
                     tpm_key.private(),
                     tpm_key.public(),
-                    self.auth_args.auths(parent_empty_auth).as_ref(),
-                )?;
+                    &auths,
+                )
+                .inspect_err(|e: &CommandError| {
+                    log::debug!("run_load failed: {e}");
+                    if let Some(Auth::Session(vhandle)) = policy_session_auth {
+                        if let Err(e) = task_state.cache.remove(device, vhandle) {
+                            log::error!("vtpm:{vhandle:08x}: {e}");
+                        }
+                    }
+                })?;
+
+                if let Some(Auth::Session(vhandle)) = policy_session_auth {
+                    if let Err(e) = task_state.cache.remove(device, vhandle) {
+                        log::error!("vtpm:{vhandle:08x}: {e}");
+                    }
+                }
 
                 let policy_blob = if let Some(policy) = &tpm_key.policy {
                     Some(VtpmKey::policy_from_tpmkey_policy(policy)?)
