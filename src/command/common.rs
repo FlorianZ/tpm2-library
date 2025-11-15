@@ -8,28 +8,50 @@ use crate::{
     command::CommandError,
 };
 use clap::{Args, ValueEnum};
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, path::PathBuf, str::FromStr};
 use strum::{Display, EnumString};
 use tpm2_policy_language::Auth;
 use tpm2_protocol::data::{Tpm2bAuth, TpmaObject};
 
+/// Validates that the authorization string is a password authorization.
+///
+/// # Errors
+///
+/// Returns an error if the string is not a valid `Auth` or is not the
+/// `Auth::Password` variant.
+fn validate_password_auth(s: &str) -> Result<Auth, String> {
+    let auth = Auth::from_str(s).map_err(|e| e.to_string())?;
+    if matches!(auth, Auth::Password(_)) {
+        Ok(auth)
+    } else {
+        Err("Only 'password:<hex>' authorizations are supported".to_string())
+    }
+}
+
 #[derive(Args, Debug, Clone, Default)]
 pub struct AuthArgs {
-    /// List of 'password:<hex>', 'policy:<hex>' or 'vtpm:<handle>' entries.
-    #[arg(short = 'A', long = "auth", value_delimiter = ',')]
+    /// List of 'password:<hex>' entries.
+    #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = validate_password_auth)]
     pub auth: Vec<Auth>,
 }
 
 impl AuthArgs {
     /// Returns a slice of authorizations.
     ///
-    /// If no authorizations were provided on the command line, this returns
-    /// a default slice representing a single empty password, which is the
-    /// required behavior for most authorized commands.
+    /// If no authorizations were provided, this returns a default slice
+    /// representing a single empty password, unless `empty_auth` is true.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `CommandError` if a non-password auth is encountered.
     #[must_use]
-    pub fn auths(&self) -> Cow<'_, [Auth]> {
+    pub fn auths(&self, empty_auth: bool) -> Cow<'_, [Auth]> {
         if self.auth.is_empty() {
-            Cow::Owned(vec![Auth::default()])
+            if empty_auth {
+                Cow::Owned(vec![])
+            } else {
+                Cow::Owned(vec![Auth::default()])
+            }
         } else {
             Cow::Borrowed(self.auth.as_slice())
         }

@@ -14,7 +14,7 @@ use crate::{
 use clap::Args;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
 use tpm2_protocol::{
-    data::{Tpm2bName, Tpm2bPublic, TpmCc},
+    data::{Tpm2bName, Tpm2bPublic, TpmCc, TpmaObject},
     frame::TpmLoadCommand,
     TpmHandle,
 };
@@ -51,13 +51,22 @@ impl Task for Load {
 
                 let parent_handle = Self::fetch_parent(task_state, device, &parent_public)?;
 
+                let parent_empty_auth = parent_public
+                    .inner
+                    .object_attributes
+                    .contains(TpmaObject::ADMIN_WITH_POLICY)
+                    && !parent_public
+                        .inner
+                        .object_attributes
+                        .contains(TpmaObject::USER_WITH_AUTH);
+
                 let (object_handle, _, loaded_public) = Self::run_load(
                     task_state,
                     device,
                     parent_handle,
                     tpm_key.private(),
                     tpm_key.public(),
-                    self.auth_args.auths().as_ref(),
+                    self.auth_args.auths(parent_empty_auth).as_ref(),
                 )?;
 
                 let policy_blob = if let Some(policy) = &tpm_key.policy {

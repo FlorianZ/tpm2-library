@@ -154,25 +154,40 @@ impl Create {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
         let parent_phys_handle = task_state.load_context(device, &self.parent)?;
 
-        let mut auths = self.auth_args.auths().to_vec();
         let mut policy_session_auth: Option<Auth> = None;
 
-        let key_info = if self.parent.class() == HandleClass::Vtpm {
-            task_state.cache.fetch_policy(parent_virt_handle).ok()
+        let (policy_blob, name_alg, parent_empty_auth) = if self.parent.class() == HandleClass::Vtpm
+        {
+            task_state.cache.fetch_policy(parent_virt_handle)?
         } else {
-            None
+            let (public, _) = device.read_public(parent_phys_handle)?;
+            let empty = public
+                .object_attributes
+                .contains(TpmaObject::ADMIN_WITH_POLICY)
+                && !public
+                    .object_attributes
+                    .contains(TpmaObject::USER_WITH_AUTH);
+            (Vec::new(), public.name_alg, empty)
         };
 
-        if self.auth_args.auths().as_ref() == [Auth::default()] {
-            if let Some((policy_blob, name_alg)) = key_info {
-                if !policy_blob.is_empty() {
-                    if let Some(session_auth) =
-                        task_state.build_policy_session(device, &policy_blob, name_alg)?
-                    {
-                        auths = vec![session_auth.clone()];
-                        policy_session_auth = Some(session_auth);
-                    }
-                }
+        let all_auths = self.auth_args.auths(parent_empty_auth);
+        let (cmd_auths, policy_auths) = if parent_empty_auth {
+            (Vec::new(), all_auths.as_ref())
+        } else {
+            (
+                vec![all_auths.first().cloned().unwrap_or_default()],
+                all_auths.get(1..).unwrap_or_default(),
+            )
+        };
+
+        let mut auths = cmd_auths;
+
+        if !policy_blob.is_empty() {
+            if let Some(session_auth) =
+                task_state.build_policy_session(device, &policy_blob, name_alg, policy_auths)?
+            {
+                auths = vec![session_auth.clone()];
+                policy_session_auth = Some(session_auth);
             }
         }
 

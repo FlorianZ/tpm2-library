@@ -63,14 +63,15 @@ impl Task for CreatePrimary {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let (resp, _) = task_state.execute(device, &cmd, &handles, &self.auth_args.auths())?;
+            let empty_auth = object_attributes.contains(TpmaObject::ADMIN_WITH_POLICY)
+                && !object_attributes.contains(TpmaObject::USER_WITH_AUTH);
+
+            let (resp, _) =
+                task_state.execute(device, &cmd, &handles, &self.auth_args.auths(empty_auth))?;
 
             let resp = resp
                 .CreatePrimary()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
-
-            let empty_auth = object_attributes.contains(TpmaObject::ADMIN_WITH_POLICY)
-                && !object_attributes.contains(TpmaObject::USER_WITH_AUTH);
 
             let object_handle = resp.object_handle;
             task_state.cache.track(object_handle)?;

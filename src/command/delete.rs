@@ -64,7 +64,7 @@ fn delete_tpm_handles(
                                 dev,
                                 persistent_handle,
                                 persistent_handle,
-                                auth_args.auths().as_ref(),
+                                auth_args.auths(false).as_ref(),
                             )?;
                         }
                         _ => {}

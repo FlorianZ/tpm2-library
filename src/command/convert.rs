@@ -23,7 +23,7 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
-        TpmCc, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
+        TpmCc, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     frame::TpmImportCommand,
     TpmHandle, TpmMarshal, TpmProtocolError, TpmWriter,
@@ -276,7 +276,18 @@ impl Convert {
         };
 
         let handles = [parent_handle.0];
-        let (resp, _) = task_state.execute(device, &import_cmd, &handles, &auth_args.auths())?;
+        let parent_empty_auth = parent_public
+            .object_attributes
+            .contains(TpmaObject::ADMIN_WITH_POLICY)
+            && !parent_public
+                .object_attributes
+                .contains(TpmaObject::USER_WITH_AUTH);
+        let (resp, _) = task_state.execute(
+            device,
+            &import_cmd,
+            &handles,
+            &auth_args.auths(parent_empty_auth),
+        )?;
 
         let import_resp = resp
             .Import()

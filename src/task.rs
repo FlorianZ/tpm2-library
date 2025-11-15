@@ -43,7 +43,7 @@ pub enum TaskError {
     HandleNotFound(&'static str, u32),
     #[error("handle name not found: {}", hex::encode(.0.as_ref()))]
     HandleNameNotFound(Tpm2bName),
-    #[error("invalid auth")]
+    #[error("invalid auth: only password auths are supported in policies")]
     InvalidAuth,
     #[error("invalid parent: {0}{1:08x}")]
     InvalidParent(&'static str, u32),
@@ -129,6 +129,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut Device,
         policy_blob: &[u8],
+        policy_auths: &mut std::slice::Iter<'_, Auth>,
     ) -> Result<Option<TpmCommandList>, TaskError> {
         if policy_blob.is_empty() {
             return Ok(None);
@@ -170,7 +171,18 @@ impl<'a> TaskState<'a> {
                         policy_ref,
                         expiration: 0,
                     });
-                (tpm_cmd, TpmAuthCommands::new())
+
+                let auth = policy_auths.next().cloned().unwrap_or_default();
+                let auth_cmd = match auth {
+                    Auth::Password(val) => build_password_session(&val)?,
+                    _ => return Err(TaskError::InvalidAuth),
+                };
+
+                let mut auths = TpmAuthCommands::new();
+                auths
+                    .push(auth_cmd)
+                    .map_err(|_| TaskError::CapacityExceeded)?;
+                (tpm_cmd, auths)
             } else {
                 let (body_blob, rest) =
                     TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)
@@ -204,8 +216,11 @@ impl<'a> TaskState<'a> {
         device: &mut Device,
         policy_blob: &[u8],
         key_name_alg: TpmAlgId,
+        policy_auths: &[Auth],
     ) -> Result<Option<Auth>, TaskError> {
-        let Some(commands) = self.to_policy_command_list(device, policy_blob)? else {
+        let mut auth_iter = policy_auths.iter();
+        let Some(commands) = self.to_policy_command_list(device, policy_blob, &mut auth_iter)?
+        else {
             return Ok(None);
         };
 

@@ -50,7 +50,7 @@ impl Task for Evict {
                     dev,
                     transient_handle,
                     persistent_handle,
-                    &self.auth_args.auths(),
+                    &self.auth_args.auths(false),
                 )?;
 
                 task_state.cache.remove(dev, vhandle)?;
