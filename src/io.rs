@@ -60,12 +60,8 @@ fn write_data(
     data: &[u8],
 ) -> Result<(), CommandError> {
     if let Some(path) = output_path {
-        if path.to_str() == Some("-") {
-            writer.write_all(data)?;
-        } else {
-            fs::write(path, data)?;
-            writeln!(writer, "file:{}", path.to_string_lossy())?;
-        }
+        fs::write(path, data)?;
+        writeln!(writer, "file:{}", path.to_string_lossy())?;
     } else {
         writer.write_all(data)?;
     }
