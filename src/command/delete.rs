@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    task::{Auth, TaskState},
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
@@ -64,11 +64,7 @@ fn delete_tpm_handles(
                                 dev,
                                 persistent_handle,
                                 persistent_handle,
-                                &auth_args
-                                    .auths(false)
-                                    .iter()
-                                    .cloned()
-                                    .collect::<Vec<Auth>>(),
+                                auth_args.auths(false).as_ref(),
                             )?;
                         }
                         _ => {}

@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    task::{Auth, TaskState},
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
@@ -50,12 +50,7 @@ impl Task for Evict {
                     dev,
                     transient_handle,
                     persistent_handle,
-                    &self
-                        .auth_args
-                        .auths(false)
-                        .iter()
-                        .cloned()
-                        .collect::<Vec<Auth>>(),
+                    self.auth_args.auths(false).as_ref(),
                 )?;
 
                 task_state.cache.remove(dev, vhandle)?;
