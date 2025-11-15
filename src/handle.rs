@@ -2,29 +2,9 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+use crate::LanguageError;
 use std::{fmt, str::FromStr};
-use thiserror::Error;
 use tpm2_protocol::data::TpmHt;
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum HandleError {
-    #[error("handle has more than one asterisk")]
-    HandleHasTooManyAsterisks,
-    #[error("handle pattern is not allowed")]
-    HandlePatternNotAllowed,
-    #[error("handle prefix is missing")]
-    HandlePrefixMissing,
-    #[error("handle is less than eight characters")]
-    HandleTooLong,
-    #[error("handle has more than eight characters")]
-    HandleTooShort,
-    #[error("invalid handle character: {0}")]
-    InvalidHandleCharacter(char),
-    #[error("invalid handle prefix")]
-    InvalidHandlePrefix,
-    #[error("invalid handle type: 0x{0:02x}")]
-    InvalidHandleType(u8),
-}
 
 /// Handle classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,15 +90,17 @@ impl std::fmt::Display for Handle {
 }
 
 impl FromStr for Handle {
-    type Err = HandleError;
+    type Err = LanguageError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (scheme_str, value_str) = s.split_once(':').ok_or(HandleError::HandlePrefixMissing)?;
+        let (scheme_str, value_str) = s
+            .split_once(':')
+            .ok_or(LanguageError::HandlePrefixMissing)?;
 
         let class = match scheme_str {
             "tpm" => HandleClass::Tpm,
             "vtpm" => HandleClass::Vtpm,
-            _ => return Err(HandleError::InvalidHandlePrefix),
+            _ => return Err(LanguageError::InvalidHandlePrefix),
         };
 
         if value_str == "*" {
@@ -132,10 +114,10 @@ impl FromStr for Handle {
         let mut normalized_str = String::with_capacity(8);
         if let Some((prefix, suffix)) = value_str.split_once('*') {
             if suffix.contains('*') {
-                return Err(HandleError::HandleHasTooManyAsterisks);
+                return Err(LanguageError::HandleHasTooManyAsterisks);
             }
             if prefix.len() + suffix.len() > 8 {
-                return Err(HandleError::HandleTooShort);
+                return Err(LanguageError::HandleTooShort);
             }
             normalized_str.push_str(prefix);
             normalized_str.extend(
@@ -144,10 +126,10 @@ impl FromStr for Handle {
             normalized_str.push_str(suffix);
         } else {
             if value_str.len() < 8 {
-                return Err(HandleError::HandleTooLong);
+                return Err(LanguageError::HandleTooLong);
             }
             if value_str.len() > 8 {
-                return Err(HandleError::HandleTooShort);
+                return Err(LanguageError::HandleTooShort);
             }
             normalized_str.push_str(value_str);
         }
@@ -166,7 +148,7 @@ impl FromStr for Handle {
                 None if c == '?' => {}
                 None => {
                     let c = if c.is_alphanumeric() { c } else { '?' };
-                    return Err(HandleError::InvalidHandleCharacter(c));
+                    return Err(LanguageError::InvalidHandleCharacter(c));
                 }
             }
         }
@@ -176,11 +158,13 @@ impl FromStr for Handle {
 }
 
 impl TryFrom<Handle> for TpmHt {
-    type Error = HandleError;
+    type Error = LanguageError;
 
     fn try_from(handle: Handle) -> Result<Self, Self::Error> {
-        let raw_handle = handle.value().ok_or(HandleError::HandlePatternNotAllowed)?;
+        let raw_handle = handle
+            .value()
+            .ok_or(LanguageError::HandlePatternNotAllowed)?;
         let ht_byte = (raw_handle >> 24) as u8;
-        TpmHt::try_from(ht_byte).map_err(|_| HandleError::InvalidHandleType(ht_byte))
+        TpmHt::try_from(ht_byte).map_err(|_| LanguageError::InvalidHandleType(ht_byte))
     }
 }
