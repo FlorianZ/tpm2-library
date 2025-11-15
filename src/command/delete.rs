@@ -6,17 +6,17 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    task::TaskState,
+    task::{Auth, TaskState},
 };
 use clap::Args;
-use tpm2_policy_language::{Handle, HandleClass};
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{data::TpmHt, TpmHandle};
 
 /// Deletes active and cached objects.
 #[derive(Args, Debug)]
 pub struct Delete {
     /// Input: 'tpm:<handle pattern>', or 'vtpm:<handle pattern>'
-    pub input: Handle,
+    pub input: TpmHandleRef,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -25,8 +25,8 @@ pub struct Delete {
 impl Task for Delete {
     fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
         match self.input.class() {
-            HandleClass::Tpm => delete_tpm_handles(task_state, &self.input, &self.auth_args),
-            HandleClass::Vtpm => delete_vtpm_handles(task_state, &self.input),
+            TpmHandleClass::Tpm => delete_tpm_handles(task_state, &self.input, &self.auth_args),
+            TpmHandleClass::Vtpm => delete_vtpm_handles(task_state, &self.input),
         }
     }
 }
@@ -34,7 +34,7 @@ impl Task for Delete {
 /// Deletes TPM objects matching a pattern across sessions, transient, and persistent handles.
 fn delete_tpm_handles(
     task_state: &mut TaskState,
-    pattern: &Handle,
+    pattern: &TpmHandleRef,
     auth_args: &AuthArgs,
 ) -> Result<(), CommandError> {
     with_device(task_state.device.clone(), |dev| {
@@ -64,7 +64,11 @@ fn delete_tpm_handles(
                                 dev,
                                 persistent_handle,
                                 persistent_handle,
-                                auth_args.auths(false).as_ref(),
+                                &auth_args
+                                    .auths(false)
+                                    .iter()
+                                    .cloned()
+                                    .collect::<Vec<Auth>>(),
                             )?;
                         }
                         _ => {}
@@ -78,7 +82,10 @@ fn delete_tpm_handles(
 }
 
 /// Deletes vTPM objects (keys and sessions) matching the pattern.
-fn delete_vtpm_handles(task_state: &mut TaskState, pattern: &Handle) -> Result<(), CommandError> {
+fn delete_vtpm_handles(
+    task_state: &mut TaskState,
+    pattern: &TpmHandleRef,
+) -> Result<(), CommandError> {
     let matched_handles: Vec<u32> = task_state
         .cache
         .contexts

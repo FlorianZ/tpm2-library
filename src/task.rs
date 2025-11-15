@@ -17,7 +17,7 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, Error as CryptoError, Hash};
-use tpm2_policy_language::{Auth, Handle, HandleClass};
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
@@ -34,6 +34,19 @@ use tpm2_protocol::{
 use tpm2_tpmkey::TpmPolicyCommand;
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Auth {
+    Password(Vec<u8>),
+    Session(u32),
+    Policy(Vec<u8>),
+}
+
+impl Default for Auth {
+    fn default() -> Self {
+        Self::Password(Vec::new())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum TaskError {
@@ -110,7 +123,7 @@ impl<'a> TaskState<'a> {
 
         if let Some(key) = self.cache.find_by_name(name)? {
             let vhandle = key.handle.0;
-            return self.load_context(device, &Handle::new(HandleClass::Vtpm, vhandle));
+            return self.load_context(device, &TpmHandleRef::new(TpmHandleClass::Vtpm, vhandle));
         }
 
         Err(TaskError::HandleNameNotFound(*name))
@@ -129,7 +142,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut Device,
         policy_blob: &[u8],
-        policy_auths: &mut std::slice::Iter<'_, Auth>,
+        policy_auths: &mut std::slice::Iter<'_, Vec<u8>>,
     ) -> Result<Option<TpmCommandList>, TaskError> {
         if policy_blob.is_empty() {
             return Ok(None);
@@ -173,10 +186,7 @@ impl<'a> TaskState<'a> {
                     });
 
                 let auth = policy_auths.next().cloned().unwrap_or_default();
-                let auth_cmd = match auth {
-                    Auth::Password(val) => build_password_session(&val)?,
-                    _ => return Err(TaskError::InvalidAuth),
-                };
+                let auth_cmd = build_password_session(&auth)?;
 
                 let mut auths = TpmAuthCommands::new();
                 auths
@@ -218,7 +228,16 @@ impl<'a> TaskState<'a> {
         key_name_alg: TpmAlgId,
         policy_auths: &[Auth],
     ) -> Result<Option<Auth>, TaskError> {
-        let mut auth_iter = policy_auths.iter();
+        let mut raw_auths = Vec::new();
+        for auth in policy_auths {
+            if let Auth::Password(p) = auth {
+                raw_auths.push(p.clone());
+            } else {
+                return Err(TaskError::InvalidAuth);
+            }
+        }
+        let mut auth_iter = raw_auths.iter();
+
         let Some(commands) = self.to_policy_command_list(device, policy_blob, &mut auth_iter)?
         else {
             return Ok(None);
@@ -297,11 +316,11 @@ impl<'a> TaskState<'a> {
     pub fn load_context(
         &mut self,
         device: &mut Device,
-        target: &Handle,
+        target: &TpmHandleRef,
     ) -> Result<TpmHandle, TaskError> {
         let target_vhandle = target.value().ok_or(TaskError::InvalidAuth)?;
 
-        if target.class() == HandleClass::Tpm {
+        if target.class() == TpmHandleClass::Tpm {
             return Ok(TpmHandle(target_vhandle));
         }
 
@@ -319,10 +338,10 @@ impl<'a> TaskState<'a> {
                 .value()
                 .ok_or(TaskError::InvalidParent("vtpm:", 0))?;
             match first_handle.class() {
-                HandleClass::Tpm => {
+                TpmHandleClass::Tpm => {
                     phandle = Some(TpmHandle(first_handle_val));
                 }
-                HandleClass::Vtpm => {
+                TpmHandleClass::Vtpm => {
                     let key = self.cache.find_by_vhandle(first_handle_val)?;
                     let loaded_phandle = device.load_context(key.context.clone())?;
                     self.cache.track(loaded_phandle)?;

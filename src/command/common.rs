@@ -6,11 +6,11 @@ use crate::{
     alg::{Alg, AlgInfo},
     cli::Hierarchy,
     command::CommandError,
+    task::Auth,
 };
 use clap::{Args, ValueEnum};
 use std::{borrow::Cow, path::PathBuf};
 use strum::{Display, EnumString};
-use tpm2_policy_language::Auth;
 use tpm2_protocol::data::{Tpm2bAuth, TpmaObject};
 
 /// Parses an authentication string as 'empty' or a hex string.

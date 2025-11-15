@@ -7,7 +7,7 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device},
     io::{read_file_input, write_key_data},
-    task::TaskState,
+    task::{Auth, TaskState},
     write_object,
 };
 use clap::Args;
@@ -17,7 +17,7 @@ use tpm2_crypto::{
     tpm_make_name, EccPublicKey, Error as CryptoError, Hash, PublicKey, RsaPublicKey,
     KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
-use tpm2_policy_language::{Handle, HandleClass};
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -34,7 +34,7 @@ use tpm2_tpmkey::TpmKey;
 #[derive(Args, Debug)]
 pub struct Convert {
     /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
-    pub parent: Handle,
+    pub parent: TpmHandleRef,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -57,12 +57,12 @@ impl Task for Convert {
 
         with_device(task_state.device.clone(), |device| {
             let parent_handle = match self.parent.class() {
-                HandleClass::Tpm => self
+                TpmHandleClass::Tpm => self
                     .parent
                     .value()
                     .map(TpmHandle)
                     .ok_or(CommandError::InvalidHandle),
-                HandleClass::Vtpm => task_state
+                TpmHandleClass::Vtpm => task_state
                     .load_context(device, &self.parent)
                     .map_err(Into::into),
             }?;
@@ -286,7 +286,11 @@ impl Convert {
             device,
             &import_cmd,
             &handles,
-            &auth_args.auths(parent_empty_auth),
+            &auth_args
+                .auths(parent_empty_auth)
+                .iter()
+                .cloned()
+                .collect::<Vec<Auth>>(),
         )?;
 
         let import_resp = resp

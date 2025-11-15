@@ -7,7 +7,7 @@ use crate::{
     cli::Task,
     command::{print_table, AuthArgs, CommandError},
     device::{self, Device, DeviceError},
-    task::TaskState,
+    task::{Auth, TaskState},
 };
 use clap::Args;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
@@ -15,7 +15,7 @@ use pem;
 use strum::Display;
 use tabled::Tabled;
 use tpm2_crypto::{EccCurve, Hash};
-use tpm2_policy_language::{Auth, Handle};
+use tpm2_policy_language::TpmHandleRef;
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
     frame::{TpmNvReadCommand, TpmNvReadPublicCommand},
@@ -46,7 +46,7 @@ struct MemoryRow {
 #[command(about = "Lists objects inside TPM memory or inspects a single handle.")]
 pub struct Memory {
     /// Optional handle to inspect: 'tpm:<handle>'
-    pub handle: Option<Handle>,
+    pub handle: Option<TpmHandleRef>,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -68,7 +68,7 @@ impl Task for Memory {
 impl Memory {
     fn inspect_handle(
         session: &mut TaskState,
-        handle: Handle,
+        handle: TpmHandleRef,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
         device::with_device(session.device.clone(), |device| {
@@ -277,7 +277,7 @@ impl Memory {
         F: FnMut(
             &mut TaskState,
             &mut Device,
-            &Handle,
+            &TpmHandleRef,
             &AuthArgs,
         ) -> Result<Option<String>, CommandError>,
     {
@@ -299,7 +299,7 @@ impl Memory {
         Ok(())
     }
 
-    fn fetch_details(device: &mut Device, handle: &Handle) -> Result<String, CommandError> {
+    fn fetch_details(device: &mut Device, handle: &TpmHandleRef) -> Result<String, CommandError> {
         if let Some(handle_val) = handle.value() {
             let tpm_handle = TpmHandle(handle_val);
             let (public, _) = device.read_public(tpm_handle)?;

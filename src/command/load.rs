@@ -8,11 +8,11 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
     io::read_file_input,
-    task::TaskState,
+    task::{Auth, TaskState},
     vtpm::VtpmKey,
 };
 use clap::Args;
-use tpm2_policy_language::{Auth, Handle, HandleClass};
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     data::{Tpm2bName, Tpm2bPublic, TpmCc, TpmaObject},
     frame::TpmLoadCommand,
@@ -163,7 +163,8 @@ impl Load {
             .map(|(vhandle, _)| *vhandle);
 
         if let Some(vhandle) = vhandle_opt {
-            return Ok(task_state.load_context(device, &Handle::new(HandleClass::Vtpm, vhandle))?);
+            return Ok(task_state
+                .load_context(device, &TpmHandleRef::new(TpmHandleClass::Vtpm, vhandle))?);
         }
 
         Err(CommandError::UnknownParent)

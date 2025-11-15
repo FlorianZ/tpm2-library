@@ -6,6 +6,7 @@
 
 use crate::{
     device::{Device, DeviceError},
+    task::Auth,
     write_object,
 };
 use std::{
@@ -18,7 +19,7 @@ use std::{
 };
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, Error as CryptoError};
-use tpm2_policy_language::{Auth, Error as PolicyLanguageError, Handle, HandleClass};
+use tpm2_policy_language::{Error as PolicyLanguageError, TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmtPublic},
     TpmHandle, TpmProtocolError,
@@ -232,7 +233,7 @@ impl<'a> VtpmCache<'a> {
     /// root can be a persistent physical handle or a non-persistent primary key
     /// stored in the VTPM cache.
     ///
-    /// Returns a list of `Handle`s representing the path from the
+    /// Returns a list of `TpmHandleRef`s representing the path from the
     /// root *down* to the target, ready for loading.
     ///
     /// # Errors
@@ -248,10 +249,10 @@ impl<'a> VtpmCache<'a> {
         &self,
         target_vhandle: u32,
         device: &mut Device,
-    ) -> Result<Vec<Handle>, VtpmError> {
+    ) -> Result<Vec<TpmHandleRef>, VtpmError> {
         let mut current_vhandle = target_vhandle;
-        let mut vtp_chain: VecDeque<Handle> = VecDeque::new();
-        let mut physical_primary: Option<Handle> = None;
+        let mut vtp_chain: VecDeque<TpmHandleRef> = VecDeque::new();
+        let mut physical_primary: Option<TpmHandleRef> = None;
 
         loop {
             let key = self.find_by_vhandle(current_vhandle)?;
@@ -262,12 +263,12 @@ impl<'a> VtpmCache<'a> {
 
             if let Some(parent_key) = self.find_by_public(&key.parent.inner) {
                 let parent_vhandle = parent_key.handle.0;
-                vtp_chain.push_front(Handle::new(HandleClass::Vtpm, current_vhandle));
+                vtp_chain.push_front(TpmHandleRef::new(TpmHandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
                 match device.find_persistent(&key.parent.inner)? {
                     Some((phandle, _)) => {
-                        physical_primary = Some(Handle::new(HandleClass::Tpm, phandle.0));
+                        physical_primary = Some(TpmHandleRef::new(TpmHandleClass::Tpm, phandle.0));
                         break;
                     }
                     None => {
@@ -277,9 +278,9 @@ impl<'a> VtpmCache<'a> {
             }
         }
 
-        vtp_chain.push_front(Handle::new(HandleClass::Vtpm, current_vhandle));
+        vtp_chain.push_front(TpmHandleRef::new(TpmHandleClass::Vtpm, current_vhandle));
 
-        let mut final_chain: Vec<Handle> = vtp_chain.into();
+        let mut final_chain: Vec<TpmHandleRef> = vtp_chain.into();
 
         if let Some(root_handle) = physical_primary {
             final_chain.insert(0, root_handle);

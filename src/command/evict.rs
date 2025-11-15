@@ -6,20 +6,20 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    task::TaskState,
+    task::{Auth, TaskState},
 };
 use clap::Args;
-use tpm2_policy_language::{Handle, HandleClass};
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::TpmHandle;
 
 /// Create persistent object from transient object.
 #[derive(Args, Debug)]
 pub struct Evict {
     /// Input key: 'vtpm:<vhandle>'
-    pub input: Handle,
+    pub input: TpmHandleRef,
 
     /// Persistent handle: 'tpm:<handle>'
-    pub output: Handle,
+    pub output: TpmHandleRef,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -39,7 +39,7 @@ impl Task for Evict {
         with_device(
             task_state.device.clone(),
             |dev| -> Result<(), CommandError> {
-                if self.output.class() != HandleClass::Tpm {
+                if self.output.class() != TpmHandleClass::Tpm {
                     return Err(CommandError::InvalidHandle);
                 }
                 let persistent_handle = TpmHandle(persistent_handle_val);
@@ -50,7 +50,12 @@ impl Task for Evict {
                     dev,
                     transient_handle,
                     persistent_handle,
-                    &self.auth_args.auths(false),
+                    &self
+                        .auth_args
+                        .auths(false)
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<Auth>>(),
                 )?;
 
                 task_state.cache.remove(dev, vhandle)?;

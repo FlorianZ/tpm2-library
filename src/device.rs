@@ -22,7 +22,7 @@ use std::{
 
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, Error as CryptoError};
-use tpm2_policy_language::{Handle, HandleClass};
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
@@ -343,7 +343,7 @@ impl Device {
     /// # Errors
     ///
     /// Returns a `DeviceError` if the `get_capability_page` call to the TPM device fails.
-    pub fn fetch_handles(&mut self, class: u32) -> Result<Vec<Handle>, DeviceError> {
+    pub fn fetch_handles(&mut self, class: u32) -> Result<Vec<TpmHandleRef>, DeviceError> {
         self.get_capability(
             TpmCap::Handles,
             class,
@@ -357,7 +357,7 @@ impl Device {
         .map(|handles| {
             handles
                 .into_iter()
-                .map(|h| Handle::new(HandleClass::Tpm, h))
+                .map(|h| TpmHandleRef::new(TpmHandleClass::Tpm, h))
                 .collect()
         })
     }

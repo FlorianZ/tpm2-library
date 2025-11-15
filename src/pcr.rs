@@ -271,7 +271,7 @@ where
         TpmPolicyExpression::Secret { auth_handle, .. } => {
             visit_pcr_expressions_mut(auth_handle, visitor)?;
         }
-        TpmPolicyExpression::Auth(_) | TpmPolicyExpression::Handle(_) => {}
+        TpmPolicyExpression::Handle(_) => {}
     }
     Ok(())
 }

@@ -11,7 +11,7 @@ use crate::{
     device::{with_device, Device},
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
-    task::{TaskError, TaskState},
+    task::{Auth, TaskError, TaskState},
     template,
     vtpm::VtpmKey,
 };
@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 use clap::Args;
-use tpm2_policy_language::{Auth, Handle, HandleClass, TpmPolicyExpression};
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
@@ -41,7 +41,7 @@ pub struct TpmKeyTemplate<'a> {
 #[command(about = "Creates a secondary key or a sealed data object.")]
 pub struct Create {
     /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
-    pub parent: Handle,
+    pub parent: TpmHandleRef,
 
     /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256'.
     #[arg(value_parser = clap::value_parser!(Alg))]
@@ -156,19 +156,19 @@ impl Create {
 
         let mut policy_session_auth: Option<Auth> = None;
 
-        let (policy_blob, name_alg, parent_empty_auth) = if self.parent.class() == HandleClass::Vtpm
-        {
-            task_state.cache.fetch_policy(parent_virt_handle)?
-        } else {
-            let (public, _) = device.read_public(parent_phys_handle)?;
-            let empty = public
-                .object_attributes
-                .contains(TpmaObject::ADMIN_WITH_POLICY)
-                && !public
+        let (policy_blob, name_alg, parent_empty_auth) =
+            if self.parent.class() == TpmHandleClass::Vtpm {
+                task_state.cache.fetch_policy(parent_virt_handle)?
+            } else {
+                let (public, _) = device.read_public(parent_phys_handle)?;
+                let empty = public
                     .object_attributes
-                    .contains(TpmaObject::USER_WITH_AUTH);
-            (Vec::new(), public.name_alg, empty)
-        };
+                    .contains(TpmaObject::ADMIN_WITH_POLICY)
+                    && !public
+                        .object_attributes
+                        .contains(TpmaObject::USER_WITH_AUTH);
+                (Vec::new(), public.name_alg, empty)
+            };
 
         let all_auths = self.auth_args.auths(parent_empty_auth);
         let (cmd_auths, policy_auths) = if parent_empty_auth {
@@ -294,9 +294,7 @@ fn visit_secret_handles<S: BuildHasher>(
     handles: &mut HashSet<u32, S>,
 ) -> Result<(), CommandError> {
     match ast {
-        TpmPolicyExpression::Pcr { .. }
-        | TpmPolicyExpression::Auth(_)
-        | TpmPolicyExpression::Handle(_) => {}
+        TpmPolicyExpression::Pcr { .. } | TpmPolicyExpression::Handle(_) => {}
         TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
             for branch in branches {
                 visit_secret_handles(branch, handles)?;
@@ -308,7 +306,7 @@ fn visit_secret_handles<S: BuildHasher>(
                     return Err(CommandError::PatternNotAllowed(auth_handle.to_string()));
                 };
 
-                if handle.class() != HandleClass::Tpm
+                if handle.class() != TpmHandleClass::Tpm
                     || (val >> 24) as u8 != TpmHt::Persistent as u8
                 {
                     return Err(CommandError::InvalidHandle);

@@ -5,10 +5,10 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    task::{TaskError, TaskState},
+    task::{Auth, TaskError, TaskState},
 };
 use clap::Args;
-use tpm2_policy_language::{Auth, Handle, HandleClass};
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
@@ -16,7 +16,7 @@ use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand};
 #[command(about = "Retrieves data from a sealed data object.")]
 pub struct Unseal {
     /// Input: 'tpm:<persistent handle>' or 'vtpm:<transient handle>'
-    pub input: Handle,
+    pub input: TpmHandleRef,
 
     /// Force hex output when redirecting to a file or pipe
     #[arg(long)]
@@ -37,7 +37,8 @@ impl Task for Unseal {
             let item_handle = task_state.load_context(device, &self.input)?;
             let mut policy_session_auth: Option<Auth> = None;
 
-            let (policy_blob, name_alg, empty_auth) = if self.input.class() == HandleClass::Vtpm {
+            let (policy_blob, name_alg, empty_auth) = if self.input.class() == TpmHandleClass::Vtpm
+            {
                 task_state.cache.fetch_policy(vhandle)?
             } else {
                 let (public, _) = device.read_public(item_handle)?;
