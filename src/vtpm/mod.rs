@@ -21,7 +21,7 @@ use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, Error as CryptoError};
 use tpm2_policy_language::{Error as PolicyLanguageError, TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
-    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmtPublic},
+    data::{Tpm2bName, TpmAlgId, TpmHt, TpmRc, TpmtPublic},
     TpmHandle, TpmProtocolError,
 };
 use tpm2_tpmkey::Error as TpmKeyError;
@@ -157,7 +157,7 @@ impl<'a> VtpmCache<'a> {
     #[must_use]
     pub fn find_by_public(&self, public: &TpmtPublic) -> Option<&VtpmKey> {
         self.key_iter()
-            .find(|(_, key)| key.public.inner == *public)
+            .find(|(_, key)| key.public == *public)
             .map(|(_, key)| key)
     }
 
@@ -168,7 +168,7 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`Crypto`](crate::vtpm::VtpmError::Crypto) if name calculation fails.
     pub fn find_by_name(&self, target_name: &Tpm2bName) -> Result<Option<&VtpmKey>, VtpmError> {
         for (_, key) in self.key_iter() {
-            let name = tpm_make_name(&key.public.inner)?;
+            let name = tpm_make_name(&key.public)?;
             if name == *target_name {
                 return Ok(Some(key));
             }
@@ -219,11 +219,7 @@ impl<'a> VtpmCache<'a> {
     /// the `vhandle` does not exist or is not a `VtpmKey`.
     pub fn fetch_policy(&self, vhandle: u32) -> Result<(Vec<u8>, TpmAlgId, bool), VtpmError> {
         let key = self.find_by_vhandle(vhandle)?;
-        Ok((
-            key.policy.clone(),
-            key.public.inner.name_alg,
-            key.empty_auth != 0,
-        ))
+        Ok((key.policy.clone(), key.public.name_alg, key.empty_auth != 0))
     }
 
     /// Finds the ancestor chain for a given VTPM handle.
@@ -257,16 +253,16 @@ impl<'a> VtpmCache<'a> {
         loop {
             let key = self.find_by_vhandle(current_vhandle)?;
 
-            if key.parent.inner.object_type == TpmAlgId::Null {
+            if key.parent.object_type == TpmAlgId::Null {
                 break;
             }
 
-            if let Some(parent_key) = self.find_by_public(&key.parent.inner) {
+            if let Some(parent_key) = self.find_by_public(&key.parent) {
                 let parent_vhandle = parent_key.handle.0;
                 vtp_chain.push_front(TpmHandleRef::new(TpmHandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
-                match device.find_persistent(&key.parent.inner)? {
+                match device.find_persistent(&key.parent)? {
                     Some((phandle, _)) => {
                         physical_primary = Some(TpmHandleRef::new(TpmHandleClass::Tpm, phandle.0));
                         break;
@@ -366,7 +362,7 @@ impl<'a> VtpmCache<'a> {
             context
                 .as_any()
                 .downcast_ref::<VtpmKey>()
-                .map(|key| key.public.inner.clone())
+                .map(|key| key.public.clone())
         } else {
             return Ok(deleted_handles);
         };
@@ -386,11 +382,11 @@ impl<'a> VtpmCache<'a> {
     ) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
         for (vhandle, key) in self.key_iter() {
-            let parent_key_bytes = write_object(&key.parent.inner).map_err(VtpmError::Protocol)?;
+            let parent_key_bytes = write_object(&key.parent).map_err(VtpmError::Protocol)?;
             parent_to_children
                 .entry(parent_key_bytes)
                 .or_default()
-                .push((*vhandle, key.public.inner.clone()));
+                .push((*vhandle, key.public.clone()));
         }
 
         let mut ancestor_list = VecDeque::new();
@@ -466,8 +462,8 @@ impl<'a> VtpmCache<'a> {
         &mut self,
         device: &mut Device,
         handle: TpmHandle,
-        public: &Tpm2bPublic,
-        parent_public: &Tpm2bPublic,
+        public: &TpmtPublic,
+        parent_public: &TpmtPublic,
         empty_auth: bool,
         policy: &Option<Vec<u8>>,
     ) -> Result<u32, VtpmError> {

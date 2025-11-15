@@ -78,8 +78,8 @@ impl Task for CreatePrimary {
             let vhandle = task_state.cache.save_context(
                 device,
                 object_handle,
-                &resp.out_public,
-                &Tpm2bPublic::default(),
+                &resp.out_public.inner,
+                &Tpm2bPublic::default().inner,
                 empty_auth,
                 &None,
             )?;

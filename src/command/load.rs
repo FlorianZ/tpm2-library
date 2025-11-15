@@ -54,7 +54,7 @@ impl Task for Load {
                 let parent_vhandle_opt = task_state
                     .cache
                     .key_iter()
-                    .find(|(_, key)| key.public == parent_public)
+                    .find(|(_, key)| key.public == parent_public.inner)
                     .map(|(vhandle, _)| *vhandle);
 
                 let (policy_blob, name_alg, parent_empty_auth) =
@@ -115,8 +115,8 @@ impl Task for Load {
                 let vhandle = task_state.cache.save_context(
                     device,
                     object_handle,
-                    &loaded_public,
-                    &parent_public,
+                    &loaded_public.inner,
+                    &parent_public.inner,
                     tpm_key.empty_auth.unwrap_or_default(),
                     &policy_blob,
                 )?;
@@ -141,7 +141,7 @@ impl Load {
         let vhandle_opt = task_state
             .cache
             .key_iter()
-            .find(|(_, key)| key.public == *parent_public)
+            .find(|(_, key)| key.public == parent_public.inner)
             .map(|(vhandle, _)| *vhandle);
 
         if let Some(vhandle) = vhandle_opt {

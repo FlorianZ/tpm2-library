@@ -461,7 +461,7 @@ impl<'a> TaskState<'a> {
             let parent_phandle = phandle.ok_or(TaskError::ParentNotFound)?;
             let loaded_phandle = device.load_context(key.context.clone())?;
 
-            if device.read_public(parent_phandle)?.1 != tpm_make_name(&key.parent.inner)? {
+            if device.read_public(parent_phandle)?.1 != tpm_make_name(&key.parent)? {
                 self.cache.untrack(loaded_phandle.0);
                 device.flush_context(loaded_phandle)?;
                 return Err(TaskError::InvalidParent("vtpm:", vhandle));

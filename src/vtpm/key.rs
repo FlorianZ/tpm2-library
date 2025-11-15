@@ -12,7 +12,7 @@ use std::{any::Any, fs, path::Path};
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmCc, TpmRcBase, TpmsContext},
+    data::{Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmCc, TpmRcBase, TpmsContext, TpmtPublic},
     frame::{TpmAuthCommands, TpmCommand},
     TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
@@ -22,8 +22,8 @@ use tpm2_tpmkey::{Error as TpmKeyError, TpmPolicy, TpmPolicyCommand};
 pub struct VtpmKey {
     pub context: TpmsContext,
     pub handle: TpmHandle,
-    pub public: Tpm2bPublic,
-    pub parent: Tpm2bPublic,
+    pub public: TpmtPublic,
+    pub parent: TpmtPublic,
     pub empty_auth: u32,
     pub policy: Vec<u8>,
 }
@@ -111,8 +111,14 @@ impl TpmSized for VtpmKey {
     fn len(&self) -> usize {
         self.context.len()
             + self.handle.len()
-            + self.public.len()
-            + self.parent.len()
+            + Tpm2bPublic {
+                inner: self.public.clone(),
+            }
+            .len()
+            + Tpm2bPublic {
+                inner: self.parent.clone(),
+            }
+            .len()
             + u32::SIZE
             + TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::SIZE
     }
@@ -122,8 +128,14 @@ impl TpmMarshal for VtpmKey {
     fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmProtocolError> {
         self.context.marshal(writer)?;
         self.handle.marshal(writer)?;
-        self.public.marshal(writer)?;
-        self.parent.marshal(writer)?;
+        Tpm2bPublic {
+            inner: self.public.clone(),
+        }
+        .marshal(writer)?;
+        Tpm2bPublic {
+            inner: self.parent.clone(),
+        }
+        .marshal(writer)?;
         self.empty_auth.marshal(writer)?;
         TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(self.policy.as_slice())?
             .marshal(writer)?;
@@ -135,8 +147,8 @@ impl TpmUnmarshal for VtpmKey {
     fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmProtocolError> {
         let (context, remainder) = TpmsContext::unmarshal(buffer)?;
         let (handle, remainder) = TpmHandle::unmarshal(remainder)?;
-        let (public, remainder) = Tpm2bPublic::unmarshal(remainder)?;
-        let (parent, remainder) = Tpm2bPublic::unmarshal(remainder)?;
+        let (public_2b, remainder) = Tpm2bPublic::unmarshal(remainder)?;
+        let (parent_2b, remainder) = Tpm2bPublic::unmarshal(remainder)?;
         let (empty_auth, remainder) = u32::unmarshal(remainder)?;
         let (policy_blob, remainder) =
             TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)?;
@@ -145,8 +157,8 @@ impl TpmUnmarshal for VtpmKey {
             Self {
                 context,
                 handle,
-                public,
-                parent,
+                public: public_2b.inner,
+                parent: parent_2b.inner,
                 empty_auth,
                 policy: policy_blob.to_vec(),
             },
@@ -173,7 +185,7 @@ impl VtpmContext for VtpmKey {
     }
 
     fn details(&self) -> String {
-        format_alg_from_public(&self.public.inner)
+        format_alg_from_public(&self.public)
     }
 
     fn save(&self, path: &Path) -> Result<(), VtpmError> {
