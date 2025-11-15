@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 use clap::Args;
-use tpm2_policy_language::{Handle, HandleClass, TpmPolicyExpression};
+use tpm2_policy_language::{Auth, Handle, HandleClass, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
@@ -142,12 +142,39 @@ impl Create {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn create_object(
         &self,
         task_state: &mut TaskState,
         device: &mut Device,
     ) -> Result<(), CommandError> {
-        let parent_handle = task_state.load_context(device, &self.parent)?;
+        let parent_virt_handle = self
+            .parent
+            .value()
+            .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
+        let parent_phys_handle = task_state.load_context(device, &self.parent)?;
+
+        let mut auths = self.auth_args.auths().to_vec();
+        let mut policy_session_auth: Option<Auth> = None;
+
+        let key_info = if self.parent.class() == HandleClass::Vtpm {
+            task_state.cache.fetch_policy(parent_virt_handle).ok()
+        } else {
+            None
+        };
+
+        if self.auth_args.auths().as_ref() == [Auth::default()] {
+            if let Some((policy_blob, name_alg)) = key_info {
+                if !policy_blob.is_empty() {
+                    if let Some(session_auth) =
+                        task_state.build_policy_session(device, &policy_blob, name_alg)?
+                    {
+                        auths = vec![session_auth.clone()];
+                        policy_session_auth = Some(session_auth);
+                    }
+                }
+            }
+        }
 
         let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
         let sensitive_data = self.get_sensitive_data()?;
@@ -164,7 +191,7 @@ impl Create {
                 template::build_public(template.alg_desc, auth_policy_digest, object_attributes);
 
             let create_cmd = TpmCreateCommand {
-                parent_handle: parent_handle.0.into(),
+                parent_handle: parent_phys_handle.0.into(),
                 in_sensitive: Tpm2bSensitiveCreate {
                     inner: TpmsSensitiveCreate {
                         user_auth,
@@ -178,28 +205,40 @@ impl Create {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let handles = [parent_handle.0];
+            let handles = [parent_phys_handle.0];
             let (resp, _) = task_state
-                .execute(device, &create_cmd, &handles, &self.auth_args.auths())
+                .execute(device, &create_cmd, &handles, &auths)
                 .map_err(|e| {
+                    if let Some(Auth::Session(vhandle)) = policy_session_auth {
+                        if let Err(e) = task_state.cache.remove(device, vhandle) {
+                            log::error!("vtpm:{vhandle:08x}: {e}");
+                        }
+                    }
                     if let SessionError::Device(dev_err) = e {
-                        let context = if let Ok(key) =
-                            task_state.cache.find_by_phandle(device, parent_handle.0)
+                        let context = if let Ok(key) = task_state
+                            .cache
+                            .find_by_phandle(device, parent_phys_handle.0)
                         {
                             format!("vtpm:{:08x}", key.context.saved_handle.0)
                         } else {
-                            format!("tpm:{:08x}", parent_handle.0)
+                            format!("tpm:{:08x}", parent_phys_handle.0)
                         };
                         return crate::command::CommandError::from_device_error(dev_err, context);
                     }
                     e.into()
                 })?;
 
+            if let Some(Auth::Session(vhandle)) = policy_session_auth {
+                if let Err(e) = task_state.cache.remove(device, vhandle) {
+                    log::error!("vtpm:{vhandle:08x}: {e}");
+                }
+            }
+
             let create_resp = resp
                 .Create()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
 
-            let (parent_public_data, _) = device.read_public(parent_handle)?;
+            let (parent_public_data, _) = device.read_public(parent_phys_handle)?;
             let parent_public_2b = Tpm2bPublic {
                 inner: parent_public_data,
             };
@@ -215,7 +254,7 @@ impl Create {
             TpmKeyFile {
                 public: create_resp.out_public,
                 private: create_resp.out_private,
-                parent_handle,
+                parent_handle: parent_phys_handle,
                 parent_public: Some(parent_public_2b),
                 empty_auth: empty_auth_flag.then_some(true),
                 policy: tpm_key_policy,

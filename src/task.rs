@@ -97,7 +97,7 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`HandleNameNotFound`](crate::session::SessionError::HandleNameNotFound)
+    /// Returns [`HandleNameNotFound`](crate::task::SessionError::HandleNameNotFound)
     /// if the name cannot be found in persistent memory or the VTPM cache.
     pub fn fetch_handle_by_name(
         &mut self,
@@ -188,20 +188,96 @@ impl<'a> TaskState<'a> {
         Ok(Some(commands))
     }
 
+    /// Creates and executes a policy session from a key's embedded policy blobs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MalformedData`](crate::task::SessionError::MalformedData) if
+    /// an unsupported policy command is encountered.
+    /// Returns [`HandleNotFound`](crate::task::SessionError::HandleNotFound) if
+    /// the temporary session handle cannot be found in the cache after creation.
+    /// Returns [`Device`](crate::task::SessionError::Device) if a TPM command fails.
+    /// Returns [`Vtpm`](crate::task::SessionError::Vtpm) if session creation or
+    /// saving fails.
+    pub fn build_policy_session(
+        &mut self,
+        device: &mut Device,
+        policy_blob: &[u8],
+        key_name_alg: TpmAlgId,
+    ) -> Result<Option<Auth>, SessionError> {
+        let Some(commands) = self.to_policy_command_list(device, policy_blob)? else {
+            return Ok(None);
+        };
+
+        if commands.is_empty() {
+            return Ok(None);
+        }
+
+        let (resp, nonce_caller) = TaskState::start_session(
+            device,
+            TpmSe::Policy,
+            key_name_alg,
+            (TpmRh::Null as u32).into(),
+        )?;
+
+        let temp_session = VtpmSession::new(key_name_alg, nonce_caller, &resp, &[])?;
+        let vhandle = self.cache.add_session(temp_session);
+        let policy_phandle = resp.session_handle;
+
+        let execution_result: Result<(), SessionError> = (|| {
+            for (command_body, auth_sessions) in commands {
+                let mut command_body = command_body.clone();
+
+                match &mut command_body {
+                    TpmCommand::PolicyPcr(cmd) => cmd.policy_session = policy_phandle.0.into(),
+                    TpmCommand::PolicyOr(cmd) => cmd.policy_session = policy_phandle.0.into(),
+                    TpmCommand::PolicyRestart(cmd) => {
+                        cmd.session_handle = policy_phandle.0.into();
+                    }
+                    TpmCommand::PolicySecret(cmd) => {
+                        cmd.policy_session = policy_phandle.0.into();
+                    }
+                    _ => {
+                        return Err(SessionError::MalformedData);
+                    }
+                }
+                device.transmit(&command_body, auth_sessions.as_ref())?;
+            }
+            Ok(())
+        })();
+
+        match execution_result {
+            Ok(()) => {
+                let new_context = device.save_context(policy_phandle)?;
+                let session = self
+                    .cache
+                    .get_mut_session(vhandle)
+                    .ok_or(SessionError::HandleNotFound("vtpm:", vhandle))?;
+                session.context = new_context;
+                self.cache.save()?;
+                Ok(Some(Auth::Session(vhandle)))
+            }
+            Err(e) => {
+                let _ = self.cache.remove(device, vhandle);
+                Err(e)
+            }
+        }
+    }
+
     /// Loads a TPM context from a handle, recursively loading its ancestors
     /// first.
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::session::SessionError::Device) when the transmission
+    /// Returns [`Device`](crate::task::SessionError::Device) when the transmission
     /// fails.
-    /// Returns [`HandleNotFound`](crate::session::SessionError::HandleNotFound) when the
+    /// Returns [`HandleNotFound`](crate::task::SessionError::HandleNotFound) when the
     /// target handle or any parent handle cannot be found, or if the chain is empty.
-    /// Returns [`ParentNotFound`](crate::session::SessionError::ParentNotFound) when a
+    /// Returns [`ParentNotFound`](crate::task::SessionError::ParentNotFound) when a
     /// necessary parent handle isn't found in cache or persistent storage.
-    /// Returns [`Vtpm`](crate::session::SessionError::Vtpm) when tracking the loaded
+    /// Returns [`Vtpm`](crate::task::SessionError::Vtpm) when tracking the loaded
     /// handle fails.
-    /// Returns [`InvalidParent`](crate::session::SessionError::InvalidParent) when
+    /// Returns [`InvalidParent`](crate::task::SessionError::InvalidParent) when
     /// loaded key's parent does not match the expected parent in the chain.
     pub fn load_context(
         &mut self,
@@ -266,15 +342,15 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Auth`](crate::session::SessionError::Auth) when extracting a session
+    /// Returns [`Auth`](crate::task::SessionError::Auth) when extracting a session
     /// handle fails.
-    /// Returns [`HandleNotFound`](crate::session::SessionError::HandleNotFound) when a
+    /// Returns [`HandleNotFound`](crate::task::SessionError::HandleNotFound) when a
     /// session handle in `auth_list` is not found.
-    /// Returns [`InvalidAuth`](crate::session::SessionError::InvalidAuth) when a `Policy`
+    /// Returns [`InvalidAuth`](crate::task::SessionError::InvalidAuth) when a `Policy`
     /// auth class is encountered.
-    /// Returns [`MalformedData`](crate::session::SessionError::MalformedData) when the
+    /// Returns [`MalformedData`](crate::task::SessionError::MalformedData) when the
     /// session's hash algorithm is unsupported.
-    /// Returns [`TrailingAuthorizations`](crate::session::SessionError::TrailingAuthorizations)
+    /// Returns [`TrailingAuthorizations`](crate::task::SessionError::TrailingAuthorizations)
     /// when more auth values are provided than handles requiring authorization.
     fn build_auth_area<C: TpmFrame>(
         &self,
@@ -351,9 +427,9 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Auth`](crate::session::SessionError::Auth) when extracting a session
+    /// Returns [`Auth`](crate::task::SessionError::Auth) when extracting a session
     /// handle fails.
-    /// Returns [`Device`](crate::session::SessionError::Device) when the transmission
+    /// Returns [`Device`](crate::task::SessionError::Device) when the transmission
     /// fails.
     pub fn execute<C: TpmCommandObject>(
         &mut self,
@@ -446,9 +522,9 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::session::SessionError::Device) when the transmission
+    /// Returns [`Device`](crate::task::SessionError::Device) when the transmission
     /// fails.
-    /// Returns [`ResponseMismatch`](crate::session::SessionError::ResponseMismatch) when
+    /// Returns [`ResponseMismatch`](crate::task::SessionError::ResponseMismatch) when
     /// the TPM command returns an unexpected response type.
     pub fn evict_control(
         &mut self,
@@ -481,9 +557,9 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::session::SessionError::Device) when the transmission
+    /// Returns [`Device`](crate::task::SessionError::Device) when the transmission
     /// fails.
-    /// Returns [`ResponseMismatch`](crate::session::SessionError::ResponseMismatch) when
+    /// Returns [`ResponseMismatch`](crate::task::SessionError::ResponseMismatch) when
     /// the TPM command returns an unexpected response type.
     pub fn start_session(
         device: &mut Device,

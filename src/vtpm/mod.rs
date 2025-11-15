@@ -210,6 +210,17 @@ impl<'a> VtpmCache<'a> {
             .ok_or(VtpmError::HandleNotFound("vtpm:", vhandle))
     }
 
+    /// Fetches the policy blob and name algorithm for a cached VTPM key.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) if
+    /// the `vhandle` does not exist or is not a `VtpmKey`.
+    pub fn fetch_policy(&self, vhandle: u32) -> Result<(Vec<u8>, TpmAlgId), VtpmError> {
+        let key = self.find_by_vhandle(vhandle)?;
+        Ok((key.policy.clone(), key.public.inner.name_alg))
+    }
+
     /// Finds the ancestor chain for a given VTPM handle.
     ///
     /// Traverses up the parent hierarchy from the target `vhandle`, checking

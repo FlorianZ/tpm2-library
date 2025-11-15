@@ -4,18 +4,12 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
-    device::{with_device, Device},
+    device::with_device,
     task::{SessionError, TaskState},
-    vtpm::VtpmSession,
 };
 use clap::Args;
 use tpm2_policy_language::{Auth, Handle, HandleClass};
-use tpm2_protocol::{
-    data::{TpmAlgId, TpmCc, TpmRh, TpmSe},
-    frame::{TpmCommand, TpmFrame, TpmUnsealCommand},
-};
-
-type KeyPolicyInfo = (Vec<u8>, TpmAlgId);
+use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
@@ -32,77 +26,6 @@ pub struct Unseal {
     pub auth_args: AuthArgs,
 }
 
-impl Unseal {
-    /// Creates and executes a policy session from a key's embedded policy blobs.
-    fn create_policy_session_from_blobs(
-        task_state: &mut TaskState,
-        device: &mut Device,
-        policy_blob: &[u8],
-        key_name_alg: TpmAlgId,
-    ) -> Result<Option<Auth>, CommandError> {
-        let Some(commands) = task_state.to_policy_command_list(device, policy_blob)? else {
-            return Ok(None);
-        };
-
-        if commands.is_empty() {
-            return Ok(None);
-        }
-
-        let (resp, nonce_caller) = TaskState::start_session(
-            device,
-            TpmSe::Policy,
-            key_name_alg,
-            (TpmRh::Null as u32).into(),
-        )?;
-
-        let temp_session = VtpmSession::new(key_name_alg, nonce_caller, &resp, &[])?;
-        let vhandle = task_state.cache.add_session(temp_session);
-        let policy_phandle = resp.session_handle;
-
-        let execution_result: Result<(), CommandError> = (|| {
-            for (command_body, auth_sessions) in commands {
-                let mut command_body = command_body.clone();
-
-                match &mut command_body {
-                    TpmCommand::PolicyPcr(cmd) => cmd.policy_session = policy_phandle.0.into(),
-                    TpmCommand::PolicyOr(cmd) => cmd.policy_session = policy_phandle.0.into(),
-                    TpmCommand::PolicyRestart(cmd) => {
-                        cmd.session_handle = policy_phandle.0.into();
-                    }
-                    TpmCommand::PolicySecret(cmd) => {
-                        cmd.policy_session = policy_phandle.0.into();
-                    }
-                    _ => {
-                        return Err(CommandError::InvalidInput(format!(
-                            "Unsupported policy command: {}",
-                            command_body.cc()
-                        )))
-                    }
-                }
-                device.transmit(&command_body, auth_sessions.as_ref())?;
-            }
-            Ok(())
-        })();
-
-        match execution_result {
-            Ok(()) => {
-                let new_context = device.save_context(policy_phandle)?;
-                let session = task_state
-                    .cache
-                    .get_mut_session(vhandle)
-                    .ok_or(CommandError::InvalidHandle)?;
-                session.context = new_context;
-                task_state.cache.save()?;
-                Ok(Some(Auth::Session(vhandle)))
-            }
-            Err(e) => {
-                let _ = task_state.cache.remove(device, vhandle);
-                Err(e)
-            }
-        }
-    }
-}
-
 impl Task for Unseal {
     fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
         let vhandle = self
@@ -116,15 +39,8 @@ impl Task for Unseal {
             let mut auths = self.auth_args.auths().to_vec();
             let mut policy_session_auth: Option<Auth> = None;
 
-            let key_info: Option<KeyPolicyInfo> = if self.input.class() == HandleClass::Vtpm {
-                task_state.cache.find_by_vhandle(vhandle).ok().map(|key| {
-                    let policy = if key.policy.is_empty() {
-                        Vec::new()
-                    } else {
-                        key.policy.clone()
-                    };
-                    (policy, key.public.inner.name_alg)
-                })
+            let key_info = if self.input.class() == HandleClass::Vtpm {
+                task_state.cache.fetch_policy(vhandle).ok()
             } else {
                 None
             };
@@ -132,12 +48,9 @@ impl Task for Unseal {
             if self.auth_args.auths().as_ref() == [Auth::default()] {
                 if let Some((policy_blob, name_alg)) = key_info {
                     if !policy_blob.is_empty() {
-                        if let Some(session_auth) = Unseal::create_policy_session_from_blobs(
-                            task_state,
-                            device,
-                            &policy_blob,
-                            name_alg,
-                        )? {
+                        if let Some(session_auth) =
+                            task_state.build_policy_session(device, &policy_blob, name_alg)?
+                        {
                             auths = vec![session_auth.clone()];
                             policy_session_auth = Some(session_auth);
                         }
@@ -155,7 +68,7 @@ impl Task for Unseal {
                 .map_err(|e: SessionError| {
                     if let Some(Auth::Session(vhandle)) = policy_session_auth {
                         if let Err(e) = task_state.cache.remove(device, vhandle) {
-                            log::error!("Failed to clean up policy session: {e}");
+                            log::error!("vtpm:{vhandle:08x}: {e}");
                         }
                     }
                     Into::<CommandError>::into(e)
@@ -163,7 +76,7 @@ impl Task for Unseal {
 
             if let Some(Auth::Session(vhandle)) = policy_session_auth {
                 if let Err(e) = task_state.cache.remove(device, vhandle) {
-                    log::error!("Failed to clean up policy session: {e}");
+                    log::error!("vtpm:{vhandle:08x}: {e}");
                 }
             }
 
