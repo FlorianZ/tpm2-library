@@ -11,7 +11,7 @@ use crate::{
     device::{with_device, Device},
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
-    task::{Auth, TaskError, TaskState},
+    task::{is_empty_auth, Auth, TaskError, TaskState},
     template,
     vtpm::VtpmKey,
 };
@@ -24,7 +24,7 @@ use tpm2_policy_language::{TpmHandleClass, TpmHandleRef, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
-        TpmCc, TpmHt, TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
+        TpmCc, TpmHt, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -159,12 +159,7 @@ impl Create {
                 task_state.cache.fetch_policy(parent_virt_handle)?
             } else {
                 let (public, _) = device.read_public(parent_phys_handle)?;
-                let empty = public
-                    .object_attributes
-                    .contains(TpmaObject::ADMIN_WITH_POLICY)
-                    && !public
-                        .object_attributes
-                        .contains(TpmaObject::USER_WITH_AUTH);
+                let empty = is_empty_auth(&public);
                 (Vec::new(), public.name_alg, empty)
             };
 
@@ -243,8 +238,7 @@ impl Create {
                 inner: parent_public_data,
             };
 
-            let empty_auth = object_attributes.contains(TpmaObject::ADMIN_WITH_POLICY)
-                && !object_attributes.contains(TpmaObject::USER_WITH_AUTH);
+            let empty_auth = is_empty_auth(&create_resp.out_public.inner);
 
             let tpm_key_policy = if let Some(commands) = &policy_commands {
                 Some(VtpmKey::command_list_to_tpmkey_policy(device, commands)?)

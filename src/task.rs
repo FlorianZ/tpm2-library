@@ -29,8 +29,8 @@ use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc,
-        TpmHt, TpmRcBase, TpmRh, TpmSe, TpmaSession, TpmsAuthCommand, TpmsContext,
-        TpmtSymDefObject,
+        TpmHt, TpmRcBase, TpmRh, TpmSe, TpmaObject, TpmaSession, TpmsAuthCommand, TpmsContext,
+        TpmtPublic, TpmtSymDefObject,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
@@ -160,6 +160,17 @@ impl Session {
             Err(e) => Err(e.into()),
         }
     }
+}
+
+/// Returns true if the object's attributes indicate policy-only authorization.
+#[must_use]
+pub fn is_empty_auth(public: &TpmtPublic) -> bool {
+    public
+        .object_attributes
+        .contains(TpmaObject::ADMIN_WITH_POLICY)
+        && !public
+            .object_attributes
+            .contains(TpmaObject::USER_WITH_AUTH)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

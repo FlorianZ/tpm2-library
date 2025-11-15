@@ -5,7 +5,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    task::{Auth, TaskError, TaskState},
+    task::{is_empty_auth, Auth, TaskError, TaskState},
 };
 use clap::Args;
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
@@ -41,12 +41,7 @@ impl Task for Unseal {
                 task_state.cache.fetch_policy(vhandle)?
             } else {
                 let (public, _) = device.read_public(item_handle)?;
-                let empty = public
-                    .object_attributes
-                    .contains(tpm2_protocol::data::TpmaObject::ADMIN_WITH_POLICY)
-                    && !public
-                        .object_attributes
-                        .contains(tpm2_protocol::data::TpmaObject::USER_WITH_AUTH);
+                let empty = is_empty_auth(&public);
                 (Vec::new(), public.name_alg, empty)
             };
 

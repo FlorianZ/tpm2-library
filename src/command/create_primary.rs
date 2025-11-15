@@ -7,14 +7,14 @@ use crate::{
     cli::Task,
     command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
     device::with_device,
-    task::TaskState,
+    task::{is_empty_auth, TaskState},
     template::build_public,
 };
 use clap::Args;
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc,
-        TpmRh, TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
+        TpmRh, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::TpmCreatePrimaryCommand,
 };
@@ -63,8 +63,7 @@ impl Task for CreatePrimary {
                 creation_pcr: TpmlPcrSelection::default(),
             };
 
-            let empty_auth = object_attributes.contains(TpmaObject::ADMIN_WITH_POLICY)
-                && !object_attributes.contains(TpmaObject::USER_WITH_AUTH);
+            let empty_auth = is_empty_auth(&cmd.in_public.inner);
 
             let (resp, _) =
                 task_state.execute(device, &cmd, &handles, &self.auth_args.auths(empty_auth))?;

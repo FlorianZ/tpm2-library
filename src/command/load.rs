@@ -8,13 +8,13 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
     io::read_file_input,
-    task::{Auth, TaskState},
+    task::{is_empty_auth, Auth, TaskState},
     vtpm::VtpmKey,
 };
 use clap::Args;
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
-    data::{Tpm2bName, Tpm2bPublic, TpmCc, TpmaObject},
+    data::{Tpm2bName, Tpm2bPublic, TpmCc},
     frame::TpmLoadCommand,
     TpmHandle,
 };
@@ -64,14 +64,7 @@ impl Task for Load {
                         (
                             Vec::new(),
                             parent_public.inner.name_alg,
-                            parent_public
-                                .inner
-                                .object_attributes
-                                .contains(TpmaObject::ADMIN_WITH_POLICY)
-                                && !parent_public
-                                    .inner
-                                    .object_attributes
-                                    .contains(TpmaObject::USER_WITH_AUTH),
+                            is_empty_auth(&parent_public.inner),
                         )
                     };
 

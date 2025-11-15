@@ -7,7 +7,7 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device},
     io::{read_file_input, write_key_data},
-    task::{Auth, TaskState},
+    task::{is_empty_auth, Auth, TaskState},
     write_object,
 };
 use clap::Args;
@@ -23,7 +23,7 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
-        TpmCc, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
+        TpmCc, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     frame::TpmImportCommand,
     TpmHandle, TpmMarshal, TpmProtocolError, TpmWriter,
@@ -276,12 +276,7 @@ impl Convert {
         };
 
         let handles = [parent_handle.0];
-        let parent_empty_auth = parent_public
-            .object_attributes
-            .contains(TpmaObject::ADMIN_WITH_POLICY)
-            && !parent_public
-                .object_attributes
-                .contains(TpmaObject::USER_WITH_AUTH);
+        let parent_empty_auth = is_empty_auth(&parent_public);
         let (resp, _) = task_state.execute(
             device,
             &import_cmd,
