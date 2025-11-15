@@ -9,7 +9,7 @@
 
 use rstest::rstest;
 use std::str::FromStr;
-use tpm2_policy_language::Handle;
+use tpm2_policy_language::TpmHandleRef;
 
 #[rstest]
 #[case("tpm:81000001")]
@@ -17,9 +17,9 @@ use tpm2_policy_language::Handle;
 #[case("tpm:81??????")]
 #[case("tpm:81??00??")]
 fn handle_roundtrip(#[case] input: &str) {
-    let h1 = Handle::from_str(input).unwrap();
+    let h1 = TpmHandleRef::from_str(input).unwrap();
     let s = h1.to_string();
-    let h2 = Handle::from_str(&s).unwrap();
+    let h2 = TpmHandleRef::from_str(&s).unwrap();
 
     assert_eq!(h1, h2);
     assert_eq!(s, input);

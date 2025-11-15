@@ -2,7 +2,9 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{build_and_branch, Error, Handle, HandleClass, TpmPolicySession, TpmPolicyState};
+use crate::{
+    build_and_branch, Error, TpmHandleClass, TpmHandleRef, TpmPolicySession, TpmPolicyState,
+};
 use std::borrow::Cow;
 use std::fmt;
 use tpm2_crypto::Hash;
@@ -29,7 +31,7 @@ pub enum TpmPolicyExpression {
     },
     And(Vec<TpmPolicyExpression>),
     Or(Vec<TpmPolicyExpression>),
-    Handle(Handle),
+    Handle(TpmHandleRef),
 }
 
 impl PartialEq for TpmPolicyExpression {
@@ -169,8 +171,8 @@ impl TpmPolicyExpression {
                     current_branch.push(expr);
                 }
                 TpmCommand::PolicySecret(cmd) => {
-                    let auth_handle = Box::new(TpmPolicyExpression::Handle(Handle::new(
-                        HandleClass::Tpm,
+                    let auth_handle = Box::new(TpmPolicyExpression::Handle(TpmHandleRef::new(
+                        TpmHandleClass::Tpm,
                         cmd.auth_handle.into(),
                     )));
 

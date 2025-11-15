@@ -8,7 +8,7 @@ use tpm2_protocol::data::TpmHt;
 
 /// Handle classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HandleClass {
+pub enum TpmHandleClass {
     Tpm,
     Vtpm,
 }
@@ -19,16 +19,16 @@ pub enum HandleClass {
 /// `tpm:81000001`) or a pattern for matching multiple handles (e.g., `tpm:81*`,
 /// `vtpm:????????`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Handle {
-    class: HandleClass,
+pub struct TpmHandleRef {
+    class: TpmHandleClass,
     mask: u32,
     value: u32,
 }
 
-impl Handle {
+impl TpmHandleRef {
     /// Creates a new `Handle` that represents a single, specific handle value.
     #[must_use]
-    pub fn new(class: HandleClass, value: u32) -> Self {
+    pub fn new(class: TpmHandleClass, value: u32) -> Self {
         Self {
             class,
             mask: 0xFFFF_FFFF,
@@ -38,7 +38,7 @@ impl Handle {
 
     /// Returns the class of the handle (`Tpm` or `Vtpm`).
     #[must_use]
-    pub fn class(&self) -> HandleClass {
+    pub fn class(&self) -> TpmHandleClass {
         self.class
     }
 
@@ -62,11 +62,11 @@ impl Handle {
     }
 }
 
-impl std::fmt::Display for Handle {
+impl std::fmt::Display for TpmHandleRef {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let scheme = match self.class {
-            HandleClass::Tpm => "tpm",
-            HandleClass::Vtpm => "vtpm",
+            TpmHandleClass::Tpm => "tpm",
+            TpmHandleClass::Vtpm => "vtpm",
         };
         write!(f, "{scheme}:")?;
         if self.mask == 0 {
@@ -89,15 +89,15 @@ impl std::fmt::Display for Handle {
     }
 }
 
-impl FromStr for Handle {
+impl FromStr for TpmHandleRef {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (scheme_str, value_str) = s.split_once(':').ok_or(Error::HandlePrefixMissing)?;
 
         let class = match scheme_str {
-            "tpm" => HandleClass::Tpm,
-            "vtpm" => HandleClass::Vtpm,
+            "tpm" => TpmHandleClass::Tpm,
+            "vtpm" => TpmHandleClass::Vtpm,
             _ => return Err(Error::InvalidHandlePrefix),
         };
 
@@ -155,10 +155,10 @@ impl FromStr for Handle {
     }
 }
 
-impl TryFrom<Handle> for TpmHt {
+impl TryFrom<TpmHandleRef> for TpmHt {
     type Error = Error;
 
-    fn try_from(handle: Handle) -> Result<Self, Self::Error> {
+    fn try_from(handle: TpmHandleRef) -> Result<Self, Self::Error> {
         let raw_handle = handle.value().ok_or(Error::HandlePatternNotAllowed)?;
         let ht_byte = (raw_handle >> 24) as u8;
         TpmHt::try_from(ht_byte).map_err(|_| Error::InvalidHandleType(ht_byte))

@@ -248,7 +248,7 @@ fn parse_primary<'a>(
 
 fn parse_literal(s: &str) -> Result<TpmPolicyExpression, Error> {
     use std::str::FromStr;
-    if let Ok(handle) = Handle::from_str(s) {
+    if let Ok(handle) = TpmHandleRef::from_str(s) {
         Ok(TpmPolicyExpression::Handle(handle))
     } else {
         Err(Error::InvalidToken(s.to_string()))
