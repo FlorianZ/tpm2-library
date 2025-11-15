@@ -310,16 +310,23 @@ fn parse_pcr_call<'a>(
         }
     }
 
-    let mut buf = String::new();
-    loop {
-        match tokens.next() {
-            Some(Token::RParen) => break,
-            Some(Token::Ident(s)) => buf.push_str(s),
-            Some(Token::Comma) => buf.push(','),
-            Some(tok @ (Token::And | Token::Or | Token::LParen)) => {
-                return Err(LanguageError::InvalidToken(tok.to_string()));
-            }
-            None => return Err(LanguageError::UnexpectedEnd),
+    let buf = match tokens.next() {
+        Some(Token::Ident(s)) => s,
+        Some(actual_token) => {
+            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+        }
+        None => {
+            return Err(LanguageError::UnexpectedEnd);
+        }
+    };
+
+    match tokens.next() {
+        Some(Token::RParen) => {}
+        Some(actual_token) => {
+            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+        }
+        None => {
+            return Err(LanguageError::UnexpectedEnd);
         }
     }
 
@@ -330,18 +337,16 @@ fn parse_pcr_call<'a>(
                     return Ok(TpmPolicyExpression::Pcr {
                         selections,
                         digest: Some(digest),
-                        count: None,
                     });
                 }
             }
         }
     }
 
-    let selections = parse_tpml_pcr_selection_str(&buf, context)?;
+    let selections = parse_tpml_pcr_selection_str(buf, context)?;
     Ok(TpmPolicyExpression::Pcr {
         selections,
         digest: None,
-        count: None,
     })
 }
 

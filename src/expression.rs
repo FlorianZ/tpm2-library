@@ -27,7 +27,6 @@ pub enum TpmPolicyExpression {
     Pcr {
         selections: TpmlPcrSelection,
         digest: Option<Tpm2bDigest>,
-        count: Option<u32>,
     },
     Secret {
         auth_handle: Box<TpmPolicyExpression>,
@@ -86,14 +85,12 @@ impl PartialEq for TpmPolicyExpression {
                 Self::Pcr {
                     selections: l_s,
                     digest: l_d,
-                    count: l_c,
                 },
                 Self::Pcr {
                     selections: r_s,
                     digest: r_d,
-                    count: r_c,
                 },
-            ) => l_s == r_s && l_d == r_d && l_c == r_c,
+            ) => l_s == r_s && l_d == r_d,
             (Self::And(l), Self::And(r)) | (Self::Or(l), Self::Or(r)) => l == r,
             (Self::Handle(l), Self::Handle(r)) => l == r,
             _ => false,
@@ -105,11 +102,7 @@ impl fmt::Display for TpmPolicyExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TpmPolicyExpression::Auth(auth) => write!(f, "{auth}"),
-            TpmPolicyExpression::Pcr {
-                selections,
-                digest,
-                count,
-            } => {
+            TpmPolicyExpression::Pcr { selections, digest } => {
                 let selection_strings: Vec<String> = selections
                     .iter()
                     .map(|tpms| {
@@ -132,9 +125,6 @@ impl fmt::Display for TpmPolicyExpression {
 
                 if let Some(d) = digest {
                     write!(f, ":{}", hex::encode(d.as_ref()))?;
-                }
-                if let Some(c) = count {
-                    write!(f, ", count={c}")?;
                 }
                 write!(f, ")")
             }
@@ -215,11 +205,7 @@ impl TpmPolicyExpression {
                 TpmCommand::PolicyPcr(cmd) => {
                     let selections = cmd.pcrs;
                     let digest = Some(cmd.pcr_digest);
-                    let expr = TpmPolicyExpression::Pcr {
-                        selections,
-                        digest,
-                        count: None,
-                    };
+                    let expr = TpmPolicyExpression::Pcr { selections, digest };
                     current_branch.push(expr);
                 }
                 TpmCommand::PolicySecret(cmd) => {
@@ -348,9 +334,7 @@ impl TpmPolicyExpression {
         software_session: &mut TpmPolicySession,
     ) -> Result<Tpm2bDigest, Error> {
         let (selections, digest) = match self {
-            TpmPolicyExpression::Pcr {
-                selections, digest, ..
-            } => (selections, digest),
+            TpmPolicyExpression::Pcr { selections, digest } => (selections, digest),
             expr => return Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into()),
         };
 
