@@ -321,18 +321,40 @@ fn parse_secret_call<'a>(
     let auth_handle =
         parse_or(tokens, context).map_err(|e| LanguageError::InvalidToken(e.to_string()))?;
 
-    match tokens.next() {
-        Some(Token::Comma) => {}
-        Some(actual_token) => {
-            return Err(LanguageError::InvalidToken(actual_token.to_string()));
-        }
-        None => {
-            return Err(LanguageError::UnexpectedEnd);
-        }
-    }
+    let copy_ref = match tokens.peek() {
+        Some(Token::Comma) => {
+            tokens.next();
 
-    let copy_ref_ident = match tokens.next() {
-        Some(Token::Ident(s)) => s,
+            let copy_ref_ident = match tokens.next() {
+                Some(Token::Ident(s)) => s,
+                Some(actual_token) => {
+                    return Err(LanguageError::InvalidToken(actual_token.to_string()));
+                }
+                None => {
+                    return Err(LanguageError::UnexpectedEnd);
+                }
+            };
+
+            let (key, value) = copy_ref_ident
+                .split_once(':')
+                .ok_or_else(|| LanguageError::InvalidToken(copy_ref_ident.to_string()))?;
+
+            if key != "copy_ref" {
+                return Err(LanguageError::InvalidToken(copy_ref_ident.to_string()));
+            }
+
+            let bytes = hex::decode(value)
+                .map_err(|_| LanguageError::InvalidToken(copy_ref_ident.to_string()))?;
+
+            if bytes.is_empty() {
+                None
+            } else {
+                let digest = Tpm2bDigest::try_from(bytes.as_slice())
+                    .map_err(|_| LanguageError::InvalidToken(copy_ref_ident.to_string()))?;
+                Some(digest)
+            }
+        }
+        Some(Token::RParen) => None,
         Some(actual_token) => {
             return Err(LanguageError::InvalidToken(actual_token.to_string()));
         }
@@ -350,19 +372,6 @@ fn parse_secret_call<'a>(
             return Err(LanguageError::UnexpectedEnd);
         }
     }
-
-    let (key, value) = copy_ref_ident
-        .split_once(':')
-        .ok_or_else(|| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
-
-    if key != "copy_ref" {
-        return Err(LanguageError::InvalidToken((*copy_ref_ident).to_string()));
-    }
-
-    let bytes = hex::decode(value)
-        .map_err(|_| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
-    let copy_ref = Tpm2bDigest::try_from(bytes.as_slice())
-        .map_err(|_| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
 
     Ok(TpmPolicyExpression::Secret {
         auth_handle: Box::new(auth_handle),

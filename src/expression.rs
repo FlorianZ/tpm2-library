@@ -28,7 +28,7 @@ pub enum TpmPolicyExpression {
     },
     Secret {
         auth_handle: Box<TpmPolicyExpression>,
-        copy_ref: Tpm2bDigest,
+        copy_ref: Option<Tpm2bDigest>,
     },
     And(Vec<TpmPolicyExpression>),
     Or(Vec<TpmPolicyExpression>),
@@ -98,11 +98,11 @@ impl fmt::Display for TpmPolicyExpression {
                 auth_handle,
                 copy_ref,
             } => {
-                write!(
-                    f,
-                    "secret({auth_handle}, copy_ref:{})",
-                    hex::encode(copy_ref.as_ref())
-                )
+                write!(f, "secret({auth_handle}")?;
+                if let Some(cr) = copy_ref {
+                    write!(f, ", copy_ref:{}", hex::encode(cr.as_ref()))?;
+                }
+                write!(f, ")")
             }
             TpmPolicyExpression::And(expressions) => {
                 let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
@@ -152,7 +152,7 @@ impl TpmPolicyExpression {
     ///
     /// Returns a [`Error`] variant if any command blob is malformed, an
     /// unexpected command is found, or if the sequence of commands is
-    /// logically inconsistent (e.g., mismatched policy branches).
+    /// logically inconsistent (e..g., mismatched policy branches).
     pub fn from_command_list(
         command_list: &[(TpmCommand, TpmAuthCommands)],
     ) -> Result<TpmPolicyExpression, Error> {
@@ -177,9 +177,15 @@ impl TpmPolicyExpression {
                         cmd.auth_handle.into(),
                     )));
 
+                    let copy_ref = if cmd.policy_ref.as_ref().is_empty() {
+                        None
+                    } else {
+                        Some(cmd.policy_ref)
+                    };
+
                     let expr = TpmPolicyExpression::Secret {
                         auth_handle,
-                        copy_ref: cmd.policy_ref,
+                        copy_ref,
                     };
                     current_branch.push(expr);
                 }
@@ -354,16 +360,15 @@ impl TpmPolicyExpression {
             _ => return Err(HandleError::InvalidType(ht_byte).into()),
         };
 
+        let policy_ref = copy_ref.unwrap_or_default();
         let cmd = TpmPolicySecretCommand {
             auth_handle: h_val.into(),
             policy_session: 0.into(),
             nonce_tpm: Tpm2bNonce::default(),
             cp_hash_a: Tpm2bDigest::default(),
-            policy_ref: *copy_ref,
+            policy_ref,
             expiration: 0,
         };
-
-        let policy_ref = cmd.policy_ref;
 
         command_list.push((TpmCommand::PolicySecret(cmd), TpmAuthCommands::new()));
         software_session.policy_secret(name.as_ref(), &policy_ref)?;
