@@ -294,7 +294,7 @@ impl Convert {
             private: out_private,
             parent_handle,
             parent_public: Some(parent_public_2b),
-            empty_auth: Some(true),
+            empty_auth: None,
             policy: None,
             auth_policy: None,
             secret: None,

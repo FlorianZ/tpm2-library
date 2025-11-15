@@ -24,6 +24,7 @@ pub struct VtpmKey {
     pub handle: TpmHandle,
     pub public: Tpm2bPublic,
     pub parent: Tpm2bPublic,
+    pub empty_auth: u32,
     pub policy: Vec<u8>,
 }
 
@@ -51,14 +52,13 @@ impl VtpmKey {
         commands: &[(TpmCommand, TpmAuthCommands)],
     ) -> Result<TpmPolicy, VtpmError> {
         let mut policy = Vec::new();
-        for (cmd, _) in commands {
+        for (cmd, auths) in commands {
             let step = match cmd {
                 TpmCommand::PolicySecret(inner) => {
                     let (_, name) = device.read_public(inner.auth_handle)?;
                     TpmPolicyCommand::from_policy_secret(inner, &name).map_err(VtpmError::from)?
                 }
-                _ => TpmPolicyCommand::from_command(cmd, &TpmAuthCommands::new())
-                    .map_err(VtpmError::from)?,
+                _ => TpmPolicyCommand::from_command(cmd, auths).map_err(VtpmError::from)?,
             };
             policy.push(step);
         }
@@ -113,6 +113,7 @@ impl TpmSized for VtpmKey {
             + self.handle.len()
             + self.public.len()
             + self.parent.len()
+            + u32::SIZE
             + TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::SIZE
     }
 }
@@ -123,6 +124,7 @@ impl TpmMarshal for VtpmKey {
         self.handle.marshal(writer)?;
         self.public.marshal(writer)?;
         self.parent.marshal(writer)?;
+        self.empty_auth.marshal(writer)?;
         TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(self.policy.as_slice())?
             .marshal(writer)?;
         Ok(())
@@ -135,6 +137,7 @@ impl TpmUnmarshal for VtpmKey {
         let (handle, remainder) = TpmHandle::unmarshal(remainder)?;
         let (public, remainder) = Tpm2bPublic::unmarshal(remainder)?;
         let (parent, remainder) = Tpm2bPublic::unmarshal(remainder)?;
+        let (empty_auth, remainder) = u32::unmarshal(remainder)?;
         let (policy_blob, remainder) =
             TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)?;
 
@@ -144,6 +147,7 @@ impl TpmUnmarshal for VtpmKey {
                 handle,
                 public,
                 parent,
+                empty_auth,
                 policy: policy_blob.to_vec(),
             },
             remainder,

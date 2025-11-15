@@ -464,6 +464,7 @@ impl<'a> VtpmCache<'a> {
         handle: TpmHandle,
         public: &Tpm2bPublic,
         parent_public: &Tpm2bPublic,
+        empty_auth: bool,
         policy: &Option<Vec<u8>>,
     ) -> Result<u32, VtpmError> {
         let context = device.save_context(handle)?;
@@ -474,6 +475,7 @@ impl<'a> VtpmCache<'a> {
                     handle: TpmHandle(vhandle),
                     public: public.clone(),
                     parent: parent_public.clone(),
+                    empty_auth: u32::from(empty_auth),
                     policy: policy.clone().unwrap_or_default(),
                 };
                 e.insert(Box::new(key));

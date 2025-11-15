@@ -14,7 +14,7 @@ use clap::Args;
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc,
-        TpmRh, TpmlPcrSelection, TpmsSensitiveCreate,
+        TpmRh, TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::TpmCreatePrimaryCommand,
 };
@@ -69,6 +69,9 @@ impl Task for CreatePrimary {
                 .CreatePrimary()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
 
+            let empty_auth = object_attributes.contains(TpmaObject::ADMIN_WITH_POLICY)
+                && !object_attributes.contains(TpmaObject::USER_WITH_AUTH);
+
             let object_handle = resp.object_handle;
             task_state.cache.track(object_handle)?;
             let vhandle = task_state.cache.save_context(
@@ -76,6 +79,7 @@ impl Task for CreatePrimary {
                 object_handle,
                 &resp.out_public,
                 &Tpm2bPublic::default(),
+                empty_auth,
                 &None,
             )?;
             writeln!(task_state.writer, "vtpm:{vhandle:08x}")?;

@@ -24,7 +24,7 @@ use tpm2_policy_language::{Auth, Handle, HandleClass, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
-        TpmCc, TpmHt, TpmlPcrSelection, TpmsSensitiveCreate,
+        TpmCc, TpmHt, TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -243,7 +243,8 @@ impl Create {
                 inner: parent_public_data,
             };
 
-            let empty_auth_flag = user_auth.is_empty();
+            let empty_auth = object_attributes.contains(TpmaObject::ADMIN_WITH_POLICY)
+                && !object_attributes.contains(TpmaObject::USER_WITH_AUTH);
 
             let tpm_key_policy = if let Some(commands) = &policy_commands {
                 Some(VtpmKey::command_list_to_tpmkey_policy(device, commands)?)
@@ -256,7 +257,7 @@ impl Create {
                 private: create_resp.out_private,
                 parent_handle: parent_phys_handle,
                 parent_public: Some(parent_public_2b),
-                empty_auth: empty_auth_flag.then_some(true),
+                empty_auth: if empty_auth { Some(true) } else { None },
                 policy: tpm_key_policy,
                 auth_policy: None,
                 secret: None,

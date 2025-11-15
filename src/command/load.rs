@@ -71,8 +71,10 @@ impl Task for Load {
                     object_handle,
                     &loaded_public,
                     &parent_public,
+                    tpm_key.empty_auth.unwrap_or_default(),
                     &policy_blob,
                 )?;
+
                 writeln!(task_state.writer, "vtpm:{vhandle:08x}")?;
                 Ok(())
             },
