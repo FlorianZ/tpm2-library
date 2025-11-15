@@ -326,8 +326,8 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when an underlying TPM
-    /// command fails.
+    /// Returns [`Protocol`](crate::vtpm::VtpmError::Protocol) when serializing a
+    /// public key fails.
     /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) when the
     /// `target_vhandle` doesn't exist in the cache or is not a key.
     /// Returns [`ParentNotFound`](crate::vtpm::VtpmError::ParentNotFound) when an
@@ -336,7 +336,7 @@ impl<'a> VtpmCache<'a> {
     pub fn fetch_ancestor_chain(
         &self,
         target_vhandle: u32,
-        device: &mut Device,
+        persistent_keys: &HashMap<Vec<u8>, TpmHandle>,
     ) -> Result<Vec<TpmHandleRef>, VtpmError> {
         let mut current_vhandle = target_vhandle;
         let mut vtp_chain: VecDeque<TpmHandleRef> = VecDeque::new();
@@ -354,8 +354,9 @@ impl<'a> VtpmCache<'a> {
                 vtp_chain.push_front(TpmHandleRef::new(TpmHandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
-                match device.find_persistent(&key.parent)? {
-                    Some((phandle, _)) => {
+                let parent_key_bytes = write_object(&key.parent).map_err(VtpmError::Protocol)?;
+                match persistent_keys.get(&parent_key_bytes) {
+                    Some(phandle) => {
                         physical_primary = Some(TpmHandleRef::new(TpmHandleClass::Tpm, phandle.0));
                         break;
                     }

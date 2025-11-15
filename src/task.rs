@@ -710,7 +710,22 @@ impl<'a> TaskState<'a> {
             return Ok(TpmHandle(target_vhandle));
         }
 
-        let chain = self.cache.fetch_ancestor_chain(target_vhandle, device)?;
+        let handles = device.fetch_handles((TpmHt::Persistent as u32) << 24)?;
+        let mut persistent_keys = HashMap::new();
+        for handle_ref in handles {
+            if let Some(handle_val) = handle_ref.value() {
+                let phandle = TpmHandle(handle_val);
+                if let Ok((public, _)) = device.read_public(phandle) {
+                    let key_bytes = write_object(&public)
+                        .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
+                    persistent_keys.insert(key_bytes, phandle);
+                }
+            }
+        }
+
+        let chain = self
+            .cache
+            .fetch_ancestor_chain(target_vhandle, &persistent_keys)?;
 
         if chain.is_empty() {
             return Err(TaskError::HandleNotFound("vtpm:", target_vhandle));
