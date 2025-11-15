@@ -85,7 +85,7 @@ impl VtpmSession {
         let (attributes, remainder) =
             TpmaSession::unmarshal(remainder).map_err(VtpmError::Protocol)?;
         let (hmac_key, remainder) = Tpm2bAuth::unmarshal(remainder).map_err(VtpmError::Protocol)?;
-        let (auth_hash, _) = TpmAlgId::unmarshal(remainder).map_err(VtpmError::Protocol)?;
+        let (auth_hash, remainder) = TpmAlgId::unmarshal(remainder).map_err(VtpmError::Protocol)?;
 
         if !remainder.is_empty() {
             log::warn!("trailing data");
