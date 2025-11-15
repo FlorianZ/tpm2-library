@@ -86,20 +86,10 @@ fn main() {
         Ok(cli) => cli,
         Err(e) => {
             if e.kind() == ErrorKind::MissingRequiredArgument {
-                if let Some(usage) = e
-                    .to_string()
-                    .lines()
-                    .find(|line| line.trim().starts_with("Usage:"))
-                {
-                    eprintln!("{}", usage.trim());
-                    eprintln!();
-                    eprintln!("For more information, try '--help'.");
-                } else {
-                    let mut cmd = TopLevel::command();
-                    eprintln!("{}", cmd.render_usage());
-                    eprintln!();
-                    eprintln!("For more information, try '--help'.");
-                }
+                let mut cmd = TopLevel::command();
+                eprintln!("{}", cmd.render_usage());
+                eprintln!();
+                eprintln!("For more information, try '--help'.");
                 process::exit(2);
             } else {
                 e.exit();
