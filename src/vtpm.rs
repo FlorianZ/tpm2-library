@@ -20,14 +20,10 @@ use tpm2_policy_language::{Error as PolicyLanguageError, TpmHandleClass, TpmHand
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{
-        Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRc, TpmRcBase, TpmsContext,
-        TpmtPublic,
-    },
-    frame::{TpmAuthCommands, TpmCommand},
+    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmRcBase, TpmsContext, TpmtPublic},
     TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
-use tpm2_tpmkey::{Error as TpmKeyError, TpmPolicy, TpmPolicyCommand};
+use tpm2_tpmkey::Error as TpmKeyError;
 
 /// Outcome of refreshing a context against the TPM.
 #[derive(Debug)]
@@ -56,73 +52,6 @@ impl VtpmKey {
             log::warn!("trailing data");
         }
         Ok(key)
-    }
-
-    /// Converts a "live" `TpmCommandList` into a "storable" `TpmPolicy`.
-    ///
-    /// This performs the "second pass" for `PolicySecret`, converting the
-    /// `auth_handle` into a `Tpm2bName` for durable storage.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PolicyData`](VtpmError::PolicyData) if the command conversion fails.
-    /// Returns [`Device`](VtpmError::Device) if reading the public handle name fails.
-    pub fn command_list_to_tpmkey_policy(
-        device: &mut Device,
-        commands: &[(TpmCommand, TpmAuthCommands)],
-    ) -> Result<TpmPolicy, VtpmError> {
-        let mut policy = Vec::new();
-        for (cmd, auths) in commands {
-            let step = match cmd {
-                TpmCommand::PolicySecret(inner) => {
-                    let (_, name) = device.read_public(inner.auth_handle)?;
-                    TpmPolicyCommand::from_policy_secret(inner, &name).map_err(VtpmError::from)?
-                }
-                _ => TpmPolicyCommand::from_command(cmd, auths).map_err(VtpmError::from)?,
-            };
-            policy.push(step);
-        }
-        Ok(TpmPolicy { name: None, policy })
-    }
-
-    /// Converts a "storable" `TpmPolicy` (from a `TpmKey` file) into the
-    /// custom binary cache format.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`IntDecode`](VtpmError::IntDecode) if the policy command count exceeds `u32::MAX`.
-    /// Returns [`Protocol`](VtpmError::Protocol) if marshalling fails or the policy body is too large.
-    /// Returns [`PolicyData`](VtpmError::PolicyData) if the policy blob is malformed.
-    pub fn policy_from_tpmkey_policy(policy: &TpmPolicy) -> Result<Vec<u8>, VtpmError> {
-        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buf);
-            let count = u32::try_from(policy.policy.len())?;
-            count.marshal(&mut writer)?;
-
-            for cmd in &policy.policy {
-                cmd.code().marshal(&mut writer)?;
-
-                if cmd.code() == TpmCc::PolicySecret {
-                    let (handle, rest) = TpmHandle::unmarshal(cmd.body())
-                        .map_err(|_| VtpmError::PolicyData(TpmKeyError::InvalidPolicy))?;
-                    let (name, rest) = Tpm2bName::unmarshal(rest)
-                        .map_err(|_| VtpmError::PolicyData(TpmKeyError::InvalidPolicy))?;
-                    let (digest, _) = Tpm2bDigest::unmarshal(rest)
-                        .map_err(|_| VtpmError::PolicyData(TpmKeyError::InvalidPolicy))?;
-
-                    handle.marshal(&mut writer)?;
-                    name.marshal(&mut writer)?;
-                    digest.marshal(&mut writer)?;
-                } else {
-                    TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())?
-                        .marshal(&mut writer)?;
-                }
-            }
-            writer.len()
-        };
-        buf.truncate(len);
-        Ok(buf)
     }
 
     /// Returns the VTPM handle.

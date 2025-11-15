@@ -13,7 +13,6 @@ use crate::{
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
     task::{is_empty_auth, Auth, TaskError, TaskState},
     template,
-    vtpm::VtpmKey,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -241,7 +240,7 @@ impl Create {
             let empty_auth = is_empty_auth(&create_resp.out_public.inner);
 
             let tpm_key_policy = if let Some(commands) = &policy_commands {
-                Some(VtpmKey::command_list_to_tpmkey_policy(device, commands)?)
+                Some(crate::io::tpm_key_to_blob(device, commands)?)
             } else {
                 None
             };

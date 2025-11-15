@@ -9,7 +9,6 @@ use crate::{
     device::{with_device, Device},
     io::read_file_input,
     task::{is_empty_auth, Auth, TaskState},
-    vtpm::VtpmKey,
 };
 use clap::Args;
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
@@ -100,7 +99,7 @@ impl Task for Load {
                 }
 
                 let policy_blob = if let Some(policy) = &tpm_key.policy {
-                    Some(VtpmKey::policy_from_tpmkey_policy(policy)?)
+                    Some(crate::io::tpm_key_from_blob(policy)?)
                 } else {
                     None
                 };
