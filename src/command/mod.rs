@@ -169,28 +169,20 @@ impl CommandError {
     /// the error converted into a `CommandError`.
     #[must_use]
     pub fn from_device_error(err: DeviceError, context: String) -> Self {
-        if let DeviceError::TpmRc(rc) = &err {
-            let base = rc.base();
-            if base == TpmRcBase::Handle
-                || base == TpmRcBase::ReferenceH0
-                || base == TpmRcBase::Type
-            {
-                return Self::InvalidParentHandle(context);
+        if let DeviceError::TpmRc(rc) = err {
+            match rc.base() {
+                TpmRcBase::Handle | TpmRcBase::ReferenceH0 | TpmRcBase::Type => {
+                    Self::InvalidParentHandle(context)
+                }
+                TpmRcBase::AuthFail => Self::AccessDenied,
+                TpmRcBase::AuthMissing => Self::AuthenticationMissing,
+                TpmRcBase::Lockout => Self::DictionaryAttackLocked,
+                TpmRcBase::PolicyFail => Self::PolicyDenied,
+                _ => Self::Device(DeviceError::TpmRc(rc)),
             }
-            if base == TpmRcBase::AuthFail {
-                return Self::AccessDenied;
-            }
-            if base == TpmRcBase::AuthMissing {
-                return Self::AuthenticationMissing;
-            }
-            if base == TpmRcBase::Lockout {
-                return Self::DictionaryAttackLocked;
-            }
-            if base == TpmRcBase::PolicyFail {
-                return Self::PolicyDenied;
-            }
+        } else {
+            Self::Device(err)
         }
-        Self::Device(err)
     }
 }
 
