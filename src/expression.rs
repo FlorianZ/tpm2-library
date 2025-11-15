@@ -3,16 +3,15 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    build_and_branch, Auth, Error, Handle, HandleClass, HandleError, LanguageError,
-    TpmPolicySession, TpmPolicyState,
+    build_and_branch, Error, Handle, HandleClass, HandleError, LanguageError, TpmPolicySession,
+    TpmPolicyState,
 };
 use std::borrow::Cow;
 use std::fmt;
 use tpm2_crypto::Hash;
 use tpm2_protocol::{
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmaSession,
-        TpmlDigest, TpmlPcrSelection, TpmsAuthCommand,
+        Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmlDigest, TpmlPcrSelection,
     },
     frame::{
         TpmAuthCommands, TpmCommand, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
@@ -23,45 +22,17 @@ use tpm2_protocol::{
 /// The Abstract Syntax Tree (AST) for the unified policy language.
 #[derive(Debug, Eq, Clone)]
 pub enum TpmPolicyExpression {
-    Auth(Auth),
     Pcr {
         selections: TpmlPcrSelection,
         digest: Option<Tpm2bDigest>,
     },
     Secret {
         auth_handle: Box<TpmPolicyExpression>,
-        password: Option<Box<TpmPolicyExpression>>,
+        copy_ref: Tpm2bDigest,
     },
     And(Vec<TpmPolicyExpression>),
     Or(Vec<TpmPolicyExpression>),
     Handle(Handle),
-}
-
-/// Compares two password expressions semantically, treating `None` as equal to
-/// an empty password.
-fn compare_passwords(
-    left: Option<&TpmPolicyExpression>,
-    right: Option<&TpmPolicyExpression>,
-) -> bool {
-    /// Maps an expression to a comparable password slice.
-    ///
-    /// - `None` (no arg) is treated as `Some(&[])` (empty password).
-    /// - `Some(Password(p))` is treated as `Some(p)`.
-    /// - Anything else is `None` (not a comparable password).
-    fn get_pw_slice(expr_opt: Option<&TpmPolicyExpression>) -> Option<&[u8]> {
-        match expr_opt {
-            None => Some(&[] as &[u8]),
-            Some(expr) => match expr {
-                TpmPolicyExpression::Auth(Auth::Password(p)) => Some(p.as_slice()),
-                _ => None,
-            },
-        }
-    }
-
-    match (get_pw_slice(left), get_pw_slice(right)) {
-        (Some(l_bytes), Some(r_bytes)) => l_bytes == r_bytes,
-        _ => false,
-    }
 }
 
 impl PartialEq for TpmPolicyExpression {
@@ -70,17 +41,13 @@ impl PartialEq for TpmPolicyExpression {
             (
                 Self::Secret {
                     auth_handle: l_ah,
-                    password: l_pw,
+                    copy_ref: l_cr,
                 },
                 Self::Secret {
                     auth_handle: r_ah,
-                    password: r_pw,
+                    copy_ref: r_cr,
                 },
-            ) => {
-                l_ah == r_ah
-                    && compare_passwords(l_pw.as_ref().map(|b| &**b), r_pw.as_ref().map(|b| &**b))
-            }
-            (Self::Auth(l), Self::Auth(r)) => l == r,
+            ) => l_ah == r_ah && l_cr == r_cr,
             (
                 Self::Pcr {
                     selections: l_s,
@@ -101,7 +68,6 @@ impl PartialEq for TpmPolicyExpression {
 impl fmt::Display for TpmPolicyExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TpmPolicyExpression::Auth(auth) => write!(f, "{auth}"),
             TpmPolicyExpression::Pcr { selections, digest } => {
                 let selection_strings: Vec<String> = selections
                     .iter()
@@ -130,16 +96,13 @@ impl fmt::Display for TpmPolicyExpression {
             }
             TpmPolicyExpression::Secret {
                 auth_handle,
-                password,
+                copy_ref,
             } => {
-                write!(f, "secret({auth_handle}")?;
-                if let Some(p) = password {
-                    if !matches!(&**p, TpmPolicyExpression::Auth(Auth::Password(pw)) if pw.is_empty())
-                    {
-                        write!(f, ", {p}")?;
-                    }
-                }
-                write!(f, ")")
+                write!(
+                    f,
+                    "secret({auth_handle}, copy_ref:{})",
+                    hex::encode(copy_ref.as_ref())
+                )
             }
             TpmPolicyExpression::And(expressions) => {
                 let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
@@ -195,7 +158,7 @@ impl TpmPolicyExpression {
     ) -> Result<TpmPolicyExpression, Error> {
         let mut stack: Vec<Vec<TpmPolicyExpression>> = vec![vec![]];
 
-        for (command_body, auth_sessions) in command_list {
+        for (command_body, _auth_sessions) in command_list {
             let current_branch = stack.last_mut().ok_or(LanguageError::OperationFailed)?;
 
             match command_body {
@@ -214,19 +177,9 @@ impl TpmPolicyExpression {
                         cmd.auth_handle.into(),
                     )));
 
-                    let password = auth_sessions.iter().find_map(|auth| {
-                        if auth.session_handle.0 == TpmRh::Pw as u32 {
-                            Some(Box::new(TpmPolicyExpression::Auth(Auth::Password(
-                                auth.hmac.as_ref().to_vec(),
-                            ))))
-                        } else {
-                            None
-                        }
-                    });
-
                     let expr = TpmPolicyExpression::Secret {
                         auth_handle,
-                        password,
+                        copy_ref: cmd.policy_ref,
                     };
                     current_branch.push(expr);
                 }
@@ -322,7 +275,7 @@ impl TpmPolicyExpression {
             expr @ TpmPolicyExpression::Secret { .. } => {
                 expr.to_command_list_walk_secret(command_list, software_session, context)
             }
-            expr @ (TpmPolicyExpression::Auth { .. } | TpmPolicyExpression::Handle { .. }) => {
+            expr @ TpmPolicyExpression::Handle { .. } => {
                 Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into())
             }
         }
@@ -362,11 +315,11 @@ impl TpmPolicyExpression {
         software_session: &mut TpmPolicySession,
         context: &'a TpmPolicyState,
     ) -> Result<Tpm2bDigest, Error> {
-        let (auth_handle, password) = match self {
+        let (auth_handle, copy_ref) = match self {
             TpmPolicyExpression::Secret {
                 auth_handle,
-                password,
-            } => (auth_handle, password),
+                copy_ref,
+            } => (auth_handle, copy_ref),
             expr => return Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into()),
         };
 
@@ -406,33 +359,14 @@ impl TpmPolicyExpression {
             policy_session: 0.into(),
             nonce_tpm: Tpm2bNonce::default(),
             cp_hash_a: Tpm2bDigest::default(),
-            policy_ref: Tpm2bNonce::default(),
+            policy_ref: *copy_ref,
             expiration: 0,
         };
 
-        let password_bytes = if let Some(p) = password {
-            match &**p {
-                TpmPolicyExpression::Auth(Auth::Password(value)) => value.clone(),
-                _ => Vec::new(),
-            }
-        } else {
-            Vec::new()
-        };
+        let policy_ref = cmd.policy_ref;
 
-        let auth_session = TpmsAuthCommand {
-            session_handle: (TpmRh::Pw as u32).into(),
-            nonce: Tpm2bNonce::default(),
-            session_attributes: TpmaSession::empty(),
-            hmac: Tpm2bAuth::try_from(password_bytes.as_slice())
-                .map_err(|_| LanguageError::OperationFailed)?,
-        };
-        let mut auth_commands = TpmAuthCommands::new();
-        auth_commands
-            .push(auth_session)
-            .map_err(|_| LanguageError::AuthListTooLong)?;
-
-        command_list.push((TpmCommand::PolicySecret(cmd), auth_commands));
-        software_session.policy_secret(name.as_ref())?;
+        command_list.push((TpmCommand::PolicySecret(cmd), TpmAuthCommands::new()));
+        software_session.policy_secret(name.as_ref(), &policy_ref)?;
         Ok(software_session.get_digest())
     }
 

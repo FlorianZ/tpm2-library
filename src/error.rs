@@ -11,8 +11,6 @@ use tpm2_protocol::data::TpmCc;
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum Error {
     #[error(transparent)]
-    Auth(#[from] crate::AuthError),
-    #[error(transparent)]
     Handle(#[from] crate::HandleError),
     #[error(transparent)]
     Language(#[from] crate::LanguageError),
@@ -33,8 +31,6 @@ pub enum LanguageError {
     InvalidPcrDigest,
     #[error("invalid PCR digest algorithm")]
     InvalidPcrDigestAlgorithm,
-    #[error("invalid secret call")]
-    InvalidSecretCall,
     #[error("invalid PCR selection")]
     InvalidPcrSelection,
     #[error("invalid policy digest algorithm")]

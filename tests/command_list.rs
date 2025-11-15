@@ -14,14 +14,14 @@ use tpm2_protocol::data::{Tpm2bName, TpmAlgId};
 
 #[rstest]
 #[case(
-    "pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(tpm:81000001))"
+    "pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(tpm:81000001, copy_ref:))"
 )]
 #[case(
     "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or pcr(sha256:15:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)"
 )]
 #[case("pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)")]
 #[case(
-    "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(tpm:81000001, password:010203))"
+    "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(tpm:81000001, copy_ref:010203))"
 )]
 /// Verifies that parsing a policy string, converting it to a command list, and
 /// parsing that command list back results in a correctly sanitized policy AST.

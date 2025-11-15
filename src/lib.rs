@@ -17,13 +17,11 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-pub mod auth;
 pub mod error;
 pub mod expression;
 pub mod handle;
 
 pub use self::error::{Error, LanguageError};
-pub use auth::*;
 pub use expression::*;
 pub use handle::*;
 
@@ -243,7 +241,7 @@ fn parse_primary<'a>(
         }
         Token::Ident(name) => match *name {
             "pcr" => Ok(parse_pcr_call(tokens, context)?),
-            "secret" => parse_secret_call(tokens, context),
+            "secret" => Ok(parse_secret_call(tokens, context)?),
             _ => parse_literal(name),
         },
         _ => Err(LanguageError::InvalidToken(token.to_string()).into()),
@@ -252,48 +250,11 @@ fn parse_primary<'a>(
 
 fn parse_literal(s: &str) -> Result<TpmPolicyExpression, Error> {
     use std::str::FromStr;
-    if let Ok(auth) = Auth::from_str(s) {
-        Ok(TpmPolicyExpression::Auth(auth))
-    } else if let Ok(handle) = Handle::from_str(s) {
+    if let Ok(handle) = Handle::from_str(s) {
         Ok(TpmPolicyExpression::Handle(handle))
     } else {
         Err(LanguageError::InvalidToken(s.to_string()).into())
     }
-}
-
-fn parse_call_args<'a>(
-    tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &TpmPolicyState,
-) -> Result<Vec<TpmPolicyExpression>, Error> {
-    match tokens.next() {
-        Some(Token::LParen) => {}
-        Some(actual_token) => {
-            return Err(LanguageError::InvalidToken(actual_token.to_string()).into());
-        }
-        None => {
-            return Err(LanguageError::UnexpectedEnd.into());
-        }
-    }
-
-    let mut args = Vec::new();
-    if tokens.peek() == Some(&&Token::RParen) {
-        tokens.next();
-        return Ok(args);
-    }
-
-    loop {
-        args.push(parse_or(tokens, context)?);
-
-        match tokens.next() {
-            Some(Token::RParen) => break,
-            Some(Token::Comma) => {}
-            Some(actual_token) => {
-                return Err(LanguageError::InvalidToken(actual_token.to_string()).into());
-            }
-            None => return Err(LanguageError::ParenthesisMismatch.into()),
-        }
-    }
-    Ok(args)
 }
 
 fn parse_pcr_call<'a>(
@@ -310,7 +271,67 @@ fn parse_pcr_call<'a>(
         }
     }
 
-    let buf = match tokens.next() {
+    let mut buf = String::new();
+    loop {
+        match tokens.next() {
+            Some(Token::RParen) => break,
+            Some(Token::Ident(s)) => buf.push_str(s),
+            Some(Token::Comma) => buf.push(','),
+            Some(tok @ (Token::And | Token::Or | Token::LParen)) => {
+                return Err(LanguageError::InvalidToken(tok.to_string()));
+            }
+            None => return Err(LanguageError::UnexpectedEnd),
+        }
+    }
+
+    if let Some((selection_part, digest_part)) = buf.rsplit_once(':') {
+        if let Ok(selections) = parse_tpml_pcr_selection_str(selection_part, context) {
+            if let Ok(digest_bytes) = hex::decode(digest_part) {
+                if let Ok(digest) = Tpm2bDigest::try_from(digest_bytes.as_slice()) {
+                    return Ok(TpmPolicyExpression::Pcr {
+                        selections,
+                        digest: Some(digest),
+                    });
+                }
+            }
+        }
+    }
+
+    let selections = parse_tpml_pcr_selection_str(&buf, context)?;
+    Ok(TpmPolicyExpression::Pcr {
+        selections,
+        digest: None,
+    })
+}
+
+fn parse_secret_call<'a>(
+    tokens: &mut Peekable<Iter<'a, Token<'a>>>,
+    context: &TpmPolicyState,
+) -> Result<TpmPolicyExpression, LanguageError> {
+    match tokens.next() {
+        Some(Token::LParen) => {}
+        Some(actual_token) => {
+            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+        }
+        None => {
+            return Err(LanguageError::UnexpectedEnd);
+        }
+    }
+
+    let auth_handle =
+        parse_or(tokens, context).map_err(|e| LanguageError::InvalidToken(e.to_string()))?;
+
+    match tokens.next() {
+        Some(Token::Comma) => {}
+        Some(actual_token) => {
+            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+        }
+        None => {
+            return Err(LanguageError::UnexpectedEnd);
+        }
+    }
+
+    let copy_ref_ident = match tokens.next() {
         Some(Token::Ident(s)) => s,
         Some(actual_token) => {
             return Err(LanguageError::InvalidToken(actual_token.to_string()));
@@ -330,47 +351,22 @@ fn parse_pcr_call<'a>(
         }
     }
 
-    if let Some((selection_part, digest_part)) = buf.rsplit_once(':') {
-        if let Ok(selections) = parse_tpml_pcr_selection_str(selection_part, context) {
-            if let Ok(digest_bytes) = hex::decode(digest_part) {
-                if let Ok(digest) = Tpm2bDigest::try_from(digest_bytes.as_slice()) {
-                    return Ok(TpmPolicyExpression::Pcr {
-                        selections,
-                        digest: Some(digest),
-                    });
-                }
-            }
-        }
+    let (key, value) = copy_ref_ident
+        .split_once(':')
+        .ok_or_else(|| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
+
+    if key != "copy_ref" {
+        return Err(LanguageError::InvalidToken((*copy_ref_ident).to_string()));
     }
 
-    let selections = parse_tpml_pcr_selection_str(buf, context)?;
-    Ok(TpmPolicyExpression::Pcr {
-        selections,
-        digest: None,
-    })
-}
-
-fn parse_secret_call<'a>(
-    tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &TpmPolicyState,
-) -> Result<TpmPolicyExpression, Error> {
-    let args = parse_call_args(tokens, context)?;
-
-    if args.is_empty() || args.len() > 2 {
-        return Err(LanguageError::InvalidSecretCall.into());
-    }
-
-    let mut arg_iter = args.into_iter();
-    let auth_handle = if let Some(handle) = arg_iter.next() {
-        Box::new(handle)
-    } else {
-        return Err(LanguageError::InvalidSecretCall.into());
-    };
-    let password = arg_iter.next().map(Box::new);
+    let bytes = hex::decode(value)
+        .map_err(|_| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
+    let copy_ref = Tpm2bDigest::try_from(bytes.as_slice())
+        .map_err(|_| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
 
     Ok(TpmPolicyExpression::Secret {
-        auth_handle,
-        password,
+        auth_handle: Box::new(auth_handle),
+        copy_ref,
     })
 }
 
@@ -456,22 +452,24 @@ impl TpmPolicySession {
     }
 
     /// Applies a `TPM2_PolicySecret` action to the session.
-    fn policy_secret(&mut self, auth_handle_name: &Tpm2bName) -> Result<(), LanguageError> {
-        let policy_ref = Tpm2bNonce::default();
-        let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
+    fn policy_secret(
+        &mut self,
+        auth_handle_name: &Tpm2bName,
+        policy_ref: &Tpm2bNonce,
+    ) -> Result<(), LanguageError> {
+        let expiration: i32 = 0;
+        let expiration_bytes = expiration.to_be_bytes();
 
-        let intermediate_digest_bytes = Hash::from(self.hash_alg)
-            .digest(&[self.digest.as_ref(), &cc_bytes, auth_handle_name.as_ref()])
-            .map_err(|_| LanguageError::OperationFailed)?;
-
-        let final_digest_bytes = Hash::from(self.hash_alg)
-            .digest(&[&intermediate_digest_bytes, policy_ref.as_ref()])
-            .map_err(|_| LanguageError::OperationFailed)?;
-
-        self.digest = Tpm2bDigest::try_from(final_digest_bytes.as_slice())
-            .map_err(|_| LanguageError::OperationFailed)?;
-
-        Ok(())
+        update_policy_digest(
+            &mut self.digest,
+            self.hash_alg,
+            TpmCc::PolicySecret,
+            &[
+                auth_handle_name.as_ref(),
+                policy_ref.as_ref(),
+                &expiration_bytes,
+            ],
+        )
     }
 
     /// Applies a `TPM2_PolicyRestart` action to the session.
