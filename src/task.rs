@@ -6,7 +6,7 @@ use crate::{
     alg::AlgError,
     command::AuthArgs,
     device::{Device, DeviceError, TpmCommandObject},
-    vtpm::{build_password_session, create_auth, VtpmCache, VtpmError, VtpmSession},
+    vtpm::{create_auth, VtpmCache, VtpmError, VtpmSession},
     write_object,
 };
 use hex;
@@ -214,7 +214,7 @@ impl<'a> TaskState<'a> {
                     });
 
                 let auth = policy_auths.next().cloned().unwrap_or_default();
-                let auth_cmd = build_password_session(&auth)?;
+                let auth_cmd = crate::vtpm::build_password_session(&auth)?;
 
                 let mut auths = TpmAuthCommands::new();
                 auths
@@ -524,41 +524,37 @@ impl<'a> TaskState<'a> {
         for (i, auth) in auth_list.iter().enumerate() {
             let handle_param = handles.get(i).ok_or(TaskError::TrailingAuthorizations)?;
 
-            match auth {
-                Auth::Password(value) => {
-                    built_auths.push(build_password_session(value)?);
-                }
-                Auth::Session(vhandle) => {
-                    let session = self
-                        .cache
-                        .get_session(*vhandle)
-                        .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
-                    let nonce_size = Hash::from(session.auth_hash).size();
-                    let mut nonce_bytes = vec![0; nonce_size];
-                    thread_rng().fill_bytes(&mut nonce_bytes);
-                    let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
-                        .map_err(|_| TaskError::CapacityExceeded)?;
-                    let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
-                        (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
-                    } else {
-                        (None, None)
-                    };
+            let Auth::Session(vhandle) = auth else {
+                return Err(TaskError::InvalidAuth);
+            };
 
-                    let result = create_auth(
-                        device,
-                        session,
-                        &nonce_caller,
-                        &[],
-                        command.cc(),
-                        &[*handle_param],
-                        &params,
-                        current_nonce_decrypt,
-                        current_nonce_encrypt,
-                    )?;
-                    built_auths.push(result);
-                }
-                Auth::Policy(_) => return Err(TaskError::InvalidAuth),
-            }
+            let session = self
+                .cache
+                .get_session(*vhandle)
+                .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
+            let nonce_size = Hash::from(session.auth_hash).size();
+            let mut nonce_bytes = vec![0; nonce_size];
+            thread_rng().fill_bytes(&mut nonce_bytes);
+            let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
+                .map_err(|_| TaskError::CapacityExceeded)?;
+            let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
+                (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
+            } else {
+                (None, None)
+            };
+
+            let result = create_auth(
+                device,
+                session,
+                &nonce_caller,
+                &[],
+                command.cc(),
+                &[*handle_param],
+                &params,
+                current_nonce_decrypt,
+                current_nonce_encrypt,
+            )?;
+            built_auths.push(result);
         }
         Ok(built_auths)
     }
@@ -589,31 +585,38 @@ impl<'a> TaskState<'a> {
         handles: &[u32],
         auth_list: &[Auth],
     ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
-        let mut effective_auth_list: Vec<Auth> = Vec::with_capacity(auth_list.len());
-        let mut vhandles: Vec<u32> = Vec::new();
-        let mut phandles: Vec<TpmHandle> = Vec::new();
+        let mut effective_auth_list: Vec<Auth> = Vec::with_capacity(1);
+        let mut virtual_handles: Vec<u32> = Vec::new();
+        let mut physical_handles: Vec<TpmHandle> = Vec::new();
 
-        for auth in auth_list {
-            if *auth == Auth::default() {
-                let (resp, nonce_caller) = TaskState::start_session(
-                    device,
-                    TpmSe::Hmac,
-                    TpmAlgId::Sha256,
-                    (TpmRh::Null as u32).into(),
-                )?;
-                let session = VtpmSession::new(TpmAlgId::Sha256, nonce_caller, &resp, &[])?;
-                let vhandle = self.cache.add_session(session);
+        if let Some(auth) = auth_list.first() {
+            match auth {
+                Auth::Password(password_vec) => {
+                    let (resp, nonce_caller) = TaskState::start_session(
+                        device,
+                        TpmSe::Hmac,
+                        TpmAlgId::Sha256,
+                        (TpmRh::Null as u32).into(),
+                    )?;
+                    let session =
+                        VtpmSession::new(TpmAlgId::Sha256, nonce_caller, &resp, password_vec)?;
+                    let vhandle = self.cache.add_session(session);
 
-                vhandles.push(vhandle);
-                phandles.push(resp.session_handle);
-                effective_auth_list.push(Auth::Session(vhandle));
-            } else {
-                effective_auth_list.push(auth.clone());
+                    virtual_handles.push(vhandle);
+                    temp_phandles.push(resp.session_handle);
+                    effective_auth_list.push(Auth::Session(vhandle));
+                }
+                Auth::Session(_) => {
+                    effective_auth_list.push(auth.clone());
+                }
+                Auth::Policy(_) => {
+                    return Err(TaskError::InvalidAuth);
+                }
             }
         }
 
         let mut activated_handles = self.cache.prepare_sessions(device, auth_list)?;
-        activated_handles.extend(phandles);
+        activated_handles.extend(temp_phandles);
 
         for &handle in &activated_handles {
             self.cache.track(handle)?;
@@ -662,7 +665,7 @@ impl<'a> TaskState<'a> {
             self.cache.untrack(handle.0);
         }
 
-        for vhandle in vhandles {
+        for vhandle in virtual_handles {
             self.cache.remove(device, vhandle)?;
         }
 
