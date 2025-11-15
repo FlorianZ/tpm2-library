@@ -36,7 +36,7 @@ use tpm2_tpmkey::TpmPolicyCommand;
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
 #[derive(Debug, Error)]
-pub enum SessionError {
+pub enum TaskError {
     #[error("capacity exceeded")]
     CapacityExceeded,
     #[error("handle not found: {0}{1:08x}")]
@@ -103,7 +103,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut Device,
         name: &Tpm2bName,
-    ) -> Result<TpmHandle, SessionError> {
+    ) -> Result<TpmHandle, TaskError> {
         if let Some(handle) = device.find_persistent_by_name(name)? {
             return Ok(handle);
         }
@@ -113,7 +113,7 @@ impl<'a> TaskState<'a> {
             return self.load_context(device, &Handle::new(HandleClass::Vtpm, vhandle));
         }
 
-        Err(SessionError::HandleNameNotFound(*name))
+        Err(TaskError::HandleNameNotFound(*name))
     }
 
     /// Converts the custom binary cache format into a "live" `TpmCommandList`.
@@ -129,26 +129,26 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut Device,
         policy_blob: &[u8],
-    ) -> Result<Option<TpmCommandList>, SessionError> {
+    ) -> Result<Option<TpmCommandList>, TaskError> {
         if policy_blob.is_empty() {
             return Ok(None);
         }
         let (count, mut remainder) =
-            u32::unmarshal(policy_blob).map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+            u32::unmarshal(policy_blob).map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
         let mut commands = Vec::with_capacity(count as usize);
 
         for _ in 0..count {
-            let (cc, rest) = TpmCc::unmarshal(remainder)
-                .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+            let (cc, rest) =
+                TpmCc::unmarshal(remainder).map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
             remainder = rest;
 
             let (cmd, auth) = if cc == TpmCc::PolicySecret {
                 let (handle_hint, rest) = TpmHandle::unmarshal(remainder)
-                    .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+                    .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
                 let (object_name, rest) = Tpm2bName::unmarshal(rest)
-                    .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+                    .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
                 let (policy_ref, rest) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
-                    .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+                    .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
                 remainder = rest;
 
                 let live_handle = if object_name.is_empty() {
@@ -174,14 +174,14 @@ impl<'a> TaskState<'a> {
             } else {
                 let (body_blob, rest) =
                     TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)
-                        .map_err(|e| SessionError::Vtpm(VtpmError::Protocol(e)))?;
+                        .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
                 remainder = rest;
 
                 let policy_cmd = TpmPolicyCommand::from_raw(cc, body_blob.to_vec())
-                    .map_err(|e| SessionError::Key(KeyError::TpmKey(e)))?;
+                    .map_err(|e| TaskError::Key(KeyError::TpmKey(e)))?;
                 policy_cmd
                     .to_command()
-                    .map_err(|e| SessionError::Key(KeyError::TpmKey(e)))?
+                    .map_err(|e| TaskError::Key(KeyError::TpmKey(e)))?
             };
             commands.push((cmd, auth));
         }
@@ -204,7 +204,7 @@ impl<'a> TaskState<'a> {
         device: &mut Device,
         policy_blob: &[u8],
         key_name_alg: TpmAlgId,
-    ) -> Result<Option<Auth>, SessionError> {
+    ) -> Result<Option<Auth>, TaskError> {
         let Some(commands) = self.to_policy_command_list(device, policy_blob)? else {
             return Ok(None);
         };
@@ -224,7 +224,7 @@ impl<'a> TaskState<'a> {
         let vhandle = self.cache.add_session(temp_session);
         let policy_phandle = resp.session_handle;
 
-        let execution_result: Result<(), SessionError> = (|| {
+        let execution_result: Result<(), TaskError> = (|| {
             for (command_body, auth_sessions) in commands {
                 let mut command_body = command_body.clone();
 
@@ -238,7 +238,7 @@ impl<'a> TaskState<'a> {
                         cmd.policy_session = policy_phandle.0.into();
                     }
                     _ => {
-                        return Err(SessionError::MalformedData);
+                        return Err(TaskError::MalformedData);
                     }
                 }
                 device.transmit(&command_body, auth_sessions.as_ref())?;
@@ -252,7 +252,7 @@ impl<'a> TaskState<'a> {
                 let session = self
                     .cache
                     .get_mut_session(vhandle)
-                    .ok_or(SessionError::HandleNotFound("vtpm:", vhandle))?;
+                    .ok_or(TaskError::HandleNotFound("vtpm:", vhandle))?;
                 session.context = new_context;
                 self.cache.save()?;
                 Ok(Some(Auth::Session(vhandle)))
@@ -283,8 +283,8 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut Device,
         target: &Handle,
-    ) -> Result<TpmHandle, SessionError> {
-        let target_vhandle = target.value().ok_or(SessionError::InvalidAuth)?;
+    ) -> Result<TpmHandle, TaskError> {
+        let target_vhandle = target.value().ok_or(TaskError::InvalidAuth)?;
 
         if target.class() == HandleClass::Tpm {
             return Ok(TpmHandle(target_vhandle));
@@ -293,7 +293,7 @@ impl<'a> TaskState<'a> {
         let chain = self.cache.fetch_ancestor_chain(target_vhandle, device)?;
 
         if chain.is_empty() {
-            return Err(SessionError::HandleNotFound("vtpm:", target_vhandle));
+            return Err(TaskError::HandleNotFound("vtpm:", target_vhandle));
         }
 
         let mut phandle: Option<TpmHandle> = None;
@@ -302,7 +302,7 @@ impl<'a> TaskState<'a> {
         if let Some(first_handle) = chain_iter.next() {
             let first_handle_val = first_handle
                 .value()
-                .ok_or(SessionError::InvalidParent("vtpm:", 0))?;
+                .ok_or(TaskError::InvalidParent("vtpm:", 0))?;
             match first_handle.class() {
                 HandleClass::Tpm => {
                     phandle = Some(TpmHandle(first_handle_val));
@@ -317,25 +317,23 @@ impl<'a> TaskState<'a> {
         }
 
         for handle in chain_iter {
-            let vhandle = handle
-                .value()
-                .ok_or(SessionError::InvalidParent("vtpm:", 0))?;
+            let vhandle = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
             let key = self.cache.find_by_vhandle(vhandle)?;
 
-            let parent_phandle = phandle.ok_or(SessionError::ParentNotFound)?;
+            let parent_phandle = phandle.ok_or(TaskError::ParentNotFound)?;
             let loaded_phandle = device.load_context(key.context.clone())?;
 
             if device.read_public(parent_phandle)?.1 != tpm_make_name(&key.parent.inner)? {
                 self.cache.untrack(loaded_phandle.0);
                 device.flush_context(loaded_phandle)?;
-                return Err(SessionError::InvalidParent("vtpm:", vhandle));
+                return Err(TaskError::InvalidParent("vtpm:", vhandle));
             }
 
             self.cache.track(loaded_phandle)?;
             phandle = Some(loaded_phandle);
         }
 
-        phandle.ok_or(SessionError::HandleNotFound("vtpm:", target_vhandle))
+        phandle.ok_or(TaskError::HandleNotFound("vtpm:", target_vhandle))
     }
 
     /// Builds the authorization area for a command.
@@ -358,9 +356,9 @@ impl<'a> TaskState<'a> {
         command: &C,
         handles: &[u32],
         auth_list: &[Auth],
-    ) -> Result<Vec<TpmsAuthCommand>, SessionError> {
+    ) -> Result<Vec<TpmsAuthCommand>, TaskError> {
         let mut built_auths = Vec::new();
-        let params = write_object(command).map_err(|_| SessionError::MalformedData)?;
+        let params = write_object(command).map_err(|_| TaskError::MalformedData)?;
 
         let mut nonce_decrypt: Option<Tpm2bNonce> = None;
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
@@ -382,7 +380,7 @@ impl<'a> TaskState<'a> {
         }
 
         for (i, auth) in auth_list.iter().enumerate() {
-            let handle_param = handles.get(i).ok_or(SessionError::TrailingAuthorizations)?;
+            let handle_param = handles.get(i).ok_or(TaskError::TrailingAuthorizations)?;
 
             match auth {
                 Auth::Password(value) => {
@@ -392,12 +390,12 @@ impl<'a> TaskState<'a> {
                     let session = self
                         .cache
                         .get_session(*vhandle)
-                        .ok_or(SessionError::HandleNotFound("vtpm:", *vhandle))?;
+                        .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
                     let nonce_size = Hash::from(session.auth_hash).size();
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
-                        .map_err(|_| SessionError::CapacityExceeded)?;
+                        .map_err(|_| TaskError::CapacityExceeded)?;
                     let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
                         (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
                     } else {
@@ -417,7 +415,7 @@ impl<'a> TaskState<'a> {
                     )?;
                     built_auths.push(result);
                 }
-                Auth::Policy(_) => return Err(SessionError::InvalidAuth),
+                Auth::Policy(_) => return Err(TaskError::InvalidAuth),
             }
         }
         Ok(built_auths)
@@ -437,7 +435,7 @@ impl<'a> TaskState<'a> {
         command: &C,
         handles: &[u32],
         auth_list: &[Auth],
-    ) -> Result<(TpmResponse, TpmAuthResponses), SessionError> {
+    ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
         let mut effective_auth_list: Vec<Auth> = Vec::with_capacity(auth_list.len());
         let mut vhandles: Vec<u32> = Vec::new();
         let mut phandles: Vec<TpmHandle> = Vec::new();
@@ -489,11 +487,11 @@ impl<'a> TaskState<'a> {
                         }
                     }
                 }
-                return Err(SessionError::Device(DeviceError::TpmRc(rc)));
+                return Err(TaskError::Device(DeviceError::TpmRc(rc)));
             }
             Err(err) => {
                 spinner.finish_and_clear();
-                return Err(SessionError::Device(err));
+                return Err(TaskError::Device(err));
             }
         };
 
@@ -532,7 +530,7 @@ impl<'a> TaskState<'a> {
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
         auth_list: &[Auth],
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), TaskError> {
         let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
         } else {
@@ -549,7 +547,7 @@ impl<'a> TaskState<'a> {
         let (resp, _) = self.execute(device, &cmd, &handles_for_session, auth_list)?;
 
         resp.EvictControl()
-            .map_err(|_| SessionError::ResponseMismatch(TpmCc::EvictControl))?;
+            .map_err(|_| TaskError::ResponseMismatch(TpmCc::EvictControl))?;
         Ok(())
     }
 
@@ -566,7 +564,7 @@ impl<'a> TaskState<'a> {
         session_type: TpmSe,
         auth_hash: TpmAlgId,
         bind: TpmHandle,
-    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), SessionError> {
+    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), TaskError> {
         let digest_len = Hash::from(auth_hash).size();
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
@@ -588,7 +586,7 @@ impl<'a> TaskState<'a> {
 
         let resp = response_body
             .StartAuthSession()
-            .map_err(|_| SessionError::ResponseMismatch(TpmCc::StartAuthSession))?;
+            .map_err(|_| TaskError::ResponseMismatch(TpmCc::StartAuthSession))?;
 
         Ok((resp, nonce_caller))
     }

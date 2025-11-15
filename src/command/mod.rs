@@ -38,7 +38,7 @@ use crate::{
     alg::{AlgInfo, KeyError},
     device::DeviceError,
     pcr::PcrError,
-    task::{SessionError, TaskState},
+    task::{TaskError, TaskState},
     vtpm::VtpmError,
 };
 use openssl::error::ErrorStack;
@@ -134,7 +134,7 @@ pub enum CommandError {
     #[error("cache: {0}")]
     Cache(VtpmError),
     #[error("task_state: {0}")]
-    Session(SessionError),
+    Session(TaskError),
     #[error("device: {0}")]
     Device(DeviceError),
     #[error("crypto: {0}")]
@@ -189,19 +189,19 @@ impl CommandError {
     }
 }
 
-impl From<SessionError> for CommandError {
-    fn from(err: SessionError) -> Self {
+impl From<TaskError> for CommandError {
+    fn from(err: TaskError) -> Self {
         match err {
-            SessionError::Device(dev_err) => Self::from(dev_err),
-            SessionError::InvalidParent(prefix, handle)
-            | SessionError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) => {
+            TaskError::Device(dev_err) => Self::from(dev_err),
+            TaskError::InvalidParent(prefix, handle)
+            | TaskError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) => {
                 Self::InvalidParentHandle(format!("{prefix}{handle:08x}"))
             }
-            SessionError::Vtpm(e) => Self::Cache(e),
-            SessionError::Key(e) => Self::Key(e),
-            SessionError::Crypto(e) => Self::Crypto(e),
-            SessionError::Io(e) => Self::Io(e),
-            SessionError::IntDecode(e) => Self::IntDecode(e),
+            TaskError::Vtpm(e) => Self::Cache(e),
+            TaskError::Key(e) => Self::Key(e),
+            TaskError::Crypto(e) => Self::Crypto(e),
+            TaskError::Io(e) => Self::Io(e),
+            TaskError::IntDecode(e) => Self::IntDecode(e),
             _ => Self::Session(err),
         }
     }

@@ -6,7 +6,7 @@
 
 use crate::{
     device::{Device, DeviceError},
-    task::{SessionError, TaskState},
+    task::{TaskError, TaskState},
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -34,7 +34,7 @@ pub enum PcrError {
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("session: {0}")]
-    Session(#[from] SessionError),
+    Session(#[from] TaskError),
     #[error("protocol: {0}")]
     Protocol(#[from] TpmProtocolError),
 }

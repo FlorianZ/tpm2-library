@@ -11,7 +11,7 @@ use crate::{
     device::{with_device, Device},
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
-    task::{SessionError, TaskState},
+    task::{TaskError, TaskState},
     template,
     vtpm::VtpmKey,
 };
@@ -214,7 +214,7 @@ impl Create {
                             log::error!("vtpm:{vhandle:08x}: {e}");
                         }
                     }
-                    if let SessionError::Device(dev_err) = e {
+                    if let TaskError::Device(dev_err) = e {
                         let context = if let Ok(key) = task_state
                             .cache
                             .find_by_phandle(device, parent_phys_handle.0)
