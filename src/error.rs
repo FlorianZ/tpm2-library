@@ -7,16 +7,9 @@ use thiserror::Error;
 use tpm2_crypto::Hash;
 use tpm2_protocol::data::TpmCc;
 
-/// The top-level error type.
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum Error {
-    #[error(transparent)]
-    Language(#[from] crate::LanguageError),
-}
-
 /// Language interpretation and compilation errors.
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum LanguageError {
+pub enum Error {
     #[error("authorization list is too long")]
     AuthListTooLong,
     #[error("handle has more than one asterisk")]

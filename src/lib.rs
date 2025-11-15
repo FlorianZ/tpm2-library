@@ -21,7 +21,7 @@ pub mod error;
 pub mod expression;
 pub mod handle;
 
-pub use self::error::{Error, LanguageError};
+pub use self::error::Error;
 pub use expression::*;
 pub use handle::*;
 
@@ -56,36 +56,34 @@ pub struct TpmPolicyState {
 fn parse_tpml_pcr_selection_str(
     selection_str: &str,
     context: &TpmPolicyState,
-) -> Result<TpmlPcrSelection, LanguageError> {
+) -> Result<TpmlPcrSelection, Error> {
     let mut list = TpmlPcrSelection::new();
     let pcr_select_size = context.pcr_count.div_ceil(8);
     if pcr_select_size > TPM_PCR_SELECT_MAX as usize {
-        return Err(LanguageError::PcrSelectionTooLarge);
+        return Err(Error::PcrSelectionTooLarge);
     }
 
     for part in selection_str.split('+') {
-        let (alg_str, indices_str) = part
-            .split_once(':')
-            .ok_or(LanguageError::InvalidPcrSelection)?;
+        let (alg_str, indices_str) = part.split_once(':').ok_or(Error::InvalidPcrSelection)?;
 
         let alg = alg_str
             .parse::<Hash>()
-            .map_err(|_| LanguageError::InvalidPcrDigestAlgorithm)?;
+            .map_err(|_| Error::InvalidPcrDigestAlgorithm)?;
         if !context.pcr_banks.contains(&alg.into()) {
-            return Err(LanguageError::PcrBankNotAvailable(alg));
+            return Err(Error::PcrBankNotAvailable(alg));
         }
 
         let indices: Vec<u32> = indices_str
             .split(',')
             .map(str::parse)
             .collect::<Result<_, _>>()
-            .map_err(|_| LanguageError::InvalidPcrSelection)?;
+            .map_err(|_| Error::InvalidPcrSelection)?;
 
         let mut pcr_select_bytes = vec![0u8; pcr_select_size];
         for &pcr_index in &indices {
             let pcr_index = pcr_index as usize;
             if pcr_index >= context.pcr_count {
-                return Err(LanguageError::PcrIndexTooLarge);
+                return Err(Error::PcrIndexTooLarge);
             }
             pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
         }
@@ -93,9 +91,9 @@ fn parse_tpml_pcr_selection_str(
         list.push(TpmsPcrSelection {
             hash: alg.into(),
             pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
-                .map_err(|_| LanguageError::PcrDigestTooLarge)?,
+                .map_err(|_| Error::PcrDigestTooLarge)?,
         })
-        .map_err(|_| LanguageError::PcrSelectionTooLarge)?;
+        .map_err(|_| Error::PcrSelectionTooLarge)?;
     }
     Ok(list)
 }
@@ -229,13 +227,13 @@ fn parse_primary<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
     context: &TpmPolicyState,
 ) -> Result<TpmPolicyExpression, Error> {
-    let token = tokens.next().ok_or(LanguageError::UnexpectedEnd)?;
+    let token = tokens.next().ok_or(Error::UnexpectedEnd)?;
 
     match token {
         Token::LParen => {
             let expr = parse_or(tokens, context)?;
             if tokens.next() != Some(&Token::RParen) {
-                return Err(LanguageError::ParenthesisMismatch.into());
+                return Err(Error::ParenthesisMismatch);
             }
             Ok(expr)
         }
@@ -244,7 +242,7 @@ fn parse_primary<'a>(
             "secret" => Ok(parse_secret_call(tokens, context)?),
             _ => parse_literal(name),
         },
-        _ => Err(LanguageError::InvalidToken(token.to_string()).into()),
+        _ => Err(Error::InvalidToken(token.to_string())),
     }
 }
 
@@ -253,21 +251,21 @@ fn parse_literal(s: &str) -> Result<TpmPolicyExpression, Error> {
     if let Ok(handle) = Handle::from_str(s) {
         Ok(TpmPolicyExpression::Handle(handle))
     } else {
-        Err(LanguageError::InvalidToken(s.to_string()).into())
+        Err(Error::InvalidToken(s.to_string()))
     }
 }
 
 fn parse_pcr_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
     context: &TpmPolicyState,
-) -> Result<TpmPolicyExpression, LanguageError> {
+) -> Result<TpmPolicyExpression, Error> {
     match tokens.next() {
         Some(Token::LParen) => {}
         Some(actual_token) => {
-            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+            return Err(Error::InvalidToken(actual_token.to_string()));
         }
         None => {
-            return Err(LanguageError::UnexpectedEnd);
+            return Err(Error::UnexpectedEnd);
         }
     }
 
@@ -278,9 +276,9 @@ fn parse_pcr_call<'a>(
             Some(Token::Ident(s)) => buf.push_str(s),
             Some(Token::Comma) => buf.push(','),
             Some(tok @ (Token::And | Token::Or | Token::LParen)) => {
-                return Err(LanguageError::InvalidToken(tok.to_string()));
+                return Err(Error::InvalidToken(tok.to_string()));
             }
-            None => return Err(LanguageError::UnexpectedEnd),
+            None => return Err(Error::UnexpectedEnd),
         }
     }
 
@@ -307,19 +305,18 @@ fn parse_pcr_call<'a>(
 fn parse_secret_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
     context: &TpmPolicyState,
-) -> Result<TpmPolicyExpression, LanguageError> {
+) -> Result<TpmPolicyExpression, Error> {
     match tokens.next() {
         Some(Token::LParen) => {}
         Some(actual_token) => {
-            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+            return Err(Error::InvalidToken(actual_token.to_string()));
         }
         None => {
-            return Err(LanguageError::UnexpectedEnd);
+            return Err(Error::UnexpectedEnd);
         }
     }
 
-    let auth_handle =
-        parse_or(tokens, context).map_err(|e| LanguageError::InvalidToken(e.to_string()))?;
+    let auth_handle = parse_or(tokens, context).map_err(|e| Error::InvalidToken(e.to_string()))?;
 
     let copy_ref = match tokens.peek() {
         Some(Token::Comma) => {
@@ -328,48 +325,48 @@ fn parse_secret_call<'a>(
             let copy_ref_ident = match tokens.next() {
                 Some(Token::Ident(s)) => s,
                 Some(actual_token) => {
-                    return Err(LanguageError::InvalidToken(actual_token.to_string()));
+                    return Err(Error::InvalidToken(actual_token.to_string()));
                 }
                 None => {
-                    return Err(LanguageError::UnexpectedEnd);
+                    return Err(Error::UnexpectedEnd);
                 }
             };
 
             let (key, value) = copy_ref_ident
                 .split_once(':')
-                .ok_or_else(|| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
+                .ok_or_else(|| Error::InvalidToken((*copy_ref_ident).to_string()))?;
 
             if key != "copy_ref" {
-                return Err(LanguageError::InvalidToken((*copy_ref_ident).to_string()));
+                return Err(Error::InvalidToken((*copy_ref_ident).to_string()));
             }
 
             let bytes = hex::decode(value)
-                .map_err(|_| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
+                .map_err(|_| Error::InvalidToken((*copy_ref_ident).to_string()))?;
 
             if bytes.is_empty() {
                 None
             } else {
                 let digest = Tpm2bDigest::try_from(bytes.as_slice())
-                    .map_err(|_| LanguageError::InvalidToken((*copy_ref_ident).to_string()))?;
+                    .map_err(|_| Error::InvalidToken((*copy_ref_ident).to_string()))?;
                 Some(digest)
             }
         }
         Some(Token::RParen) => None,
         Some(actual_token) => {
-            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+            return Err(Error::InvalidToken(actual_token.to_string()));
         }
         None => {
-            return Err(LanguageError::UnexpectedEnd);
+            return Err(Error::UnexpectedEnd);
         }
     };
 
     match tokens.next() {
         Some(Token::RParen) => {}
         Some(actual_token) => {
-            return Err(LanguageError::InvalidToken(actual_token.to_string()));
+            return Err(Error::InvalidToken(actual_token.to_string()));
         }
         None => {
-            return Err(LanguageError::UnexpectedEnd);
+            return Err(Error::UnexpectedEnd);
         }
     }
 
@@ -393,7 +390,7 @@ fn update_policy_digest(
     hash_alg: TpmAlgId,
     cc: TpmCc,
     params: &[&[u8]],
-) -> Result<(), LanguageError> {
+) -> Result<(), Error> {
     let cc_bytes = (cc as u32).to_be_bytes();
     let mut chunks: Vec<&[u8]> = Vec::with_capacity(2 + params.len());
     chunks.push(current_digest.as_ref());
@@ -402,19 +399,19 @@ fn update_policy_digest(
 
     let new_digest_bytes = Hash::from(hash_alg)
         .digest(&chunks)
-        .map_err(|_| LanguageError::OperationFailed)?;
-    *current_digest = Tpm2bDigest::try_from(new_digest_bytes.as_slice())
-        .map_err(|_| LanguageError::OperationFailed)?;
+        .map_err(|_| Error::OperationFailed)?;
+    *current_digest =
+        Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(|_| Error::OperationFailed)?;
 
     Ok(())
 }
 
 impl TpmPolicySession {
     /// Creates a new software policy session.
-    fn new(hash_alg: TpmAlgId) -> Result<Self, LanguageError> {
+    fn new(hash_alg: TpmAlgId) -> Result<Self, Error> {
         let digest_size = Hash::from(hash_alg).size();
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
-            .map_err(|_| LanguageError::OperationFailed)?;
+            .map_err(|_| Error::OperationFailed)?;
         Ok(Self {
             digest,
             hash_alg,
@@ -423,13 +420,13 @@ impl TpmPolicySession {
     }
 
     /// Applies a `TPM2_PolicyPCR` action to the session.
-    fn policy_pcr(&mut self, cmd: &TpmPolicyPcrCommand) -> Result<(), LanguageError> {
+    fn policy_pcr(&mut self, cmd: &TpmPolicyPcrCommand) -> Result<(), Error> {
         let mut pcrs_bytes = vec![0u8; TpmlPcrSelection::SIZE];
         let pcrs_bytes_len = {
             let mut writer = TpmWriter::new(&mut pcrs_bytes);
             cmd.pcrs
                 .marshal(&mut writer)
-                .map_err(|_| LanguageError::OperationFailed)?;
+                .map_err(|_| Error::OperationFailed)?;
             writer.len()
         };
         pcrs_bytes.truncate(pcrs_bytes_len);
@@ -443,14 +440,14 @@ impl TpmPolicySession {
     }
 
     /// Applies a `TPM2_PolicyOR` action to the session.
-    fn policy_or(&mut self, cmd: &TpmPolicyOrCommand) -> Result<(), LanguageError> {
+    fn policy_or(&mut self, cmd: &TpmPolicyOrCommand) -> Result<(), Error> {
         let mut digests_as_bytes = Vec::with_capacity(cmd.p_hash_list.len() * self.digest_size);
         for digest in cmd.p_hash_list.iter() {
             digests_as_bytes.extend_from_slice(digest.as_ref());
         }
 
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(|_| LanguageError::OperationFailed)?;
+            .map_err(|_| Error::OperationFailed)?;
 
         update_policy_digest(
             &mut self.digest,
@@ -465,7 +462,7 @@ impl TpmPolicySession {
         &mut self,
         auth_handle_name: &Tpm2bName,
         policy_ref: &Tpm2bNonce,
-    ) -> Result<(), LanguageError> {
+    ) -> Result<(), Error> {
         let expiration: i32 = 0;
         let expiration_bytes = expiration.to_be_bytes();
 
@@ -482,9 +479,9 @@ impl TpmPolicySession {
     }
 
     /// Applies a `TPM2_PolicyRestart` action to the session.
-    fn policy_restart(&mut self) -> Result<(), LanguageError> {
+    fn policy_restart(&mut self) -> Result<(), Error> {
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(|_| LanguageError::OperationFailed)?;
+            .map_err(|_| Error::OperationFailed)?;
         Ok(())
     }
 

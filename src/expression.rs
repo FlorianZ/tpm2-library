@@ -2,9 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    build_and_branch, Error, Handle, HandleClass, LanguageError, TpmPolicySession, TpmPolicyState,
-};
+use crate::{build_and_branch, Error, Handle, HandleClass, TpmPolicySession, TpmPolicyState};
 use std::borrow::Cow;
 use std::fmt;
 use tpm2_crypto::Hash;
@@ -133,7 +131,7 @@ impl TpmPolicyExpression {
         if iter.peek().is_none() {
             Ok(expr)
         } else {
-            Err(LanguageError::TrailingData.into())
+            Err(Error::TrailingData)
         }
     }
 
@@ -158,7 +156,7 @@ impl TpmPolicyExpression {
         let mut stack: Vec<Vec<TpmPolicyExpression>> = vec![vec![]];
 
         for (command_body, _auth_sessions) in command_list {
-            let current_branch = stack.last_mut().ok_or(LanguageError::OperationFailed)?;
+            let current_branch = stack.last_mut().ok_or(Error::OperationFailed)?;
 
             match command_body {
                 TpmCommand::PolicyRestart(_) => {
@@ -191,7 +189,7 @@ impl TpmPolicyExpression {
                 TpmCommand::PolicyOr(cmd) => {
                     let num_branches = cmd.p_hash_list.iter().len();
                     if stack.len() < num_branches {
-                        return Err(LanguageError::OperationFailed.into());
+                        return Err(Error::OperationFailed);
                     }
 
                     let mut branches = Vec::with_capacity(num_branches);
@@ -199,7 +197,7 @@ impl TpmPolicyExpression {
                         if let Some(branch_vec) = stack.pop() {
                             branches.push(build_and_branch(branch_vec));
                         } else {
-                            return Err(LanguageError::OperationFailed.into());
+                            return Err(Error::OperationFailed);
                         }
                     }
 
@@ -209,21 +207,21 @@ impl TpmPolicyExpression {
                     if let Some(branch_to_push_to) = stack.last_mut() {
                         branch_to_push_to.push(expr);
                     } else {
-                        return Err(LanguageError::OperationFailed.into());
+                        return Err(Error::OperationFailed);
                     }
                 }
-                _ => return Err(LanguageError::InvalidCc(command_body.cc()).into()),
+                _ => return Err(Error::InvalidCc(command_body.cc())),
             }
         }
 
         if stack.len() != 1 {
-            return Err(LanguageError::OperationFailed.into());
+            return Err(Error::OperationFailed);
         }
 
         if let Some(final_branch) = stack.pop() {
             Ok(build_and_branch(final_branch))
         } else {
-            Err(LanguageError::OperationFailed.into())
+            Err(Error::OperationFailed)
         }
     }
 
@@ -281,7 +279,7 @@ impl TpmPolicyExpression {
                 expr.to_command_list_walk_secret(command_list, software_session, context)
             }
             expr @ TpmPolicyExpression::Handle { .. } => {
-                Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into())
+                Err(Error::InvalidExpression(Box::new(expr.clone())))
             }
         }
     }
@@ -293,13 +291,13 @@ impl TpmPolicyExpression {
     ) -> Result<Tpm2bDigest, Error> {
         let (selections, digest) = match self {
             TpmPolicyExpression::Pcr { selections, digest } => (selections, digest),
-            expr => return Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into()),
+            expr => return Err(Error::InvalidExpression(Box::new(expr.clone()))),
         };
 
-        let pcr_digest = digest.ok_or(LanguageError::PcrDigestMissing)?;
+        let pcr_digest = digest.ok_or(Error::PcrDigestMissing)?;
 
         if pcr_digest.as_ref().len() != software_session.digest_size {
-            return Err(LanguageError::InvalidPcrDigest.into());
+            return Err(Error::InvalidPcrDigest);
         }
 
         let cmd = TpmPolicyPcrCommand {
@@ -325,41 +323,38 @@ impl TpmPolicyExpression {
                 auth_handle,
                 copy_ref,
             } => (auth_handle, copy_ref),
-            expr => return Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into()),
+            expr => return Err(Error::InvalidExpression(Box::new(expr.clone()))),
         };
 
         let h_val = if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
-            handle
-                .value()
-                .ok_or(LanguageError::HandlePatternNotAllowed)?
+            handle.value().ok_or(Error::HandlePatternNotAllowed)?
         } else {
-            return Err(LanguageError::InvalidExpression(Box::new((**auth_handle).clone())).into());
+            return Err(Error::InvalidExpression(Box::new((**auth_handle).clone())));
         };
 
         let ht_byte = (h_val >> 24) as u8;
-        let ht = TpmHt::try_from(ht_byte).map_err(|_| LanguageError::InvalidHandleType(ht_byte))?;
+        let ht = TpmHt::try_from(ht_byte).map_err(|_| Error::InvalidHandleType(ht_byte))?;
 
         let name = match ht {
             TpmHt::Persistent => Cow::Borrowed(
                 context
                     .names
                     .get(&h_val)
-                    .ok_or_else(|| LanguageError::InvalidExpression(Box::new(self.clone())))?,
+                    .ok_or_else(|| Error::InvalidExpression(Box::new(self.clone())))?,
             ),
             TpmHt::Permanent => {
-                let rh = TpmRh::try_from(h_val)
-                    .map_err(|_| LanguageError::InvalidHandleType(ht_byte))?;
+                let rh = TpmRh::try_from(h_val).map_err(|_| Error::InvalidHandleType(ht_byte))?;
                 match rh {
                     TpmRh::Owner | TpmRh::Endorsement | TpmRh::Platform | TpmRh::Lockout => {
                         let handle_bytes = (rh as u32).to_be_bytes();
                         let name = Tpm2bName::try_from(handle_bytes.as_slice())
-                            .map_err(|_| LanguageError::InvalidHandleType(ht_byte))?;
+                            .map_err(|_| Error::InvalidHandleType(ht_byte))?;
                         Cow::Owned(name)
                     }
-                    _ => return Err(LanguageError::InvalidHandleType(ht_byte).into()),
+                    _ => return Err(Error::InvalidHandleType(ht_byte)),
                 }
             }
-            _ => return Err(LanguageError::InvalidHandleType(ht_byte).into()),
+            _ => return Err(Error::InvalidHandleType(ht_byte)),
         };
 
         let policy_ref = copy_ref.unwrap_or_default();
@@ -385,7 +380,7 @@ impl TpmPolicyExpression {
     ) -> Result<Tpm2bDigest, Error> {
         let branches = match self {
             TpmPolicyExpression::Or(branches) => branches,
-            expr => return Err(LanguageError::InvalidExpression(Box::new(expr.clone())).into()),
+            expr => return Err(Error::InvalidExpression(Box::new(expr.clone()))),
         };
 
         let mut digest_list = TpmlDigest::new();
@@ -403,7 +398,7 @@ impl TpmPolicyExpression {
 
             digest_list
                 .push(digest)
-                .map_err(|_| LanguageError::TooManyBranches(Box::new(self.clone())))?;
+                .map_err(|_| Error::TooManyBranches(Box::new(self.clone())))?;
         }
 
         let or_cmd = TpmPolicyOrCommand {
