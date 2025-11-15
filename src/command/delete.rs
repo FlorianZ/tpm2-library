@@ -55,7 +55,7 @@ fn delete_tpm_handles(
                         TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
                             dev.flush_context(TpmHandle(handle_val))?;
                             if class == TpmHt::Transient {
-                                task_state.cache.untrack(handle_val);
+                                task_state.untrack_handle(handle_val);
                             }
                         }
                         TpmHt::Persistent => {
@@ -94,17 +94,15 @@ fn delete_vtpm_handles(
         return Ok(());
     }
 
-    with_device(task_state.device.clone(), |dev| {
-        for vhandle in matched_handles {
-            if !task_state.cache.contexts.contains_key(&vhandle) {
-                continue;
-            }
-
-            let all_deleted_handles = task_state.cache.remove(dev, vhandle)?;
-            for deleted_vhandle in all_deleted_handles {
-                writeln!(task_state.writer, "vtpm:{deleted_vhandle:08x}")?;
-            }
+    for vhandle in matched_handles {
+        if !task_state.cache.contexts.contains_key(&vhandle) {
+            continue;
         }
-        Ok(())
-    })
+
+        let all_deleted_handles = task_state.cache.remove(vhandle)?;
+        for deleted_vhandle in all_deleted_handles {
+            writeln!(task_state.writer, "vtpm:{deleted_vhandle:08x}")?;
+        }
+    }
+    Ok(())
 }

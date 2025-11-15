@@ -2,36 +2,256 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-//! Manages caching for TPM keys and sessions.
+//! Manages caching for TPM keys.
 
 use crate::{
     device::{Device, DeviceError},
-    task::Auth,
     write_object,
 };
 use std::{
-    any::Any,
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fs, io,
     num::TryFromIntError,
     path::Path,
-    rc::Rc,
 };
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, Error as CryptoError};
 use tpm2_policy_language::{Error as PolicyLanguageError, TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
-    data::{Tpm2bName, TpmAlgId, TpmHt, TpmRc, TpmtPublic},
-    TpmHandle, TpmProtocolError,
+    basic::TpmBuffer,
+    constant::TPM_MAX_COMMAND_SIZE,
+    data::{
+        Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRc, TpmRcBase, TpmsContext,
+        TpmtPublic,
+    },
+    frame::{TpmAuthCommands, TpmCommand},
+    TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
-use tpm2_tpmkey::Error as TpmKeyError;
+use tpm2_tpmkey::{Error as TpmKeyError, TpmPolicy, TpmPolicyCommand};
 
-mod key;
-mod session;
+/// Outcome of refreshing a context against the TPM.
+#[derive(Debug)]
+pub enum RefreshAction {
+    /// The context is still valid.
+    Keep,
+    /// The context is no longer valid.
+    Stale,
+}
 
-pub use key::*;
-pub use session::*;
+#[derive(Debug, Clone)]
+pub struct VtpmKey {
+    pub context: TpmsContext,
+    pub handle: TpmHandle,
+    pub public: TpmtPublic,
+    pub parent: TpmtPublic,
+    pub empty_auth: u32,
+    pub policy: Vec<u8>,
+}
 
+impl VtpmKey {
+    pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
+        let content = fs::read(path)?;
+        let (key, remainder) = Self::unmarshal(&content).map_err(VtpmError::Protocol)?;
+        if !remainder.is_empty() {
+            log::warn!("trailing data");
+        }
+        Ok(key)
+    }
+
+    /// Converts a "live" `TpmCommandList` into a "storable" `TpmPolicy`.
+    ///
+    /// This performs the "second pass" for `PolicySecret`, converting the
+    /// `auth_handle` into a `Tpm2bName` for durable storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PolicyData`](VtpmError::PolicyData) if the command conversion fails.
+    /// Returns [`Device`](VtpmError::Device) if reading the public handle name fails.
+    pub fn command_list_to_tpmkey_policy(
+        device: &mut Device,
+        commands: &[(TpmCommand, TpmAuthCommands)],
+    ) -> Result<TpmPolicy, VtpmError> {
+        let mut policy = Vec::new();
+        for (cmd, auths) in commands {
+            let step = match cmd {
+                TpmCommand::PolicySecret(inner) => {
+                    let (_, name) = device.read_public(inner.auth_handle)?;
+                    TpmPolicyCommand::from_policy_secret(inner, &name).map_err(VtpmError::from)?
+                }
+                _ => TpmPolicyCommand::from_command(cmd, auths).map_err(VtpmError::from)?,
+            };
+            policy.push(step);
+        }
+        Ok(TpmPolicy { name: None, policy })
+    }
+
+    /// Converts a "storable" `TpmPolicy` (from a `TpmKey` file) into the
+    /// custom binary cache format.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntDecode`](VtpmError::IntDecode) if the policy command count exceeds `u32::MAX`.
+    /// Returns [`Protocol`](VtpmError::Protocol) if marshalling fails or the policy body is too large.
+    /// Returns [`PolicyData`](VtpmError::PolicyData) if the policy blob is malformed.
+    pub fn policy_from_tpmkey_policy(policy: &TpmPolicy) -> Result<Vec<u8>, VtpmError> {
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            let count = u32::try_from(policy.policy.len())?;
+            count.marshal(&mut writer)?;
+
+            for cmd in &policy.policy {
+                cmd.code().marshal(&mut writer)?;
+
+                if cmd.code() == TpmCc::PolicySecret {
+                    let (handle, rest) = TpmHandle::unmarshal(cmd.body())
+                        .map_err(|_| VtpmError::PolicyData(TpmKeyError::InvalidPolicy))?;
+                    let (name, rest) = Tpm2bName::unmarshal(rest)
+                        .map_err(|_| VtpmError::PolicyData(TpmKeyError::InvalidPolicy))?;
+                    let (digest, _) = Tpm2bDigest::unmarshal(rest)
+                        .map_err(|_| VtpmError::PolicyData(TpmKeyError::InvalidPolicy))?;
+
+                    handle.marshal(&mut writer)?;
+                    name.marshal(&mut writer)?;
+                    digest.marshal(&mut writer)?;
+                } else {
+                    TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())?
+                        .marshal(&mut writer)?;
+                }
+            }
+            writer.len()
+        };
+        buf.truncate(len);
+        Ok(buf)
+    }
+
+    /// Returns the VTPM handle.
+    #[must_use]
+    pub fn handle(&self) -> u32 {
+        self.handle.0
+    }
+
+    /// Returns class string.
+    #[must_use]
+    pub fn class(&self) -> &'static str {
+        "transient"
+    }
+
+    /// Returns details string.
+    #[must_use]
+    pub fn details(&self) -> String {
+        crate::alg::alg_details(&self.public)
+    }
+
+    /// Saves a context to a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation fails.
+    /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when writing the object
+    /// fails.
+    pub fn save(&self, path: &Path) -> Result<(), VtpmError> {
+        let bytes = write_object(self).map_err(VtpmError::Protocol)?;
+        fs::write(path, bytes)?;
+        Ok(())
+    }
+
+    /// Deletes a context.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation fails.
+    pub fn delete(&self, cache_dir: &Path) -> Result<(), VtpmError> {
+        let vhandle = self.handle();
+        let path = cache_dir.join(format!("{vhandle:08x}.bin"));
+        if let Err(e) = fs::remove_file(path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e.into());
+            }
+        }
+        Ok(())
+    }
+
+    /// Refreshes a context.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when the TPM
+    /// transmission fails.
+    pub fn refresh(&mut self, device: &mut Device) -> Result<RefreshAction, VtpmError> {
+        match device.load_context(self.context.clone()) {
+            Ok(handle) => match device.flush_context(handle) {
+                Ok(()) => Ok(RefreshAction::Keep),
+                Err(e) => Err(e.into()),
+            },
+            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
+                Ok(RefreshAction::Stale)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+impl TpmSized for VtpmKey {
+    const SIZE: usize = 0;
+    fn len(&self) -> usize {
+        self.context.len()
+            + self.handle.len()
+            + Tpm2bPublic {
+                inner: self.public.clone(),
+            }
+            .len()
+            + Tpm2bPublic {
+                inner: self.parent.clone(),
+            }
+            .len()
+            + u32::SIZE
+            + TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::SIZE
+    }
+}
+
+impl TpmMarshal for VtpmKey {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmProtocolError> {
+        self.context.marshal(writer)?;
+        self.handle.marshal(writer)?;
+        Tpm2bPublic {
+            inner: self.public.clone(),
+        }
+        .marshal(writer)?;
+        Tpm2bPublic {
+            inner: self.parent.clone(),
+        }
+        .marshal(writer)?;
+        self.empty_auth.marshal(writer)?;
+        TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(self.policy.as_slice())?
+            .marshal(writer)?;
+        Ok(())
+    }
+}
+
+impl TpmUnmarshal for VtpmKey {
+    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmProtocolError> {
+        let (context, remainder) = TpmsContext::unmarshal(buffer)?;
+        let (handle, remainder) = TpmHandle::unmarshal(remainder)?;
+        let (public_2b, remainder) = Tpm2bPublic::unmarshal(remainder)?;
+        let (parent_2b, remainder) = Tpm2bPublic::unmarshal(remainder)?;
+        let (empty_auth, remainder) = u32::unmarshal(remainder)?;
+        let (policy_blob, remainder) =
+            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)?;
+
+        Ok((
+            Self {
+                context,
+                handle,
+                public: public_2b.inner,
+                parent: parent_2b.inner,
+                empty_auth,
+                policy: policy_blob.to_vec(),
+            },
+            remainder,
+        ))
+    }
+}
 #[derive(Debug, Error)]
 pub enum VtpmError {
     #[error("already tracked: {0}")]
@@ -68,63 +288,8 @@ impl From<TpmRc> for VtpmError {
     }
 }
 
-/// Outcome of refreshing [`VtpmContext`](crate::vtpm::VtpmContext) against the
-/// TPM.
-#[derive(Debug)]
-pub enum RefreshAction {
-    /// The context is still valid.
-    Keep,
-    /// The context is no longer valid.
-    Stale,
-}
-
-/// A VTPM object.
-pub trait VtpmContext: 'static {
-    /// Immutable cast.
-    fn as_any(&self) -> &dyn Any;
-
-    /// Mutable cast.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
-    /// Returns the VTPM handle.
-    fn handle(&self) -> u32;
-
-    /// Returns class string.
-    fn class(&self) -> &'static str;
-
-    /// Returns details string.
-    fn details(&self) -> String;
-
-    /// Saves a context to a file.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation fails.
-    /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when writing the object
-    /// fails.
-    fn save(&self, path: &Path) -> Result<(), VtpmError>;
-
-    /// Deletes a context.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when the TPM
-    /// transmission fails.
-    /// Returns [`Io`](crate::vtpm::VtpmError::Io) when an I/O operation fails.
-    fn delete(&self, device: &mut Device, cache_dir: &Path, vhandle: u32) -> Result<(), VtpmError>;
-
-    /// Refreshes a context.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when the TPM
-    /// transmission fails.
-    fn refresh(&mut self, device: &mut Device) -> Result<RefreshAction, VtpmError>;
-}
-
 pub struct VtpmCache<'a> {
-    pub contexts: HashMap<u32, Box<dyn VtpmContext>>,
-    pub handles: HashMap<u32, TpmHandle>,
+    pub contexts: HashMap<u32, VtpmKey>,
     dirty: HashSet<u32>,
     cache_dir: &'a Path,
 }
@@ -141,7 +306,6 @@ impl<'a> VtpmCache<'a> {
     pub fn new(cache_dir: &'a Path) -> Result<Self, VtpmError> {
         let mut cache = Self {
             contexts: HashMap::new(),
-            handles: HashMap::new(),
             dirty: HashSet::new(),
             cache_dir,
         };
@@ -207,7 +371,6 @@ impl<'a> VtpmCache<'a> {
     pub fn find_by_vhandle(&self, vhandle: u32) -> Result<&VtpmKey, VtpmError> {
         self.contexts
             .get(&vhandle)
-            .and_then(|ctx| ctx.as_any().downcast_ref::<VtpmKey>())
             .ok_or(VtpmError::HandleNotFound("vtpm:", vhandle))
     }
 
@@ -310,7 +473,7 @@ impl<'a> VtpmCache<'a> {
             if ht == TpmHt::Transient as u8 {
                 match VtpmKey::load_from_path(&path) {
                     Ok(key) => {
-                        self.contexts.insert(vhandle, Box::new(key));
+                        self.contexts.insert(vhandle, key);
                     }
                     Err(e) => {
                         log::warn!("{}: {}", path.display(), e);
@@ -349,37 +512,28 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`VtpmError::Device`] when flushing the context from TPM fails.
     /// Returns [`VtpmError::Io`] when removing the cache file fails.
-    pub fn remove(&mut self, device: &mut Device, vhandle: u32) -> Result<Vec<u32>, VtpmError> {
+    pub fn remove(&mut self, vhandle: u32) -> Result<Vec<u32>, VtpmError> {
         let mut deleted_handles = Vec::new();
 
-        let maybe_public = if let Some(context) = self.contexts.remove(&vhandle) {
+        let maybe_public = if let Some(key) = self.contexts.remove(&vhandle) {
             deleted_handles.push(vhandle);
-            context.delete(device, self.cache_dir(), vhandle)?;
+            key.delete(self.cache_dir())?;
             self.dirty.remove(&vhandle);
-
-            context
-                .as_any()
-                .downcast_ref::<VtpmKey>()
-                .map(|key| key.public.clone())
+            Some(key.public)
         } else {
             return Ok(deleted_handles);
         };
 
         if let Some(public_key) = maybe_public {
-            let deleted_children = self.remove_subtree(device, &public_key)?;
+            let deleted_children = self.remove_subtree(&public_key)?;
             deleted_handles.extend(deleted_children);
         }
 
         Ok(deleted_handles)
     }
 
-    fn remove_subtree(
-        &mut self,
-        dev: &mut Device,
-        first_public: &TpmtPublic,
-    ) -> Result<Vec<u32>, VtpmError> {
+    fn remove_subtree(&mut self, first_public: &TpmtPublic) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
         for (vhandle, key) in self.key_iter() {
             let parent_key_bytes = write_object(&key.parent).map_err(VtpmError::Protocol)?;
@@ -398,7 +552,7 @@ impl<'a> VtpmCache<'a> {
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_vhandle, child_public) in children_to_process.clone() {
                     if let Some(context) = self.contexts.remove(&child_vhandle) {
-                        context.delete(dev, self.cache_dir(), child_vhandle)?;
+                        context.delete(self.cache_dir())?;
                         self.dirty.remove(&child_vhandle);
                         deleted_children.push(child_vhandle);
                         ancestor_list.push_back(child_public);
@@ -409,44 +563,10 @@ impl<'a> VtpmCache<'a> {
         Ok(deleted_children)
     }
 
-    /// Tracks a transient handle for automatic cleanup.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`VtpmError::AlreadyTracked`] if the handle is already being
-    /// tracked.
-    pub fn track(&mut self, handle: TpmHandle) -> Result<(), VtpmError> {
-        if self.handles.contains_key(&handle.0) {
-            return Err(VtpmError::AlreadyTracked(handle));
-        }
-        self.handles.insert(handle.0, handle);
-        Ok(())
-    }
-
-    /// Removes a handle from the tracking list.
-    pub fn untrack(&mut self, handle: u32) {
-        self.handles.remove(&handle);
-    }
-
-    /// Flushes all tracked transient handles from the TPM.
-    fn flush(&mut self, device: &mut Device) {
-        let handles_to_flush: Vec<TpmHandle> = self.handles.drain().map(|(_, v)| v).collect();
-        for handle in handles_to_flush {
-            if let Err(err) = device.flush_context(handle) {
-                log::error!("{handle}: {err}");
-            }
-        }
-    }
-
-    /// Finalizes the cache, saving dirty contexts and flushing handles.
-    pub fn teardown(&mut self, device: Option<Rc<std::cell::RefCell<Device>>>) {
+    /// Finalizes the cache, saving dirty contexts.
+    pub fn teardown(&mut self) {
         if let Err(e) = self.save() {
             log::error!("teardown: {e:#}");
-        }
-        if let Some(device_rc) = device {
-            if let Ok(mut dev) = device_rc.try_borrow_mut() {
-                self.flush(&mut dev);
-            }
         }
     }
 
@@ -478,7 +598,7 @@ impl<'a> VtpmCache<'a> {
                     empty_auth: u32::from(empty_auth),
                     policy: policy.clone().unwrap_or_default(),
                 };
-                e.insert(Box::new(key));
+                e.insert(key);
                 self.dirty.insert(vhandle);
                 return Ok(vhandle);
             }
@@ -486,100 +606,13 @@ impl<'a> VtpmCache<'a> {
         Err(VtpmError::NoHandles)
     }
 
-    /// Adds a session to the cache.
-    pub fn add_session(&mut self, session: VtpmSession) -> u32 {
-        let vhandle = session.handle();
-        self.contexts.insert(vhandle, Box::new(session));
-        vhandle
-    }
-
     /// Marks a context as dirty.
     pub fn mark_dirty(&mut self, vhandle: u32) {
         self.dirty.insert(vhandle);
     }
 
-    /// Gets an immutable reference to a session.
-    #[must_use]
-    pub fn get_session(&self, vhandle: u32) -> Option<&VtpmSession> {
-        self.contexts
-            .get(&vhandle)
-            .and_then(|ctx| ctx.as_any().downcast_ref::<VtpmSession>())
-    }
-
-    /// Gets a mutable reference to a session.
-    pub fn get_mut_session(&mut self, vhandle: u32) -> Option<&mut VtpmSession> {
-        self.dirty.insert(vhandle);
-        self.contexts
-            .get_mut(&vhandle)
-            .and_then(|ctx| ctx.as_any_mut().downcast_mut::<VtpmSession>())
-    }
-
     /// Returns an iterator over the key contexts.
     pub fn key_iter(&self) -> impl Iterator<Item = (&u32, &VtpmKey)> {
-        self.contexts
-            .iter()
-            .filter_map(|(h, ctx)| ctx.as_any().downcast_ref::<VtpmKey>().map(|key| (h, key)))
-    }
-
-    /// Prepares sessions by loading them into the TPM.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`VtpmError`] if a session is not found or if loading its context fails.
-    pub fn prepare_sessions(
-        &mut self,
-        device: &mut Device,
-        auth_list: &[Auth],
-    ) -> Result<Vec<TpmHandle>, VtpmError> {
-        let mut activated_handles = Vec::new();
-        for auth in auth_list {
-            if let Auth::Session(vhandle) = auth {
-                let session = self
-                    .get_session(*vhandle)
-                    .ok_or(VtpmError::HandleNotFound("vtpm:", *vhandle))?;
-                activated_handles.push(device.load_context(session.context.clone())?);
-            }
-        }
-        Ok(activated_handles)
-    }
-
-    /// Tears down sessions by saving their updated contexts.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`VtpmError`] if a session is not found or if saving/flushing
-    /// the context fails.
-    pub fn teardown_sessions(
-        &mut self,
-        device: &mut Device,
-        session_vhandles: &HashSet<u32>,
-        auth_responses: &tpm2_protocol::frame::TpmAuthResponses,
-    ) -> Result<(), VtpmError> {
-        for (i, vhandle) in session_vhandles.iter().enumerate() {
-            let session_handle = self
-                .get_session(*vhandle)
-                .ok_or(VtpmError::HandleNotFound("vtpm:", *vhandle))?
-                .context
-                .saved_handle;
-
-            match device.save_context(session_handle) {
-                Ok(new_context) => {
-                    let session = self
-                        .get_mut_session(*vhandle)
-                        .ok_or(VtpmError::HandleNotFound("vtpm:", *vhandle))?;
-                    session.context = new_context;
-                    let auth = auth_responses[i];
-                    session.nonce_tpm = auth.nonce;
-                    session.attributes = auth.session_attributes;
-                }
-                Err(e) => {
-                    if let Err(e) = device.flush_context(session_handle) {
-                        log::warn!("{session_handle}: {e}");
-                    }
-                    return Err(e.into());
-                }
-            }
-        }
-        Ok(())
+        self.contexts.iter()
     }
 }

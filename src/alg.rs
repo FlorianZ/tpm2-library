@@ -120,7 +120,7 @@ impl std::cmp::PartialOrd for Alg {
 
 /// Formats a human-readable algorithm string from a `TpmtPublic` structure.
 #[must_use]
-pub fn format_alg_from_public(public: &TpmtPublic) -> String {
+pub fn alg_details(public: &TpmtPublic) -> String {
     let name_alg_str = Hash::from(public.name_alg).to_string();
     match public.object_type {
         TpmAlgId::Rsa => {

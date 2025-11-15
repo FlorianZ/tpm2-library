@@ -210,7 +210,7 @@ impl Create {
                 .execute(device, &create_cmd, &handles, &auths)
                 .map_err(|e| {
                     if let Some(Auth::Session(vhandle)) = policy_session_auth {
-                        if let Err(e) = task_state.cache.remove(device, vhandle) {
+                        if let Err(e) = task_state.remove_session(device, vhandle) {
                             log::error!("vtpm:{vhandle:08x}: {e}");
                         }
                     }
@@ -229,7 +229,7 @@ impl Create {
                 })?;
 
             if let Some(Auth::Session(vhandle)) = policy_session_auth {
-                if let Err(e) = task_state.cache.remove(device, vhandle) {
+                if let Err(e) = task_state.remove_session(device, vhandle) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
                 }
             }

@@ -300,7 +300,7 @@ impl Memory {
         if let Some(handle_val) = handle.value() {
             let tpm_handle = TpmHandle(handle_val);
             let (public, _) = device.read_public(tpm_handle)?;
-            Ok(crate::alg::format_alg_from_public(&public))
+            Ok(crate::alg::alg_details(&public))
         } else {
             Err(CommandError::PatternNotAllowed(handle.to_string()))
         }

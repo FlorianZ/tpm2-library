@@ -25,7 +25,7 @@ use crate::{
 };
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
-use std::{cell::RefCell, fs, io::IsTerminal, path::Path, process, rc::Rc, sync::atomic::Ordering};
+use std::{cell::RefCell, fs, io::IsTerminal, process, rc::Rc, sync::atomic::Ordering};
 use tracing_subscriber::EnvFilter;
 
 /// A global flag to signal graceful teardown of the application.
@@ -109,7 +109,15 @@ fn main() {
         process::exit(1);
     }
 
-    if let Err(err) = execute_cli(&cli, &cache_dir) {
+    let cache = match VtpmCache::new(&cache_dir) {
+        Ok(cache) => cache,
+        Err(err) => {
+            eprintln!("{err:#}");
+            process::exit(1);
+        }
+    };
+
+    if let Err(err) = execute_cli(&cli, cache) {
         eprintln!("{err:#}");
         process::exit(1);
     }
@@ -119,7 +127,7 @@ fn main() {
     }
 }
 
-fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
+fn execute_cli(cli: &TopLevel, cache: VtpmCache) -> Result<(), CommandError> {
     let shared_device = if cli.command.is_local() {
         None
     } else {
@@ -129,8 +137,7 @@ fn execute_cli(cli: &TopLevel, cache_dir: &Path) -> Result<(), CommandError> {
 
     let mut stdout = std::io::stdout();
     let is_tty = stdout.is_terminal();
-    let mut cache = VtpmCache::new(cache_dir)?;
 
-    let mut job = TaskState::new(shared_device, &mut cache, &mut stdout, is_tty);
+    let mut job = TaskState::new(shared_device, cache, &mut stdout, is_tty);
     cli.command.run(&mut job)
 }

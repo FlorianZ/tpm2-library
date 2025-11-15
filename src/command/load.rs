@@ -94,14 +94,14 @@ impl Task for Load {
                 .inspect_err(|e: &CommandError| {
                     log::debug!("run_load failed: {e}");
                     if let Some(Auth::Session(vhandle)) = policy_session_auth {
-                        if let Err(e) = task_state.cache.remove(device, vhandle) {
+                        if let Err(e) = task_state.remove_session(device, vhandle) {
                             log::error!("vtpm:{vhandle:08x}: {e}");
                         }
                     }
                 })?;
 
                 if let Some(Auth::Session(vhandle)) = policy_session_auth {
-                    if let Err(e) = task_state.cache.remove(device, vhandle) {
+                    if let Err(e) = task_state.remove_session(device, vhandle) {
                         log::error!("vtpm:{vhandle:08x}: {e}");
                     }
                 }
@@ -173,7 +173,7 @@ impl Load {
             .Load()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Load))?;
 
-        task_state.cache.track(resp.object_handle)?;
+        task_state.track_handle(resp.object_handle)?;
         Ok((resp.object_handle, resp.name, in_public.clone()))
     }
 }

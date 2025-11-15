@@ -74,7 +74,7 @@ impl Task for CreatePrimary {
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
 
             let object_handle = resp.object_handle;
-            task_state.cache.track(object_handle)?;
+            task_state.track_handle(object_handle)?;
             let vhandle = task_state.cache.save_context(
                 device,
                 object_handle,

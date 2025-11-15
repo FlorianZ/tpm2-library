@@ -35,8 +35,8 @@ impl Cache {
             let mut handles_to_remove = Vec::new();
 
             for &vhandle in &vhandles {
-                if let Some(context) = task_state.cache.contexts.get_mut(&vhandle) {
-                    match context.refresh(dev) {
+                if let Some(key) = task_state.cache.contexts.get_mut(&vhandle) {
+                    match key.refresh(dev) {
                         Ok(RefreshAction::Keep) => {
                             task_state.cache.mark_dirty(vhandle);
                         }
@@ -51,7 +51,7 @@ impl Cache {
             }
 
             for vhandle in handles_to_remove {
-                if let Err(e) = task_state.cache.remove(dev, vhandle) {
+                if let Err(e) = task_state.cache.remove(vhandle) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
                     errors.push(e.into());
                 }
@@ -74,10 +74,10 @@ impl Task for Cache {
             .cache
             .contexts
             .values()
-            .map(|ctx| CacheRow {
-                handle: format!("{:08x}", ctx.handle()),
-                class: ctx.class().to_string(),
-                details: ctx.details(),
+            .map(|key| CacheRow {
+                handle: format!("{:08x}", key.handle()),
+                class: key.class().to_string(),
+                details: key.details(),
             })
             .collect();
         rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
