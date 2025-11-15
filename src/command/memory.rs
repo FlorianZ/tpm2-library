@@ -55,10 +55,10 @@ pub struct Memory {
 impl Task for Memory {
     fn run(&self, session: &mut TaskState) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
-            handle
+            let handle_val = handle
                 .value()
                 .ok_or_else(|| CommandError::PatternNotAllowed(handle.to_string()))?;
-            Self::inspect_handle(session, handle, &self.auth_args)
+            Self::inspect_handle(session, handle_val, handle.to_string(), &self.auth_args)
         } else {
             Self::list_all_memory(session, &self.auth_args)
         }
@@ -68,27 +68,24 @@ impl Task for Memory {
 impl Memory {
     fn inspect_handle(
         session: &mut TaskState,
-        handle: TpmHandleRef,
+        handle_val: u32,
+        handle_str: String,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
         device::with_device(session.device.clone(), |device| {
-            if let Some(handle_val) = handle.value() {
-                if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
-                    Self::fetch_certificate(session, device, handle_val, auth_args)
-                } else {
-                    match device.read_public(handle_val.into()) {
-                        Ok(_) => Ok(()),
-                        Err(DeviceError::TpmRc(rc))
-                            if rc.base() == TpmRcBase::Handle
-                                || rc.base() == TpmRcBase::ReferenceH0 =>
-                        {
-                            Err(CommandError::UnknownHandle(handle.to_string()))
-                        }
-                        Err(e) => Err(e.into()),
-                    }
-                }
+            if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
+                Self::fetch_certificate(session, device, handle_val, auth_args)
             } else {
-                Err(CommandError::PatternNotAllowed(handle.to_string()))
+                match device.read_public(handle_val.into()) {
+                    Ok(_) => Ok(()),
+                    Err(DeviceError::TpmRc(rc))
+                        if rc.base() == TpmRcBase::Handle
+                            || rc.base() == TpmRcBase::ReferenceH0 =>
+                    {
+                        Err(CommandError::UnknownHandle(handle_str))
+                    }
+                    Err(e) => Err(e.into()),
+                }
             }
         })
     }
