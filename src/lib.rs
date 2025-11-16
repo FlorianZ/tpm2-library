@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! Manages caching for TPM keys.
 
@@ -135,6 +135,8 @@ impl TpmUnmarshal for VtpmKey {
         ))
     }
 }
+
+/// Error type for VTPM cache operations and TPM serialization.
 #[derive(Debug, Error)]
 pub enum VtpmError {
     #[error("handle not found: vtpm:{0:08x}")]
@@ -166,10 +168,10 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Io`](crate::vtpm::VtpmError::Io) when reading the cache
-    /// directory fails.
-    /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when parsing loaded context
-    /// data fails.
+    /// Returns [`Io`](crate::VtpmError::Io) when reading the cache directory
+    /// or cache files fails.
+    /// Returns [`Marshal`](crate::VtpmError::Marshal) when cleaning up a stale
+    /// context fails.
     pub fn new(cache_dir: &'a Path) -> Result<Self, VtpmError> {
         let mut cache = Self {
             contexts: HashMap::new(),
@@ -196,7 +198,8 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Crypto`](crate::vtpm::VtpmError::Crypto) if name calculation fails.
+    /// Returns [`OperationFailed`](crate::VtpmError::OperationFailed) if name
+    /// calculation fails.
     pub fn find_by_name(&self, target_name: &Tpm2bName) -> Result<Option<&VtpmKey>, VtpmError> {
         for (_, key) in self.key_iter() {
             let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
@@ -211,8 +214,8 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) when
-    /// context with the given `vhandle` is not found or is not a key.
+    /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) when
+    /// no context with the given `vhandle` exists.
     pub fn find_by_vhandle(&self, vhandle: u32) -> Result<&VtpmKey, VtpmError> {
         self.contexts
             .get(&vhandle)
@@ -223,8 +226,8 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) if
-    /// the `vhandle` does not exist or is not a `VtpmKey`.
+    /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) if the
+    /// `vhandle` does not exist.
     pub fn fetch_policy(&self, vhandle: u32) -> Result<(Vec<u8>, TpmAlgId, bool), VtpmError> {
         let key = self.find_by_vhandle(vhandle)?;
         Ok((key.policy.clone(), key.public.name_alg, key.empty_auth != 0))
@@ -242,11 +245,11 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`Protocol`](crate::vtpm::VtpmError::Protocol) when serializing a
+    /// Returns [`Marshal`](crate::VtpmError::Marshal) when serializing a
     /// public key fails.
-    /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) when the
-    /// `target_vhandle` doesn't exist in the cache or is not a key.
-    /// Returns [`ParentNotFound`](crate::vtpm::VtpmError::ParentNotFound) when an
+    /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) when the
+    /// `target_vhandle` does not exist in the cache.
+    /// Returns [`ParentNotFound`](crate::VtpmError::ParentNotFound) when an
     /// intermediate parent cannot be found in the cache or as a persistent
     /// handle.
     pub fn fetch_ancestor_chain(
@@ -299,7 +302,9 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`VtpmError::Io`] when removing the cache file fails.
+    /// Returns [`Io`](crate::VtpmError::Io) when removing a cache file fails.
+    /// Returns [`Marshal`](crate::VtpmError::Marshal) when serializing parent
+    /// keys during subtree removal fails.
     pub fn remove(&mut self, vhandle: u32) -> Result<Vec<u32>, VtpmError> {
         let mut deleted_handles = Vec::new();
 
@@ -331,10 +336,8 @@ impl<'a> VtpmCache<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`VtpmError::Device`] when saving the context to the TPM fails.
-    /// Returns [`VtpmError::NoHandles`] when no free VTPM handle slot is found.
-    /// Returns [`VtpmError::Io`] when writing the cache file fails.
-    /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when serializing context data fails.
+    /// Returns [`NoHandles`](crate::VtpmError::NoHandles) when no free VTPM
+    /// handle slot is found.
     pub fn save_context(
         &mut self,
         context: TpmsContext,
