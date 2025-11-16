@@ -241,28 +241,6 @@ impl<'a> VtpmCache<'a> {
         Ok(None)
     }
 
-    /// Finds a VTPM key corresponding to a physical handle.
-    ///
-    /// Reads the public area of a physical TPM handle and searches the cache
-    /// for a loaded key with a matching public area. If found, it returns the
-    /// corresponding virtual handle.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HandleNotFound`](crate::vtpm::VtpmError::HandleNotFound) when
-    /// a key with the corresponding public area is not found in the cache.
-    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when `TPM2_ReadPublic`
-    /// fails.
-    pub fn find_by_phandle(
-        &self,
-        device: &mut Device,
-        phandle: u32,
-    ) -> Result<&VtpmKey, VtpmError> {
-        let (public, _) = device.read_public(phandle.into())?;
-        self.find_by_public(&public)
-            .ok_or(VtpmError::HandleNotFound("tpm:", phandle))
-    }
-
     /// Finds a VTPM key corresponding to a virtual handle.
     ///
     /// # Errors
