@@ -6,7 +6,6 @@ use crate::{
     alg::AlgError,
     command::AuthArgs,
     device::{Device, DeviceError, RefreshAction, TpmCommandObject},
-    vtpm::{VtpmCache, VtpmError},
     write_object,
 };
 use hex;
@@ -39,6 +38,7 @@ use tpm2_protocol::{
     TpmHandle, TpmSized, TpmUnmarshal,
 };
 use tpm2_tpmkey::TpmPolicyCommand;
+use tpm2_vtpm::{VtpmCache, VtpmError};
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 

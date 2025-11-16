@@ -14,18 +14,17 @@ pub mod pcr;
 pub mod print;
 pub mod task;
 pub mod template;
-pub mod vtpm;
 
 use crate::{
     cli::{Task, TopLevel},
     command::CommandError,
     device::Device,
     task::TaskState,
-    vtpm::VtpmCache,
 };
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use std::{cell::RefCell, fs, io::IsTerminal, process, rc::Rc, sync::atomic::Ordering};
+use tpm2_vtpm::VtpmCache;
 use tracing_subscriber::EnvFilter;
 
 /// A global flag to signal graceful teardown of the application.

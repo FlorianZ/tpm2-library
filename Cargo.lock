@@ -1025,6 +1025,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpm2-vtpm"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e182b0cf8a238d5540968f9a26ccef417f4a2372676fdbc5553703cce1a1e6e3"
+dependencies = [
+ "log",
+ "thiserror",
+ "tpm2-crypto",
+ "tpm2-policy-language",
+ "tpm2-protocol",
+]
+
+[[package]]
 name = "tpm2sh"
 version = "0.15.12"
 dependencies = [
@@ -1045,6 +1058,7 @@ dependencies = [
  "tpm2-policy-language",
  "tpm2-protocol",
  "tpm2-tpmkey",
+ "tpm2-vtpm",
  "tracing",
  "tracing-subscriber",
 ]

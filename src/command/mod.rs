@@ -39,7 +39,6 @@ use crate::{
     device::DeviceError,
     pcr::PcrError,
     task::{TaskError, TaskState},
-    vtpm::VtpmError,
 };
 use openssl::error::ErrorStack;
 use std::num::TryFromIntError;
@@ -53,6 +52,7 @@ use tpm2_protocol::{
     data::{TpmCc, TpmRcBase},
     TpmProtocolError,
 };
+use tpm2_vtpm::VtpmError;
 
 /// Creates, styles, and prints a table from a vector of `Tabled` items.
 ///
