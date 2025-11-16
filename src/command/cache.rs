@@ -74,9 +74,9 @@ impl Task for Cache {
             .contexts
             .values()
             .map(|key| CacheRow {
-                handle: format!("{:08x}", key.handle()),
-                class: key.class().to_string(),
-                details: key.details(),
+                handle: format!("{:08x}", key.handle.0),
+                class: "transient".to_string(),
+                details: crate::alg::alg_details(&key.public),
             })
             .collect();
         rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
