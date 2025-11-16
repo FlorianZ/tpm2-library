@@ -169,6 +169,7 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`Marshal`](crate::VtpmError::Marshal) when cleaning up a stale
     /// context fails.
     pub fn new(cache_dir: &'a Path) -> Result<Self, VtpmError> {
+        fs::create_dir_all(cache_dir)?;
         let mut cache = Self {
             contexts: HashMap::new(),
             dirty: HashSet::new(),
