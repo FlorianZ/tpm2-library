@@ -8,19 +8,17 @@ use crate::write_object;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fs, io,
-    num::TryFromIntError,
     path::Path,
 };
 use thiserror::Error;
-use tpm2_crypto::{tpm_make_name, Error as CryptoError};
-use tpm2_policy_language::{Error as PolicyLanguageError, TpmHandleClass, TpmHandleRef};
+use tpm2_crypto::tpm_make_name;
+use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmsContext, TpmtPublic},
     TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
-use tpm2_tpmkey::Error as TpmKeyError;
 
 #[derive(Debug, Clone)]
 pub struct VtpmKey {
@@ -152,24 +150,18 @@ impl TpmUnmarshal for VtpmKey {
 }
 #[derive(Debug, Error)]
 pub enum VtpmError {
-    #[error("handle not found: {0}{1:08x}")]
-    HandleNotFound(&'static str, u32),
+    #[error("handle not found: vtpm:{0:08x}")]
+    HandleNotFound(TpmHandle),
     #[error("no handles")]
     NoHandles,
-    #[error("parent not found")]
-    ParentNotFound,
-    #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
-    #[error("policy data: {0}")]
-    PolicyData(#[from] TpmKeyError),
-    #[error("policy language: {0}")]
-    PolicyLanguage(#[from] PolicyLanguageError),
-    #[error("int decode: {0}")]
-    IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmProtocolError),
+    #[error("operation failed")]
+    OperationFailed,
+    #[error("parent not found")]
+    ParentNotFound,
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
 }
@@ -218,7 +210,7 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`Crypto`](crate::vtpm::VtpmError::Crypto) if name calculation fails.
     pub fn find_by_name(&self, target_name: &Tpm2bName) -> Result<Option<&VtpmKey>, VtpmError> {
         for (_, key) in self.key_iter() {
-            let name = tpm_make_name(&key.public)?;
+            let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
             if name == *target_name {
                 return Ok(Some(key));
             }
@@ -235,7 +227,7 @@ impl<'a> VtpmCache<'a> {
     pub fn find_by_vhandle(&self, vhandle: u32) -> Result<&VtpmKey, VtpmError> {
         self.contexts
             .get(&vhandle)
-            .ok_or(VtpmError::HandleNotFound("vtpm:", vhandle))
+            .ok_or(VtpmError::HandleNotFound(TpmHandle(vhandle)))
     }
 
     /// Fetches the policy blob, name algorithm, and `empty_auth` status for a cached key.

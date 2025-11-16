@@ -103,7 +103,7 @@ pub enum CommandError {
     CapacityExceeded,
     #[error("dictionary attack lockout is active")]
     DictionaryAttackLocked,
-    #[error("handle not found: {0}{1:08x}")]
+    #[error("handle not found: {0}:{1:08x}")]
     HandleNotFound(&'static str, u32),
     #[error("invalid key format")]
     InvalidFormat,
@@ -165,9 +165,11 @@ impl From<TaskError> for CommandError {
     fn from(err: TaskError) -> Self {
         match err {
             TaskError::Device(dev_err) => Self::from(dev_err),
-            TaskError::InvalidParent(prefix, handle)
-            | TaskError::Vtpm(VtpmError::HandleNotFound(prefix, handle)) => {
-                Self::HandleNotFound(prefix, handle)
+            TaskError::InvalidParent(prefix, handle) => {
+                CommandError::HandleNotFound(prefix, handle)
+            }
+            TaskError::Vtpm(VtpmError::HandleNotFound(handle)) => {
+                Self::HandleNotFound("vtpm", handle.into())
             }
             TaskError::Vtpm(e) => Self::Cache(e),
             TaskError::Key(e) => Self::Key(e),
