@@ -78,7 +78,7 @@ impl VtpmKey {
 }
 
 impl TpmSized for VtpmKey {
-    const SIZE: usize = 0;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
 
     fn len(&self) -> usize {
         u32::SIZE
