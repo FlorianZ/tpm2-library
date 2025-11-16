@@ -15,7 +15,7 @@ use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmsContext, TpmtPublic},
+    data::{Tpm2bName, TpmAlgId, TpmHt, TpmsContext, TpmtPublic},
     TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
@@ -79,19 +79,15 @@ impl VtpmKey {
 
 impl TpmSized for VtpmKey {
     const SIZE: usize = 0;
+
     fn len(&self) -> usize {
-        self.context.len()
+        u32::SIZE
             + self.handle.len()
-            + Tpm2bPublic {
-                inner: self.public.clone(),
-            }
-            .len()
-            + Tpm2bPublic {
-                inner: self.parent.clone(),
-            }
-            .len()
+            + self.public.len()
+            + self.parent.len()
+            + self.context.len()
             + u32::SIZE
-            + TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::SIZE
+            + self.policy.len()
     }
 }
 
