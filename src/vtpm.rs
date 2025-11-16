@@ -152,12 +152,8 @@ impl TpmUnmarshal for VtpmKey {
 }
 #[derive(Debug, Error)]
 pub enum VtpmError {
-    #[error("capacity exceeded")]
-    CapacityExceeded,
     #[error("handle not found: {0}{1:08x}")]
     HandleNotFound(&'static str, u32),
-    #[error("invalid key bits: {0}")]
-    InvalidKeyBits(String),
     #[error("no handles")]
     NoHandles,
     #[error("parent not found")]

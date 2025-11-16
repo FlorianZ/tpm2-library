@@ -70,7 +70,7 @@ impl TaskSession {
                 Vec::new()
             } else {
                 let key_bits = u16::try_from(digest_len * 8)
-                    .map_err(|_| VtpmError::InvalidKeyBits(digest_len.to_string()))?;
+                    .map_err(|_| TaskError::InvalidKeyBits(digest_len.to_string()))?;
                 Hash::from(auth_hash).kdfa(
                     auth_value,
                     "ATH",
@@ -93,7 +93,7 @@ impl TaskSession {
             nonce_tpm: resp.nonce_tpm,
             attributes: TpmaSession::CONTINUE_SESSION,
             hmac_key: Tpm2bAuth::try_from(hmac_key_bytes.as_slice())
-                .map_err(|_| VtpmError::CapacityExceeded)?,
+                .map_err(|_| TaskError::OutOfMemory)?,
             auth_hash,
         })
     }
@@ -188,8 +188,6 @@ impl Default for TaskAuth {
 
 #[derive(Debug, Error)]
 pub enum TaskError {
-    #[error("capacity exceeded")]
-    CapacityExceeded,
     #[error("handle already tracked: {0}")]
     HandleAlreadyTracked(TpmHandle),
     #[error("handle not found: {0}{1:08x}")]
@@ -198,10 +196,14 @@ pub enum TaskError {
     HandleNameNotFound(Tpm2bName),
     #[error("invalid auth: {0}")]
     InvalidAuth(String),
+    #[error("invalid key bits: {0}")]
+    InvalidKeyBits(String),
     #[error("invalid parent: {0}{1:08x}")]
     InvalidParent(&'static str, u32),
     #[error("malformed data")]
     MalformedData,
+    #[error("out of memory")]
+    OutOfMemory,
     #[error("parent not found")]
     ParentNotFound,
     #[error("response mismatch: {0}")]
@@ -498,13 +500,11 @@ impl<'a> TaskState<'a> {
                     nonce: Tpm2bNonce::default(),
                     session_attributes: TpmaSession::empty(),
                     hmac: Tpm2bAuth::try_from(auth.as_slice())
-                        .map_err(|_| VtpmError::CapacityExceeded)?,
+                        .map_err(|_| TaskError::OutOfMemory)?,
                 };
 
                 let mut auths = TpmAuthCommands::new();
-                auths
-                    .push(auth_cmd)
-                    .map_err(|_| TaskError::CapacityExceeded)?;
+                auths.push(auth_cmd).map_err(|_| TaskError::OutOfMemory)?;
                 (tpm_cmd, auths)
             } else {
                 let (body_blob, rest) =
@@ -837,8 +837,8 @@ impl<'a> TaskState<'a> {
             let nonce_size = Hash::from(session.auth_hash).size();
             let mut nonce_bytes = vec![0; nonce_size];
             thread_rng().fill_bytes(&mut nonce_bytes);
-            let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
-                .map_err(|_| TaskError::CapacityExceeded)?;
+            let nonce_caller =
+                Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?;
             let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
                 (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
             } else {
@@ -1042,8 +1042,8 @@ impl<'a> TaskState<'a> {
         let digest_len = Hash::from(auth_hash).size();
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
-            .map_err(|_| VtpmError::CapacityExceeded)?;
+        let nonce_caller =
+            Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?;
 
         let cmd = TpmStartAuthSessionCommand {
             tpm_key: (TpmRh::Null as u32).into(),
@@ -1107,7 +1107,7 @@ fn create_auth(
                 if let Ok(name) = Tpm2bName::try_from(&buf[..len]) {
                     Ok(name)
                 } else {
-                    Err(TaskError::CapacityExceeded)
+                    Err(TaskError::OutOfMemory)
                 }
             }
         })
@@ -1161,8 +1161,7 @@ fn create_auth(
         session_handle: session.context.saved_handle,
         nonce: *nonce_caller,
         session_attributes: session.attributes,
-        hmac: Tpm2bAuth::try_from(hmac_bytes.as_slice())
-            .map_err(|_| TaskError::CapacityExceeded)?,
+        hmac: Tpm2bAuth::try_from(hmac_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?,
     })
 }
 
