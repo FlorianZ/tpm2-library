@@ -1,0 +1,18 @@
+[package]
+name = "tpm2-vtpm"
+description = "TPM 2.0 key ASN.1 file reader and writer"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-vtpm.git/about/?h=main"
+repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-vtpm.git"
+authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
+edition = "2021"
+rust-version = "1.81"
+readme = "README.md"
+
+[dependencies]
+log = "0.4"
+thiserror = "1.0"
+tpm2-crypto = "0.6.3"
+tpm2-policy-language = "0.7.2"
+tpm2-protocol = "0.15.4"

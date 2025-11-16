@@ -1,0 +1,952 @@
+
+
+
+
+Network Working Group                                       J. Bottomley
+Internet-Draft                                              Linux Kernel
+Intended status: Informational                              23 July 2024
+Expires: 24 January 2025
+
+
+               ASN.1 Specification for TPM 2.0 Key Files
+                      draft-bottomley-tpm-keys-00
+
+Abstract
+
+   This specification is designed to be an extension to the ASN.1
+   (defined in [X.680]) specification of PKCS #1 [RFC8017] to define the
+   file format of private keys that need to be loaded into a TPM 2
+   device to operate.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 24 January 2025.
+
+Copyright Notice
+
+   Copyright (c) 2024 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Simplified BSD License text
+   as described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Simplified BSD License.
+
+
+
+
+
+Bottomley                Expires 24 January 2025                [Page 1]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+   2.  Terminology . . . . . . . . . . . . . . . . . . . . . . . . .   3
+     2.1.  Notation  . . . . . . . . . . . . . . . . . . . . . . . .   3
+   3.  Key Representation  . . . . . . . . . . . . . . . . . . . . .   3
+     3.1.  TPMkey Syntax . . . . . . . . . . . . . . . . . . . . . .   4
+       3.1.1.  type  . . . . . . . . . . . . . . . . . . . . . . . .   4
+       3.1.2.  emptyAuth . . . . . . . . . . . . . . . . . . . . . .   5
+       3.1.3.  policy  . . . . . . . . . . . . . . . . . . . . . . .   5
+       3.1.4.  secret  . . . . . . . . . . . . . . . . . . . . . . .   5
+       3.1.5.  authPolicy  . . . . . . . . . . . . . . . . . . . . .   5
+       3.1.6.  description . . . . . . . . . . . . . . . . . . . . .   5
+       3.1.7.  rsaParent . . . . . . . . . . . . . . . . . . . . . .   6
+       3.1.8.  parent  . . . . . . . . . . . . . . . . . . . . . . .   6
+       3.1.9.  pubkey  . . . . . . . . . . . . . . . . . . . . . . .   6
+       3.1.10. privkey . . . . . . . . . . . . . . . . . . . . . . .   6
+   4.  Key Policy Specification  . . . . . . . . . . . . . . . . . .   7
+     4.1.  TPMPolicy Syntax  . . . . . . . . . . . . . . . . . . . .   7
+       4.1.1.  CommandCode . . . . . . . . . . . . . . . . . . . . .   7
+       4.1.2.  CommandPolicy . . . . . . . . . . . . . . . . . . . .   7
+     4.2.  PolicyCommand Exceptions  . . . . . . . . . . . . . . . .   8
+       4.2.1.  TPM2_PolicyAuthorize  . . . . . . . . . . . . . . . .   8
+       4.2.2.  TPM2_PolicySecret . . . . . . . . . . . . . . . . . .   8
+     4.3.  Policy Implementation Considerations  . . . . . . . . . .   9
+       4.3.1.  Authorization Policy  . . . . . . . . . . . . . . . .   9
+   5.  Signed Policy Specification . . . . . . . . . . . . . . . . .  10
+     5.1.  TPMAuthPolicy Syntax  . . . . . . . . . . . . . . . . . .  10
+       5.1.1.  Name  . . . . . . . . . . . . . . . . . . . . . . . .  10
+       5.1.2.  Policy  . . . . . . . . . . . . . . . . . . . . . . .  10
+     5.2.  Signed Policy Implementation Considerations . . . . . . .  11
+       5.2.1.  Authorization Policy  . . . . . . . . . . . . . . . .  11
+       5.2.2.  Signed Policy Revocation  . . . . . . . . . . . . . .  12
+       5.2.3.  Policy Signing Keys and policyRef values  . . . . . .  12
+   6.  Implementation Considerations . . . . . . . . . . . . . . . .  12
+   7.  Security Considerations . . . . . . . . . . . . . . . . . . .  13
+   8.  IANA Considerations . . . . . . . . . . . . . . . . . . . . .  14
+   9.  Comments on and Enhancements to this Document . . . . . . . .  14
+   10. References  . . . . . . . . . . . . . . . . . . . . . . . . .  14
+     10.1.  Normative References . . . . . . . . . . . . . . . . . .  14
+     10.2.  Informative References . . . . . . . . . . . . . . . . .  15
+   Appendix A.  ASN.1 Module . . . . . . . . . . . . . . . . . . . .  16
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  17
+
+
+
+
+
+
+
+
+Bottomley                Expires 24 January 2025                [Page 2]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+1.  Introduction
+
+   The Security of private keys has long been a concern and the ability
+   of ubiquitous devices like TPMs has made it useful to use them for
+   secure private key storage.  With the advent of TPM 2.0, private key
+   storage inside the TPM (acting as a token which could be referred to
+   by PKCS #11) has been discouraged, and instead key files which are
+   loaded and evicted as necessary is the encouraged format.  This
+   standard defines an interoperable ASN.1 representation for such key
+   files, so that a key created by one tool should be loadable by a
+   different one.
+
+2.  Terminology
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+   document are to be interpreted as described in [RFC2119].
+
+2.1.  Notation
+
+   ASN.1  Abstract Syntax Notation defined in [X.680]
+
+   DER  Distinguished Encoding Rules defined in [X.690].  Basically a
+      defined binary representation for ASN.1
+
+   MSO  Most Significant Octet (the highest order byte of an integer)
+
+   PEM  Privacy enhanced Electronic Mail.  An ASCII compatible
+      representation of DER
+
+   TCG  Trusted Computing Group
+
+   TPM  Trusted Platform Module
+
+3.  Key Representation
+
+   All TPM 2.0 keys consist of two binary pieces, a public part, which
+   can be parsed according to the TPM specification for TPM2B_PUBLIC
+   [TPM2.0] and a private part, which is cryptographically sealed in
+   such a way as to be only readable on the TPM that created it.  The
+   purpose of this specification is to specify a format by which the
+   public and private pieces of a TPM key can be loaded.
+
+
+
+
+
+
+
+
+
+Bottomley                Expires 24 January 2025                [Page 3]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+   The design of the TPMkey ASN.1 format is that it should have a
+   distinguishing OID at the beginning so the DER form of the key can be
+   easily recognized.  In PEM form, the key MUST have "-----BEGIN TSS2
+   PRIVATE KEY-----" and "-----END TSS2 PRIVATE KEY-----" as the PEM
+   guards.  All additional information that may be needed to load the
+   key is specified as optional explicit elements, which can be extended
+   by later specifications, which is why the TPMkey is not versioned.
+
+3.1.  TPMkey Syntax
+
+    TPMKey ::= SEQUENCE {
+       type        OBJECT IDENTIFIER,
+       emptyAuth   [0] EXPLICIT BOOLEAN OPTIONAL,
+       policy      [1] EXPLICIT SEQUENCE OF TPMPolicy OPTIONAL,
+       secret      [2] EXPLICIT OCTET STRING OPTIONAL,
+       authPolicy  [3] EXPLICIT SEQUENCE OF TPMAuthPolicy OPTIONAL,
+       description [4] EXPLICIT UTF8String OPTIONAL,
+       rsaParent   [5] EXPLICIT BOOLEAN OPTIONAL,
+       parent      INTEGER,
+       pubkey      OCTET STRING,
+       privkey     OCTET STRING
+     }
+
+   The fields of type TPMKey have the following meanings:
+
+3.1.1.  type
+
+   A unique OID specifying the key type.  This standard currently
+   defines three types of keys: a loadable key, specified by id-
+   loadablekey, (to be loaded with TPM2_Load), an importable key,
+   specified by id-importablekey, (to be loaded with TPM2_Import) and a
+   sealed data key, specified by id-sealedkey, (to be extracted with
+   TPM2_Unseal).  The TCG has reserved the following OID prefix for
+   this:
+
+     id-tpmkey OBJECT IDENTIFIER ::=
+       {joint-iso-itu-t(2) international-organizations(23) 133 10 1}
+
+   And the three key types are:
+
+     id-loadablekey OBJECT IDENTIFIER ::=
+       {id-tpmkey 3}
+
+     id-importablekey OBJECT IDENTIFIER ::=
+       {id-tpmkey 4}
+
+     id-sealedkey OBJECT IDENTIFIER ::=
+       {id-tpmkey 5}
+
+
+
+Bottomley                Expires 24 January 2025                [Page 4]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+3.1.2.  emptyAuth
+
+   An implementation needs to know as it formulates the
+   TPM2_Load/Import/Unseal command whether it must also send down an
+   authorization, so this parameter gives that indication.  emptyAuth
+   MUST be true if authorization is NOT required and MUST be either
+   false or absent if authorization is required.  Since this element has
+   three states (one representing true and two representing false) it is
+   RECOMMENDED that implementations emitting TPMkey representations use
+   absence of the tag to represent false.  However, implementations
+   reading TPMKey MUST be able to process all three possible states.
+
+3.1.3.  policy
+
+   This MUST be present if the TPM key has a policy hash because it
+   describes to the implementation how to construct the policy.  The
+   forms of the policy statement are described in Section 4.
+
+3.1.4.  secret
+
+   This section describes the additional cryptographic secret used to
+   specify the outer wrapping of an importable object.  For keys, it
+   MUST be present for key type id-importablekey and MUST NOT be present
+   for key type id-loadablekey.  For sealed data objects of type id-
+   sealedkey, it MAY be present and if present indicates the object is
+   importable.
+
+   Importable objects (designed to be processed by TPM2_Import) MUST
+   have an unencrypted inner wrapper (symmetricAlg MUST be TPM_ALG_NULL
+   and encryptionKey MUST be empty) and an outer wrapper encrypted to
+   the parent key using inSymSeed.  The secret parameter is the fully
+   marshalled TPM2B_ENCRYPTED_SECRET form of inSymSeed.
+
+3.1.5.  authPolicy
+
+   This SHOULD be present if the TPMkey policy contains a
+   TPM2_PolicyAuthorize statement because it contains signed policies
+   that could be used to satisfy the TPM key policy.  The forms of the
+   authPolicy statement are described in Section 5.  If the TPM key has
+   no policy hash then this MUST NOT be present.
+
+3.1.6.  description
+
+   An optional string description for the key which is only used for
+   display purposes, MAY be used as a user visible mnemonic for the key.
+
+
+
+
+
+
+Bottomley                Expires 24 January 2025                [Page 5]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+3.1.7.  rsaParent
+
+   This MUST be present and true if the parent is a permanent handle
+   (MSO 0x40) and RSA 2048 is used for the primary key.  If the parent
+   is not a permanent handle then this MUST NOT be present.  If the
+   parent is a permanent handle and if P-256 is used for the primary
+   then this MUST NOT be present.  Given that P-256 primary keys are
+   easier to generate, implementations SHOULD NOT set this flag.
+
+3.1.8.  parent
+
+   This MUST be present for all keys and specifies the handle of the
+   parent key.  The parent key SHOULD be either a persistent handle (MSO
+   0x81) or a permanent handle (MSO 0x40).  Since volatile handle
+   numbering can change unexpectedly depending on key load order, the
+   parent SHOULD NOT be a volatile handle (MSO 0x80).  The parent MUST
+   NOT have any other MSO.
+
+   If a permanent handle (MSO 0x40) is specified then the implementation
+   MUST run TPM2_CreatePrimary on the handle using the TCG specified
+   Elliptic Curve template [TCG-Provision] (section 7.5.1 for the
+   Storage and other seeds or 7.4.1 for the endorsement seed) which
+   refers to the TCG EK Credential Profile [TCG-EK-Profile] .  Since
+   there are several possible templates, implementations MUST always use
+   the H template (the one with zero size unique fields).  The template
+   used MUST be H-2 (EK Credential Profile section B.4.5) for the NIST
+   P-256 curve if rsaParent is absent or the H-1 (EK Credential Profile
+   section B.4.4) RSA template with a key length of 2048 if rsaParent is
+   present and true and use the primary key so generated as the parent.
+
+3.1.9.  pubkey
+
+   This MUST be present and MUST correspond to the fully marshalled
+   TPM2B_PUBLIC structure of the TPM Key.
+
+3.1.10.  privkey
+
+   This MUST be present and MUST correspond to the fully marshalled
+   TPM2B_PRIVATE structure of the TPM Key.  For importable keys, this
+   must be the duplicate parameter that would be input to TPM2_Import.
+
+
+
+
+
+
+
+
+
+
+
+Bottomley                Expires 24 January 2025                [Page 6]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+4.  Key Policy Specification
+
+   Policy is constructed on a TPM by executing a sequence of policy
+   statements.  This specification currently only defines a limited
+   subset of the allowed policy statements.  The policy is specified by
+   a hash, which the execution of the policy statements must reach in
+   order for the policy to be validated (See [TPM2.0] Part 1 for a
+   detailed description.
+
+   The TPMPolicy ASN.1 MUST be a sequence of policy statements which
+   correspond exactly to TPM policy instructions in the order they
+   should be executed and additionally from which the ultimate policy
+   hash can be constructed.
+
+   The current policy specification is strictly for AND based policy
+   only and may be extended at a later date with OR policy.  However,
+   the ASN.1 for policy is formulated as CONS elements, leaving the
+   possibility of adding additional but optional elements for policy
+   statements which are not supported by this standard (such as
+   TPM2_PolicyAuthorize).
+
+4.1.  TPMPolicy Syntax
+
+    TPMPolicy ::= SEQUENCE {
+       commandCode   [0] EXPLICIT INTEGER,
+       commandPolicy [1] EXPLICIT OCTET STRING
+     }
+
+   The Fields of type TPMPolicy have the following meanings:
+
+4.1.1.  CommandCode
+
+   This is the integer representation of the TPM command code for the
+   policy statement.
+
+4.1.2.  CommandPolicy
+
+   This is a binary string representing a fully marshalled, TPM ordered,
+   command body for the TPM policy command.  Therefore to send the
+   command, the implementation simply marshals the command code and
+   appends this octet string as the body.
+
+   Commands which have no body, such as TPM2_AuthVal, MUST be specified
+   as a zero length OCTET STRING
+
+   Note that there are some commands for which the simple body of the
+   TPM policy command does not provide enough information to execute the
+   policy command.  A classic example is TPM2_PolicyAuthorize, whose
+
+
+
+Bottomley                Expires 24 January 2025                [Page 7]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+   body consists of a key name, a policyRef nonce and a signature.
+   However, the implementation needs to know the actual key, not just
+   the name, to implement the policy.  Commands whose CommandPolicy must
+   be marshalled differently are noted in Section 4.2.
+
+4.2.  PolicyCommand Exceptions
+
+   For some TPM2_Policy... commands, the information required to
+   formulate the policy cannot be extracted from the body of the command
+   and so additional information must be supplied, meaning these
+   commands deviate from the [TPM2.0] policy body specifications.  The
+   CommandPolicy format for these exceptional commands is documented
+   below.
+
+4.2.1.  TPM2_PolicyAuthorize
+
+   According to [TPM2.0] the body of this command consists of
+   TPM2B_DIGEST approvedPolicy, TPM2B_NONCE policyRef, TPM2B_NAME
+   keySign and TPM_TK_VERIFIED checkTicket.  However, implementations
+   must construct checkTicket at the time of policy execution from the
+   public key of keySign and the signed policy hash.  Additionally,
+   implementations constructing a signed policy need to know the
+   sequence of policy steps they must execute to produce approvedPolicy,
+   but do not need to know its value because the construction steps will
+   either fail or the end policy session will have the required hash.
+   The implementation must know this end policyHash to construct the
+   signature over it, but this information does not need to be stored in
+   CommandPolicy.
+
+   The format of CommandPolicy for TPM2_PolicyAuthorize MUST be
+   TPM2B_PUBLIC keySign, TPM2B_DIGEST policyRef, TPMT_SIGNATURE
+   policySignature.
+
+4.2.2.  TPM2_PolicySecret
+
+   According to [TPM2.0] the body of this command consists of the handle
+   of the authorizing object, TPM2B_NONCE nonceTPM, TPM2B_DIGEST
+   cpHashA, TPM2B_NONCE policyRef and INT32 expiration.  However, the
+   policyHash only uses policyRef and the name of the authorizing
+   object.  Since the usual authorizing object for TPM2_PolicySecret is
+   a permanent handle or NV Index, and those are hard to find by name,
+   the handle is also given as an optional hint in addition to the name.
+
+   The format of CommandPolicy for TPM2_PolicySecret MUST be TPM_HANDLE
+   objectHandleHint, TPM2B_NAME objectName, TPM2B_DIGEST policyRef.
+   Where objectHandleHint MAY be zero to indicate no hint.
+
+
+
+
+
+Bottomley                Expires 24 January 2025                [Page 8]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+4.3.  Policy Implementation Considerations
+
+   The policy hash for AND based policies is constructed by extension of
+   the prior policy hash
+
+     newHash = HASH ( oldHash || policyHash )
+
+   where policyHash is usually simply the hash of the fully marshalled
+   policy command (including the CommandCode).  However, this isn't true
+   for TPM2_PolicyCounterTimer so always consult the [TPM2.0]
+   specifications for how to construct the policyHash.
+
+   The implementation should fail fast for policy problems, so if an
+   individual policy command returns a failure (which usually indicates
+   a particular policy requirement cannot be met), that failure should
+   be reported in as much detail as possible and processing of the key
+   should fail at that point.
+
+   If signed policies are present, the first policy statement MUST be
+   TPM2_PolicyAuthorize giving the public key, the nonce and and having
+   an empty signature.  TPM_PolicyAuthorize() MAY NOT appear in any
+   subsequent position.
+
+4.3.1.  Authorization Policy
+
+   When Authorization (Passing in a password) is required, the emptyAuth
+   parameter MUST be absent or set to false and additionally
+   TPM_CC_PolicyAuthValue or TPM_CC_PolicySecret MUST be specified as
+   the command code for one entry in the TPMPolicy sequence.  However,
+   when TPM2_PolicyAuthValue is specified, the implementation MAY choose
+   to execute either TPM2_PolicyPassword for TPM_RS_PW or
+   TPM2_PolicyAuthValue for HMAC based authorization depending on
+   whether the command being authorized is using sessions or not.  If
+   the policy does not require an authorization then the emptyAuth
+   parameter MUST be set to true.
+
+   Implementations should bear in mind that most crypto systems with key
+   management expect to consume only one password per key, so
+   implementations SHOULD avoid policy chains which would require more
+   than one password as would happen when TPM2_PolicySecret and
+   TPM2_PolicyAuthValue both appear in the same policy chain.
+   Implementations MAY detect and emit an error in this case.
+
+
+
+
+
+
+
+
+
+Bottomley                Expires 24 January 2025                [Page 9]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+5.  Signed Policy Specification
+
+   One feature of TPM policy execution is the command
+   TPM2_PolicyAuthorize does not operate by extending the current policy
+   hash, it completely replaces it with a hash of the signing key and a
+   nonce called the policyRef.  In order for this replacement to happen,
+   TPM2_PolicyAuthorize must be presented with a ticket confirming
+   verification of a signature over the old policy hash and the nonce.
+   Since anyone possessing the private key named in the policy hash can
+   sign a new policy to present, the key can have multiple signed
+   policies, any or all of which might succeed, so a new structure had
+   to be introduced to store current signed policies.
+
+5.1.  TPMAuthPolicy Syntax
+
+    TPMAuthPolicy ::= SEQUENCE {
+       name    [0] EXPLICIT UTF8String OPTIONAL,
+       policy  [1] EXPLICIT SEQUENCE OF TPMPolicy
+    }
+
+   The Fields of type TPMAuthPolicy have the following meanings:
+
+5.1.1.  Name
+
+   An optional string name for the current policy which is only used for
+   display purposes, MAY be used as a user visible mnemonic for the
+   actual policy.
+
+5.1.2.  Policy
+
+   A sequence of TPMPolicy statements (see Section 4.1) which MUST end
+   with a PolicyAuthorize statement whose signature is over the hash of
+   the current policy excluding the PolicyAuthorize statement and the
+   nonce specified at the beginning of the TPMKey policy.  There MUST be
+   no other TPM2_PolicyAuthorize statements in the intermediate policy
+   steps.  There MAY be an initial TPM2_PolicyAuthorize statement
+   containing a different public key (because this causes complexity
+   building signed policy chains, implementations MAY choose to allow
+   only a single policy signing key, in which case there MAY NOT be an
+   initial TPM2_PolicyAuthorize statement).
+
+
+
+
+
+
+
+
+
+
+
+Bottomley                Expires 24 January 2025               [Page 10]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+5.2.  Signed Policy Implementation Considerations
+
+   The key can only be used if one of the policies in TPMKey authPolicy
+   actually succeeds.  The implementation SHOULD try each policy in
+   authPolicy sequentially.  If the policy fails to match the
+   implementation SHOULD try the next policy.  If all statement succeed,
+   the implementation should then execute the final TPM2_PolicyAuthorize
+   statement and then begin executing the policy statements in
+   TPMKeyPolicy excluding the initial TPM2_PolicyAuthorize one (if there
+   are any subsequent statements).
+
+   Because policies are tried sequentially, implementations SHOULD order
+   the policies such that the most likely to succeed appears first.  For
+   instance, if the key is used to unlock a disk and is tied by policy
+   to the hash of the OS kernel, then the policy tied to the current
+   kernel should appear first followed by subsequent policies tied to
+   older kernels because the most likely kernel to be booted is the
+   current one.
+
+   Since the policy order will likely change when a new policy is added
+   (in the kernel example, when a kernel is updated, the newly added
+   kernel becomes current and the signed policy tied to this kernel
+   should become the first one in the TPMkey), users should keep track
+   of policies using the optional mnemonic name and not rely on position
+   in the TPMAuthPolicy sequence.
+
+5.2.1.  Authorization Policy
+
+   There may now be multiple possible policies which authorize the key,
+   some of which might contain TPM2_PolicyAuthValue requirements
+   (passing in a password) and others of which might not, emptyAuth MUST
+   not be set if the TPMKey contains an Authorization Secret (password),
+   even if testing knowledge of such a secret may not be required by
+   signed policy.  Implementations MAY choose to scan the likely
+   policies to see whether to prompt for a password or MAY choose to
+   prompt based on emptyAuth.  The latter is more likely to be
+   successful, because most implementations will have a password prompt
+   at key load time which may be some time before the key is actually
+   used, by which time the list of successful policies may be different
+   due to changes on the system.
+
+   The most common use for TPM2_PolicyAuthValue is as a backup policy
+   when all other policies tied to system configuration fail.  For this
+   use case, a password prompted for is almost never used, except in the
+   rare event the system gets into a state where none of the other
+   policies apply.  If an implementation always prompts for a password
+   based on emptyAuth, then most of the time the prompted for password
+   will not be used.  For this use case, consumers may safely pass in an
+
+
+
+Bottomley                Expires 24 January 2025               [Page 11]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+   empty password when the implementation asks and only provide the real
+   password if all other policies fail.  In the kernel boot example this
+   would mean that the entity that unlocks the disk should first try the
+   key with an empty password, assuming one non-password based policy
+   will succeed and only go back and ask the user for a password if the
+   disk unlock fails.
+
+5.2.2.  Signed Policy Revocation
+
+   The signature in a TPM2_PolicyAuthorize statement has no expiry or
+   revocation capabilities.  Consumers should remember that simply
+   removing a signed policy from the key does not guarantee that the
+   removed policy will never be used.  Any subsequent consumer who
+   obtains the policy signature could potentially add the removed policy
+   back to the key.  Therefore, use cases which may need to expire or
+   revoke the policy SHOULD build into the policy specific expiration or
+   revocation criteria using TPM policy statements.
+
+   The easiest policy statement for expiration is to use
+   TPM2_PolicyCounterTimer.  Users should remember that the TPM time is
+   guaranteed to be monotonic, but the TPM timer does not tick while the
+   machine is powered down and any user may arbitrarily increase (but
+   never decrease) the TPM clock count.  It is recommended that policies
+   tied to booting a system (as in the kernel boot disk unlock above)
+   should base their expiration on reboot count rather than the TPM
+   clock.
+
+5.2.3.  Policy Signing Keys and policyRef values
+
+   There is a high likelihood that a consumer would use the same policy
+   signing key for multiple TPM objects with signed policy.  This gives
+   rise to the risk that a malicious user could extract signed policy
+   meant for key1 and use it instead with key2 (policy swapping).  To
+   mitigate this risk, the implementation SHOULD place a high entropy
+   nonce in policyRef to ensure that each key has a different policyRef
+   which prevents this policy swapping.
+
+   The TCG specifies that policyRef could have an implementation defined
+   meaning in which case implementations MAY use implementation
+   meaningful values instead of nonces for policyRef but SHOULD take
+   other measures to prevent policy swapping.
+
+6.  Implementation Considerations
+
+   Implementations SHOULD support all TCG mandated algorithms, but MAY
+   omit those deemed insecure, such as the SHA1 hash.
+
+
+
+
+
+Bottomley                Expires 24 January 2025               [Page 12]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+   TPM2_Import transforms the privKey into a TPM2B_PRIVATE which can
+   then be used as a source to TPM2_Load, making the loading of
+   importable keys is necessarily a two stage process, which can be time
+   consuming on some TPMs.  Since the TPM2B_PRIVATE structure emitted by
+   TPM2_Import is fully secure, Implementations SHOULD minimize the
+   number of TPM2_Import operations by caching the emitted
+   TPM2B_PRIVATE.
+
+   Some applications have broken DER encoding and emit values other than
+   the required 0xFF for BOOLEAN TRUE (see [X.690] section 11.1 "Boolean
+   values").  When parsing DER encodings, implementations SHOULD accept
+   any non-zero octet as BOOLEAN TRUE.
+
+7.  Security Considerations
+
+   The TPM 2.0 supports a variety of algorithms, the most common being
+   SHA1 and SHA256 for hashing and RSA2048 and NIST P-256 for asymmetric
+   keys.  Implementors SHOULD NOT use deprecated algorithms, such as
+   SHA1, for any TPM operation.  In particular, the algorithm used for
+   the policy hash SHOULD NOT be SHA1 and this means that SHA1 SHOULD
+   NOT be used as the name algorithm hash for any TPM key.
+
+   TPM 2.0 supports a session mode (TPM_RS_PW) where authorizations are
+   passed to the TPM in clear text over the TPM connection.
+   Implementations SHOULD consider the possibility of snooping on the
+   wire between the implementation and the TPM, such as [TPM_GENIE], and
+   SHOULD use HMAC session authorizations as best practice for all TPM
+   keys.
+
+   In addition to snooping authorizations, snooping may also occur when
+   key material is being exchanged between the TPM and the
+   implementation, such as wrapping of private keys and the sealing and
+   unsealing operations for sealed keys.  Implementations SHOULD always
+   use HMAC sessions with TPMA_SESSION_DECRYPT when sensitive
+   information is passed in to the TPM and HMAC sessions with
+   TPMA_SESSION_ENCRYPT when sensitive information is received from the
+   TPM.
+
+   The easiest way to get the TPM to wrap an external private key is to
+   use TPM2_Import.  However, since TPMA_SESSION_DECRYPT only protects
+   the first parameter (which is encryptionKey), the duplicate should
+   use inner symmetric encryption with a randomly generated ephemeral
+   key, which is then presented to the TPM via the protected
+   encryptionKey parameter.
+
+   The TPM has a mode where it can generate private key material
+   internally (using TPM2_Create) such that the private part of the key
+   can never leave the TPM.  Implementations SHOULD support this mode
+
+
+
+Bottomley                Expires 24 January 2025               [Page 13]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+   but should be aware that while keys created like this may be more
+   secure than wrapped keys, they can also be used only while access to
+   the TPM that created them is available, so implementations SHOULD
+   also support wrapping for keys that are expected to outlive the TPM
+   that's using them.  Clients can then develop best practices around
+   TPM wrapped identity keys, possibly with TPM created sub keys, which
+   can only be used on the device they were wrapped for.
+
+   Since TPM keys can only be used by the specific TPM that created
+   them, which is usually embedded in a piece of hardware, they are
+   secure against exfiltration attacks.  However, consideration should
+   be given to an attacker gaining access to the system containing the
+   TPM.  TPM keys are most secure when used as part of an operating
+   system that has guaranteed trust properties, such as secure and
+   measured boot.  Implementations SHOULD assist users in constructing
+   key policies that ensure the key can be used only when the operating
+   system is within its trusted parameters to minimize threats from co-
+   located attackers.
+
+8.  IANA Considerations
+
+   None.
+
+9.  Comments on and Enhancements to this Document
+
+   Comments on this document should be addressed to the author
+   (James.Bottomley@HansenPartnership.com) but should also CC the email
+   lists of the two projects implementing this specification:
+
+   The OpenSSL engine: openssl_tpm2_engine@groups.io
+
+   The Linux Kernel: linux-integrity@vger.kernel.org
+
+   The OpenSSL TPM2 engine [OPENSSL_TPM2_ENGINE] is currently the only
+   implementation of this full specification, so enhancements should be
+   proposed after patches implementing the enhancement have been
+   accepted by openssl_tpm2_engine or another full specification
+   implementation.
+
+10.  References
+
+10.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+
+
+
+Bottomley                Expires 24 January 2025               [Page 14]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+   [RFC8017]  Moriarty, K., Ed., Kaliski, B., Jonsson, J., and A. Rusch,
+              "PKCS #1: RSA Cryptography Specifications Version 2.2",
+              RFC 8017, DOI 10.17487/RFC8017, November 2016,
+              <https://www.rfc-editor.org/info/rfc8017>.
+
+   [TPM2.0]   Trusted Computing Group, "TPM 2.0 Library Specification",
+              15 March 2013,
+              <https://trustedcomputinggroup.org/resource/tpm-library-
+              specification/>.
+
+   [X.680]    International Telecommunication Union, "ITU-T
+              Recommendation X.680, Information technology - Abstract
+              Syntax Notation One (ASN.1): Specification of basic
+              notation.", August 2015,
+              <https://itu.int/rec/T-REC-X.680-201508-I/en>.
+
+   [X.690]    International Telecommunication Union, "ITU-T
+              Recommendataion X.690, Information technology – ASN.1
+              encoding rules: Specification of Basic Encoding Rules
+              (BER), Canonical Encoding Rules (CER) and Distinguished
+              Encoding Rules (DER)", February 2021,
+              <https://www.itu.int/rec/T-REC-X.690-202102-I>.
+
+   [TCG-Provision]
+              Trusted Computing Group, "TCG TPM v2.0 Provisioning
+              Guidance", 15 March 2017,
+              <https://trustedcomputinggroup.org/resource/tcg-tpm-v2-0-
+              provisioning-guidance/>.
+
+   [TCG-EK-Profile]
+              Trusted Computing Group, "TCG EK Credential Profile For
+              TPM Family 2.0; Level 0", 26 January 2022,
+              <https://trustedcomputinggroup.org/resource/http-
+              trustedcomputinggroup-org-wp-content-uploads-tcg-ek-
+              credential-profile-v-2-5-r2_published-pdf/>.
+
+10.2.  Informative References
+
+   [TPM_GENIE]
+              Boone, J., "TPM Genie: Interposer Attacks Against the
+              Trusted Platform Module Serial Bus", 9 March 2018,
+              <https://www.nccgroup.com/globalassets/about-
+              us/us/documents/tpm-genie.pdf>.
+
+   [OPENSSL_TPM2_ENGINE]
+              Open Source Project, "OpenSSL TPM2 Engine",
+              <https://git.kernel.org/pub/scm/linux/kernel/git/jejb/
+              openssl_tpm2_engine.git/>.
+
+
+
+Bottomley                Expires 24 January 2025               [Page 15]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+Appendix A.  ASN.1 Module
+
+    TPM-Key-Module
+
+    DEFINITIONS IMPLICIT TAGS ::=
+    BEGIN
+
+    --
+    -- Should import this but TCG hasn't yet published it or .10
+    --
+    id-tpmkey OBJECT IDENTIFIER ::=
+      {joint-iso-itu-t(2) international-organizations(23) 133 10 1}
+
+    --
+    -- OIDs defined by this RFC
+    --
+    id-loadablekey OBJECT IDENTIFIER ::=  {id-tpmkey 3}
+    id-importablekey OBJECT IDENTIFIER ::=  {id-tpmkey 4}
+    id-sealedkey OBJECT IDENTIFIER ::= {id-tpmkey 5}
+
+    TPMPolicy ::= SEQUENCE {
+      commandCode   [0] EXPLICIT INTEGER,
+      commandPolicy [1] EXPLICIT OCTET STRING
+    }
+
+    TPMAuthPolicy ::= SEQUENCE {
+      name    [0] EXPLICIT UTF8String OPTIONAL,
+      policy  [1] EXPLICIT SEQUENCE OF TPMPolicy
+    }
+
+    TPMKeyType ::= OBJECT IDENTIFIER (
+      id-loadablekey |
+      id-importablekey |
+      id-sealedkey
+    )
+
+    TPMKey ::= SEQUENCE {
+      type        TPMKeyType,
+      emptyAuth   [0] EXPLICIT BOOLEAN OPTIONAL,
+      policy      [1] EXPLICIT SEQUENCE OF TPMPolicy OPTIONAL,
+      secret      [2] EXPLICIT OCTET STRING OPTIONAL,
+      authPolicy  [3] EXPLICIT SEQUENCE OF TPMAuthPolicy OPTIONAL,
+      description [4] EXPLICIT UTF8String OPTIONAL,
+      rsaParent   [5] EXPLICIT BOOLEAN OPTIONAL,
+      parent      INTEGER,
+      pubkey      OCTET STRING,
+      privkey     OCTET STRING
+    }
+
+
+
+Bottomley                Expires 24 January 2025               [Page 16]
+
+Internet-Draft              TPM 2 Key Format                   July 2024
+
+
+    END
+
+Author's Address
+
+   James E.J. Bottomley
+   Linux Kernel
+   United States of America
+
+   Email: James.Bottomley@HansenPartnership.com
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Bottomley                Expires 24 January 2025               [Page 17]
