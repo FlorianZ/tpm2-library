@@ -4,10 +4,7 @@
 
 //! Manages caching for TPM keys.
 
-use crate::{
-    device::{Device, DeviceError},
-    write_object,
-};
+use crate::write_object;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fs, io,
@@ -20,7 +17,7 @@ use tpm2_policy_language::{Error as PolicyLanguageError, TpmHandleClass, TpmHand
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
+    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmsContext, TpmtPublic},
     TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
 use tpm2_tpmkey::Error as TpmKeyError;
@@ -169,8 +166,6 @@ pub enum VtpmError {
     ParentNotFound,
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
-    #[error("device: {0}")]
-    Device(#[from] DeviceError),
     #[error("policy data: {0}")]
     PolicyData(#[from] TpmKeyError),
     #[error("policy language: {0}")]
@@ -181,12 +176,6 @@ pub enum VtpmError {
     Io(#[from] io::Error),
     #[error("protocol: {0}")]
     Protocol(#[from] TpmProtocolError),
-}
-
-impl From<TpmRc> for VtpmError {
-    fn from(rc: TpmRc) -> Self {
-        Self::Device(DeviceError::TpmRc(rc))
-    }
 }
 
 pub struct VtpmCache<'a> {
@@ -460,14 +449,12 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when serializing context data fails.
     pub fn save_context(
         &mut self,
-        device: &mut Device,
-        handle: TpmHandle,
+        context: TpmsContext,
         public: &TpmtPublic,
         parent_public: &TpmtPublic,
         empty_auth: bool,
         policy: &Option<Vec<u8>>,
     ) -> Result<u32, VtpmError> {
-        let context = device.save_context(handle)?;
         for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
             if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
                 let key = VtpmKey {

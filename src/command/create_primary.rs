@@ -74,9 +74,9 @@ impl Task for CreatePrimary {
 
             let object_handle = resp.object_handle;
             task_state.track_handle(object_handle)?;
+            let object_context = device.save_context(object_handle)?;
             let vhandle = task_state.cache.save_context(
-                device,
-                object_handle,
+                object_context,
                 &resp.out_public.inner,
                 &Tpm2bPublic::default().inner,
                 empty_auth,

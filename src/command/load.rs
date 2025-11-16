@@ -104,9 +104,9 @@ impl Task for Load {
                     None
                 };
 
+                let object_context = device.save_context(object_handle)?;
                 let vhandle = task_state.cache.save_context(
-                    device,
-                    object_handle,
+                    object_context,
                     &loaded_public.inner,
                     &parent_public.inner,
                     tpm_key.empty_auth.unwrap_or_default(),
