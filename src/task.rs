@@ -220,6 +220,10 @@ pub enum TaskError {
     Crypto(#[from] CryptoError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
+    #[error("marshal: {0}")]
+    Marshal(tpm2_protocol::TpmProtocolError),
+    #[error("unmarshal: {0}")]
+    Unmarshal(tpm2_protocol::TpmProtocolError),
 }
 
 pub struct TaskState<'a> {
@@ -452,22 +456,20 @@ impl<'a> TaskState<'a> {
         if policy_blob.is_empty() {
             return Ok(None);
         }
-        let (count, mut remainder) =
-            u32::unmarshal(policy_blob).map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
+        let (count, mut remainder) = u32::unmarshal(policy_blob).map_err(TaskError::Unmarshal)?;
         let mut commands = Vec::with_capacity(count as usize);
 
         for _ in 0..count {
-            let (cc, rest) =
-                TpmCc::unmarshal(remainder).map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
+            let (cc, rest) = TpmCc::unmarshal(remainder).map_err(TaskError::Unmarshal)?;
             remainder = rest;
 
             let (cmd, auth) = if cc == TpmCc::PolicySecret {
-                let (handle_hint, rest) = TpmHandle::unmarshal(remainder)
-                    .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
-                let (object_name, rest) = Tpm2bName::unmarshal(rest)
-                    .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
+                let (handle_hint, rest) =
+                    TpmHandle::unmarshal(remainder).map_err(TaskError::Unmarshal)?;
+                let (object_name, rest) =
+                    Tpm2bName::unmarshal(rest).map_err(TaskError::Unmarshal)?;
                 let (policy_ref, rest) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
-                    .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
+                    .map_err(TaskError::Unmarshal)?;
                 remainder = rest;
 
                 let live_handle = if object_name.is_empty() {
@@ -507,7 +509,7 @@ impl<'a> TaskState<'a> {
             } else {
                 let (body_blob, rest) =
                     TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)
-                        .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
+                        .map_err(TaskError::Unmarshal)?;
                 remainder = rest;
 
                 let policy_cmd = TpmPolicyCommand::from_raw(cc, body_blob.to_vec())
@@ -719,8 +721,7 @@ impl<'a> TaskState<'a> {
             if let Some(handle_val) = handle_ref.value() {
                 let phandle = TpmHandle(handle_val);
                 if let Ok((public, _)) = device.read_public(phandle) {
-                    let key_bytes = write_object(&public)
-                        .map_err(|e| TaskError::Vtpm(VtpmError::Protocol(e)))?;
+                    let key_bytes = write_object(&public).map_err(TaskError::Marshal)?;
                     persistent_keys.insert(key_bytes, phandle);
                 }
             }
