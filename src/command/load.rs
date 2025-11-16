@@ -8,7 +8,7 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs},
     device::{with_device, Device},
     io::read_file_input,
-    task::{is_empty_auth, Auth, TaskState},
+    task::{is_empty_auth, TaskAuth, TaskState},
 };
 use clap::Args;
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
@@ -85,14 +85,14 @@ impl Task for Load {
                 )
                 .inspect_err(|e: &CommandError| {
                     log::debug!("run_load failed: {e}");
-                    if let Some(Auth::Session(vhandle)) = policy_session_auth {
+                    if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                         if let Err(e) = task_state.remove_session(device, vhandle) {
                             log::error!("vtpm:{vhandle:08x}: {e}");
                         }
                     }
                 })?;
 
-                if let Some(Auth::Session(vhandle)) = policy_session_auth {
+                if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                     if let Err(e) = task_state.remove_session(device, vhandle) {
                         log::error!("vtpm:{vhandle:08x}: {e}");
                     }
@@ -150,7 +150,7 @@ impl Load {
         parent_handle: TpmHandle,
         in_private: &tpm2_protocol::data::Tpm2bPrivate,
         in_public: &Tpm2bPublic,
-        auths: &[Auth],
+        auths: &[TaskAuth],
     ) -> Result<(TpmHandle, Tpm2bName, Tpm2bPublic), CommandError> {
         let cmd = TpmLoadCommand {
             parent_handle,

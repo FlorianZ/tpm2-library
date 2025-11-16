@@ -11,7 +11,7 @@ use crate::{
     device::{with_device, Device},
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
-    task::{is_empty_auth, Auth, TaskError, TaskState},
+    task::{is_empty_auth, TaskAuth, TaskError, TaskState},
     template,
 };
 
@@ -203,7 +203,7 @@ impl Create {
             let (resp, _) = task_state
                 .execute(device, &create_cmd, &handles, &auths)
                 .map_err(|err| {
-                    if let Some(Auth::Session(vhandle)) = policy_session_auth {
+                    if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                         if let Err(e) = task_state.remove_session(device, vhandle) {
                             log::error!("vtpm:{vhandle:08x}: {e}");
                         }
@@ -214,7 +214,7 @@ impl Create {
                     err.into()
                 })?;
 
-            if let Some(Auth::Session(vhandle)) = policy_session_auth {
+            if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                 if let Err(e) = task_state.remove_session(device, vhandle) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
                 }

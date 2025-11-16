@@ -5,7 +5,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
     device::with_device,
-    task::{is_empty_auth, Auth, TaskError, TaskState},
+    task::{is_empty_auth, TaskAuth, TaskError, TaskState},
 };
 use clap::Args;
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
@@ -61,7 +61,7 @@ impl Task for Unseal {
             let (resp, _) = task_state
                 .execute(device, &unseal_cmd, &unseal_handles, &auths)
                 .map_err(|e: TaskError| {
-                    if let Some(Auth::Session(vhandle)) = policy_session_auth {
+                    if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                         if let Err(e) = task_state.remove_session(device, vhandle) {
                             log::error!("vtpm:{vhandle:08x}: {e}");
                         }
@@ -69,7 +69,7 @@ impl Task for Unseal {
                     Into::<CommandError>::into(e)
                 })?;
 
-            if let Some(Auth::Session(vhandle)) = policy_session_auth {
+            if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                 if let Err(e) = task_state.remove_session(device, vhandle) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
                 }

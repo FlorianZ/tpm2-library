@@ -7,7 +7,7 @@ use crate::{
     cli::Task,
     command::{print_table, AuthArgs, CommandError},
     device::{self, Device, DeviceError},
-    task::{Auth, TaskState},
+    task::{TaskAuth, TaskState},
 };
 use clap::Args;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
@@ -219,7 +219,7 @@ impl Memory {
         let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
         let auths_cow = auth_args.auths(false);
-        let effective_auths: &[Auth] = if needs_auth { auths_cow.as_ref() } else { &[] };
+        let effective_auths: &[TaskAuth] = if needs_auth { auths_cow.as_ref() } else { &[] };
         let handles = [auth_handle_val];
 
         while offset < data_size {

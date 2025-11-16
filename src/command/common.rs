@@ -6,7 +6,7 @@ use crate::{
     alg::{Alg, AlgInfo},
     cli::Hierarchy,
     command::CommandError,
-    task::Auth,
+    task::TaskAuth,
 };
 use clap::{Args, ValueEnum};
 use std::{borrow::Cow, path::PathBuf};
@@ -18,12 +18,12 @@ use tpm2_protocol::data::{Tpm2bAuth, TpmaObject};
 /// # Errors
 ///
 /// Returns an error if the string is not 'empty' and is not valid hex.
-fn parse_auth_password(s: &str) -> Result<Auth, String> {
+fn parse_auth_password(s: &str) -> Result<TaskAuth, String> {
     if s == "empty" {
-        Ok(Auth::Password(Vec::new()))
+        Ok(TaskAuth::Password(Vec::new()))
     } else {
         hex::decode(s)
-            .map(Auth::Password)
+            .map(TaskAuth::Password)
             .map_err(|e| e.to_string())
     }
 }
@@ -32,7 +32,7 @@ fn parse_auth_password(s: &str) -> Result<Auth, String> {
 pub struct AuthArgs {
     /// Authentication value: 'empty' or '<hex string>'
     #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = parse_auth_password)]
-    pub auth: Vec<Auth>,
+    pub auth: Vec<TaskAuth>,
 }
 
 impl AuthArgs {
@@ -45,12 +45,12 @@ impl AuthArgs {
     ///
     /// Returns a `CommandError` if a non-password auth is encountered.
     #[must_use]
-    pub fn auths(&self, empty_auth: bool) -> Cow<'_, [Auth]> {
+    pub fn auths(&self, empty_auth: bool) -> Cow<'_, [TaskAuth]> {
         if self.auth.is_empty() {
             if empty_auth {
                 Cow::Owned(vec![])
             } else {
-                Cow::Owned(vec![Auth::default()])
+                Cow::Owned(vec![TaskAuth::default()])
             }
         } else {
             Cow::Borrowed(self.auth.as_slice())

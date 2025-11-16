@@ -7,7 +7,7 @@ use crate::{
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     device::{with_device, Device},
     io::{read_file_input, write_key_data},
-    task::{is_empty_auth, Auth, TaskState},
+    task::{is_empty_auth, TaskAuth, TaskState},
     write_object,
 };
 use clap::Args;
@@ -284,7 +284,7 @@ impl Convert {
                 .auths(parent_empty_auth)
                 .iter()
                 .cloned()
-                .collect::<Vec<Auth>>(),
+                .collect::<Vec<TaskAuth>>(),
         )?;
 
         let import_resp = resp

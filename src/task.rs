@@ -174,13 +174,13 @@ pub fn is_empty_auth(public: &TpmtPublic) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Auth {
+pub enum TaskAuth {
     Password(Vec<u8>),
     Session(u32),
     Policy(Vec<u8>),
 }
 
-impl Default for Auth {
+impl Default for TaskAuth {
     fn default() -> Self {
         Self::Password(Vec::new())
     }
@@ -330,11 +330,11 @@ impl<'a> TaskState<'a> {
     pub fn prepare_sessions(
         &mut self,
         device: &mut Device,
-        auth_list: &[Auth],
+        auth_list: &[TaskAuth],
     ) -> Result<Vec<TpmHandle>, TaskError> {
         let mut activated_handles = Vec::new();
         for auth in auth_list {
-            if let Auth::Session(vhandle) = auth {
+            if let TaskAuth::Session(vhandle) = auth {
                 let session = self
                     .get_session(*vhandle)
                     .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
@@ -550,11 +550,11 @@ impl<'a> TaskState<'a> {
         device: &mut Device,
         policy_blob: &[u8],
         key_name_alg: TpmAlgId,
-        policy_auths: &[Auth],
-    ) -> Result<Option<Auth>, TaskError> {
+        policy_auths: &[TaskAuth],
+    ) -> Result<Option<TaskAuth>, TaskError> {
         let mut raw_auths = Vec::new();
         for auth in policy_auths {
-            if let Auth::Password(p) = auth {
+            if let TaskAuth::Password(p) = auth {
                 raw_auths.push(p.clone());
             } else {
                 return Err(TaskError::InvalidAuth(
@@ -613,7 +613,7 @@ impl<'a> TaskState<'a> {
                     .get_mut_session(vhandle)
                     .ok_or(TaskError::HandleNotFound("vtpm:", vhandle))?;
                 session.context = new_context;
-                Ok(Some(Auth::Session(vhandle)))
+                Ok(Some(TaskAuth::Session(vhandle)))
             }
             Err(e) => {
                 let _ = self.remove_session(device, vhandle);
@@ -657,8 +657,8 @@ impl<'a> TaskState<'a> {
         name_alg: TpmAlgId,
         empty_auth: bool,
         auth_args: &AuthArgs,
-    ) -> Result<(Vec<Auth>, Option<Auth>), TaskError> {
-        let mut policy_session_auth: Option<Auth> = None;
+    ) -> Result<(Vec<TaskAuth>, Option<TaskAuth>), TaskError> {
+        let mut policy_session_auth: Option<TaskAuth> = None;
         let all_auths = auth_args.auths(empty_auth);
         let (cmd_auths, policy_auths) = if empty_auth {
             (Vec::new(), all_auths.as_ref())
@@ -797,7 +797,7 @@ impl<'a> TaskState<'a> {
         device: &mut Device,
         command: &C,
         handles: &[u32],
-        auth_list: &[Auth],
+        auth_list: &[TaskAuth],
     ) -> Result<Vec<TpmsAuthCommand>, TaskError> {
         let mut built_auths = Vec::new();
         let params = write_object(command).map_err(|_| TaskError::MalformedData)?;
@@ -806,7 +806,7 @@ impl<'a> TaskState<'a> {
         let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if let Auth::Session(vhandle) = auth {
+            if let TaskAuth::Session(vhandle) = auth {
                 if let Some(session) = self.get_session(*vhandle) {
                     if session.attributes.contains(TpmaSession::DECRYPT) {
                         nonce_decrypt = Some(session.nonce_tpm);
@@ -824,7 +824,7 @@ impl<'a> TaskState<'a> {
         for (i, auth) in auth_list.iter().enumerate() {
             let handle_param = handles.get(i).ok_or(TaskError::TrailingAuthorizations)?;
 
-            let Auth::Session(vhandle) = auth else {
+            let TaskAuth::Session(vhandle) = auth else {
                 return Err(TaskError::InvalidAuth(
                     "build_auth_area received non-session auth".to_string(),
                 ));
@@ -884,15 +884,15 @@ impl<'a> TaskState<'a> {
         device: &mut Device,
         command: &C,
         handles: &[u32],
-        auth_list: &[Auth],
+        auth_list: &[TaskAuth],
     ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
-        let mut effective_auth_list: Vec<Auth> = Vec::with_capacity(1);
+        let mut effective_auth_list: Vec<TaskAuth> = Vec::with_capacity(1);
         let mut virtual_handles: Vec<u32> = Vec::new();
         let mut physical_handles: Vec<TpmHandle> = Vec::new();
 
         if let Some(auth) = auth_list.first() {
             match auth {
-                Auth::Password(password_vec) => {
+                TaskAuth::Password(password_vec) => {
                     let (resp, nonce_caller) = TaskState::start_session(
                         device,
                         TpmSe::Hmac,
@@ -905,12 +905,12 @@ impl<'a> TaskState<'a> {
 
                     virtual_handles.push(vhandle);
                     physical_handles.push(resp.session_handle);
-                    effective_auth_list.push(Auth::Session(vhandle));
+                    effective_auth_list.push(TaskAuth::Session(vhandle));
                 }
-                Auth::Session(_) => {
+                TaskAuth::Session(_) => {
                     effective_auth_list.push(auth.clone());
                 }
-                Auth::Policy(_) => {
+                TaskAuth::Policy(_) => {
                     return Err(TaskError::InvalidAuth(
                         "policy auth not allowed as command auth".to_string(),
                     ));
@@ -940,7 +940,7 @@ impl<'a> TaskState<'a> {
                 spinner.finish_and_clear();
                 if rc.base() == TpmRcBase::PolicyFail {
                     for auth in auth_list {
-                        if let Auth::Session(vhandle) = auth {
+                        if let TaskAuth::Session(vhandle) = auth {
                             log::debug!("vtpm:{vhandle:08x} is stale");
                             self.remove_session(device, *vhandle)?;
                         }
@@ -956,7 +956,7 @@ impl<'a> TaskState<'a> {
 
         let mut used_auth_list = HashSet::new();
         for auth in &effective_auth_list {
-            if let Auth::Session(handle) = auth {
+            if let TaskAuth::Session(handle) = auth {
                 used_auth_list.insert(*handle);
             }
         }
@@ -1000,7 +1000,7 @@ impl<'a> TaskState<'a> {
         device: &mut Device,
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
-        auth_list: &[Auth],
+        auth_list: &[TaskAuth],
     ) -> Result<(), TaskError> {
         let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
