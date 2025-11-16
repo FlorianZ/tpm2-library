@@ -399,7 +399,14 @@ impl<'a> VtpmCache<'a> {
                         self.contexts.insert(vhandle, key);
                     }
                     Err(VtpmError::StaleHandle) => {
-                        self.remove(vhandle)?;
+                        log::debug!("removing stale vtpm file: {}", path.display());
+                        if let Err(e) = fs::remove_file(&path) {
+                            log::warn!(
+                                "failed to remove stale vtpm file {}: {}",
+                                path.display(),
+                                e
+                            );
+                        }
                     }
                     Err(e) => {
                         log::warn!("{}: {}", path.display(), e);
