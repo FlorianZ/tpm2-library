@@ -20,19 +20,10 @@ use tpm2_policy_language::{Error as PolicyLanguageError, TpmHandleClass, TpmHand
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmRcBase, TpmsContext, TpmtPublic},
+    data::{Tpm2bName, Tpm2bPublic, TpmAlgId, TpmHt, TpmRc, TpmsContext, TpmtPublic},
     TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
 use tpm2_tpmkey::Error as TpmKeyError;
-
-/// Outcome of refreshing a context against the TPM.
-#[derive(Debug)]
-pub enum RefreshAction {
-    /// The context is still valid.
-    Keep,
-    /// The context is no longer valid.
-    Stale,
-}
 
 #[derive(Debug, Clone)]
 pub struct VtpmKey {
@@ -99,25 +90,6 @@ impl VtpmKey {
             }
         }
         Ok(())
-    }
-
-    /// Refreshes a context.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::vtpm::VtpmError::Device) when the TPM
-    /// transmission fails.
-    pub fn refresh(&mut self, device: &mut Device) -> Result<RefreshAction, VtpmError> {
-        match device.load_context(self.context.clone()) {
-            Ok(handle) => match device.flush_context(handle) {
-                Ok(()) => Ok(RefreshAction::Keep),
-                Err(e) => Err(e.into()),
-            },
-            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                Ok(RefreshAction::Stale)
-            }
-            Err(e) => Err(e.into()),
-        }
     }
 }
 

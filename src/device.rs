@@ -78,6 +78,15 @@ impl From<TpmRc> for DeviceError {
     }
 }
 
+/// Outcome of refreshing a context against the TPM.
+#[derive(Debug)]
+pub enum RefreshAction {
+    /// The context is still valid.
+    Keep,
+    /// The context is no longer valid.
+    Stale,
+}
+
 /// Executes a closure with a mutable reference to a `Device`.
 ///
 /// This helper function centralizes the boilerplate for safely acquiring a
@@ -287,8 +296,8 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// This function will return an error if the underlying `transmit` call fails
-    /// or if the TPM returns a response of an unexpected type.
+    /// This function will return an error when the underlying `transmit` call
+    /// fails or when the TPM returns a response of an unexpected type.
     pub fn get_capability<T, F, N>(
         &mut self,
         cap: TpmCap,
@@ -342,7 +351,8 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if the `get_capability_page` call to the TPM device fails.
+    /// Returns a `DeviceError` when the `get_capability_page` call to the TPM
+    /// device fails.
     pub fn fetch_handles(&mut self, class: u32) -> Result<Vec<TpmHandleRef>, DeviceError> {
         self.get_capability(
             TpmCap::Handles,
@@ -362,12 +372,13 @@ impl Device {
         })
     }
 
-    /// Fetches and returns one page of capabilities of a certain type from the TPM.
+    /// Fetches and returns one page of capabilities of a certain type from the
+    /// TPM.
     ///
     /// # Errors
     ///
-    /// This function will return an error if the underlying `transmit` call fails
-    /// or if the TPM returns a response of an unexpected type.
+    /// This function will return an error when the underlying `transmit` call
+    /// fails or when the TPM returns a response of an unexpected type.
     pub fn get_capability_page(
         &mut self,
         cap: TpmCap,
@@ -396,8 +407,8 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if the capability or property is not found, or
-    /// if the `get_capability` call fails.
+    /// Returns a `DeviceError` when the capability or property is not found,
+    /// or when the `get_capability` call fails.
     pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<u32, DeviceError> {
         let (_, cap_data) = self.get_capability_page(TpmCap::TpmProperties, property as u32, 1)?;
 
@@ -416,8 +427,8 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if the underlying `TPM2_ReadPublic` command
-    /// execution fails or if the TPM returns a response of an unexpected type.
+    /// Returns a `DeviceError` when the underlying `TPM2_ReadPublic` command
+    /// execution fails or when the TPM returns a response of an unexpected type.
     pub fn read_public(
         &mut self,
         handle: TpmHandle,
@@ -447,7 +458,8 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if fetching handles or reading public areas fails.
+    /// Returns a `DeviceError` when fetching handles or reading public areas
+    /// fails.
     pub fn find_persistent(
         &mut self,
         target: &TpmtPublic,
@@ -469,7 +481,8 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if fetching handles or reading public areas fails.
+    /// Returns a `DeviceError` when fetching handles or reading public areas
+    /// fails.
     pub fn find_persistent_by_name(
         &mut self,
         target_name: &Tpm2bName,
@@ -498,8 +511,8 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if the underlying `TPM2_ContextSave` command
-    /// execution fails or if the TPM returns a response of an unexpected type.
+    /// Returns a `DeviceError` when the underlying `TPM2_ContextSave` command
+    /// execution fails or when the TPM returns a response of an unexpected type.
     pub fn save_context(&mut self, save_handle: TpmHandle) -> Result<TpmsContext, DeviceError> {
         let cmd = TpmContextSaveCommand { save_handle };
         let sessions = vec![];
@@ -514,7 +527,7 @@ impl Device {
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if the `TPM2_ContextLoad` command fails.
+    /// Returns a `DeviceError` when the `TPM2_ContextLoad` command fails.
     pub fn load_context(&mut self, context: TpmsContext) -> Result<TpmHandle, DeviceError> {
         let cmd = TpmContextLoadCommand { context };
         let sessions = vec![];
@@ -525,11 +538,12 @@ impl Device {
         Ok(resp_inner.loaded_handle)
     }
 
-    /// Flushes a transient object or session from the TPM and removes it from the cache.
+    /// Flushes a transient object or session from the TPM and removes it from the
+    /// cache.
     ///
     /// # Errors
     ///
-    /// Returns a `DeviceError` if the underlying `TPM2_FlushContext` command
+    /// Returns a `DeviceError` when the underlying `TPM2_FlushContext` command
     /// execution fails.
     pub fn flush_context(&mut self, handle: TpmHandle) -> Result<(), DeviceError> {
         self.name_cache.remove(&handle.0);
@@ -583,5 +597,29 @@ impl Device {
         resp.EvictControl()
             .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
         Ok(())
+    }
+
+    /// Refreshes a key context.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ResponseMismatch`](crate::DeviceError::ResponseMismatch) when
+    /// the TPM returns an unexpected response.
+    /// Returns [`TpmRc`](crate::DeviceError::TpmRc) when the TPM encounters
+    /// a hardware error.
+    /// Returns [`Protocol`](crate::DeviceError::Protocol) when a TPM data
+    /// structure is malformed.
+    /// Returns [`Io`](crate::DeviceError::Io) when an I/O failure occurs.
+    pub fn refresh_key(&mut self, context: TpmsContext) -> Result<RefreshAction, DeviceError> {
+        match self.load_context(context) {
+            Ok(handle) => match self.flush_context(handle) {
+                Ok(()) => Ok(RefreshAction::Keep),
+                Err(e) => Err(e),
+            },
+            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
+                Ok(RefreshAction::Stale)
+            }
+            Err(e) => Err(e),
+        }
     }
 }

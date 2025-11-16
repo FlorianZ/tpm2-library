@@ -5,8 +5,8 @@
 use crate::{
     alg::AlgError,
     command::AuthArgs,
-    device::{Device, DeviceError, TpmCommandObject},
-    vtpm::{RefreshAction, VtpmCache, VtpmError},
+    device::{Device, DeviceError, RefreshAction, TpmCommandObject},
+    vtpm::{VtpmCache, VtpmError},
     write_object,
 };
 use hex;
