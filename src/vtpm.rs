@@ -35,7 +35,7 @@ pub struct VtpmKey {
 impl VtpmKey {
     pub(super) fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
         let content = fs::read(path)?;
-        let (key, remainder) = Self::unmarshal(&content).map_err(VtpmError::Protocol)?;
+        let (key, remainder) = Self::unmarshal(&content).map_err(VtpmError::Unmarshal)?;
         if !remainder.is_empty() {
             log::warn!("trailing data");
         }
@@ -68,7 +68,7 @@ impl VtpmKey {
     /// Returns [`Tpm`](crate::vtpm::VtpmError::Tpm) when writing the object
     /// fails.
     pub fn save(&self, path: &Path) -> Result<(), VtpmError> {
-        let bytes = write_object(self).map_err(VtpmError::Protocol)?;
+        let bytes = write_object(self).map_err(VtpmError::Marshal)?;
         fs::write(path, bytes)?;
         Ok(())
     }
@@ -168,8 +168,10 @@ pub enum VtpmError {
     IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
-    #[error("protocol: {0}")]
-    Protocol(#[from] TpmProtocolError),
+    #[error("marshal: {0}")]
+    Marshal(tpm2_protocol::TpmProtocolError),
+    #[error("unmarshal: {0}")]
+    Unmarshal(tpm2_protocol::TpmProtocolError),
 }
 
 pub struct VtpmCache<'a> {
@@ -287,7 +289,7 @@ impl<'a> VtpmCache<'a> {
                 vtp_chain.push_front(TpmHandleRef::new(TpmHandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
-                let parent_key_bytes = write_object(&key.parent).map_err(VtpmError::Protocol)?;
+                let parent_key_bytes = write_object(&key.parent).map_err(VtpmError::Marshal)?;
                 match persistent_keys.get(&parent_key_bytes) {
                     Some(phandle) => {
                         physical_primary = Some(TpmHandleRef::new(TpmHandleClass::Tpm, phandle.0));
@@ -399,7 +401,7 @@ impl<'a> VtpmCache<'a> {
     fn remove_subtree(&mut self, first_public: &TpmtPublic) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
         for (vhandle, key) in self.key_iter() {
-            let parent_key_bytes = write_object(&key.parent).map_err(VtpmError::Protocol)?;
+            let parent_key_bytes = write_object(&key.parent).map_err(VtpmError::Marshal)?;
             parent_to_children
                 .entry(parent_key_bytes)
                 .or_default()
@@ -411,7 +413,7 @@ impl<'a> VtpmCache<'a> {
         let mut deleted_children = Vec::new();
 
         while let Some(parent_public) = ancestor_list.pop_front() {
-            let parent_key_bytes = write_object(&parent_public).map_err(VtpmError::Protocol)?;
+            let parent_key_bytes = write_object(&parent_public).map_err(VtpmError::Marshal)?;
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_vhandle, child_public) in children_to_process.clone() {
                     if let Some(context) = self.contexts.remove(&child_vhandle) {
