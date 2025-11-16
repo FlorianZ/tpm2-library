@@ -44,7 +44,7 @@ type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
 /// Manages the state of an active authorization session.
 #[derive(Debug, Clone)]
-pub struct Session {
+pub struct TaskSession {
     pub context: TpmsContext,
     pub nonce_tpm: Tpm2bNonce,
     pub attributes: TpmaSession,
@@ -52,7 +52,7 @@ pub struct Session {
     pub auth_hash: TpmAlgId,
 }
 
-impl Session {
+impl TaskSession {
     /// Creates a new session from a `StartAuthSession` response.
     ///
     /// # Errors
@@ -228,7 +228,7 @@ pub struct TaskState<'a> {
     pub writer: &'a mut dyn Write,
     pub is_tty: bool,
     /// Holds all temporary sessions, indexed by their vhandle.
-    pub sessions: HashMap<u32, Session>,
+    pub sessions: HashMap<u32, TaskSession>,
     /// Holds all temporary physical handles (loaded keys + sessions) to be
     /// flushed on drop.
     pub physical_handles_to_flush: HashMap<u32, TpmHandle>,
@@ -254,7 +254,7 @@ impl<'a> TaskState<'a> {
     }
 
     /// Adds a session to the task's temporary state.
-    pub fn add_session(&mut self, session: Session) -> u32 {
+    pub fn add_session(&mut self, session: TaskSession) -> u32 {
         let vhandle = session.handle();
         self.sessions.insert(vhandle, session);
         vhandle
@@ -262,12 +262,12 @@ impl<'a> TaskState<'a> {
 
     /// Gets an immutable reference to a session.
     #[must_use]
-    pub fn get_session(&self, vhandle: u32) -> Option<&Session> {
+    pub fn get_session(&self, vhandle: u32) -> Option<&TaskSession> {
         self.sessions.get(&vhandle)
     }
 
     /// Gets a mutable reference to a session.
-    pub fn get_mut_session(&mut self, vhandle: u32) -> Option<&mut Session> {
+    pub fn get_mut_session(&mut self, vhandle: u32) -> Option<&mut TaskSession> {
         self.sessions.get_mut(&vhandle)
     }
 
@@ -580,7 +580,7 @@ impl<'a> TaskState<'a> {
             (TpmRh::Null as u32).into(),
         )?;
 
-        let temp_session = Session::new(key_name_alg, nonce_caller, &resp, &[])?;
+        let temp_session = TaskSession::new(key_name_alg, nonce_caller, &resp, &[])?;
         let vhandle = self.add_session(temp_session);
         let policy_phandle = resp.session_handle;
 
@@ -900,7 +900,7 @@ impl<'a> TaskState<'a> {
                         (TpmRh::Null as u32).into(),
                     )?;
                     let session =
-                        Session::new(TpmAlgId::Sha256, nonce_caller, &resp, password_vec)?;
+                        TaskSession::new(TpmAlgId::Sha256, nonce_caller, &resp, password_vec)?;
                     let vhandle = self.add_session(session);
 
                     virtual_handles.push(vhandle);
@@ -1074,7 +1074,7 @@ impl<'a> TaskState<'a> {
 #[allow(clippy::too_many_arguments)]
 fn create_auth(
     device: &mut Device,
-    session: &Session,
+    session: &TaskSession,
     nonce_caller: &Tpm2bNonce,
     auth_value: &[u8],
     command_code: TpmCc,
