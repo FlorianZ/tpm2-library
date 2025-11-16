@@ -230,10 +230,9 @@ impl Convert {
 
         let mut rng = rand::thread_rng();
 
-        let (parent_public, _) = device.read_public(parent_handle).map_err(|e| {
-            let context = format!("tpm:{:08x}", parent_handle.0);
-            crate::command::CommandError::from_device_error(e, context)
-        })?;
+        let (parent_public, _) = device
+            .read_public(parent_handle)
+            .map_err(CommandError::from)?;
 
         let (public, sensitive_blob) = {
             let symmetric = TpmtSymDefObject::default();

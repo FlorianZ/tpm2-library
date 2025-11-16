@@ -202,24 +202,16 @@ impl Create {
             let handles = [parent_phys_handle.0];
             let (resp, _) = task_state
                 .execute(device, &create_cmd, &handles, &auths)
-                .map_err(|e| {
+                .map_err(|err| {
                     if let Some(Auth::Session(vhandle)) = policy_session_auth {
                         if let Err(e) = task_state.remove_session(device, vhandle) {
                             log::error!("vtpm:{vhandle:08x}: {e}");
                         }
                     }
-                    if let TaskError::Device(dev_err) = e {
-                        let context = if let Ok(key) = task_state
-                            .cache
-                            .find_by_phandle(device, parent_phys_handle.0)
-                        {
-                            format!("vtpm:{:08x}", key.context.saved_handle.0)
-                        } else {
-                            format!("tpm:{:08x}", parent_phys_handle.0)
-                        };
-                        return crate::command::CommandError::from_device_error(dev_err, context);
+                    if let TaskError::Device(device_err) = err {
+                        return CommandError::from(device_err);
                     }
-                    e.into()
+                    err.into()
                 })?;
 
             if let Some(Auth::Session(vhandle)) = policy_session_auth {
