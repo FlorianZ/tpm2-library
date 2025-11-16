@@ -4,10 +4,10 @@
 
 ## Overview
 
-* Git: https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-tpmkey.git
+* Git: https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-vtpm.git
 * Contributions: patches can be submitted to `tpm-protocol@lists.linux.dev`.
 
 ## Licensing
 
-The `tpm2-tpmkey` library is licensed under the permissive `MIT OR Apache-2.0`
+The `tpm2-vtpm` library is licensed under the permissive `MIT OR Apache-2.0`
 license to allow for wide adoption.

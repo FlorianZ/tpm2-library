@@ -1,6 +1,6 @@
 [package]
 name = "tpm2-vtpm"
-description = "TPM 2.0 key ASN.1 file reader and writer"
+description = "TPM 2.0 virtual TPM context cache"
 version = "0.1.1"
 license = "MIT OR Apache-2.0"
 homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-vtpm.git/about/?h=main"
