@@ -190,6 +190,8 @@ impl Default for Auth {
 pub enum TaskError {
     #[error("capacity exceeded")]
     CapacityExceeded,
+    #[error("handle already tracked: {0}")]
+    HandleAlreadyTracked(TpmHandle),
     #[error("handle not found: {0}{1:08x}")]
     HandleNotFound(&'static str, u32),
     #[error("handle name not found: {}", hex::encode(.0.as_ref()))]
@@ -289,11 +291,12 @@ impl<'a> TaskState<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`AlreadyTracked`](crate::task::TaskError::Vtpm) if the handle
-    /// is already being tracked.
+    /// Returns
+    /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
+    /// if the handle is already being tracked.
     pub fn track_handle(&mut self, handle: TpmHandle) -> Result<(), TaskError> {
         if self.physical_handles_to_flush.contains_key(&handle.0) {
-            return Err(TaskError::Vtpm(VtpmError::AlreadyTracked(handle)));
+            return Err(TaskError::HandleAlreadyTracked(handle));
         }
         self.physical_handles_to_flush.insert(handle.0, handle);
         Ok(())

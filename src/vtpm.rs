@@ -152,8 +152,6 @@ impl TpmUnmarshal for VtpmKey {
 }
 #[derive(Debug, Error)]
 pub enum VtpmError {
-    #[error("already tracked: {0}")]
-    AlreadyTracked(TpmHandle),
     #[error("capacity exceeded")]
     CapacityExceeded,
     #[error("handle not found: {0}{1:08x}")]
