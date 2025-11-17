@@ -41,14 +41,6 @@ pub trait Task {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Display, EnumString, ValueEnum)]
-#[strum(serialize_all = "kebab-case")]
-pub enum LogFormat {
-    #[default]
-    Plain,
-    Pretty,
-}
-
 /// TPM 2.0 shell
 #[derive(Parser, Debug)]
 #[command(version, about, styles = STYLES)]
@@ -56,10 +48,6 @@ pub struct TopLevel {
     /// Device file
     #[arg(short = 'd', long, default_value = "/dev/tpmrm0")]
     pub device: PathBuf,
-
-    /// Either 'plain' or 'pretty'
-    #[arg(long, value_enum, default_value_t = LogFormat::default())]
-    pub log_format: LogFormat,
 
     #[command(subcommand)]
     pub command: Command,

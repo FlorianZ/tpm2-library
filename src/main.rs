@@ -11,7 +11,6 @@ pub mod command;
 pub mod device;
 pub mod io;
 pub mod pcr;
-pub mod print;
 pub mod task;
 pub mod template;
 
@@ -130,7 +129,7 @@ fn execute_cli<'a>(cli: &TopLevel, cache: &'a mut VtpmCache<'a>) -> Result<(), C
     let shared_device = if cli.command.is_local() {
         None
     } else {
-        let device = Device::open(&cli.device, cli.log_format)?;
+        let device = Device::open(&cli.device)?;
         Some(Rc::new(RefCell::new(device)))
     };
 

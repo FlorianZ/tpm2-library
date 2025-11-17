@@ -2,7 +2,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::LogFormat, print::TpmPrint, TEARDOWN};
+use crate::TEARDOWN;
 use nix::{
     fcntl,
     poll::{poll, PollFd, PollFlags},
@@ -39,8 +39,8 @@ use tpm2_protocol::{
 use tracing::trace;
 
 /// A type-erased object safe TPM command object
-pub trait TpmCommandObject: TpmFrame + TpmPrint {}
-impl<T> TpmCommandObject for T where T: TpmFrame + TpmPrint {}
+pub trait TpmCommandObject: TpmFrame {}
+impl<T> TpmCommandObject for T where T: TpmFrame {}
 
 #[derive(Debug, Error)]
 pub enum DeviceError {
@@ -111,7 +111,6 @@ where
 #[derive(Debug)]
 pub struct Device {
     file: File,
-    log_format: LogFormat,
     name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
 }
 
@@ -122,7 +121,7 @@ impl Device {
     ///
     /// Returns an error if the device file cannot be opened, or if `fcntl`
     /// fails to set the `O_NONBLOCK` flag.
-    pub fn open(path: &Path, log_format: LogFormat) -> Result<Self, DeviceError> {
+    pub fn open(path: &Path) -> Result<Self, DeviceError> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -137,7 +136,6 @@ impl Device {
 
         Ok(Self {
             file,
-            log_format,
             name_cache: HashMap::new(),
         })
     }
@@ -195,7 +193,7 @@ impl Device {
         command: &C,
         sessions: &[TpmsAuthCommand],
     ) -> Result<(TpmResponse, TpmAuthResponses), DeviceError> {
-        let command_vec = self.build_command_buffer(command, sessions)?;
+        let command_vec = Device::build_command_buffer(command, sessions)?;
         let cc = command.cc();
 
         self.file.write_all(&command_vec)?;
@@ -241,27 +239,11 @@ impl Device {
         }?;
 
         let result = tpm_unmarshal_response(cc, &resp_buf);
-        if self.log_format == LogFormat::Pretty {
-            let mut buf = Vec::new();
-            match &result {
-                Ok(Ok((response, _))) => {
-                    response.print(&mut buf, "Response", 1)?;
-                    for line in String::from_utf8_lossy(&buf).lines() {
-                        trace!("{line}");
-                    }
-                }
-                Ok(Err(_)) | Err(_) => {
-                    trace!("Response: {}", hex::encode(&resp_buf));
-                }
-            }
-        } else {
-            trace!("Response: {}", hex::encode(&resp_buf));
-        }
+        trace!("{} R: {}", cc, hex::encode(&resp_buf));
         Ok(result??)
     }
 
     fn build_command_buffer<C: TpmCommandObject>(
-        &self,
         command: &C,
         sessions: &[TpmsAuthCommand],
     ) -> Result<Vec<u8>, DeviceError> {
@@ -279,16 +261,7 @@ impl Device {
         };
         buf.truncate(len);
 
-        if self.log_format == LogFormat::Pretty {
-            let mut print_buf = Vec::new();
-            writeln!(&mut print_buf, "{cc}")?;
-            command.print(&mut print_buf, "Command", 1)?;
-            for line in String::from_utf8_lossy(&print_buf).lines() {
-                trace!("{line}");
-            }
-        } else {
-            trace!("Command: {}", hex::encode(&buf));
-        }
+        trace!("{} C: {}", cc, hex::encode(&buf));
         Ok(buf)
     }
 
