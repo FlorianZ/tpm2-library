@@ -873,14 +873,6 @@ impl<'a> TaskState<'a> {
             }
             Err(DeviceError::TpmRc(rc)) => {
                 spinner.finish_and_clear();
-                if rc.base() == TpmRcBase::PolicyFail {
-                    for auth in auth_list {
-                        if let TaskAuth::Session(vhandle) = auth {
-                            log::debug!("vtpm:{vhandle:08x} is stale");
-                            self.remove_session(device, *vhandle)?;
-                        }
-                    }
-                }
                 return Err(TaskError::Device(DeviceError::TpmRc(rc)));
             }
             Err(err) => {
