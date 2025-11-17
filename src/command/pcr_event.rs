@@ -4,7 +4,6 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
-    device::with_device,
     io::read_file_input,
     parse_hex_u32,
     pcr::pcr_get_bank_list,
@@ -12,6 +11,7 @@ use crate::{
 };
 use clap::Args;
 use tpm2_crypto::Hash;
+use tpm2_device::with_device;
 use tpm2_protocol::{
     data::{Tpm2bEvent, TpmCc, TpmuHa},
     frame::TpmPcrEventCommand,

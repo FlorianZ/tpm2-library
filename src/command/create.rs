@@ -8,7 +8,6 @@ use crate::{
     alg::{Alg, AlgInfo},
     cli::Task,
     command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
-    device::{with_device, TpmDevice},
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
     task::{is_empty_auth, TaskAuth, TaskError, TaskState},
@@ -19,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 use clap::Args;
+use tpm2_device::{with_device, TpmDevice};
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{

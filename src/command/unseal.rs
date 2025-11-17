@@ -4,10 +4,10 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
-    device::with_device,
     task::{is_empty_auth, TaskAuth, TaskState},
 };
 use clap::Args;
+use tpm2_device::with_device;
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand};
 

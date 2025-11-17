@@ -4,13 +4,12 @@
 
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
-use crate::{
-    device::{TpmDevice, TpmDeviceError},
-    task::{TaskError, TaskState},
-};
+use crate::task::{TaskError, TaskState};
 use std::collections::HashMap;
 use thiserror::Error;
+
 use tpm2_crypto::{Error as CryptoError, Hash};
+use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     data::{
@@ -192,7 +191,7 @@ pub fn pcr_composite_digest(pcrs: &[Pcr], alg: TpmAlgId) -> Result<Vec<u8>, PcrE
 /// fails.
 pub fn resolve_pcr_digests(
     job: &mut TaskState,
-    device: &mut crate::device::TpmDevice,
+    device: &mut TpmDevice,
     ast: &mut TpmPolicyExpression,
     session_hash_alg: TpmAlgId,
     banks: &[PcrBank],

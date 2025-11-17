@@ -1,14 +1,10 @@
 //! SPDX-License-Identifier: GPL-3-0-or-later
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
-use crate::{
-    cli::Task,
-    command::CommandError,
-    device::{with_device, TpmDevice, TpmDeviceError},
-    task::TaskState,
-};
+use crate::{cli::Task, command::CommandError, task::TaskState};
 use clap::Args;
 use tpm2_crypto::{EccCurve, Hash};
+use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     constant::MAX_HANDLES,
     data::{

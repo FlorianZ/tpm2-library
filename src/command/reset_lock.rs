@@ -5,10 +5,10 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
-    device::with_device,
     task::TaskState,
 };
 use clap::Args;
+use tpm2_device::with_device;
 use tpm2_protocol::{
     data::{TpmCc, TpmRh},
     frame::TpmDictionaryAttackLockResetCommand,

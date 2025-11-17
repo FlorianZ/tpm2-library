@@ -2,15 +2,8 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    alg::AlgError,
-    command::AuthArgs,
-    device::{TpmCommandObject, TpmDevice, TpmDeviceError},
-    write_object,
-};
-use hex;
-use indicatif::ProgressBar;
-use rand::{thread_rng, RngCore};
+use crate::{alg::AlgError, command::AuthArgs, write_object};
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -19,8 +12,13 @@ use std::{
     rc::Rc,
     time::Duration,
 };
+
+use hex;
+use indicatif::ProgressBar;
+use rand::{thread_rng, RngCore};
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, Error as CryptoError, Hash};
+use tpm2_device::{TpmCommandObject, TpmDevice, TpmDeviceError};
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     basic::TpmBuffer,

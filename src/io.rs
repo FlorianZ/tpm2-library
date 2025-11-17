@@ -5,13 +5,15 @@
 use crate::{
     alg::AlgError,
     command::{CommandError, OutputEncoding},
-    device::TpmDevice,
 };
+
 use std::{
     fs,
     io::{self, Read, Write},
     path::Path,
 };
+
+use tpm2_device::TpmDevice;
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,

@@ -8,7 +8,6 @@
 pub mod alg;
 pub mod cli;
 pub mod command;
-pub mod device;
 pub mod io;
 pub mod pcr;
 pub mod task;
@@ -17,12 +16,14 @@ pub mod template;
 use crate::{
     cli::{Task, TopLevel},
     command::CommandError,
-    device::TpmDevice,
     task::TaskState,
 };
+
+use std::{cell::RefCell, fs, io::IsTerminal, process, rc::Rc, sync::atomic::Ordering};
+
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
-use std::{cell::RefCell, fs, io::IsTerminal, process, rc::Rc, sync::atomic::Ordering};
+use tpm2_device::TpmDevice;
 use tpm2_vtpm::VtpmCache;
 use tracing_subscriber::EnvFilter;
 

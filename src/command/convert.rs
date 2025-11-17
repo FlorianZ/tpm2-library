@@ -5,7 +5,6 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
-    device::{with_device, TpmDevice},
     io::{read_file_input, write_key_data},
     task::{is_empty_auth, TaskAuth, TaskState},
     write_object,
@@ -17,6 +16,7 @@ use tpm2_crypto::{
     tpm_make_name, EccPublicKey, Error as CryptoError, Hash, PublicKey, RsaPublicKey,
     KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
+use tpm2_device::{with_device, TpmDevice};
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,

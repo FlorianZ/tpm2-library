@@ -6,7 +6,6 @@ use crate::{
     alg::{Alg, AlgInfo},
     cli::Task,
     command::{print_table, AuthArgs, CommandError},
-    device::{self, TpmDevice, TpmDeviceError},
     task::{TaskAuth, TaskState},
 };
 use clap::Args;
@@ -15,6 +14,7 @@ use pem;
 use strum::Display;
 use tabled::Tabled;
 use tpm2_crypto::{EccCurve, Hash};
+use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmHandleRef;
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
@@ -83,7 +83,7 @@ impl Memory {
         handle_str: String,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
-        device::with_device(session.device.clone(), |device| {
+        with_device(session.device.clone(), |device| {
             if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
                 Self::fetch_certificate(session, device, writer, handle_val, auth_args)
             } else {
@@ -106,7 +106,7 @@ impl Memory {
         writer: &mut dyn std::io::Write,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
-        device::with_device(session.device.clone(), |device| {
+        with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
             Self::fetch_rows(
                 session,

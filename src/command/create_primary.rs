@@ -6,11 +6,11 @@ use crate::{
     alg::Alg,
     cli::Task,
     command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
-    device::with_device,
     task::{is_empty_auth, TaskState},
     template::build_public,
 };
 use clap::Args;
+use tpm2_device::with_device;
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc,

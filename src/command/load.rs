@@ -6,11 +6,11 @@ use crate::{
     alg::AlgError,
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
-    device::{with_device, TpmDevice},
     io::read_file_input,
     task::{is_empty_auth, TaskAuth, TaskState},
 };
 use clap::Args;
+use tpm2_device::{with_device, TpmDevice};
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     data::{Tpm2bName, Tpm2bPublic, TpmCc},

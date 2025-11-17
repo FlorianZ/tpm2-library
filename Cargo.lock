@@ -993,6 +993,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpm2-device"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbde867d22f122b8d33180fd6aadf21eef3ad88fcb042e1c6c327eb1f3e744ec"
+dependencies = [
+ "hex",
+ "log",
+ "nix 0.29.0",
+ "thiserror",
+ "tpm2-crypto",
+ "tpm2-policy-language",
+ "tpm2-protocol",
+ "tracing",
+]
+
+[[package]]
 name = "tpm2-policy-language"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1055,6 +1071,7 @@ dependencies = [
  "tabled",
  "thiserror",
  "tpm2-crypto",
+ "tpm2-device",
  "tpm2-policy-language",
  "tpm2-protocol",
  "tpm2-tpmkey",

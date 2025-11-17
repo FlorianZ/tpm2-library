@@ -36,7 +36,6 @@ pub use unseal::*;
 
 use crate::{
     alg::{AlgError, AlgInfo},
-    device::TpmDeviceError,
     pcr::PcrError,
     task::TaskError,
 };
@@ -50,6 +49,7 @@ use tabled::{
 };
 use thiserror::Error;
 use tpm2_crypto::Error as CryptoError;
+use tpm2_device::TpmDeviceError;
 use tpm2_protocol::{
     data::{TpmCc, TpmRcBase},
     TpmProtocolError,

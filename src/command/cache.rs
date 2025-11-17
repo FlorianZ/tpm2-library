@@ -5,11 +5,11 @@
 use crate::{
     cli::Task,
     command::{print_table, CommandError},
-    device::with_device,
     task::TaskState,
 };
 use clap::Args;
 use tabled::Tabled;
+use tpm2_device::with_device;
 
 #[derive(Tabled)]
 struct CacheRow {
