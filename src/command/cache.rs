@@ -10,12 +10,13 @@ use crate::{
 use clap::Args;
 use tabled::Tabled;
 use tpm2_device::with_device;
+use tpm2_protocol::data::TpmRh;
 
 #[derive(Tabled)]
 struct CacheRow {
     #[tabled(rename = "HANDLE")]
     handle: String,
-    #[tabled(rename = "TYPE")]
+    #[tabled(rename = "CLASS")]
     class: String,
     #[tabled(rename = "DETAILS")]
     details: String,
@@ -79,10 +80,19 @@ impl Task for Cache {
         let mut rows: Vec<CacheRow> = task_state
             .cache
             .key_iter()
-            .map(|(_, key)| CacheRow {
-                handle: format!("{:08x}", key.handle.0),
-                class: "transient".to_string(),
-                details: crate::alg::alg_details(&key.public),
+            .map(|(_, key)| {
+                let hierarchy = match key.context.hierarchy {
+                    TpmRh::Owner => "owner",
+                    TpmRh::Platform => "platform",
+                    TpmRh::Endorsement => "endorsement",
+                    TpmRh::Null => "null",
+                    _ => "unknown",
+                };
+                CacheRow {
+                    handle: format!("{:08x}", key.handle.0),
+                    class: "transient".to_string(),
+                    details: format!("{}:{}", hierarchy, crate::alg::alg_details(&key.public)),
+                }
             })
             .collect();
         rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));

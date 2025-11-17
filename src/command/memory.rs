@@ -37,7 +37,7 @@ enum MemoryHandleType {
 struct MemoryRow {
     #[tabled(rename = "HANDLE")]
     handle: String,
-    #[tabled(rename = "TYPE")]
+    #[tabled(rename = "CLASS")]
     class: String,
     #[tabled(rename = "DETAILS")]
     details: String,
@@ -182,7 +182,10 @@ impl Memory {
                         if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
                             return Ok(None);
                         }
-                        return Ok(Some(Memory::fetch_alg_name(&cert_bytes)?));
+                        return Ok(Some(format!(
+                            "endorsement:{}",
+                            Memory::fetch_alg_name(&cert_bytes)?
+                        )));
                     }
                     Ok(None)
                 },
@@ -321,7 +324,18 @@ impl Memory {
         if let Some(handle_val) = handle.value() {
             let tpm_handle = TpmHandle(handle_val);
             let (public, _) = device.read_public(tpm_handle)?;
-            Ok(crate::alg::alg_details(&public))
+            let details = crate::alg::alg_details(&public);
+
+            if (handle_val & 0xFF00_0000) == (TpmHt::Persistent as u32) << 24 {
+                let hierarchy = if handle_val >= 0x8180_0000 {
+                    "platform"
+                } else {
+                    "owner"
+                };
+                Ok(format!("{hierarchy}:{details}"))
+            } else {
+                Ok(details)
+            }
         } else {
             Err(CommandError::PatternNotAllowed(handle.to_string()))
         }
