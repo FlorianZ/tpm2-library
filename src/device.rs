@@ -2,7 +2,6 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::TEARDOWN;
 use nix::{
     fcntl,
     poll::{poll, PollFd, PollFlags},
@@ -16,7 +15,6 @@ use std::{
     os::fd::{AsFd, AsRawFd},
     path::Path,
     rc::Rc,
-    sync::atomic::Ordering,
     time::Instant,
 };
 
@@ -110,10 +108,19 @@ where
     f(&mut device_guard)
 }
 
-#[derive(Debug)]
 pub struct Device {
     file: File,
     name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
+    interrupt_check: Box<dyn Fn() -> bool>,
+}
+
+impl std::fmt::Debug for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Device")
+            .field("file", &self.file)
+            .field("name_cache", &self.name_cache)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Device {
@@ -123,7 +130,7 @@ impl Device {
     ///
     /// Returns an error if the device file cannot be opened, or if `fcntl`
     /// fails to set the `O_NONBLOCK` flag.
-    pub fn open(path: &Path) -> Result<Self, DeviceError> {
+    pub fn open(path: &Path, interrupt_check: Box<dyn Fn() -> bool>) -> Result<Self, DeviceError> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -139,6 +146,7 @@ impl Device {
         Ok(Self {
             file,
             name_cache: HashMap::new(),
+            interrupt_check,
         })
     }
 
@@ -208,7 +216,7 @@ impl Device {
         let mut temp_buf = [0u8; 1024];
 
         let resp_buf = loop {
-            if TEARDOWN.load(Ordering::Relaxed) {
+            if (self.interrupt_check)() {
                 break Err(DeviceError::Interrupted);
             }
             if start_time.elapsed() > std::time::Duration::from_secs(120) {

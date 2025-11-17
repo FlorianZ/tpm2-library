@@ -129,7 +129,7 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
     let shared_device = if cli.command.is_local() {
         None
     } else {
-        let device = Device::open(&cli.device)?;
+        let device = Device::open(&cli.device, Box::new(|| TEARDOWN.load(Ordering::Relaxed)))?;
         Some(Rc::new(RefCell::new(device)))
     };
 
