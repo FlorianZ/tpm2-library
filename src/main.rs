@@ -108,7 +108,7 @@ fn main() {
         process::exit(1);
     }
 
-    let cache = match VtpmCache::new(&cache_dir) {
+    let mut cache = match VtpmCache::new(&cache_dir) {
         Ok(cache) => cache,
         Err(err) => {
             eprintln!("{err:#}");
@@ -116,7 +116,7 @@ fn main() {
         }
     };
 
-    if let Err(err) = execute_cli(&cli, cache) {
+    if let Err(err) = execute_cli(&cli, &mut cache) {
         eprintln!("{err:#}");
         process::exit(1);
     }
@@ -126,7 +126,7 @@ fn main() {
     }
 }
 
-fn execute_cli(cli: &TopLevel, cache: VtpmCache) -> Result<(), CommandError> {
+fn execute_cli<'a>(cli: &TopLevel, cache: &'a mut VtpmCache<'a>) -> Result<(), CommandError> {
     let shared_device = if cli.command.is_local() {
         None
     } else {
@@ -137,6 +137,6 @@ fn execute_cli(cli: &TopLevel, cache: VtpmCache) -> Result<(), CommandError> {
     let mut stdout = std::io::stdout();
     let is_tty = stdout.is_terminal();
 
-    let mut job = TaskState::new(shared_device, cache, &mut stdout, is_tty);
-    cli.command.run(&mut job)
+    let mut job = TaskState::new(shared_device, cache, is_tty);
+    cli.command.run(&mut job, &mut stdout)
 }

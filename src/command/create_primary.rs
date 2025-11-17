@@ -37,7 +37,11 @@ pub struct CreatePrimary {
 }
 
 impl Task for CreatePrimary {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
 
@@ -82,7 +86,7 @@ impl Task for CreatePrimary {
                 empty_auth,
                 &None,
             )?;
-            writeln!(task_state.writer, "vtpm:{vhandle:08x}")?;
+            writeln!(writer, "vtpm:{vhandle:08x}")?;
             Ok(())
         })
     }

@@ -15,7 +15,7 @@ use clap::{
     builder::styling::{Style, Styles},
     Parser, Subcommand, ValueEnum,
 };
-use std::path::PathBuf;
+use std::{io::Write, path::PathBuf};
 use strum::{Display, EnumString};
 use tpm2_protocol::data::TpmRh;
 
@@ -32,7 +32,7 @@ pub trait Task {
     /// # Errors
     ///
     /// Returns an error if the execution fails.
-    fn run(&self, job: &mut TaskState) -> Result<(), CommandError>;
+    fn run(&self, job: &mut TaskState, writer: &mut dyn Write) -> Result<(), CommandError>;
 
     /// Returns `true` if the command can be run without a TPM device.
     #[must_use]
@@ -103,8 +103,12 @@ impl Command {
 }
 
 impl Task for Command {
-    fn run(&self, job: &mut TaskState) -> Result<(), CommandError> {
-        self.as_task().run(job)
+    fn run(
+        &self,
+        job: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
+        self.as_task().run(job, writer)
     }
 
     fn is_local(&self) -> bool {

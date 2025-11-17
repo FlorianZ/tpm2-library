@@ -64,13 +64,17 @@ pub struct Create {
 }
 
 impl Task for Create {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         self.parent
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            self.create_object(task_state, device)
+            self.create_object(task_state, writer, device)
         })
     }
 }
@@ -145,6 +149,7 @@ impl Create {
     fn create_object(
         &self,
         task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
         device: &mut Device,
     ) -> Result<(), CommandError> {
         let parent_virt_handle = self
@@ -251,7 +256,7 @@ impl Create {
         };
 
         write_key_data(
-            &mut task_state.writer,
+            writer,
             &tpm_key,
             self.output_args.output.as_deref(),
             self.output_encoding_args.output_encoding,

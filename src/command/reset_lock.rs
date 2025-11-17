@@ -22,7 +22,11 @@ pub struct ResetLock {
 }
 
 impl Task for ResetLock {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        _writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand { lock_handle };

@@ -40,7 +40,11 @@ pub struct PcrEvent {
 }
 
 impl Task for PcrEvent {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
             let banks = pcr_get_bank_list(device)?;
             let handles = [self.pcr_index.0];
@@ -78,7 +82,7 @@ impl Task for PcrEvent {
                 })
                 .collect();
 
-            writeln!(task_state.writer, "{}", clauses.join("+"))?;
+            writeln!(writer, "{}", clauses.join("+"))?;
 
             Ok(())
         })

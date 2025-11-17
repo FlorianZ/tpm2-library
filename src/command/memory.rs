@@ -53,14 +53,24 @@ pub struct Memory {
 }
 
 impl Task for Memory {
-    fn run(&self, session: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        session: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
             let handle_val = handle
                 .value()
                 .ok_or_else(|| CommandError::PatternNotAllowed(handle.to_string()))?;
-            Self::inspect_handle(session, handle_val, handle.to_string(), &self.auth_args)
+            Self::inspect_handle(
+                session,
+                writer,
+                handle_val,
+                handle.to_string(),
+                &self.auth_args,
+            )
         } else {
-            Self::list_all_memory(session, &self.auth_args)
+            Self::list_all_memory(session, writer, &self.auth_args)
         }
     }
 }
@@ -68,13 +78,14 @@ impl Task for Memory {
 impl Memory {
     fn inspect_handle(
         session: &mut TaskState,
+        writer: &mut dyn std::io::Write,
         handle_val: u32,
         handle_str: String,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
         device::with_device(session.device.clone(), |device| {
             if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
-                Self::fetch_certificate(session, device, handle_val, auth_args)
+                Self::fetch_certificate(session, device, writer, handle_val, auth_args)
             } else {
                 match device.read_public(handle_val.into()) {
                     Ok(_) => Ok(()),
@@ -90,7 +101,11 @@ impl Memory {
         })
     }
 
-    fn list_all_memory(session: &mut TaskState, auth_args: &AuthArgs) -> Result<(), CommandError> {
+    fn list_all_memory(
+        session: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+        auth_args: &AuthArgs,
+    ) -> Result<(), CommandError> {
         device::with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
             Self::fetch_rows(
@@ -172,7 +187,7 @@ impl Memory {
             )?;
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
-            print_table(session, &rows)?;
+            print_table(&rows, writer, session.is_tty)?;
             Ok(())
         })
     }
@@ -245,6 +260,7 @@ impl Memory {
     fn fetch_certificate(
         session: &mut TaskState,
         device: &mut Device,
+        writer: &mut dyn std::io::Write,
         handle: u32,
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
@@ -256,7 +272,7 @@ impl Memory {
         }
 
         let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
-        writeln!(session.writer, "{pem_cert}")?;
+        writeln!(writer, "{pem_cert}")?;
 
         Ok(())
     }

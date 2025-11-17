@@ -50,7 +50,11 @@ pub struct Convert {
 }
 
 impl Task for Convert {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         self.parent
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
@@ -80,7 +84,7 @@ impl Task for Convert {
             )?;
 
             write_key_data(
-                &mut task_state.writer,
+                writer,
                 &tpm_key,
                 self.output_args.output.as_deref(),
                 self.output_encoding_args.output_encoding,

@@ -27,7 +27,11 @@ pub struct Unseal {
 }
 
 impl Task for Unseal {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         let vhandle = self
             .input
             .value()
@@ -81,9 +85,9 @@ impl Task for Unseal {
                 .out_data;
 
             if self.hex || task_state.is_tty {
-                writeln!(task_state.writer, "{}", hex::encode(out_data.as_ref()))?;
+                writeln!(writer, "{}", hex::encode(out_data.as_ref()))?;
             } else {
-                task_state.writer.write_all(out_data.as_ref())?;
+                writer.write_all(out_data.as_ref())?;
             }
             Ok(())
         })

@@ -20,7 +20,7 @@ use tpm2_protocol::{
 
 /// Lists available algorithms supported by the chip.
 #[derive(Args, Debug)]
-pub struct Algorithm {}
+pub struct Algorithm;
 
 impl Algorithm {
     /// Checks if the TPM supports a given set of RSA parameters.
@@ -99,13 +99,17 @@ impl Algorithm {
 }
 
 impl Task for Algorithm {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
             let mut results: Vec<String> = Vec::new();
             results.extend(Algorithm::fetch_key_algorithms(device)?);
             results.sort();
             for alg in results {
-                writeln!(task_state.writer, "{alg}")?;
+                writeln!(writer, "{alg}")?;
             }
             Ok(())
         })

@@ -38,10 +38,12 @@ use crate::{
     alg::{AlgError, AlgInfo},
     device::DeviceError,
     pcr::PcrError,
-    task::{TaskError, TaskState},
+    task::TaskError,
 };
+
+use std::{io::Write, num::TryFromIntError};
+
 use openssl::error::ErrorStack;
-use std::num::TryFromIntError;
 use tabled::{
     settings::{object::Rows, Color, Modify, Padding, Style},
     Table, Tabled,
@@ -59,7 +61,7 @@ use tpm2_vtpm::VtpmError;
 /// # Errors
 ///
 /// Returns [`Io`](CommandError::Io) if writing to the writer fails.
-pub fn print_table<T>(session: &mut TaskState, items: &[T]) -> Result<(), CommandError>
+pub fn print_table<T>(items: &[T], writer: &mut dyn Write, is_tty: bool) -> Result<(), CommandError>
 where
     T: Tabled,
 {
@@ -71,11 +73,11 @@ where
 
     table.with(Style::blank()).with(Padding::new(0, 2, 0, 0));
 
-    if session.is_tty {
+    if is_tty {
         table.with(Modify::new(Rows::first()).with(Color::BOLD));
     }
 
-    writeln!(session.writer, "{table}").map_err(CommandError::Io)?;
+    writeln!(writer, "{table}").map_err(CommandError::Io)?;
     Ok(())
 }
 

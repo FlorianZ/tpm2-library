@@ -27,7 +27,10 @@ struct CacheRow {
 pub struct Cache {}
 
 impl Cache {
-    fn refresh_cache(task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn refresh_cache(
+        task_state: &mut TaskState,
+        _writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |dev| {
             let vhandles: Vec<u32> = task_state.cache.contexts.keys().copied().collect();
             let mut errors: Vec<CommandError> = Vec::new();
@@ -66,8 +69,12 @@ impl Cache {
 }
 
 impl Task for Cache {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
-        Self::refresh_cache(task_state)?;
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
+        Self::refresh_cache(task_state, writer)?;
 
         let mut rows: Vec<CacheRow> = task_state
             .cache
@@ -81,7 +88,7 @@ impl Task for Cache {
             .collect();
         rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
-        print_table(task_state, &rows)?;
+        print_table(&rows, writer, task_state.is_tty)?;
         Ok(())
     }
 }

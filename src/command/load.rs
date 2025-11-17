@@ -31,7 +31,11 @@ pub struct Load {
 }
 
 impl Task for Load {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         with_device(
             task_state.device.clone(),
             |device| -> Result<(), CommandError> {
@@ -113,7 +117,7 @@ impl Task for Load {
                     &policy_blob,
                 )?;
 
-                writeln!(task_state.writer, "vtpm:{vhandle:08x}")?;
+                writeln!(writer, "vtpm:{vhandle:08x}")?;
                 Ok(())
             },
         )

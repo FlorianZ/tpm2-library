@@ -26,7 +26,11 @@ pub struct Evict {
 }
 
 impl Task for Evict {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        _writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         let vhandle = self
             .input
             .value()

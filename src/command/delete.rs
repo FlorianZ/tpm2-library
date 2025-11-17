@@ -23,10 +23,16 @@ pub struct Delete {
 }
 
 impl Task for Delete {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
+    fn run(
+        &self,
+        task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
         match self.input.class() {
-            TpmHandleClass::Tpm => delete_tpm_handles(task_state, &self.input, &self.auth_args),
-            TpmHandleClass::Vtpm => delete_vtpm_handles(task_state, &self.input),
+            TpmHandleClass::Tpm => {
+                delete_tpm_handles(task_state, writer, &self.input, &self.auth_args)
+            }
+            TpmHandleClass::Vtpm => delete_vtpm_handles(task_state, writer, &self.input),
         }
     }
 }
@@ -34,6 +40,7 @@ impl Task for Delete {
 /// Deletes TPM objects matching a pattern across sessions, transient, and persistent handles.
 fn delete_tpm_handles(
     task_state: &mut TaskState,
+    writer: &mut dyn std::io::Write,
     pattern: &TpmHandleRef,
     auth_args: &AuthArgs,
 ) -> Result<(), CommandError> {
@@ -69,7 +76,7 @@ fn delete_tpm_handles(
                         }
                         _ => {}
                     }
-                    writeln!(task_state.writer, "{handle}")?;
+                    writeln!(writer, "{handle}")?;
                 }
             }
         }
@@ -80,6 +87,7 @@ fn delete_tpm_handles(
 /// Deletes vTPM objects (keys and sessions) matching the pattern.
 fn delete_vtpm_handles(
     task_state: &mut TaskState,
+    writer: &mut dyn std::io::Write,
     pattern: &TpmHandleRef,
 ) -> Result<(), CommandError> {
     let matched_handles: Vec<u32> = task_state
@@ -101,7 +109,7 @@ fn delete_vtpm_handles(
 
         let all_deleted_handles = task_state.cache.remove(vhandle)?;
         for deleted_vhandle in all_deleted_handles {
-            writeln!(task_state.writer, "vtpm:{deleted_vhandle:08x}")?;
+            writeln!(writer, "vtpm:{deleted_vhandle:08x}")?;
         }
     }
     Ok(())

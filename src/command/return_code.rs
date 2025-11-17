@@ -20,8 +20,12 @@ pub struct ReturnCode {
 }
 
 impl Task for ReturnCode {
-    fn run(&self, task_state: &mut TaskState) -> Result<(), CommandError> {
-        writeln!(task_state.writer, "{}", self.rc)?;
+    fn run(
+        &self,
+        _task_state: &mut TaskState,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
+        writeln!(writer, "{}", self.rc)?;
         Ok(())
     }
 

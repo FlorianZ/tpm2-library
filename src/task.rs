@@ -15,7 +15,6 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     io,
-    io::Write,
     num::TryFromIntError,
     rc::Rc,
     time::Duration,
@@ -194,8 +193,8 @@ pub enum TaskError {
     HandleNotFound(&'static str, u32),
     #[error("handle name not found: {}", hex::encode(.0.as_ref()))]
     HandleNameNotFound(Tpm2bName),
-    #[error("invalid auth: {0}")]
-    InvalidAuth(String),
+    #[error("invalid auth")]
+    InvalidAuth,
     #[error("invalid key bits: {0}")]
     InvalidKeyBits(String),
     #[error("invalid parent: {0}{1:08x}")]
@@ -230,8 +229,7 @@ pub enum TaskError {
 
 pub struct TaskState<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
-    pub cache: VtpmCache<'a>,
-    pub writer: &'a mut dyn Write,
+    pub cache: &'a mut VtpmCache<'a>,
     pub is_tty: bool,
     /// Holds all temporary sessions, indexed by their vhandle.
     pub sessions: HashMap<u32, TaskSession>,
@@ -245,14 +243,12 @@ impl<'a> TaskState<'a> {
     #[must_use]
     pub fn new(
         device: Option<Rc<RefCell<Device>>>,
-        cache: VtpmCache<'a>,
-        writer: &'a mut dyn Write,
+        cache: &'a mut VtpmCache<'a>,
         is_tty: bool,
     ) -> Self {
         Self {
             device,
             cache,
-            writer,
             is_tty,
             sessions: HashMap::new(),
             physical_handles_to_flush: HashMap::new(),
@@ -495,13 +491,7 @@ impl<'a> TaskState<'a> {
                     });
 
                 let auth = policy_auths.next().cloned().unwrap_or_default();
-                let auth_cmd = TpmsAuthCommand {
-                    session_handle: (tpm2_protocol::data::TpmRh::Pw as u32).into(),
-                    nonce: Tpm2bNonce::default(),
-                    session_attributes: TpmaSession::empty(),
-                    hmac: Tpm2bAuth::try_from(auth.as_slice())
-                        .map_err(|_| TaskError::OutOfMemory)?,
-                };
+                let auth_cmd = build_password_session(auth.as_slice())?;
 
                 let mut auths = TpmAuthCommands::new();
                 auths.push(auth_cmd).map_err(|_| TaskError::OutOfMemory)?;
@@ -559,9 +549,7 @@ impl<'a> TaskState<'a> {
             if let TaskAuth::Password(p) = auth {
                 raw_auths.push(p.clone());
             } else {
-                return Err(TaskError::InvalidAuth(
-                    "only password auths are supported in policies".to_string(),
-                ));
+                return Err(TaskError::InvalidAuth);
             }
         }
         let mut auth_iter = raw_auths.iter();
@@ -707,9 +695,7 @@ impl<'a> TaskState<'a> {
         device: &mut Device,
         target: &TpmHandleRef,
     ) -> Result<TpmHandle, TaskError> {
-        let target_vhandle = target.value().ok_or(TaskError::InvalidAuth(
-            "handle pattern not allowed".to_string(),
-        ))?;
+        let target_vhandle = target.value().ok_or(TaskError::InvalidAuth)?;
 
         if target.class() == TpmHandleClass::Tpm {
             return Ok(TpmHandle(target_vhandle));
@@ -826,9 +812,7 @@ impl<'a> TaskState<'a> {
             let handle_param = handles.get(i).ok_or(TaskError::TrailingAuthorizations)?;
 
             let TaskAuth::Session(vhandle) = auth else {
-                return Err(TaskError::InvalidAuth(
-                    "build_auth_area received non-session auth".to_string(),
-                ));
+                return Err(TaskError::InvalidAuth);
             };
 
             let session = self
@@ -912,9 +896,7 @@ impl<'a> TaskState<'a> {
                     effective_auth_list.push(auth.clone());
                 }
                 TaskAuth::Policy(_) => {
-                    return Err(TaskError::InvalidAuth(
-                        "policy auth not allowed as command auth".to_string(),
-                    ));
+                    return Err(TaskError::InvalidAuth);
                 }
             }
         }
@@ -1179,4 +1161,13 @@ impl Drop for TaskState<'_> {
         }
         self.cache.teardown();
     }
+}
+
+fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand, TaskError> {
+    Ok(TpmsAuthCommand {
+        session_handle: (tpm2_protocol::data::TpmRh::Pw as u32).into(),
+        nonce: Tpm2bNonce::default(),
+        session_attributes: TpmaSession::empty(),
+        hmac: Tpm2bAuth::try_from(password).map_err(|_| TaskError::OutOfMemory)?,
+    })
 }
