@@ -92,9 +92,8 @@ fn delete_vtpm_handles(
 ) -> Result<(), CommandError> {
     let matched_handles: Vec<u32> = task_state
         .cache
-        .contexts
-        .keys()
-        .copied()
+        .key_iter()
+        .map(|(h, _)| *h)
         .filter(|&h| pattern.matches(h))
         .collect();
 
@@ -103,7 +102,7 @@ fn delete_vtpm_handles(
     }
 
     for vhandle in matched_handles {
-        if !task_state.cache.contexts.contains_key(&vhandle) {
+        if task_state.cache.find_by_vhandle(vhandle).is_err() {
             continue;
         }
 

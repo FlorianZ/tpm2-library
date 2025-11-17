@@ -1042,9 +1042,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-vtpm"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2090bca63fd212c70a5e7576e513c436ee409daaedca5e6881a0c4e570fe6caa"
+checksum = "13fb1342943a63ee8bc8f17e7e1b7e73c59d15a4b80455bb2c5f419a8d604e3a"
 dependencies = [
  "log",
  "thiserror",

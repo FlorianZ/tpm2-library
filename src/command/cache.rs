@@ -32,12 +32,12 @@ impl Cache {
         _writer: &mut dyn std::io::Write,
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |dev| {
-            let vhandles: Vec<u32> = task_state.cache.contexts.keys().copied().collect();
+            let vhandles: Vec<u32> = task_state.cache.key_iter().map(|(h, _)| *h).collect();
             let mut errors: Vec<CommandError> = Vec::new();
             let mut handles_to_remove = Vec::new();
 
             for &vhandle in &vhandles {
-                if let Some(key) = task_state.cache.contexts.get_mut(&vhandle) {
+                if let Ok(key) = task_state.cache.find_by_vhandle(vhandle) {
                     match dev.refresh_key(key.context.clone()) {
                         Ok(true) => {
                             task_state.cache.mark_dirty(vhandle);
@@ -78,9 +78,8 @@ impl Task for Cache {
 
         let mut rows: Vec<CacheRow> = task_state
             .cache
-            .contexts
-            .values()
-            .map(|key| CacheRow {
+            .key_iter()
+            .map(|(_, key)| CacheRow {
                 handle: format!("{:08x}", key.handle.0),
                 class: "transient".to_string(),
                 details: crate::alg::alg_details(&key.public),
