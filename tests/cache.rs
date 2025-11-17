@@ -8,14 +8,15 @@
 #[cfg(test)]
 mod tests {
     use rstest::{fixture, rstest};
-    use std::collections::HashMap;
+    use std::{collections::HashMap, fs};
     use tempfile::{tempdir, TempDir};
     use tpm2_crypto::tpm_make_name;
     use tpm2_protocol::{
         basic::TpmBuffer,
+        constant::TPM_MAX_COMMAND_SIZE,
         data::{
-            Tpm2bPublicKeyRsa, TpmAlgId, TpmRh, TpmaObject, TpmsContext, TpmsRsaParms, TpmtPublic,
-            TpmuPublicId, TpmuPublicParms,
+            Tpm2bPublicKeyRsa, TpmAlgId, TpmHt, TpmRh, TpmaObject, TpmsContext, TpmsRsaParms,
+            TpmtPublic, TpmuPublicId, TpmuPublicParms,
         },
         TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
     };
@@ -285,5 +286,149 @@ mod tests {
             h3, 0x8000_0002,
             "Handle allocation did not resume from the next available slot"
         );
+    }
+
+    /// Test 4: `load` handling of stale transient entries
+    #[rstest]
+    fn load_removes_stale_transient_entries(cache_dir: TempDir) {
+        let cache_path = cache_dir.path();
+        let stale_path = cache_path.join("80000000.bin");
+
+        let mut buffer = vec![0u8; u32::SIZE];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buffer);
+            let stale_version = 0x0000_0002_u32;
+            stale_version
+                .marshal(&mut writer)
+                .expect("Failed to marshal stale version");
+            writer.len()
+        };
+        buffer.truncate(len);
+
+        fs::write(&stale_path, &buffer).expect("Failed to write stale vtpm file");
+
+        let cache = VtpmCache::new(cache_path).expect("Failed to create cache");
+        assert!(cache.contexts.is_empty(), "Stale key should not be loaded");
+        assert!(
+            !stale_path.exists(),
+            "Stale vtpm file was not removed from disk"
+        );
+    }
+
+    /// Test 5: `load` handling of session files (data-driven for HMAC and Policy)
+    #[rstest]
+    #[case(TpmHt::HmacSession)]
+    #[case(TpmHt::PolicySession)]
+    fn load_removes_session_files(cache_dir: TempDir, #[case] ht: TpmHt) {
+        let cache_path = cache_dir.path();
+        let vhandle = (u32::from(ht as u8)) << 24;
+        let filename = format!("{vhandle:08x}.bin");
+        let file_path = cache_path.join(&filename);
+
+        fs::write(&file_path, b"session").expect("Failed to write session file");
+
+        let cache = VtpmCache::new(cache_path).expect("Failed to create cache");
+        assert!(
+            cache.contexts.is_empty(),
+            "Session contexts should not be loaded"
+        );
+        assert!(
+            !file_path.exists(),
+            "Session file {filename} was not removed from disk"
+        );
+    }
+
+    /// Test 6: `load` keeps non-transient, non-session files for diagnosis
+    #[rstest]
+    fn load_keeps_non_transient_non_session_files(cache_dir: TempDir) {
+        let cache_path = cache_dir.path();
+        let ht = TpmHt::Permanent as u8;
+        let vhandle = (u32::from(ht)) << 24;
+        let filename = format!("{vhandle:08x}.bin");
+        let file_path = cache_path.join(&filename);
+
+        fs::write(&file_path, b"other").expect("Failed to write test file");
+
+        let cache = VtpmCache::new(cache_path).expect("Failed to create cache");
+        assert!(
+            cache.contexts.is_empty(),
+            "File should not be loaded as a context"
+        );
+        assert!(
+            file_path.exists(),
+            "File with other handle type should be kept"
+        );
+    }
+
+    /// Test 7: `fetch_ancestor_chain` with persistent root and missing parent (data-driven)
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn fetch_ancestor_chain_with_persistent_root(
+        cache_dir: TempDir,
+        test_data: (TpmtPublic, TpmtPublic, TpmsContext, TpmtPublic),
+        #[case] has_persistent_parent: bool,
+    ) {
+        let (parent_public, child_public, child_context, _) = test_data;
+        let cache_path = cache_dir.path();
+
+        let mut cache = VtpmCache::new(cache_path).expect("Failed to create cache");
+
+        let child_vhandle = cache
+            .save_context(child_context, &child_public, &parent_public, false, &None)
+            .expect("Failed to save child context");
+
+        let mut persistent_keys = HashMap::new();
+
+        if has_persistent_parent {
+            let mut buffer = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+            let len = {
+                let mut writer = TpmWriter::new(&mut buffer);
+                parent_public
+                    .marshal(&mut writer)
+                    .expect("Failed to marshal parent_public");
+                writer.len()
+            };
+            buffer.truncate(len);
+
+            let persistent_handle = TpmHandle(0x8100_0000);
+            persistent_keys.insert(buffer, persistent_handle);
+
+            let chain = cache
+                .fetch_ancestor_chain(child_vhandle, &persistent_keys)
+                .expect("Failed to fetch ancestor chain with persistent root");
+            assert_eq!(chain.len(), 2);
+            assert_eq!(
+                chain[0].value().unwrap(),
+                persistent_handle.0,
+                "Root of ancestor chain should be persistent handle"
+            );
+            assert_eq!(
+                chain[1].value().unwrap(),
+                child_vhandle,
+                "Target of ancestor chain should be child handle"
+            );
+        } else {
+            let err = cache
+                .fetch_ancestor_chain(child_vhandle, &persistent_keys)
+                .expect_err("Expected fetch_ancestor_chain to fail");
+            assert!(matches!(err, VtpmError::ParentNotFound));
+        }
+    }
+
+    /// Test 8: `remove` on a missing handle returns an empty list
+    #[rstest]
+    fn remove_nonexistent_handle(cache_dir: TempDir) {
+        let cache_path = cache_dir.path();
+        let mut cache = VtpmCache::new(cache_path).expect("Failed to create cache");
+
+        let deleted = cache
+            .remove(0x8000_0000)
+            .expect("remove should succeed for missing handle");
+        assert!(
+            deleted.is_empty(),
+            "No handles should be reported as deleted"
+        );
+        assert!(cache.contexts.is_empty(), "Cache should remain empty");
     }
 }
