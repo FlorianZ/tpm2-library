@@ -42,7 +42,7 @@ pub struct VtpmKey {
     pub parent: TpmtPublic,
     pub context: TpmsContext,
     pub empty_auth: u32,
-    pub policy: Vec<u8>,
+    pub policy: TpmBuffer<{ TPM_MAX_COMMAND_SIZE as usize }>,
 }
 
 impl VtpmKey {
@@ -78,7 +78,13 @@ impl VtpmKey {
 }
 
 impl TpmSized for VtpmKey {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = u32::SIZE
+        + TpmHandle::SIZE
+        + TpmtPublic::SIZE
+        + TpmtPublic::SIZE
+        + TpmsContext::SIZE
+        + u32::SIZE
+        + TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::SIZE;
 
     fn len(&self) -> usize {
         u32::SIZE
@@ -99,8 +105,7 @@ impl TpmMarshal for VtpmKey {
         self.parent.marshal(writer)?;
         self.context.marshal(writer)?;
         self.empty_auth.marshal(writer)?;
-        TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(self.policy.as_slice())?
-            .marshal(writer)?;
+        self.policy.marshal(writer)?;
 
         Ok(())
     }
@@ -114,7 +119,7 @@ impl TpmUnmarshal for VtpmKey {
         let (parent, remainder) = TpmtPublic::unmarshal(remainder)?;
         let (context, remainder) = TpmsContext::unmarshal(remainder)?;
         let (empty_auth, remainder) = u32::unmarshal(remainder)?;
-        let (policy_blob, remainder) =
+        let (policy, remainder) =
             TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)?;
 
         Ok((
@@ -125,7 +130,7 @@ impl TpmUnmarshal for VtpmKey {
                 context,
                 parent,
                 empty_auth,
-                policy: policy_blob.to_vec(),
+                policy,
             },
             remainder,
         ))
@@ -228,7 +233,11 @@ impl<'a> VtpmCache<'a> {
     /// `vhandle` does not exist.
     pub fn fetch_policy(&self, vhandle: u32) -> Result<(Vec<u8>, TpmAlgId, bool), VtpmError> {
         let key = self.find_by_vhandle(vhandle)?;
-        Ok((key.policy.clone(), key.public.name_alg, key.empty_auth != 0))
+        Ok((
+            key.policy.to_vec(),
+            key.public.name_alg,
+            key.empty_auth != 0,
+        ))
     }
 
     /// Finds the ancestor chain for a given VTPM handle.
@@ -350,6 +359,9 @@ impl<'a> VtpmCache<'a> {
     ) -> Result<u32, VtpmError> {
         for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
             if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
+                let policy_vec = policy.as_deref().unwrap_or_default();
+                let policy_buf = TpmBuffer::try_from(policy_vec).map_err(VtpmError::Marshal)?;
+
                 let key = VtpmKey {
                     version: VERSION,
                     handle: TpmHandle(vhandle),
@@ -357,7 +369,7 @@ impl<'a> VtpmCache<'a> {
                     parent: parent_public.clone(),
                     context,
                     empty_auth: u32::from(empty_auth),
-                    policy: policy.clone().unwrap_or_default(),
+                    policy: policy_buf,
                 };
                 e.insert(key);
                 self.dirty.insert(vhandle);
