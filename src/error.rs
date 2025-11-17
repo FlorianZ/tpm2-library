@@ -18,8 +18,8 @@ pub enum TpmKeyError {
     #[error("invalid DER tag: {0}")]
     InvalidDerTag(String),
 
-    /// ASN.1 structure or embedded TPM data is malformed.
-    #[error("invalid DER data")]
+    /// DER encoded ASN.1 data is malformed.
+    #[error("invalid or malformed DER data")]
     InvalidDer,
 
     /// A policy command body is malformed or invalid for that command.
@@ -30,15 +30,19 @@ pub enum TpmKeyError {
     #[error("missing secret for importable key")]
     MissingSecret,
 
-    /// Internal operation failed (e.g., buffer marshal overflow).
-    #[error("operation failed")]
-    OperationFailed,
-
     /// Malformed PEM data.
-    #[error("invalid PEM data")]
+    #[error("invalid or malformed PEM encoded data")]
     InvalidPem(#[from] pem::PemError),
 
     /// PEM tag is not 'TSS2 PRIVATE KEY'.
     #[error("invalid PEM tag: {0}")]
     InvalidPemTag(String),
+
+    /// Marshaling a TPM protocol encoded object failed.
+    #[error("marshal: {0}")]
+    Marshal(tpm2_protocol::TpmProtocolError),
+
+    /// Unmarshaling a TPM protocol encoded object failed.
+    #[error("unmarshal: {0}")]
+    Unmarshal(tpm2_protocol::TpmProtocolError),
 }
