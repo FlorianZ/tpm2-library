@@ -116,6 +116,7 @@ pub struct TpmDevice {
     file: File,
     name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
     interrupt_check: Box<dyn Fn() -> bool>,
+    resp_buf: Vec<u8>,
 }
 
 impl std::fmt::Debug for TpmDevice {
@@ -156,6 +157,7 @@ impl TpmDevice {
             file,
             name_cache: HashMap::new(),
             interrupt_check,
+            resp_buf: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
         })
     }
 
@@ -224,46 +226,46 @@ impl TpmDevice {
         self.file.flush()?;
 
         let start_time = Instant::now();
-        let mut resp_buf = Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize);
+        self.resp_buf.clear();
         let mut total_size: Option<usize> = None;
         let mut temp_buf = [0u8; 1024];
 
-        let resp_buf = loop {
+        loop {
             if (self.interrupt_check)() {
-                break Err(TpmDeviceError::Interrupted);
+                return Err(TpmDeviceError::Interrupted);
             }
             if start_time.elapsed() > std::time::Duration::from_secs(120) {
-                break Err(TpmDeviceError::Timeout);
+                return Err(TpmDeviceError::Timeout);
             }
 
             let n = self.receive(&mut temp_buf)?;
             if n > 0 {
-                resp_buf.extend_from_slice(&temp_buf[..n]);
+                self.resp_buf.extend_from_slice(&temp_buf[..n]);
             }
 
-            if total_size.is_none() && resp_buf.len() >= 10 {
-                let Ok(size_bytes): Result<[u8; 4], _> = resp_buf[2..6].try_into() else {
-                    break Err(TpmDeviceError::InvalidResponse);
+            if total_size.is_none() && self.resp_buf.len() >= 10 {
+                let Ok(size_bytes): Result<[u8; 4], _> = self.resp_buf[2..6].try_into() else {
+                    return Err(TpmDeviceError::InvalidResponse);
                 };
                 let size = u32::from_be_bytes(size_bytes) as usize;
                 if !(10..=TPM_MAX_COMMAND_SIZE as usize).contains(&size) {
-                    break Err(TpmDeviceError::InvalidResponse);
+                    return Err(TpmDeviceError::InvalidResponse);
                 }
                 total_size = Some(size);
             }
 
             if let Some(size) = total_size {
-                if resp_buf.len() == size {
-                    break Ok(resp_buf);
+                if self.resp_buf.len() == size {
+                    break;
                 }
-                if resp_buf.len() > size {
-                    break Err(TpmDeviceError::InvalidResponse);
+                if self.resp_buf.len() > size {
+                    return Err(TpmDeviceError::InvalidResponse);
                 }
             }
-        }?;
+        }
 
-        let result = tpm_unmarshal_response(cc, &resp_buf).map_err(TpmDeviceError::Unmarshal);
-        trace!("{} R: {}", cc, hex::encode(&resp_buf));
+        let result = tpm_unmarshal_response(cc, &self.resp_buf).map_err(TpmDeviceError::Unmarshal);
+        trace!("{} R: {}", cc, hex::encode(&self.resp_buf));
         Ok(result??)
     }
 
