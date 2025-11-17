@@ -118,13 +118,7 @@ fn main() {
 }
 
 fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), CommandError> {
-    let cache = match VtpmCache::new(cache_dir) {
-        Ok(cache) => cache,
-        Err(err) => {
-            eprintln!("{err:#}");
-            return Err(CommandError::OutOfMemory);
-        }
-    };
+    let cache = VtpmCache::new(cache_dir)?;
 
     let shared_device = if cli.command.is_local() {
         None
