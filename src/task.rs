@@ -844,10 +844,7 @@ impl<'a> TaskState<'a> {
 
         if let Some(auth) = auth_list.first() {
             match auth {
-                TaskAuth::Password(_) => {
-                    effective_auth_list.push(auth.clone());
-                }
-                TaskAuth::Session(_) => {
+                TaskAuth::Password(_) | TaskAuth::Session(_) => {
                     effective_auth_list.push(auth.clone());
                 }
                 TaskAuth::Policy(_) => {

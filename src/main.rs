@@ -117,8 +117,8 @@ fn main() {
     }
 }
 
-fn execute_cli<'a>(cli: &TopLevel, cache_dir: &std::path::PathBuf) -> Result<(), CommandError> {
-    let cache = match VtpmCache::new(&cache_dir) {
+fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), CommandError> {
+    let cache = match VtpmCache::new(cache_dir) {
         Ok(cache) => cache,
         Err(err) => {
             eprintln!("{err:#}");
