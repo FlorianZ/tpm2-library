@@ -153,6 +153,7 @@ pub enum VtpmError {
     Unmarshal(tpm2_protocol::TpmProtocolError),
 }
 
+#[derive(Debug)]
 pub struct VtpmCache<'a> {
     pub contexts: HashMap<u32, VtpmKey>,
     dirty: HashSet<u32>,
@@ -322,7 +323,11 @@ impl<'a> VtpmCache<'a> {
         Ok(deleted_handles)
     }
 
-    /// Finalizes the cache, saving dirty contexts.
+    /// Finalizes the cache by saving all dirty contexts.
+    ///
+    /// This method is called automatically when the cache is dropped, but can
+    /// be invoked earlier to force a flush at a known point. Calling it
+    /// multiple times is safe.
     pub fn teardown(&mut self) {
         if let Err(e) = self.save() {
             log::error!("teardown: {e:#}");
@@ -464,5 +469,11 @@ impl<'a> VtpmCache<'a> {
             }
         }
         Ok(deleted_children)
+    }
+}
+
+impl<'a> Drop for VtpmCache<'a> {
+    fn drop(&mut self) {
+        self.teardown();
     }
 }
