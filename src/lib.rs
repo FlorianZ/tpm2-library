@@ -166,7 +166,7 @@ pub enum VtpmError {
 
 #[derive(Debug)]
 pub struct VtpmCache<'a> {
-    pub contexts: HashMap<u32, VtpmKey>,
+    contexts: HashMap<u32, VtpmKey>,
     dirty: HashSet<u32>,
     cache_dir: &'a Path,
     next_vhandle: u32,

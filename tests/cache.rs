@@ -141,7 +141,11 @@ mod tests {
         drop(cache);
 
         let cache = VtpmCache::new(cache_path).expect("Failed to reload cache");
-        assert_eq!(cache.contexts.len(), 2, "Cache did not persist contexts");
+        assert_eq!(
+            cache.key_iter().count(),
+            2,
+            "Cache did not persist contexts"
+        );
 
         let parent_key = cache
             .find_by_vhandle(parent_vhandle)
@@ -197,7 +201,7 @@ mod tests {
         assert!(deleted_handles.contains(&parent_vhandle));
         assert!(deleted_handles.contains(&child_vhandle));
         assert!(
-            cache.contexts.is_empty(),
+            cache.key_iter().next().is_none(),
             "Cache was not empty after removal"
         );
 
@@ -205,7 +209,7 @@ mod tests {
 
         let cache = VtpmCache::new(cache_path).expect("Failed to reload cache after deletion");
         assert!(
-            cache.contexts.is_empty(),
+            cache.key_iter().next().is_none(),
             "Contexts were not deleted from disk"
         );
     }
@@ -263,7 +267,7 @@ mod tests {
 
         cache.remove(h1).expect("Failed to remove h1");
         assert!(
-            !cache.contexts.contains_key(&h1),
+            cache.find_by_vhandle(h1).is_err(),
             "h1 was not removed from map"
         );
 
@@ -308,7 +312,10 @@ mod tests {
         fs::write(&stale_path, &buffer).expect("Failed to write stale vtpm file");
 
         let cache = VtpmCache::new(cache_path).expect("Failed to create cache");
-        assert!(cache.contexts.is_empty(), "Stale key should not be loaded");
+        assert!(
+            cache.key_iter().next().is_none(),
+            "Stale key should not be loaded"
+        );
         assert!(
             !stale_path.exists(),
             "Stale vtpm file was not removed from disk"
@@ -329,7 +336,7 @@ mod tests {
 
         let cache = VtpmCache::new(cache_path).expect("Failed to create cache");
         assert!(
-            cache.contexts.is_empty(),
+            cache.key_iter().next().is_none(),
             "Session contexts should not be loaded"
         );
         assert!(
@@ -351,7 +358,7 @@ mod tests {
 
         let cache = VtpmCache::new(cache_path).expect("Failed to create cache");
         assert!(
-            cache.contexts.is_empty(),
+            cache.key_iter().next().is_none(),
             "File should not be loaded as a context"
         );
         assert!(
@@ -429,6 +436,9 @@ mod tests {
             deleted.is_empty(),
             "No handles should be reported as deleted"
         );
-        assert!(cache.contexts.is_empty(), "Cache should remain empty");
+        assert!(
+            cache.key_iter().next().is_none(),
+            "Cache should remain empty"
+        );
     }
 }
