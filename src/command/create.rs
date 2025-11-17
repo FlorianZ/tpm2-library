@@ -205,25 +205,20 @@ impl Create {
             };
 
             let handles = [parent_phys_handle.0];
-            let (resp, _) = task_state
-                .execute(device, &create_cmd, &handles, &auths)
-                .map_err(|err| {
-                    if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                        if let Err(e) = task_state.remove_session(device, vhandle) {
-                            log::error!("vtpm:{vhandle:08x}: {e}");
-                        }
-                    }
-                    if let TaskError::Device(device_err) = err {
-                        return CommandError::from(device_err);
-                    }
-                    err.into()
-                })?;
+            let execution_result = task_state.execute(device, &create_cmd, &handles, &auths);
 
             if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                 if let Err(e) = task_state.remove_session(device, vhandle) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
                 }
             }
+
+            let (resp, _) = execution_result.map_err(|err| {
+                if let TaskError::Device(device_err) = err {
+                    return CommandError::from(device_err);
+                }
+                err.into()
+            })?;
 
             let create_resp = resp
                 .Create()

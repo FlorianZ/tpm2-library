@@ -79,28 +79,25 @@ impl Task for Load {
                     &self.auth_args,
                 )?;
 
-                let (object_handle, _, loaded_public) = Self::run_load(
+                let run_load_result = Self::run_load(
                     task_state,
                     device,
                     parent_handle,
                     tpm_key.private(),
                     tpm_key.public(),
                     &auths,
-                )
-                .inspect_err(|e: &CommandError| {
-                    log::debug!("run_load failed: {e}");
-                    if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                        if let Err(e) = task_state.remove_session(device, vhandle) {
-                            log::error!("vtpm:{vhandle:08x}: {e}");
-                        }
-                    }
-                })?;
+                );
 
                 if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                     if let Err(e) = task_state.remove_session(device, vhandle) {
                         log::error!("vtpm:{vhandle:08x}: {e}");
                     }
                 }
+
+                let (object_handle, _, loaded_public) =
+                    run_load_result.inspect_err(|e: &CommandError| {
+                        log::debug!("run_load failed: {e}");
+                    })?;
 
                 let policy_blob = if let Some(policy) = &tpm_key.policy {
                     Some(crate::io::tpm_key_from_blob(policy)?)
