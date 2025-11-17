@@ -58,6 +58,8 @@ pub enum DeviceError {
     ResponseMismatch(TpmCc),
     #[error("TPM command timed out")]
     Timeout,
+    #[error("unexpected EOF")]
+    UnexpectedEof,
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
     #[error("I/O: {0}")]
@@ -157,18 +159,19 @@ impl Device {
         let revents = fds[0].revents().unwrap_or(PollFlags::empty());
 
         if revents.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
-            return Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()));
+            return Err(DeviceError::UnexpectedEof);
         }
 
         if revents.contains(PollFlags::POLLIN) {
             match self.file.read(buf) {
+                Ok(0) => Err(DeviceError::UnexpectedEof),
                 Ok(n) => Ok(n),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => Ok(0),
                 Err(e) => Err(e.into()),
             }
         } else if revents.contains(PollFlags::POLLHUP) {
-            Err(DeviceError::Io(std::io::ErrorKind::UnexpectedEof.into()))
+            Err(DeviceError::UnexpectedEof)
         } else {
             Ok(0)
         }
