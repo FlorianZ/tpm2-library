@@ -4,6 +4,9 @@
 
 //! Manages caching for TPM keys.
 
+#![deny(clippy::all)]
+#![deny(clippy::pedantic)]
+
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fs, io,
@@ -20,6 +23,9 @@ use tpm2_protocol::{
 };
 
 const VERSION: u32 = 0x0000_0001;
+const TRANSIENT_START: u32 = 0x8000_0000;
+const TRANSIENT_END: u32 = 0x80FF_FFFF;
+const TRANSIENT_COUNT: u32 = 0x0100_0000;
 
 fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmProtocolError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
@@ -127,8 +133,8 @@ impl TpmUnmarshal for VtpmKey {
                 version,
                 handle,
                 public,
-                context,
                 parent,
+                context,
                 empty_auth,
                 policy,
             },
@@ -163,6 +169,7 @@ pub struct VtpmCache<'a> {
     pub contexts: HashMap<u32, VtpmKey>,
     dirty: HashSet<u32>,
     cache_dir: &'a Path,
+    next_vhandle: u32,
 }
 
 impl<'a> VtpmCache<'a> {
@@ -180,8 +187,21 @@ impl<'a> VtpmCache<'a> {
             contexts: HashMap::new(),
             dirty: HashSet::new(),
             cache_dir,
+            next_vhandle: TRANSIENT_START,
         };
         cache.load()?;
+
+        if let Some(max_handle) = cache.contexts.keys().max() {
+            if *max_handle >= cache.next_vhandle {
+                let next = max_handle.wrapping_add(1);
+                cache.next_vhandle = if next > TRANSIENT_END {
+                    TRANSIENT_START
+                } else {
+                    next
+                };
+            }
+        }
+
         Ok(cache)
     }
 
@@ -349,6 +369,7 @@ impl<'a> VtpmCache<'a> {
     ///
     /// Returns [`NoHandles`](crate::VtpmError::NoHandles) when no free VTPM
     /// handle slot is found.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn save_context(
         &mut self,
         context: TpmsContext,
@@ -357,7 +378,15 @@ impl<'a> VtpmCache<'a> {
         empty_auth: bool,
         policy: &Option<Vec<u8>>,
     ) -> Result<u32, VtpmError> {
-        for vhandle in 0x8000_0000u32..=0x80FF_FFFF {
+        for i in 0..TRANSIENT_COUNT {
+            let vhandle = self.next_vhandle.wrapping_add(i);
+
+            let vhandle = if vhandle > TRANSIENT_END {
+                TRANSIENT_START + (vhandle - TRANSIENT_END - 1)
+            } else {
+                vhandle
+            };
+
             if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
                 let policy_vec = policy.as_deref().unwrap_or_default();
                 let policy_buf = TpmBuffer::try_from(policy_vec).map_err(VtpmError::Marshal)?;
@@ -373,6 +402,14 @@ impl<'a> VtpmCache<'a> {
                 };
                 e.insert(key);
                 self.dirty.insert(vhandle);
+
+                let next = vhandle.wrapping_add(1);
+                self.next_vhandle = if next > TRANSIENT_END {
+                    TRANSIENT_START
+                } else {
+                    next
+                };
+
                 return Ok(vhandle);
             }
         }
@@ -484,7 +521,7 @@ impl<'a> VtpmCache<'a> {
     }
 }
 
-impl<'a> Drop for VtpmCache<'a> {
+impl Drop for VtpmCache<'_> {
     fn drop(&mut self) {
         self.teardown();
     }

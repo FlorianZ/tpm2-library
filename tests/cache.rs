@@ -1,0 +1,289 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
+
+#![deny(clippy::all)]
+#![deny(clippy::pedantic)]
+
+#[cfg(test)]
+mod tests {
+    use rstest::{fixture, rstest};
+    use std::collections::HashMap;
+    use tempfile::{tempdir, TempDir};
+    use tpm2_crypto::tpm_make_name;
+    use tpm2_protocol::{
+        basic::TpmBuffer,
+        data::{
+            Tpm2bPublicKeyRsa, TpmAlgId, TpmRh, TpmaObject, TpmsContext, TpmsRsaParms, TpmtPublic,
+            TpmuPublicId, TpmuPublicParms,
+        },
+        TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
+    };
+    use tpm2_vtpm::{VtpmCache, VtpmError, VtpmKey};
+
+    #[fixture]
+    fn cache_dir() -> TempDir {
+        tempdir().expect("Failed to create temp directory")
+    }
+
+    #[fixture]
+    fn test_data() -> (TpmtPublic, TpmtPublic, TpmsContext, TpmtPublic) {
+        let null_parent = TpmtPublic {
+            object_type: TpmAlgId::Null,
+            ..Default::default()
+        };
+
+        let parent_public = TpmtPublic {
+            object_type: TpmAlgId::Rsa,
+            name_alg: TpmAlgId::Sha256,
+            object_attributes: TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT,
+            parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
+                key_bits: 2048,
+                ..Default::default()
+            }),
+            unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
+            ..Default::default()
+        };
+
+        let child_public = TpmtPublic {
+            object_type: TpmAlgId::Rsa,
+            name_alg: TpmAlgId::Sha256,
+            object_attributes: TpmaObject::USER_WITH_AUTH,
+            parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
+                key_bits: 2048,
+                ..Default::default()
+            }),
+            unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
+            ..Default::default()
+        };
+
+        let child_context = TpmsContext {
+            sequence: 12345,
+            saved_handle: TpmHandle(0x8000_0001),
+            hierarchy: TpmRh::Owner,
+            context_blob: TpmBuffer::try_from(b"\x01\x02\x03\x04\x05" as &[u8]).unwrap(),
+        };
+
+        (parent_public, child_public, child_context, null_parent)
+    }
+
+    /// Test 1: `key_roundtrip`
+    #[rstest]
+    fn key_roundtrip(test_data: (TpmtPublic, TpmtPublic, TpmsContext, TpmtPublic)) {
+        let (parent_public, child_public, child_context, _) = test_data;
+        let policy_buf = TpmBuffer::try_from(b"\xDE\xAD\xBE\xEF" as &[u8]).unwrap();
+
+        let key = VtpmKey {
+            version: 0x0000_0001,
+            handle: TpmHandle(0x8000_0001),
+            public: child_public.clone(),
+            parent: parent_public.clone(),
+            context: child_context.clone(),
+            empty_auth: 1,
+            policy: policy_buf,
+        };
+
+        let mut buffer = vec![0u8; key.len()];
+        let mut writer = TpmWriter::new(&mut buffer);
+        key.marshal(&mut writer).expect("Marshal failed");
+        assert_eq!(writer.len(), key.len());
+
+        let (unmarshaled_key, remainder) = VtpmKey::unmarshal(&buffer).expect("Unmarshal failed");
+        assert!(remainder.is_empty(), "Unmarshal left trailing data");
+
+        assert_eq!(key.version, unmarshaled_key.version);
+        assert_eq!(key.handle, unmarshaled_key.handle);
+        assert_eq!(key.public, unmarshaled_key.public);
+        assert_eq!(key.parent, unmarshaled_key.parent);
+        assert_eq!(key.context, unmarshaled_key.context);
+        assert_eq!(key.empty_auth, unmarshaled_key.empty_auth);
+        assert_eq!(key.policy.as_ref(), unmarshaled_key.policy.as_ref());
+    }
+
+    /// Test 2: `cache_lifecycle`
+    #[rstest]
+    fn cache_lifecycle(
+        cache_dir: TempDir,
+        test_data: (TpmtPublic, TpmtPublic, TpmsContext, TpmtPublic),
+    ) {
+        let (parent_public, child_public, child_context, null_parent) = test_data;
+        let cache_path = cache_dir.path();
+        let child_policy = vec![0xCA, 0xFE, 0xBA, 0xBE];
+
+        let mut cache = VtpmCache::new(cache_path).expect("Failed to create cache");
+
+        let parent_vhandle = cache
+            .save_context(
+                TpmsContext {
+                    sequence: 0,
+                    saved_handle: TpmHandle::default(),
+                    hierarchy: TpmRh::default(),
+                    context_blob: TpmBuffer::default(),
+                },
+                &parent_public,
+                &null_parent,
+                true,
+                &None,
+            )
+            .expect("Failed to save parent");
+
+        let child_vhandle = cache
+            .save_context(
+                child_context.clone(),
+                &child_public,
+                &parent_public,
+                false,
+                &Some(child_policy.clone()),
+            )
+            .expect("Failed to save child");
+
+        drop(cache);
+
+        let cache = VtpmCache::new(cache_path).expect("Failed to reload cache");
+        assert_eq!(cache.contexts.len(), 2, "Cache did not persist contexts");
+
+        let parent_key = cache
+            .find_by_vhandle(parent_vhandle)
+            .expect("Failed to find parent by vhandle");
+        assert_eq!(parent_key.public, parent_public);
+
+        let child_key = cache
+            .find_by_vhandle(child_vhandle)
+            .expect("Failed to find child by vhandle");
+        assert_eq!(child_key.public, child_public);
+        assert_eq!(child_key.context, child_context);
+
+        let child_key_pub = cache
+            .find_by_public(&child_public)
+            .expect("Failed to find child by public");
+        assert_eq!(child_key_pub.handle.0, child_vhandle);
+
+        let child_name = tpm_make_name(&child_public).unwrap();
+        let child_key_name = cache
+            .find_by_name(&child_name)
+            .expect("find_by_name failed")
+            .expect("Failed to find child by name");
+        assert_eq!(child_key_name.handle.0, child_vhandle);
+
+        let (policy, alg, empty_auth) = cache.fetch_policy(child_vhandle).unwrap();
+        assert_eq!(policy, child_policy);
+        assert_eq!(alg, child_public.name_alg);
+        assert!(!empty_auth);
+
+        let chain = cache
+            .fetch_ancestor_chain(child_vhandle, &HashMap::new())
+            .expect("Failed to fetch ancestor chain");
+        assert_eq!(chain.len(), 2);
+        assert_eq!(
+            chain[0].value().unwrap(),
+            parent_vhandle,
+            "Ancestor chain root is incorrect"
+        );
+        assert_eq!(
+            chain[1].value().unwrap(),
+            child_vhandle,
+            "Ancestor chain target is incorrect"
+        );
+
+        drop(cache);
+        let mut cache = VtpmCache::new(cache_path).expect("Failed to reload cache for removal");
+
+        let deleted_handles = cache
+            .remove(parent_vhandle)
+            .expect("Failed to remove parent");
+
+        assert_eq!(deleted_handles.len(), 2, "Subtree removal failed");
+        assert!(deleted_handles.contains(&parent_vhandle));
+        assert!(deleted_handles.contains(&child_vhandle));
+        assert!(
+            cache.contexts.is_empty(),
+            "Cache was not empty after removal"
+        );
+
+        drop(cache);
+
+        let cache = VtpmCache::new(cache_path).expect("Failed to reload cache after deletion");
+        assert!(
+            cache.contexts.is_empty(),
+            "Contexts were not deleted from disk"
+        );
+    }
+
+    /// Test 3: `cache_allocation`
+    #[rstest]
+    fn cache_allocation(
+        cache_dir: TempDir,
+        test_data: (TpmtPublic, TpmtPublic, TpmsContext, TpmtPublic),
+    ) {
+        let (parent_public, _, _, null_parent) = test_data;
+        let cache_path = cache_dir.path();
+        let mut cache = VtpmCache::new(cache_path).expect("Failed to create cache");
+
+        let err = cache.find_by_vhandle(0x8000_0000).err().unwrap();
+        assert!(matches!(err, VtpmError::HandleNotFound(_)));
+
+        let err = cache
+            .fetch_ancestor_chain(0x8000_0000, &HashMap::new())
+            .err()
+            .unwrap();
+        assert!(matches!(err, VtpmError::HandleNotFound(_)));
+
+        let h1 = cache
+            .save_context(
+                TpmsContext {
+                    sequence: 0,
+                    saved_handle: TpmHandle::default(),
+                    hierarchy: TpmRh::default(),
+                    context_blob: TpmBuffer::default(),
+                },
+                &parent_public,
+                &null_parent,
+                true,
+                &None,
+            )
+            .expect("Failed to save h1");
+        assert_eq!(h1, 0x8000_0000, "First handle was not 0x8000_0000");
+
+        let h2 = cache
+            .save_context(
+                TpmsContext {
+                    sequence: 0,
+                    saved_handle: TpmHandle::default(),
+                    hierarchy: TpmRh::default(),
+                    context_blob: TpmBuffer::default(),
+                },
+                &parent_public,
+                &null_parent,
+                true,
+                &None,
+            )
+            .expect("Failed to save h2");
+        assert_eq!(h2, 0x8000_0001, "Second handle was not 0x8000_0001");
+
+        cache.remove(h1).expect("Failed to remove h1");
+        assert!(
+            !cache.contexts.contains_key(&h1),
+            "h1 was not removed from map"
+        );
+
+        let h3 = cache
+            .save_context(
+                TpmsContext {
+                    sequence: 0,
+                    saved_handle: TpmHandle::default(),
+                    hierarchy: TpmRh::default(),
+                    context_blob: TpmBuffer::default(),
+                },
+                &parent_public,
+                &null_parent,
+                true,
+                &None,
+            )
+            .expect("Failed to save h3");
+
+        assert_eq!(
+            h3, 0x8000_0002,
+            "Handle allocation did not resume from the next available slot"
+        );
+    }
+}
