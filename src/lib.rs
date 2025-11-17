@@ -479,13 +479,21 @@ impl<'a> VtpmCache<'a> {
     }
 
     fn save(&mut self) -> Result<(), VtpmError> {
-        let vhandles_to_save: Vec<u32> = self.dirty.drain().collect();
+        let vhandles_to_save: Vec<u32> = self.dirty.iter().copied().collect();
+
         for vhandle in vhandles_to_save {
-            if let Some(context) = self.contexts.get(&vhandle) {
-                let path = self.cache_dir().join(format!("{vhandle:08x}.bin"));
-                context.save_to_path(&path)?;
+            match self.contexts.get(&vhandle) {
+                Some(context) => {
+                    let path = self.cache_dir().join(format!("{vhandle:08x}.bin"));
+                    context.save_to_path(&path)?;
+                    self.dirty.remove(&vhandle);
+                }
+                None => {
+                    self.dirty.remove(&vhandle);
+                }
             }
         }
+
         Ok(())
     }
 
