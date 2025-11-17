@@ -36,7 +36,7 @@ pub use unseal::*;
 
 use crate::{
     alg::{AlgError, AlgInfo},
-    device::DeviceError,
+    device::TpmDeviceError,
     pcr::PcrError,
     task::TaskError,
 };
@@ -144,7 +144,7 @@ pub enum CommandError {
     #[error("task_state: {0}")]
     Session(TaskError),
     #[error("device: {0}")]
-    Device(DeviceError),
+    Device(TpmDeviceError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
     #[error("key error: {0}")]
@@ -191,9 +191,9 @@ impl From<VtpmError> for CommandError {
     }
 }
 
-impl From<DeviceError> for CommandError {
-    fn from(err: DeviceError) -> Self {
-        if let DeviceError::TpmRc(rc) = err {
+impl From<TpmDeviceError> for CommandError {
+    fn from(err: TpmDeviceError) -> Self {
+        if let TpmDeviceError::TpmRc(rc) = err {
             match rc.base() {
                 TpmRcBase::Handle | TpmRcBase::ReferenceH0 | TpmRcBase::Type => {
                     Self::InvalidParentHandle
@@ -202,7 +202,7 @@ impl From<DeviceError> for CommandError {
                 TpmRcBase::AuthMissing => Self::AuthenticationMissing,
                 TpmRcBase::Lockout => Self::DictionaryAttackLocked,
                 TpmRcBase::PolicyFail => Self::PolicyDenied,
-                _ => Self::Device(DeviceError::TpmRc(rc)),
+                _ => Self::Device(TpmDeviceError::TpmRc(rc)),
             }
         } else {
             Self::Device(err)

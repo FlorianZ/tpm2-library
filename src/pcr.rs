@@ -5,7 +5,7 @@
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
 use crate::{
-    device::{Device, DeviceError},
+    device::{TpmDevice, TpmDeviceError},
     task::{TaskError, TaskState},
 };
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ use tpm2_protocol::{
 #[derive(Debug, Error)]
 pub enum PcrError {
     #[error("device: {0}")]
-    Device(#[from] DeviceError),
+    Device(#[from] TpmDeviceError),
     #[error("capacity exceeded")]
     CapacityExceeded,
     #[error("invalid algorithm: {0:?}")]
@@ -60,7 +60,7 @@ pub struct PcrBank {
 ///
 /// Returns a `PcrError` if the TPM capability query fails or if the TPM reports
 /// no active PCR banks.
-pub fn pcr_get_bank_list(device: &mut Device) -> Result<Vec<PcrBank>, PcrError> {
+pub fn pcr_get_bank_list(device: &mut TpmDevice) -> Result<Vec<PcrBank>, PcrError> {
     let (_, cap_data) = device.get_capability_page(TpmCap::Pcrs, 0, 1)?;
     let mut banks = Vec::new();
     if let TpmuCapabilities::Pcrs(pcrs) = cap_data.data {
@@ -134,7 +134,7 @@ pub(crate) fn merge_pcr_selections(
 /// response does not contain the expected number of digests for the selection.
 pub fn pcr_read(
     session: &mut TaskState,
-    device: &mut Device,
+    device: &mut TpmDevice,
     pcr_selection_in: &TpmlPcrSelection,
 ) -> Result<(Vec<Pcr>, u32), PcrError> {
     let cmd = TpmPcrReadCommand {
@@ -143,7 +143,7 @@ pub fn pcr_read(
     let (resp, _) = session.execute(device, &cmd, &[], &[])?;
     let pcr_read_resp = resp
         .PcrRead()
-        .map_err(|_| DeviceError::ResponseMismatch(TpmCc::PcrRead))?;
+        .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::PcrRead))?;
     let mut pcrs = Vec::new();
     let mut digest_iter = pcr_read_resp.pcr_values.iter();
     for selection in pcr_read_resp.pcr_selection_out.iter() {
@@ -192,7 +192,7 @@ pub fn pcr_composite_digest(pcrs: &[Pcr], alg: TpmAlgId) -> Result<Vec<u8>, PcrE
 /// fails.
 pub fn resolve_pcr_digests(
     job: &mut TaskState,
-    device: &mut crate::device::Device,
+    device: &mut crate::device::TpmDevice,
     ast: &mut TpmPolicyExpression,
     session_hash_alg: TpmAlgId,
     banks: &[PcrBank],

@@ -8,7 +8,7 @@ use crate::{
     alg::{Alg, AlgInfo},
     cli::Task,
     command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
-    device::{with_device, Device},
+    device::{with_device, TpmDevice},
     io::write_key_data,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
     task::{is_empty_auth, TaskAuth, TaskError, TaskState},
@@ -101,7 +101,7 @@ impl Create {
     fn resolve_policy(
         &self,
         task_state: &mut TaskState,
-        device: &mut Device,
+        device: &mut TpmDevice,
     ) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
         if let Some(expression) = &self.creation_args.policy_expression {
             let banks = pcr_get_bank_list(device)?;
@@ -150,7 +150,7 @@ impl Create {
         &self,
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
-        device: &mut Device,
+        device: &mut TpmDevice,
     ) -> Result<(), CommandError> {
         let parent_virt_handle = self
             .parent

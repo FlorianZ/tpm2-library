@@ -6,7 +6,7 @@ use crate::{
     alg::AlgError,
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
-    device::{with_device, Device},
+    device::{with_device, TpmDevice},
     io::read_file_input,
     task::{is_empty_auth, TaskAuth, TaskState},
 };
@@ -124,7 +124,7 @@ impl Task for Load {
 impl Load {
     fn fetch_parent(
         task_state: &mut TaskState,
-        device: &mut Device,
+        device: &mut TpmDevice,
         parent_public: &Tpm2bPublic,
     ) -> Result<TpmHandle, CommandError> {
         if let Some((phandle, _)) = device.find_persistent(&parent_public.inner)? {
@@ -147,7 +147,7 @@ impl Load {
 
     fn run_load(
         task_state: &mut TaskState,
-        device: &mut Device,
+        device: &mut TpmDevice,
         parent_handle: TpmHandle,
         in_private: &tpm2_protocol::data::Tpm2bPrivate,
         in_public: &Tpm2bPublic,

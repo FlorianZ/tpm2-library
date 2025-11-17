@@ -41,7 +41,7 @@ pub trait TpmCommandObject: TpmFrame {}
 impl<T> TpmCommandObject for T where T: TpmFrame {}
 
 #[derive(Debug, Error)]
-pub enum DeviceError {
+pub enum TpmDeviceError {
     #[error("device is already borrowed")]
     AlreadyBorrowed,
     #[error("capability not found: {0}")]
@@ -72,19 +72,10 @@ pub enum DeviceError {
     TpmRc(TpmRc),
 }
 
-impl From<TpmRc> for DeviceError {
+impl From<TpmRc> for TpmDeviceError {
     fn from(rc: TpmRc) -> Self {
         Self::TpmRc(rc)
     }
-}
-
-/// Outcome of refreshing a context against the TPM.
-#[derive(Debug)]
-pub enum RefreshAction {
-    /// The context is still valid.
-    Keep,
-    /// The context is no longer valid.
-    Stale,
 }
 
 /// Executes a closure with a mutable reference to a `Device`.
@@ -96,25 +87,25 @@ pub enum RefreshAction {
 ///
 /// Returns an error if the device is not available or is already borrowed. The
 /// error is converted into the caller's error type `E`.
-pub fn with_device<F, T, E>(device: Option<Rc<RefCell<Device>>>, f: F) -> Result<T, E>
+pub fn with_device<F, T, E>(device: Option<Rc<RefCell<TpmDevice>>>, f: F) -> Result<T, E>
 where
-    F: FnOnce(&mut Device) -> Result<T, E>,
-    E: From<DeviceError>,
+    F: FnOnce(&mut TpmDevice) -> Result<T, E>,
+    E: From<TpmDeviceError>,
 {
-    let device_rc = device.ok_or(DeviceError::NotAvailable)?;
+    let device_rc = device.ok_or(TpmDeviceError::NotAvailable)?;
     let mut device_guard = device_rc
         .try_borrow_mut()
-        .map_err(|_| DeviceError::AlreadyBorrowed)?;
+        .map_err(|_| TpmDeviceError::AlreadyBorrowed)?;
     f(&mut device_guard)
 }
 
-pub struct Device {
+pub struct TpmDevice {
     file: File,
     name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
     interrupt_check: Box<dyn Fn() -> bool>,
 }
 
-impl std::fmt::Debug for Device {
+impl std::fmt::Debug for TpmDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Device")
             .field("file", &self.file)
@@ -123,19 +114,22 @@ impl std::fmt::Debug for Device {
     }
 }
 
-impl Device {
+impl TpmDevice {
     /// Opens the TPM device file and sets it to non-blocking mode.
     ///
     /// # Errors
     ///
     /// Returns an error if the device file cannot be opened, or if `fcntl`
     /// fails to set the `O_NONBLOCK` flag.
-    pub fn open(path: &Path, interrupt_check: Box<dyn Fn() -> bool>) -> Result<Self, DeviceError> {
+    pub fn open(
+        path: &Path,
+        interrupt_check: Box<dyn Fn() -> bool>,
+    ) -> Result<Self, TpmDeviceError> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
-            .map_err(DeviceError::Io)?;
+            .map_err(TpmDeviceError::Io)?;
 
         let fd = file.as_raw_fd();
         let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL)?;
@@ -150,7 +144,7 @@ impl Device {
         })
     }
 
-    fn receive(&mut self, buf: &mut [u8]) -> Result<usize, DeviceError> {
+    fn receive(&mut self, buf: &mut [u8]) -> Result<usize, TpmDeviceError> {
         let fd = self.file.as_fd();
         let mut fds = [PollFd::new(fd, PollFlags::POLLIN)];
 
@@ -167,19 +161,19 @@ impl Device {
         let revents = fds[0].revents().unwrap_or(PollFlags::empty());
 
         if revents.intersects(PollFlags::POLLERR | PollFlags::POLLNVAL) {
-            return Err(DeviceError::UnexpectedEof);
+            return Err(TpmDeviceError::UnexpectedEof);
         }
 
         if revents.contains(PollFlags::POLLIN) {
             match self.file.read(buf) {
-                Ok(0) => Err(DeviceError::UnexpectedEof),
+                Ok(0) => Err(TpmDeviceError::UnexpectedEof),
                 Ok(n) => Ok(n),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => Ok(0),
                 Err(e) => Err(e.into()),
             }
         } else if revents.contains(PollFlags::POLLHUP) {
-            Err(DeviceError::UnexpectedEof)
+            Err(TpmDeviceError::UnexpectedEof)
         } else {
             Ok(0)
         }
@@ -203,8 +197,8 @@ impl Device {
         &mut self,
         command: &C,
         sessions: &[TpmsAuthCommand],
-    ) -> Result<(TpmResponse, TpmAuthResponses), DeviceError> {
-        let command_vec = Device::build_command_buffer(command, sessions)?;
+    ) -> Result<(TpmResponse, TpmAuthResponses), TpmDeviceError> {
+        let command_vec = TpmDevice::build_command_buffer(command, sessions)?;
         let cc = command.cc();
 
         self.file.write_all(&command_vec)?;
@@ -217,10 +211,10 @@ impl Device {
 
         let resp_buf = loop {
             if (self.interrupt_check)() {
-                break Err(DeviceError::Interrupted);
+                break Err(TpmDeviceError::Interrupted);
             }
             if start_time.elapsed() > std::time::Duration::from_secs(120) {
-                break Err(DeviceError::Timeout);
+                break Err(TpmDeviceError::Timeout);
             }
 
             let n = self.receive(&mut temp_buf)?;
@@ -230,11 +224,11 @@ impl Device {
 
             if total_size.is_none() && resp_buf.len() >= 10 {
                 let Ok(size_bytes): Result<[u8; 4], _> = resp_buf[2..6].try_into() else {
-                    break Err(DeviceError::InvalidResponse);
+                    break Err(TpmDeviceError::InvalidResponse);
                 };
                 let size = u32::from_be_bytes(size_bytes) as usize;
                 if !(10..=TPM_MAX_COMMAND_SIZE as usize).contains(&size) {
-                    break Err(DeviceError::InvalidResponse);
+                    break Err(TpmDeviceError::InvalidResponse);
                 }
                 total_size = Some(size);
             }
@@ -244,7 +238,7 @@ impl Device {
                     break Ok(resp_buf);
                 }
                 if resp_buf.len() > size {
-                    break Err(DeviceError::InvalidResponse);
+                    break Err(TpmDeviceError::InvalidResponse);
                 }
             }
         }?;
@@ -257,7 +251,7 @@ impl Device {
     fn build_command_buffer<C: TpmCommandObject>(
         command: &C,
         sessions: &[TpmsAuthCommand],
-    ) -> Result<Vec<u8>, DeviceError> {
+    ) -> Result<Vec<u8>, TpmDeviceError> {
         let cc = command.cc();
         let tag = if sessions.is_empty() {
             TpmSt::NoSessions
@@ -289,10 +283,10 @@ impl Device {
         count: u32,
         mut extract: F,
         next_prop: N,
-    ) -> Result<Vec<T>, DeviceError>
+    ) -> Result<Vec<T>, TpmDeviceError>
     where
         T: Copy,
-        F: for<'a> FnMut(&'a TpmuCapabilities) -> Result<&'a [T], DeviceError>,
+        F: for<'a> FnMut(&'a TpmuCapabilities) -> Result<&'a [T], TpmDeviceError>,
         N: Fn(&T) -> u32,
     {
         let mut results = Vec::new();
@@ -318,14 +312,14 @@ impl Device {
     /// Retrieves all algorithm properties supported by the TPM.
     pub(crate) fn fetch_algorithm_properties(
         &mut self,
-    ) -> Result<Vec<TpmsAlgProperty>, DeviceError> {
+    ) -> Result<Vec<TpmsAlgProperty>, TpmDeviceError> {
         self.get_capability(
             TpmCap::Algs,
             0,
             u32::try_from(MAX_HANDLES)?,
             |caps| match caps {
                 TpmuCapabilities::Algs(algs) => Ok(algs),
-                _ => Err(DeviceError::CapabilityMissing(TpmCap::Algs)),
+                _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Algs)),
             },
             |last| last.alg as u32 + 1,
         )
@@ -337,14 +331,14 @@ impl Device {
     ///
     /// Returns a `DeviceError` when the `get_capability_page` call to the TPM
     /// device fails.
-    pub fn fetch_handles(&mut self, class: u32) -> Result<Vec<TpmHandleRef>, DeviceError> {
+    pub fn fetch_handles(&mut self, class: u32) -> Result<Vec<TpmHandleRef>, TpmDeviceError> {
         self.get_capability(
             TpmCap::Handles,
             class,
             u32::try_from(MAX_HANDLES)?,
             |caps| match caps {
                 TpmuCapabilities::Handles(handles) => Ok(handles),
-                _ => Err(DeviceError::CapabilityMissing(TpmCap::Handles)),
+                _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Handles)),
             },
             |last| *last + 1,
         )
@@ -368,7 +362,7 @@ impl Device {
         cap: TpmCap,
         property: u32,
         count: u32,
-    ) -> Result<(bool, TpmsCapabilityData), DeviceError> {
+    ) -> Result<(bool, TpmsCapabilityData), TpmDeviceError> {
         let cmd = TpmGetCapabilityCommand {
             cap,
             property,
@@ -382,7 +376,7 @@ impl Device {
             capability_data,
         } = resp
             .GetCapability()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::GetCapability))?;
+            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::GetCapability))?;
 
         Ok((more_data.into(), capability_data))
     }
@@ -393,15 +387,15 @@ impl Device {
     ///
     /// Returns a `DeviceError` when the capability or property is not found,
     /// or when the `get_capability` call fails.
-    pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<u32, DeviceError> {
+    pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<u32, TpmDeviceError> {
         let (_, cap_data) = self.get_capability_page(TpmCap::TpmProperties, property as u32, 1)?;
 
         let TpmuCapabilities::TpmProperties(props) = &cap_data.data else {
-            return Err(DeviceError::CapabilityMissing(TpmCap::TpmProperties));
+            return Err(TpmDeviceError::CapabilityMissing(TpmCap::TpmProperties));
         };
 
         let Some(prop) = props.first() else {
-            return Err(DeviceError::CapabilityMissing(TpmCap::TpmProperties));
+            return Err(TpmDeviceError::CapabilityMissing(TpmCap::TpmProperties));
         };
 
         Ok(prop.value)
@@ -416,7 +410,7 @@ impl Device {
     pub fn read_public(
         &mut self,
         handle: TpmHandle,
-    ) -> Result<(TpmtPublic, Tpm2bName), DeviceError> {
+    ) -> Result<(TpmtPublic, Tpm2bName), TpmDeviceError> {
         if let Some(cached) = self.name_cache.get(&handle.0) {
             return Ok(cached.clone());
         }
@@ -429,7 +423,7 @@ impl Device {
 
         let read_public_resp = resp
             .ReadPublic()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::ReadPublic))?;
+            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ReadPublic))?;
 
         let public = read_public_resp.out_public.inner;
         let name = read_public_resp.name;
@@ -447,7 +441,7 @@ impl Device {
     pub fn find_persistent(
         &mut self,
         target: &TpmtPublic,
-    ) -> Result<Option<(TpmHandle, Tpm2bName)>, DeviceError> {
+    ) -> Result<Option<(TpmHandle, Tpm2bName)>, TpmDeviceError> {
         let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
         for handle in handles {
             if let Some(handle_val) = handle.value() {
@@ -470,7 +464,7 @@ impl Device {
     pub fn find_persistent_by_name(
         &mut self,
         target_name: &Tpm2bName,
-    ) -> Result<Option<TpmHandle>, DeviceError> {
+    ) -> Result<Option<TpmHandle>, TpmDeviceError> {
         let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
         for handle in handles {
             if let Some(handle_val) = handle.value() {
@@ -497,13 +491,13 @@ impl Device {
     ///
     /// Returns a `DeviceError` when the underlying `TPM2_ContextSave` command
     /// execution fails or when the TPM returns a response of an unexpected type.
-    pub fn save_context(&mut self, save_handle: TpmHandle) -> Result<TpmsContext, DeviceError> {
+    pub fn save_context(&mut self, save_handle: TpmHandle) -> Result<TpmsContext, TpmDeviceError> {
         let cmd = TpmContextSaveCommand { save_handle };
         let sessions = vec![];
         let (resp, _) = self.transmit(&cmd, &sessions)?;
         let save_resp = resp
             .ContextSave()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::ContextSave))?;
+            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ContextSave))?;
         Ok(save_resp.context)
     }
 
@@ -512,13 +506,13 @@ impl Device {
     /// # Errors
     ///
     /// Returns a `DeviceError` when the `TPM2_ContextLoad` command fails.
-    pub fn load_context(&mut self, context: TpmsContext) -> Result<TpmHandle, DeviceError> {
+    pub fn load_context(&mut self, context: TpmsContext) -> Result<TpmHandle, TpmDeviceError> {
         let cmd = TpmContextLoadCommand { context };
         let sessions = vec![];
         let (resp, _) = self.transmit(&cmd, &sessions)?;
         let resp_inner = resp
             .ContextLoad()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::ContextLoad))?;
+            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ContextLoad))?;
         Ok(resp_inner.loaded_handle)
     }
 
@@ -529,7 +523,7 @@ impl Device {
     ///
     /// Returns a `DeviceError` when the underlying `TPM2_FlushContext` command
     /// execution fails.
-    pub fn flush_context(&mut self, handle: TpmHandle) -> Result<(), DeviceError> {
+    pub fn flush_context(&mut self, handle: TpmHandle) -> Result<(), TpmDeviceError> {
         self.name_cache.remove(&handle.0);
         let cmd = TpmFlushContextCommand {
             flush_handle: handle,
@@ -544,15 +538,15 @@ impl Device {
     /// # Errors
     ///
     /// Returns `DeviceError` on `ContextLoad` or `FlushContext` failure.
-    pub fn flush_session(&mut self, context: TpmsContext) -> Result<(), DeviceError> {
+    pub fn flush_session(&mut self, context: TpmsContext) -> Result<(), TpmDeviceError> {
         match self.load_context(context) {
             Ok(handle) => self.flush_context(handle),
-            Err(DeviceError::TpmRc(rc)) => {
+            Err(TpmDeviceError::TpmRc(rc)) => {
                 let base = rc.base();
                 if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
                     Ok(())
                 } else {
-                    Err(DeviceError::TpmRc(rc))
+                    Err(TpmDeviceError::TpmRc(rc))
                 }
             }
             Err(e) => Err(e),
@@ -570,7 +564,7 @@ impl Device {
         object_handle: TpmHandle,
         persistent_handle: TpmHandle,
         sessions: &[TpmsAuthCommand],
-    ) -> Result<(), DeviceError> {
+    ) -> Result<(), TpmDeviceError> {
         let cmd = TpmEvictControlCommand {
             auth,
             object_handle: object_handle.0.into(),
@@ -579,11 +573,12 @@ impl Device {
         let (resp, _) = self.transmit(&cmd, sessions)?;
 
         resp.EvictControl()
-            .map_err(|_| DeviceError::ResponseMismatch(TpmCc::EvictControl))?;
+            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::EvictControl))?;
         Ok(())
     }
 
-    /// Refreshes a key context.
+    /// Refreshes a key context. Returns `true` if the context is still valid,
+    /// and `false` if it is stale.
     ///
     /// # Errors
     ///
@@ -594,15 +589,13 @@ impl Device {
     /// Returns [`Protocol`](crate::DeviceError::Protocol) when a TPM data
     /// structure is malformed.
     /// Returns [`Io`](crate::DeviceError::Io) when an I/O failure occurs.
-    pub fn refresh_key(&mut self, context: TpmsContext) -> Result<RefreshAction, DeviceError> {
+    pub fn refresh_key(&mut self, context: TpmsContext) -> Result<bool, TpmDeviceError> {
         match self.load_context(context) {
             Ok(handle) => match self.flush_context(handle) {
-                Ok(()) => Ok(RefreshAction::Keep),
+                Ok(()) => Ok(true),
                 Err(e) => Err(e),
             },
-            Err(DeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                Ok(RefreshAction::Stale)
-            }
+            Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => Ok(false),
             Err(e) => Err(e),
         }
     }

@@ -4,7 +4,7 @@
 use crate::{
     cli::Task,
     command::CommandError,
-    device::{with_device, Device, DeviceError},
+    device::{with_device, TpmDevice, TpmDeviceError},
     task::TaskState,
 };
 use clap::Args;
@@ -24,7 +24,7 @@ pub struct Algorithm;
 
 impl Algorithm {
     /// Checks if the TPM supports a given set of RSA parameters.
-    fn test_rsa_parms(device: &mut Device, key_bits: u16) -> Result<(), DeviceError> {
+    fn test_rsa_parms(device: &mut TpmDevice, key_bits: u16) -> Result<(), TpmDeviceError> {
         let cmd = TpmTestParmsCommand {
             parameters: TpmtPublicParms {
                 object_type: TpmAlgId::Rsa,
@@ -38,7 +38,7 @@ impl Algorithm {
         device.transmit(&cmd, &sessions).map(|(_, _)| ())
     }
 
-    fn fetch_key_algorithms(device: &mut Device) -> Result<Vec<String>, CommandError> {
+    fn fetch_key_algorithms(device: &mut TpmDevice) -> Result<Vec<String>, CommandError> {
         let mut results: Vec<String> = Vec::new();
         let all_alg_props = device.fetch_algorithm_properties()?;
         let all_algs: std::collections::HashSet<TpmAlgId> =
@@ -53,7 +53,7 @@ impl Algorithm {
             let rsa_key_sizes = [2048, 3072, 4096];
             for key_bits in rsa_key_sizes {
                 if let Err(e) = Self::test_rsa_parms(device, key_bits) {
-                    if let DeviceError::TpmRc(rc) = e {
+                    if let TpmDeviceError::TpmRc(rc) = e {
                         if rc.base() == TpmRcBase::Value {
                             continue;
                         }
@@ -74,7 +74,7 @@ impl Algorithm {
                 u32::try_from(MAX_HANDLES)?,
                 |caps| match caps {
                     TpmuCapabilities::EccCurves(curves) => Ok(curves),
-                    _ => Err(DeviceError::CapabilityMissing(TpmCap::EccCurves)),
+                    _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::EccCurves)),
                 },
                 |last| *last as u32 + 1,
             )?;

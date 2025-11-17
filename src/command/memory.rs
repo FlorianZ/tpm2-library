@@ -6,7 +6,7 @@ use crate::{
     alg::{Alg, AlgInfo},
     cli::Task,
     command::{print_table, AuthArgs, CommandError},
-    device::{self, Device, DeviceError},
+    device::{self, TpmDevice, TpmDeviceError},
     task::{TaskAuth, TaskState},
 };
 use clap::Args;
@@ -89,7 +89,7 @@ impl Memory {
             } else {
                 match device.read_public(handle_val.into()) {
                     Ok(_) => Ok(()),
-                    Err(DeviceError::TpmRc(rc))
+                    Err(TpmDeviceError::TpmRc(rc))
                         if rc.base() == TpmRcBase::Handle
                             || rc.base() == TpmRcBase::ReferenceH0 =>
                     {
@@ -171,7 +171,7 @@ impl Memory {
                         let cert_bytes =
                             match Self::read_nv_index(session, device, handle_val, auth_args) {
                                 Ok(bytes) => bytes,
-                                Err(CommandError::Device(DeviceError::TpmRc(_))) => {
+                                Err(CommandError::Device(TpmDeviceError::TpmRc(_))) => {
                                     return Ok(None);
                                 }
                                 Err(e) => return Err(e),
@@ -194,7 +194,7 @@ impl Memory {
 
     fn read_nv_index(
         session: &mut TaskState,
-        device: &mut Device,
+        device: &mut TpmDevice,
         handle: u32,
         auth_args: &AuthArgs,
     ) -> Result<Vec<u8>, CommandError> {
@@ -259,7 +259,7 @@ impl Memory {
 
     fn fetch_certificate(
         session: &mut TaskState,
-        device: &mut Device,
+        device: &mut TpmDevice,
         writer: &mut dyn std::io::Write,
         handle: u32,
         auth_args: &AuthArgs,
@@ -279,7 +279,7 @@ impl Memory {
 
     fn fetch_rows<F>(
         session: &mut TaskState,
-        device: &mut Device,
+        device: &mut TpmDevice,
         rows: &mut Vec<MemoryRow>,
         class: TpmHt,
         display_type: MemoryHandleType,
@@ -289,7 +289,7 @@ impl Memory {
     where
         F: FnMut(
             &mut TaskState,
-            &mut Device,
+            &mut TpmDevice,
             &TpmHandleRef,
             &AuthArgs,
         ) -> Result<Option<String>, CommandError>,
@@ -312,7 +312,10 @@ impl Memory {
         Ok(())
     }
 
-    fn fetch_details(device: &mut Device, handle: &TpmHandleRef) -> Result<String, CommandError> {
+    fn fetch_details(
+        device: &mut TpmDevice,
+        handle: &TpmHandleRef,
+    ) -> Result<String, CommandError> {
         if let Some(handle_val) = handle.value() {
             let tpm_handle = TpmHandle(handle_val);
             let (public, _) = device.read_public(tpm_handle)?;

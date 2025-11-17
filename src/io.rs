@@ -5,7 +5,7 @@
 use crate::{
     alg::AlgError,
     command::{CommandError, OutputEncoding},
-    device::Device,
+    device::TpmDevice,
 };
 use std::{
     fs,
@@ -86,7 +86,7 @@ fn write_data(
 /// Returns [`Key`](CommandError::Key) if the command conversion fails.
 /// Returns [`Device`](CommandError::Device) if reading the public handle name fails.
 pub fn tpm_key_to_blob(
-    device: &mut Device,
+    device: &mut TpmDevice,
     commands: &[(TpmCommand, TpmAuthCommands)],
 ) -> Result<TpmPolicy, CommandError> {
     let mut policy = Vec::new();

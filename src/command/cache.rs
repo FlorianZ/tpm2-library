@@ -5,7 +5,7 @@
 use crate::{
     cli::Task,
     command::{print_table, CommandError},
-    device::{with_device, RefreshAction},
+    device::with_device,
     task::TaskState,
 };
 use clap::Args;
@@ -39,10 +39,10 @@ impl Cache {
             for &vhandle in &vhandles {
                 if let Some(key) = task_state.cache.contexts.get_mut(&vhandle) {
                     match dev.refresh_key(key.context.clone()) {
-                        Ok(RefreshAction::Keep) => {
+                        Ok(true) => {
                             task_state.cache.mark_dirty(vhandle);
                         }
-                        Ok(RefreshAction::Stale) => handles_to_remove.push(vhandle),
+                        Ok(false) => handles_to_remove.push(vhandle),
                         Err(e) => {
                             log::warn!("vtpm:{vhandle:08x}: {e}");
                             errors.push(e.into());

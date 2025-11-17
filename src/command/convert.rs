@@ -5,7 +5,7 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
-    device::{with_device, Device},
+    device::{with_device, TpmDevice},
     io::{read_file_input, write_key_data},
     task::{is_empty_auth, TaskAuth, TaskState},
     write_object,
@@ -213,7 +213,7 @@ impl Convert {
 
     fn create_external_key(
         task_state: &mut TaskState,
-        device: &mut Device,
+        device: &mut TpmDevice,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
         auth_args: &AuthArgs,
