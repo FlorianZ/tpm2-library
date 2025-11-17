@@ -119,6 +119,8 @@ pub enum CommandError {
     InvalidParentType,
     #[error("invalid policy expression: {0}")]
     InvalidPolicyExpression(String),
+    #[error("out of memory")]
+    OutOfMemory,
     #[error("handle pattern not allowed: {0}")]
     PatternNotAllowed(String),
     #[error("policy denied")]

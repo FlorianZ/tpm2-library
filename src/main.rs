@@ -107,15 +107,7 @@ fn main() {
         process::exit(1);
     }
 
-    let mut cache = match VtpmCache::new(&cache_dir) {
-        Ok(cache) => cache,
-        Err(err) => {
-            eprintln!("{err:#}");
-            process::exit(1);
-        }
-    };
-
-    if let Err(err) = execute_cli(&cli, &mut cache) {
+    if let Err(err) = execute_cli(&cli, &cache_dir) {
         eprintln!("{err:#}");
         process::exit(1);
     }
@@ -125,7 +117,15 @@ fn main() {
     }
 }
 
-fn execute_cli<'a>(cli: &TopLevel, cache: &'a mut VtpmCache<'a>) -> Result<(), CommandError> {
+fn execute_cli<'a>(cli: &TopLevel, cache_dir: &std::path::PathBuf) -> Result<(), CommandError> {
+    let cache = match VtpmCache::new(&cache_dir) {
+        Ok(cache) => cache,
+        Err(err) => {
+            eprintln!("{err:#}");
+            return Err(CommandError::OutOfMemory);
+        }
+    };
+
     let shared_device = if cli.command.is_local() {
         None
     } else {

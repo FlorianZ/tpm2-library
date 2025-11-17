@@ -57,31 +57,7 @@ impl TaskSession {
     /// # Errors
     ///
     /// Returns a [`TaskError`] if the hash algorithm is unsupported or if `KDFa` fails.
-    pub fn new(
-        auth_hash: TpmAlgId,
-        nonce_caller: Tpm2bNonce,
-        resp: &TpmStartAuthSessionResponse,
-        auth_value: &[u8],
-    ) -> Result<Self, TaskError> {
-        let digest_len = Hash::from(auth_hash).size();
-        let hmac_key_bytes = if (resp.session_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
-            if auth_value.is_empty() {
-                Vec::new()
-            } else {
-                let key_bits = u16::try_from(digest_len * 8)
-                    .map_err(|_| TaskError::InvalidKeyBits(digest_len.to_string()))?;
-                Hash::from(auth_hash).kdfa(
-                    auth_value,
-                    "ATH",
-                    &resp.nonce_tpm,
-                    &nonce_caller,
-                    key_bits,
-                )?
-            }
-        } else {
-            Vec::new()
-        };
-
+    pub fn new(auth_hash: TpmAlgId, resp: &TpmStartAuthSessionResponse) -> Result<Self, TaskError> {
         Ok(Self {
             context: TpmsContext {
                 sequence: 0,
@@ -91,8 +67,7 @@ impl TaskSession {
             },
             nonce_tpm: resp.nonce_tpm,
             attributes: TpmaSession::CONTINUE_SESSION,
-            hmac_key: Tpm2bAuth::try_from(hmac_key_bytes.as_slice())
-                .map_err(|_| TaskError::OutOfMemory)?,
+            hmac_key: Tpm2bAuth::default(),
             auth_hash,
         })
     }
@@ -229,7 +204,7 @@ pub enum TaskError {
 
 pub struct TaskState<'a> {
     pub device: Option<Rc<RefCell<Device>>>,
-    pub cache: &'a mut VtpmCache<'a>,
+    pub cache: VtpmCache<'a>,
     pub is_tty: bool,
     /// Holds all temporary sessions, indexed by their vhandle.
     pub sessions: HashMap<u32, TaskSession>,
@@ -241,11 +216,7 @@ pub struct TaskState<'a> {
 impl<'a> TaskState<'a> {
     /// Creates a new `Session`.
     #[must_use]
-    pub fn new(
-        device: Option<Rc<RefCell<Device>>>,
-        cache: &'a mut VtpmCache<'a>,
-        is_tty: bool,
-    ) -> Self {
+    pub fn new(device: Option<Rc<RefCell<Device>>>, cache: VtpmCache<'a>, is_tty: bool) -> Self {
         Self {
             device,
             cache,
@@ -449,7 +420,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut Device,
         policy_blob: &[u8],
-        policy_auths: &mut std::slice::Iter<'_, Vec<u8>>,
+        policy_auths: &mut std::slice::Iter<'_, TaskAuth>,
     ) -> Result<Option<TpmCommandList>, TaskError> {
         if policy_blob.is_empty() {
             return Ok(None);
@@ -490,11 +461,13 @@ impl<'a> TaskState<'a> {
                         expiration: 0,
                     });
 
-                let auth = policy_auths.next().cloned().unwrap_or_default();
-                let auth_cmd = build_password_session(auth.as_slice())?;
+                let auth = match policy_auths.next().cloned().unwrap_or_default() {
+                    TaskAuth::Password(val) => build_password_session(&val)?,
+                    _ => return Err(TaskError::InvalidAuth),
+                };
 
                 let mut auths = TpmAuthCommands::new();
-                auths.push(auth_cmd).map_err(|_| TaskError::OutOfMemory)?;
+                auths.push(auth).map_err(|_| TaskError::OutOfMemory)?;
                 (tpm_cmd, auths)
             } else {
                 let (body_blob, rest) =
@@ -544,15 +517,7 @@ impl<'a> TaskState<'a> {
         key_name_alg: TpmAlgId,
         policy_auths: &[TaskAuth],
     ) -> Result<Option<TaskAuth>, TaskError> {
-        let mut raw_auths = Vec::new();
-        for auth in policy_auths {
-            if let TaskAuth::Password(p) = auth {
-                raw_auths.push(p.clone());
-            } else {
-                return Err(TaskError::InvalidAuth);
-            }
-        }
-        let mut auth_iter = raw_auths.iter();
+        let mut auth_iter = policy_auths.iter();
 
         let Some(commands) = self.to_policy_command_list(device, policy_blob, &mut auth_iter)?
         else {
@@ -563,14 +528,14 @@ impl<'a> TaskState<'a> {
             return Ok(None);
         }
 
-        let (resp, nonce_caller) = TaskState::start_session(
+        let (resp, _) = TaskState::start_session(
             device,
             TpmSe::Policy,
             key_name_alg,
             (TpmRh::Null as u32).into(),
         )?;
 
-        let temp_session = TaskSession::new(key_name_alg, nonce_caller, &resp, &[])?;
+        let temp_session = TaskSession::new(key_name_alg, &resp)?;
         let vhandle = self.add_session(temp_session);
         let policy_phandle = resp.session_handle;
 
@@ -811,36 +776,38 @@ impl<'a> TaskState<'a> {
         for (i, auth) in auth_list.iter().enumerate() {
             let handle_param = handles.get(i).ok_or(TaskError::TrailingAuthorizations)?;
 
-            let TaskAuth::Session(vhandle) = auth else {
-                return Err(TaskError::InvalidAuth);
-            };
+            let auth_cmd = match auth {
+                TaskAuth::Session(vhandle) => {
+                    let session = self
+                        .get_session(*vhandle)
+                        .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
+                    let nonce_size = Hash::from(session.auth_hash).size();
+                    let mut nonce_bytes = vec![0; nonce_size];
+                    thread_rng().fill_bytes(&mut nonce_bytes);
+                    let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
+                        .map_err(|_| TaskError::OutOfMemory)?;
+                    let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
+                        (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
+                    } else {
+                        (None, None)
+                    };
 
-            let session = self
-                .get_session(*vhandle)
-                .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
-            let nonce_size = Hash::from(session.auth_hash).size();
-            let mut nonce_bytes = vec![0; nonce_size];
-            thread_rng().fill_bytes(&mut nonce_bytes);
-            let nonce_caller =
-                Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?;
-            let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
-                (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
-            } else {
-                (None, None)
+                    create_auth(
+                        device,
+                        session,
+                        &nonce_caller,
+                        &[],
+                        command.cc(),
+                        &[*handle_param],
+                        &params,
+                        current_nonce_decrypt,
+                        current_nonce_encrypt,
+                    )?
+                }
+                TaskAuth::Password(password) => build_password_session(password)?,
+                TaskAuth::Policy(_) => return Err(TaskError::InvalidAuth),
             };
-
-            let result = create_auth(
-                device,
-                session,
-                &nonce_caller,
-                &[],
-                command.cc(),
-                &[*handle_param],
-                &params,
-                current_nonce_decrypt,
-                current_nonce_encrypt,
-            )?;
-            built_auths.push(result);
+            built_auths.push(auth_cmd);
         }
         Ok(built_auths)
     }
@@ -872,25 +839,13 @@ impl<'a> TaskState<'a> {
         auth_list: &[TaskAuth],
     ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
         let mut effective_auth_list: Vec<TaskAuth> = Vec::with_capacity(1);
-        let mut virtual_handles: Vec<u32> = Vec::new();
-        let mut physical_handles: Vec<TpmHandle> = Vec::new();
+        let virtual_handles: Vec<u32> = Vec::new();
+        let physical_handles: Vec<TpmHandle> = Vec::new();
 
         if let Some(auth) = auth_list.first() {
             match auth {
-                TaskAuth::Password(password_vec) => {
-                    let (resp, nonce_caller) = TaskState::start_session(
-                        device,
-                        TpmSe::Hmac,
-                        TpmAlgId::Sha256,
-                        (TpmRh::Null as u32).into(),
-                    )?;
-                    let session =
-                        TaskSession::new(TpmAlgId::Sha256, nonce_caller, &resp, password_vec)?;
-                    let vhandle = self.add_session(session);
-
-                    virtual_handles.push(vhandle);
-                    physical_handles.push(resp.session_handle);
-                    effective_auth_list.push(TaskAuth::Session(vhandle));
+                TaskAuth::Password(_) => {
+                    effective_auth_list.push(auth.clone());
                 }
                 TaskAuth::Session(_) => {
                     effective_auth_list.push(auth.clone());
