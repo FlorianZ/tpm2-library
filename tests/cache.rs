@@ -138,6 +138,7 @@ mod tests {
             )
             .expect("Failed to save child");
 
+        cache.flush().expect("Failed to flush cache");
         drop(cache);
 
         let cache = VtpmCache::new(cache_path).expect("Failed to reload cache");

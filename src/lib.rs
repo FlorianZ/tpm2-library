@@ -352,13 +352,22 @@ impl<'a> VtpmCache<'a> {
         Ok(deleted_handles)
     }
 
+    /// Flushes all dirty contexts to disk.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any failure that occurs while saving dirty contexts.
+    pub fn flush(&mut self) -> Result<(), VtpmError> {
+        self.save()
+    }
+
     /// Finalizes the cache by saving all dirty contexts.
     ///
     /// This method is called automatically when the cache is dropped, but can
     /// be invoked earlier to force a flush at a known point. Calling it
     /// multiple times is safe.
     pub fn teardown(&mut self) {
-        if let Err(e) = self.save() {
+        if let Err(e) = self.flush() {
             log::error!("teardown: {e:#}");
         }
     }
