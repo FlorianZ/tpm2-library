@@ -218,19 +218,21 @@ impl Convert {
         input_bytes: &[u8],
         auth_args: &AuthArgs,
     ) -> Result<TpmKey, CommandError> {
-        let der_bytes = if let Ok(pems) = pem::parse_many(input_bytes) {
-            pems.into_iter()
-                .find(|p| {
-                    matches!(
+        let der_bytes = pem::parse_many(input_bytes)
+            .ok()
+            .and_then(|pems| {
+                pems.into_iter().find_map(|p| {
+                    if matches!(
                         p.tag(),
                         "PRIVATE KEY" | "RSA PRIVATE KEY" | "EC PRIVATE KEY"
-                    )
+                    ) {
+                        Some(p.contents().to_vec())
+                    } else {
+                        None
+                    }
                 })
-                .map(|p| p.contents().to_vec())
-                .ok_or(CommandError::InvalidFormat)?
-        } else {
-            input_bytes.to_vec()
-        };
+            })
+            .unwrap_or_else(|| input_bytes.to_vec());
 
         let mut rng = rand::thread_rng();
 

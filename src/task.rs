@@ -5,7 +5,7 @@
 use crate::{
     alg::AlgError,
     command::AuthArgs,
-    device::{RefreshAction, TpmCommandObject, TpmDevice, TpmDeviceError},
+    device::{TpmCommandObject, TpmDevice, TpmDeviceError},
     write_object,
 };
 use hex;
@@ -100,17 +100,17 @@ impl TaskSession {
     ///
     /// Returns [`Device`](crate::task::TaskError::Device) when the TPM
     /// transmission fails.
-    pub fn refresh(&mut self, device: &mut TpmDevice) -> Result<RefreshAction, TaskError> {
+    pub fn refresh(&mut self, device: &mut TpmDevice) -> Result<bool, TaskError> {
         let vhandle = self.handle();
         match device.load_context(self.context.clone()) {
             Ok(phandle) => match device.save_context(phandle) {
                 Ok(context) => {
                     self.context = context;
                     match device.flush_context(phandle) {
-                        Ok(()) => Ok(RefreshAction::Keep),
+                        Ok(()) => Ok(true),
                         Err(e) => {
                             log::warn!("vtpm:{vhandle:08x}: {e}");
-                            Ok(RefreshAction::Stale)
+                            Ok(false)
                         }
                     }
                 }
@@ -121,15 +121,13 @@ impl TaskSession {
                     }
                     if matches!(&e, TpmDeviceError::TpmRc(rc) if rc.base() == TpmRcBase::ReferenceH0)
                     {
-                        Ok(RefreshAction::Stale)
+                        Ok(false)
                     } else {
                         Err(e.into())
                     }
                 }
             },
-            Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                Ok(RefreshAction::Stale)
-            }
+            Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => Ok(false),
             Err(e) => Err(e.into()),
         }
     }
