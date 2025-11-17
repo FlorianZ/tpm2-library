@@ -2,7 +2,7 @@
 //! Copyright (c) 2025 Opinsys Oy
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{alg::AlgError, command::AuthArgs, write_object};
+use crate::{alg::AlgError, command::AuthArgs, io::write_object};
 
 use std::{
     cell::RefCell,

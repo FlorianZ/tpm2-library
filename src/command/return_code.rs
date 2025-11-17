@@ -2,7 +2,7 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 //! Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, command::CommandError, parse_hex_u32, task::TaskState};
+use crate::{cli::Task, command::CommandError, io::parse_hex_u32, task::TaskState};
 use clap::Args;
 use tpm2_protocol::data::TpmRc;
 

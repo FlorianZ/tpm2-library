@@ -19,7 +19,7 @@ use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bDigest, Tpm2bName, TpmCc},
     frame::{TpmAuthCommands, TpmCommand},
-    TpmHandle, TpmMarshal, TpmUnmarshal, TpmWriter,
+    TpmHandle, TpmMarshal, TpmProtocolError, TpmUnmarshal, TpmWriter,
 };
 use tpm2_tpmkey::{TpmKey, TpmKeyError, TpmPolicy, TpmPolicyCommand};
 
@@ -145,4 +145,30 @@ pub fn tpm_key_from_blob(policy: &TpmPolicy) -> Result<Vec<u8>, CommandError> {
     };
     buf.truncate(len);
     Ok(buf)
+}
+
+/// Serialize a type implementing `TpmMarshal` type into `Vec<u8>`.
+///
+/// # Errors
+///
+/// Returns a `TpmError` if the object cannot be serialized into the buffer.
+pub fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError> {
+    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+    let len = {
+        let mut writer = TpmWriter::new(&mut buf);
+        obj.marshal(&mut writer)?;
+        writer.len()
+    };
+    buf.truncate(len);
+    Ok(buf)
+}
+
+/// Parses a hexadecimal string with an optional "0x" prefix into a `u32`.
+///
+/// # Errors
+///
+/// Returns an error if the string is not a valid hexadecimal number.
+pub fn parse_hex_u32(hex_str: &str) -> Result<u32, std::num::ParseIntError> {
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    u32::from_str_radix(hex_str, 16)
 }

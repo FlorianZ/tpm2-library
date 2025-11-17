@@ -4,8 +4,7 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
-    io::read_file_input,
-    parse_hex_u32,
+    io::{parse_hex_u32, read_file_input},
     pcr::pcr_get_bank_list,
     task::TaskState,
 };

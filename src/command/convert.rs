@@ -5,9 +5,8 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
-    io::{read_file_input, write_key_data},
+    io::{read_file_input, write_key_data, write_object},
     task::{is_empty_auth, TaskAuth, TaskState},
-    write_object,
 };
 use clap::Args;
 use openssl::symm::{encrypt, Cipher};
