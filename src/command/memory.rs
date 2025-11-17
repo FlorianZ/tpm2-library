@@ -22,6 +22,8 @@ use tpm2_protocol::{
     TpmHandle,
 };
 
+const EK_CERT_RANGE: std::ops::RangeInclusive<u32> = 0x01C0_0000..=0x01C0_FFFF;
+
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[strum(serialize_all = "kebab-case")]
 enum MemoryHandleType {
@@ -84,7 +86,7 @@ impl Memory {
         auth_args: &AuthArgs,
     ) -> Result<(), CommandError> {
         with_device(session.device.clone(), |device| {
-            if (0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
+            if EK_CERT_RANGE.contains(&handle_val) {
                 Self::fetch_certificate(session, device, writer, handle_val, auth_args)
             } else {
                 match device.read_public(handle_val.into()) {
@@ -164,7 +166,7 @@ impl Memory {
                 auth_args,
                 |session, device, handle, auth_args| {
                     if let Some(handle_val) = handle.value() {
-                        if !(0x01C0_0000..=0x01C0_FFFF).contains(&handle_val) {
+                        if !EK_CERT_RANGE.contains(&handle_val) {
                             return Ok(None);
                         }
 
