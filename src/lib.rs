@@ -128,6 +128,8 @@ impl std::fmt::Debug for TpmDevice {
 }
 
 impl TpmDevice {
+    const NO_SESSIONS: &'static [TpmsAuthCommand] = &[];
+
     /// Opens the TPM device file and sets it to non-blocking mode.
     ///
     /// # Errors
@@ -396,9 +398,8 @@ impl TpmDevice {
             property,
             property_count: count,
         };
-        let sessions = vec![];
 
-        let (resp, _) = self.transmit(&cmd, &sessions)?;
+        let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
         let TpmGetCapabilityResponse {
             more_data,
             capability_data,
@@ -448,8 +449,7 @@ impl TpmDevice {
         let cmd = TpmReadPublicCommand {
             object_handle: handle,
         };
-        let sessions = vec![];
-        let (resp, _) = self.transmit(&cmd, &sessions)?;
+        let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
 
         let read_public_resp = resp
             .ReadPublic()
@@ -522,8 +522,7 @@ impl TpmDevice {
     /// contain `TPM2_ContextSave` data.
     pub fn save_context(&mut self, save_handle: TpmHandle) -> Result<TpmsContext, TpmDeviceError> {
         let cmd = TpmContextSaveCommand { save_handle };
-        let sessions = vec![];
-        let (resp, _) = self.transmit(&cmd, &sessions)?;
+        let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
         let save_resp = resp
             .ContextSave()
             .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ContextSave))?;
@@ -539,8 +538,7 @@ impl TpmDevice {
     /// contain `TPM2_ContextLoad` data.
     pub fn load_context(&mut self, context: TpmsContext) -> Result<TpmHandle, TpmDeviceError> {
         let cmd = TpmContextLoadCommand { context };
-        let sessions = vec![];
-        let (resp, _) = self.transmit(&cmd, &sessions)?;
+        let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
         let resp_inner = resp
             .ContextLoad()
             .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ContextLoad))?;
@@ -558,8 +556,7 @@ impl TpmDevice {
         let cmd = TpmFlushContextCommand {
             flush_handle: handle,
         };
-        let sessions = vec![];
-        self.transmit(&cmd, &sessions)?;
+        self.transmit(&cmd, Self::NO_SESSIONS)?;
         Ok(())
     }
 
