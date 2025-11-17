@@ -466,7 +466,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`] from [`TpmDevice::fetch_handles`].
+    /// Propagates any [`TpmDeviceError`] from [`TpmDevice::fetch_handles`] and
+    /// [`TpmDevice::read_public`], except for TPM reference and handle errors
+    /// with base [`TpmRcBase::ReferenceH0`] or [`TpmRcBase::Handle`], which are
+    /// treated as invalid handles and skipped.
     pub fn find_persistent(
         &mut self,
         target: &TpmtPublic,
@@ -474,10 +477,20 @@ impl TpmDevice {
         let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
         for handle in handles {
             if let Some(handle_val) = handle.value() {
-                if let Ok((public, name)) = self.read_public(handle_val.into()) {
-                    if public == *target {
-                        return Ok(Some((handle_val.into(), name)));
+                match self.read_public(handle_val.into()) {
+                    Ok((public, name)) => {
+                        if public == *target {
+                            return Ok(Some((handle_val.into(), name)));
+                        }
                     }
+                    Err(TpmDeviceError::TpmRc(rc)) => {
+                        let base = rc.base();
+                        if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
+                            continue;
+                        }
+                        return Err(TpmDeviceError::TpmRc(rc));
+                    }
+                    Err(e) => return Err(e),
                 }
             }
         }
@@ -488,7 +501,12 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`] from [`TpmDevice::fetch_handles`].
+    /// Propagates any [`TpmDeviceError`] from [`TpmDevice::fetch_handles`] and
+    /// [`TpmDevice::read_public`], except for TPM reference and handle errors
+    /// with base [`TpmRcBase::ReferenceH0`] or [`TpmRcBase::Handle`], which are
+    /// treated as invalid handles and skipped. Returns
+    /// [`TpmDeviceError::InvalidCrypto`] when computing the calculated name
+    /// with [`tpm_make_name`] fails.
     pub fn find_persistent_by_name(
         &mut self,
         target_name: &Tpm2bName,
@@ -496,17 +514,24 @@ impl TpmDevice {
         let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
         for handle in handles {
             if let Some(handle_val) = handle.value() {
-                let Ok((public, name)) = self.read_public(handle_val.into()) else {
-                    continue;
-                };
-                if name == *target_name {
-                    return Ok(Some(handle_val.into()));
-                }
-                let Ok(calculated_name) = tpm_make_name(&public) else {
-                    continue;
-                };
-                if calculated_name == *target_name {
-                    return Ok(Some(handle_val.into()));
+                match self.read_public(handle_val.into()) {
+                    Ok((public, name)) => {
+                        if name == *target_name {
+                            return Ok(Some(handle_val.into()));
+                        }
+                        let calculated_name = tpm_make_name(&public)?;
+                        if calculated_name == *target_name {
+                            return Ok(Some(handle_val.into()));
+                        }
+                    }
+                    Err(TpmDeviceError::TpmRc(rc)) => {
+                        let base = rc.base();
+                        if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
+                            continue;
+                        }
+                        return Err(TpmDeviceError::TpmRc(rc));
+                    }
+                    Err(e) => return Err(e),
                 }
             }
         }
