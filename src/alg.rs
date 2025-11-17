@@ -6,7 +6,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use tpm2_crypto::{EccCurve, Hash};
 use tpm2_protocol::data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms};
-use tpm2_tpmkey::Error as TpmKeyError;
+use tpm2_tpmkey::TpmKeyError;
 
 #[derive(Debug, Error)]
 pub enum AlgError {

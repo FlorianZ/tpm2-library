@@ -19,7 +19,7 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand},
     TpmHandle, TpmMarshal, TpmUnmarshal, TpmWriter,
 };
-use tpm2_tpmkey::{Error as TpmKeyError, TpmKey, TpmPolicy, TpmPolicyCommand};
+use tpm2_tpmkey::{TpmKey, TpmKeyError, TpmPolicy, TpmPolicyCommand};
 
 /// Reads data from a file path or from stdin if the path is not provided.
 ///
