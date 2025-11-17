@@ -31,8 +31,8 @@ use tpm2_protocol::{
         TpmtPublic, TpmtSymDefObject,
     },
     frame::{
-        TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
-        TpmResponse, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
+        TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmResponse,
+        TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
     TpmHandle, TpmSized, TpmUnmarshal,
 };
@@ -47,7 +47,6 @@ pub struct TaskSession {
     pub context: TpmsContext,
     pub nonce_tpm: Tpm2bNonce,
     pub attributes: TpmaSession,
-    pub hmac_key: Tpm2bAuth,
     pub auth_hash: TpmAlgId,
 }
 
@@ -67,7 +66,6 @@ impl TaskSession {
             },
             nonce_tpm: resp.nonce_tpm,
             attributes: TpmaSession::CONTINUE_SESSION,
-            hmac_key: Tpm2bAuth::default(),
             auth_hash,
         })
     }
@@ -734,48 +732,12 @@ impl<'a> TaskState<'a> {
     /// session handle in `auth_list` is not found.
     /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a `Policy`
     /// auth class is encountered.
-    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when
-    /// serializing the command fails.
-    /// Returns [`TrailingAuthorizations`](crate::TaskError::TrailingAuthorizations)
-    /// when more auth values are provided than handles requiring authorization.
-    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when
-    /// an auth struct is too large.
-    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
-    /// Returns [`Crypto`](crate::TaskError::Crypto) when an auth calculation
-    /// fails.
-    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when a cache operation fails.
-    fn build_auth_area<C: TpmFrame>(
-        &self,
-        device: &mut Device,
-        command: &C,
-        handles: &[u32],
-        auth_list: &[TaskAuth],
-    ) -> Result<Vec<TpmsAuthCommand>, TaskError> {
+    /// Returns [`OutOfMemory`](crate::TaskError::OutOfMemory) when
+    /// an auth struct is too large or memory allocation fails.
+    fn build_auth_area(&self, auth_list: &[TaskAuth]) -> Result<Vec<TpmsAuthCommand>, TaskError> {
         let mut built_auths = Vec::new();
-        let params = write_object(command).map_err(|_| TaskError::MalformedData)?;
-
-        let mut nonce_decrypt: Option<Tpm2bNonce> = None;
-        let mut nonce_encrypt: Option<Tpm2bNonce> = None;
 
         for auth in auth_list {
-            if let TaskAuth::Session(vhandle) = auth {
-                if let Some(session) = self.get_session(*vhandle) {
-                    if session.attributes.contains(TpmaSession::DECRYPT) {
-                        nonce_decrypt = Some(session.nonce_tpm);
-                    }
-                    if session.attributes.contains(TpmaSession::ENCRYPT) {
-                        nonce_encrypt = Some(session.nonce_tpm);
-                    }
-                }
-                if nonce_decrypt.is_some() && nonce_encrypt.is_some() {
-                    break;
-                }
-            }
-        }
-
-        for (i, auth) in auth_list.iter().enumerate() {
-            let handle_param = handles.get(i).ok_or(TaskError::TrailingAuthorizations)?;
-
             let auth_cmd = match auth {
                 TaskAuth::Session(vhandle) => {
                     let session = self
@@ -786,23 +748,8 @@ impl<'a> TaskState<'a> {
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
                         .map_err(|_| TaskError::OutOfMemory)?;
-                    let (current_nonce_decrypt, current_nonce_encrypt) = if i == 0 {
-                        (nonce_decrypt.as_ref(), nonce_encrypt.as_ref())
-                    } else {
-                        (None, None)
-                    };
 
-                    create_auth(
-                        device,
-                        session,
-                        &nonce_caller,
-                        &[],
-                        command.cc(),
-                        &[*handle_param],
-                        &params,
-                        current_nonce_decrypt,
-                        current_nonce_encrypt,
-                    )?
+                    create_auth(session, &nonce_caller, &[])?
                 }
                 TaskAuth::Password(password) => build_password_session(password)?,
                 TaskAuth::Policy(_) => return Err(TaskError::InvalidAuth),
@@ -823,19 +770,13 @@ impl<'a> TaskState<'a> {
     /// session handle is not found.
     /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a `Policy`
     /// auth class is encountered.
-    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when
-    /// serializing the command fails.
-    /// Returns [`TrailingAuthorizations`](crate::TaskError::TrailingAuthorizations)
-    /// when more auth values are provided than handles.
     /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when
     /// an auth struct is too large.
-    /// Returns [`Crypto`](crate::TaskError::Crypto) when an auth calculation
-    /// fails.
     pub fn execute<C: TpmCommandObject>(
         &mut self,
         device: &mut Device,
         command: &C,
-        handles: &[u32],
+        _handles: &[u32],
         auth_list: &[TaskAuth],
     ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
         let mut effective_auth_list: Vec<TaskAuth> = Vec::with_capacity(1);
@@ -864,7 +805,7 @@ impl<'a> TaskState<'a> {
         spinner.set_message("Waiting for TPM...");
         spinner.enable_steady_tick(Duration::from_millis(100));
 
-        let sessions = self.build_auth_area(device, command, handles, &effective_auth_list)?;
+        let sessions = self.build_auth_area(&effective_auth_list)?;
 
         let (resp, auth_responses) = match device.transmit(command, &sessions) {
             Ok((resp, auth_responses)) => {
@@ -914,14 +855,8 @@ impl<'a> TaskState<'a> {
     /// session handle is not found.
     /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a `Policy`
     /// auth class is encountered.
-    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when
-    /// serializing the command fails.
-    /// Returns [`TrailingAuthorizations`](crate::TaskError::TrailingAuthorizations)
-    /// when more auth values are provided than handles.
     /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when
     /// an auth struct is too large.
-    /// Returns [`Crypto`](crate::TaskError::Crypto) when an auth calculation
-    /// fails.
     pub fn evict_control(
         &mut self,
         device: &mut Device,
@@ -992,102 +927,21 @@ impl<'a> TaskState<'a> {
     }
 }
 
-/// Creates an authorization command structure for an HMAC session.
+/// Creates an authorization command structure for a session.
 ///
 /// # Errors
 ///
-/// Returns a [`TaskError`] on cryptographic failures or if TPM data structures
-/// cannot be serialized.
-#[allow(clippy::too_many_arguments)]
+/// Returns a [`TaskError`] if TPM data structures cannot be serialized.
 fn create_auth(
-    device: &mut Device,
     session: &TaskSession,
     nonce_caller: &Tpm2bNonce,
     auth_value: &[u8],
-    command_code: TpmCc,
-    handles: &[u32],
-    parameters: &[u8],
-    nonce_decrypt: Option<&Tpm2bNonce>,
-    nonce_encrypt: Option<&Tpm2bNonce>,
 ) -> Result<TpmsAuthCommand, TaskError> {
-    let handle_names: Vec<Tpm2bName> = handles
-        .iter()
-        .map(|&handle| {
-            let handle_type = (handle >> 24) as u8;
-            if handle_type == TpmHt::Transient as u8 || handle_type == TpmHt::Persistent as u8 {
-                device
-                    .read_public(handle.into())
-                    .map(|(_, name)| name)
-                    .map_err(TaskError::Device)
-            } else {
-                let mut buf = [0u8; TpmHandle::SIZE];
-                let mut pos = 0;
-                handle.to_be_bytes().iter().for_each(|b| {
-                    if pos < buf.len() {
-                        buf[pos] = *b;
-                        pos += 1;
-                    }
-                });
-                let len = pos;
-
-                if let Ok(name) = Tpm2bName::try_from(&buf[..len]) {
-                    Ok(name)
-                } else {
-                    Err(TaskError::OutOfMemory)
-                }
-            }
-        })
-        .collect::<Result<_, TaskError>>()?;
-
-    let command_code_bytes = (command_code as u32).to_be_bytes();
-
-    let mut cp_hash_chunks: Vec<&[u8]> = Vec::with_capacity(2 + handle_names.len());
-    cp_hash_chunks.push(&command_code_bytes);
-    for name in &handle_names {
-        cp_hash_chunks.push(name.as_ref());
-    }
-    cp_hash_chunks.push(parameters);
-
-    let cp_hash = Hash::from(session.auth_hash).digest(&cp_hash_chunks)?;
-
-    let hmac_bytes = if (session.context.saved_handle.0 >> 24) as u8 == TpmHt::HmacSession as u8 {
-        let hmac_key = [session.hmac_key.as_ref(), auth_value].concat();
-        if hmac_key.is_empty() {
-            return Ok(TpmsAuthCommand {
-                session_handle: session.context.saved_handle,
-                nonce: *nonce_caller,
-                session_attributes: session.attributes,
-                hmac: Tpm2bAuth::default(),
-            });
-        }
-
-        let mut hmac_payload: Vec<&[u8]> = Vec::with_capacity(8);
-        hmac_payload.push(&cp_hash);
-        hmac_payload.push(nonce_caller.as_ref());
-        hmac_payload.push(session.nonce_tpm.as_ref());
-
-        if let Some(nonce) = nonce_decrypt {
-            hmac_payload.push(nonce.as_ref());
-        }
-        if let Some(nonce) = nonce_encrypt {
-            if nonce_decrypt.map_or(true, |d| d.as_ref() != nonce.as_ref()) {
-                hmac_payload.push(nonce.as_ref());
-            }
-        }
-
-        let attribute_bits = [session.attributes.bits()];
-        hmac_payload.push(&attribute_bits);
-
-        Hash::from(session.auth_hash).hmac(&hmac_key, &hmac_payload)?
-    } else {
-        Vec::new()
-    };
-
     Ok(TpmsAuthCommand {
         session_handle: session.context.saved_handle,
         nonce: *nonce_caller,
         session_attributes: session.attributes,
-        hmac: Tpm2bAuth::try_from(hmac_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?,
+        hmac: Tpm2bAuth::try_from(auth_value).map_err(|_| TaskError::OutOfMemory)?,
     })
 }
 
