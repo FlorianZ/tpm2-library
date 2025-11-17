@@ -5,7 +5,7 @@ use thiserror::Error;
 
 /// Error type for encoding/decoding and data validation.
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum TpmKeyError {
     /// Unsupported or inconsistent key type for this container.
     #[error("invalid key type")]
     InvalidKeyType,

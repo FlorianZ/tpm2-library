@@ -168,7 +168,7 @@ impl TpmPolicyCommand {
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when `cc` is not valid.
     /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when `body` violates
     /// command-specific constraints (e.g., a zero-parameter command with data).
-    pub fn from_raw(cc: TpmCc, body: impl Into<Vec<u8>>) -> Result<Self, Error> {
+    pub fn from_raw(cc: TpmCc, body: impl Into<Vec<u8>>) -> Result<Self, TpmKeyError> {
         let body = body.into();
         validate_policy_command(cc, &body)?;
         Ok(Self { cc, body })
@@ -180,14 +180,14 @@ impl TpmPolicyCommand {
     ///
     /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when `cc` is not
     /// one of the zero-parameter commands.
-    pub fn zero(cc: TpmCc) -> Result<Self, Error> {
+    pub fn zero(cc: TpmCc) -> Result<Self, TpmKeyError> {
         if ZERO_PARAM_CMDS.contains(&cc) {
             Ok(Self {
                 cc,
                 body: Vec::new(),
             })
         } else {
-            Err(Error::InvalidPolicy)
+            Err(TpmKeyError::InvalidPolicy)
         }
     }
 
@@ -200,9 +200,9 @@ impl TpmPolicyCommand {
         key_sign: &Tpm2bPublic,
         policy_ref: &Tpm2bDigest,
         policy_signature: &TpmtSignature,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, TpmKeyError> {
         let body = tpm_marshal_array(&[key_sign, policy_ref, policy_signature])
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmKeyError::OperationFailed)?;
         Ok(Self {
             cc: TpmCc::PolicyAuthorize,
             body,
@@ -218,9 +218,9 @@ impl TpmPolicyCommand {
         object_handle_hint: TpmHandle,
         object_name: &Tpm2bName,
         policy_ref: &Tpm2bDigest,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, TpmKeyError> {
         let body = tpm_marshal_array(&[&object_handle_hint, object_name, policy_ref])
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmKeyError::OperationFailed)?;
         Ok(Self {
             cc: TpmCc::PolicySecret,
             body,
@@ -252,15 +252,15 @@ impl TpmPolicyCommand {
     ///
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when `cc` has no mapping
     /// to a TPM command in this crate.
-    pub fn to_command(&self) -> Result<(TpmCommand, TpmAuthCommands), Error> {
+    pub fn to_command(&self) -> Result<(TpmCommand, TpmAuthCommands), TpmKeyError> {
         let auth = TpmAuthCommands::new();
         let command = match self.cc {
             TpmCc::PolicyPcr => self.to_policy_pcr_command()?,
             TpmCc::PolicyOr => self.to_policy_or_command()?,
             TpmCc::PolicySecret => self.to_policy_secret_command()?,
-            TpmCc::PolicyAuthorize => return Err(Error::InvalidPolicy),
+            TpmCc::PolicyAuthorize => return Err(TpmKeyError::InvalidPolicy),
             cc if ZERO_PARAM_CMDS.contains(&cc) => self.to_policy_zero_command()?,
-            other => return Err(Error::InvalidCc(other as u32)),
+            other => return Err(TpmKeyError::InvalidCc(other as u32)),
         };
         Ok((command, auth))
     }
@@ -277,7 +277,7 @@ impl TpmPolicyCommand {
     /// context.
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when the command code is
     /// not supported by this conversion.
-    pub fn from_command(cmd: &TpmCommand, _auth: &TpmAuthCommands) -> Result<Self, Error> {
+    pub fn from_command(cmd: &TpmCommand, _auth: &TpmAuthCommands) -> Result<Self, TpmKeyError> {
         match cmd {
             TpmCommand::PolicyPcr(ref inner) => Self::from_policy_pcr_command(inner),
             TpmCommand::PolicyOr(inner) => Self::from_policy_or_command(inner),
@@ -289,13 +289,13 @@ impl TpmPolicyCommand {
             | TpmCommand::PolicyGetDigest(_)
             | TpmCommand::PolicyRestart(_)
             | TpmCommand::PolicyPhysicalPresence(_) => Ok(Self::from_policy_zero_command(cmd.cc())),
-            _ => Err(Error::InvalidCc(cmd.cc() as u32)),
+            _ => Err(TpmKeyError::InvalidCc(cmd.cc() as u32)),
         }
     }
 
-    fn to_policy_zero_command(&self) -> Result<TpmCommand, Error> {
+    fn to_policy_zero_command(&self) -> Result<TpmCommand, TpmKeyError> {
         if !self.body.is_empty() {
-            return Err(Error::InvalidPolicy);
+            return Err(TpmKeyError::InvalidPolicy);
         }
 
         match self.cc {
@@ -316,7 +316,7 @@ impl TpmPolicyCommand {
                     policy_session: POLICY_SESSION,
                 },
             )),
-            _ => Err(Error::InvalidCc(self.cc as u32)),
+            _ => Err(TpmKeyError::InvalidCc(self.cc as u32)),
         }
     }
 
@@ -327,12 +327,13 @@ impl TpmPolicyCommand {
         }
     }
 
-    fn to_policy_pcr_command(&self) -> Result<TpmCommand, Error> {
+    fn to_policy_pcr_command(&self) -> Result<TpmCommand, TpmKeyError> {
         let (pcr_digest, rest) =
-            Tpm2bDigest::unmarshal(self.body.as_slice()).map_err(|_| Error::InvalidPolicy)?;
-        let (pcrs, rest) = TpmlPcrSelection::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+            Tpm2bDigest::unmarshal(self.body.as_slice()).map_err(|_| TpmKeyError::InvalidPolicy)?;
+        let (pcrs, rest) =
+            TpmlPcrSelection::unmarshal(rest).map_err(|_| TpmKeyError::InvalidPolicy)?;
         if !rest.is_empty() {
-            return Err(Error::InvalidPolicy);
+            return Err(TpmKeyError::InvalidPolicy);
         }
 
         let inner = TpmPolicyPcrCommand {
@@ -344,9 +345,9 @@ impl TpmPolicyCommand {
         Ok(TpmCommand::PolicyPcr(inner))
     }
 
-    fn from_policy_pcr_command(inner: &TpmPolicyPcrCommand) -> Result<Self, Error> {
+    fn from_policy_pcr_command(inner: &TpmPolicyPcrCommand) -> Result<Self, TpmKeyError> {
         let buf = tpm_marshal_array(&[&inner.pcr_digest, &inner.pcrs])
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmKeyError::OperationFailed)?;
 
         Ok(Self {
             cc: TpmCc::PolicyPcr,
@@ -354,11 +355,11 @@ impl TpmPolicyCommand {
         })
     }
 
-    fn to_policy_or_command(&self) -> Result<TpmCommand, Error> {
+    fn to_policy_or_command(&self) -> Result<TpmCommand, TpmKeyError> {
         let (p_hash_list, rest) =
-            TpmlDigest::unmarshal(self.body.as_slice()).map_err(|_| Error::InvalidPolicy)?;
+            TpmlDigest::unmarshal(self.body.as_slice()).map_err(|_| TpmKeyError::InvalidPolicy)?;
         if !rest.is_empty() {
-            return Err(Error::InvalidPolicy);
+            return Err(TpmKeyError::InvalidPolicy);
         }
 
         let inner = TpmPolicyOrCommand {
@@ -369,8 +370,9 @@ impl TpmPolicyCommand {
         Ok(TpmCommand::PolicyOr(inner))
     }
 
-    fn from_policy_or_command(inner: &TpmPolicyOrCommand) -> Result<Self, Error> {
-        let buf = tpm_marshal_array(&[&inner.p_hash_list]).map_err(|_| Error::OperationFailed)?;
+    fn from_policy_or_command(inner: &TpmPolicyOrCommand) -> Result<Self, TpmKeyError> {
+        let buf =
+            tpm_marshal_array(&[&inner.p_hash_list]).map_err(|_| TpmKeyError::OperationFailed)?;
 
         Ok(Self {
             cc: TpmCc::PolicyOr,
@@ -378,13 +380,14 @@ impl TpmPolicyCommand {
         })
     }
 
-    fn to_policy_secret_command(&self) -> Result<TpmCommand, Error> {
+    fn to_policy_secret_command(&self) -> Result<TpmCommand, TpmKeyError> {
         let (auth_handle, rest) =
-            TpmHandle::unmarshal(self.body.as_slice()).map_err(|_| Error::InvalidPolicy)?;
-        let (_, rest) = Tpm2bName::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
-        let (policy_ref, rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+            TpmHandle::unmarshal(self.body.as_slice()).map_err(|_| TpmKeyError::InvalidPolicy)?;
+        let (_, rest) = Tpm2bName::unmarshal(rest).map_err(|_| TpmKeyError::InvalidPolicy)?;
+        let (policy_ref, rest) =
+            Tpm2bDigest::unmarshal(rest).map_err(|_| TpmKeyError::InvalidPolicy)?;
         if !rest.is_empty() {
-            return Err(Error::InvalidPolicy);
+            return Err(TpmKeyError::InvalidPolicy);
         }
 
         let inner = TpmPolicySecretCommand {
@@ -413,9 +416,9 @@ impl TpmPolicyCommand {
     pub fn from_policy_secret(
         inner: &TpmPolicySecretCommand,
         object_name: &Tpm2bName,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, TpmKeyError> {
         let buf = tpm_marshal_array(&[&inner.auth_handle, object_name, &inner.policy_ref])
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmKeyError::OperationFailed)?;
 
         Ok(Self {
             cc: TpmCc::PolicySecret,
@@ -443,7 +446,7 @@ impl TpmPolicy {
     /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) or
     /// [`InvalidCc`](crate::Error::InvalidCc) when any policy step cannot be
     /// converted into a TPM command.
-    pub fn to_command_list(&self) -> Result<TpmCommandList, Error> {
+    pub fn to_command_list(&self) -> Result<TpmCommandList, TpmKeyError> {
         self.policy
             .iter()
             .map(TpmPolicyCommand::to_command)
@@ -464,7 +467,7 @@ impl TpmPolicy {
     pub fn from_command_list(
         name: Option<String>,
         commands: &[(TpmCommand, TpmAuthCommands)],
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, TpmKeyError> {
         let policy = commands
             .iter()
             .map(|(cmd, auth)| TpmPolicyCommand::from_command(cmd, auth))
@@ -491,7 +494,7 @@ pub struct TpmKey {
 fn key_type_to_oid_for_encode(
     key_type: TpmAlgId,
     has_secret: bool,
-) -> Result<ObjectIdentifier, Error> {
+) -> Result<ObjectIdentifier, TpmKeyError> {
     match key_type {
         TpmAlgId::Rsa | TpmAlgId::Ecc => {
             if has_secret {
@@ -501,7 +504,7 @@ fn key_type_to_oid_for_encode(
             }
         }
         TpmAlgId::KeyedHash => Ok(OID_SEALED_DATA.clone()),
-        _ => Err(Error::InvalidKeyType),
+        _ => Err(TpmKeyError::InvalidKeyType),
     }
 }
 
@@ -535,7 +538,7 @@ impl TpmKey {
     /// structures cannot be marshalled to bytes.
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
     /// is not `Rsa`, `Ecc`, or `KeyedHash`.
-    pub fn to_pem(&self) -> Result<String, Error> {
+    pub fn to_pem(&self) -> Result<String, TpmKeyError> {
         let der = self.to_der()?;
         let pem = Pem::new("TSS2 PRIVATE KEY", der);
         let cfg = EncodeConfig::new().set_line_ending(LineEnding::LF);
@@ -561,12 +564,12 @@ impl TpmKey {
     /// an unknown TPM command code.
     /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
     /// an *Importable Key* but `secret` is absent.
-    pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, Error> {
+    pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let pem = pem::parse(pem_bytes)?;
         if pem.tag() == "TSS2 PRIVATE KEY" {
             Self::from_der(pem.contents())
         } else {
-            Err(Error::InvalidPemTag(pem.tag().to_string()))
+            Err(TpmKeyError::InvalidPemTag(pem.tag().to_string()))
         }
     }
 
@@ -579,9 +582,9 @@ impl TpmKey {
     /// structures cannot be marshalled to bytes.
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
     /// is not `Rsa`, `Ecc`, or `KeyedHash`.
-    pub fn to_der(&self) -> Result<Vec<u8>, Error> {
+    pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
         let asn1 = self.to_asn1()?;
-        rasn::der::encode(&asn1).map_err(|_| Error::InvalidDer)
+        rasn::der::encode(&asn1).map_err(|_| TpmKeyError::InvalidDer)
     }
 
     /// Parse a key from DER bytes.
@@ -600,12 +603,12 @@ impl TpmKey {
     /// an unknown TPM command code.
     /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
     /// an *Importable Key* but `secret` is absent.
-    pub fn from_der(der_bytes: &[u8]) -> Result<Self, Error> {
-        let asn1: TpmKeyAsn1 = rasn::der::decode(der_bytes).map_err(|_| Error::InvalidDer)?;
+    pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
+        let asn1: TpmKeyAsn1 = rasn::der::decode(der_bytes).map_err(|_| TpmKeyError::InvalidDer)?;
         Self::from_asn1(asn1)
     }
 
-    fn to_asn1(&self) -> Result<TpmKeyAsn1, Error> {
+    fn to_asn1(&self) -> Result<TpmKeyAsn1, TpmKeyError> {
         let rsa_parent = self
             .parent_public
             .as_ref()
@@ -613,7 +616,7 @@ impl TpmKey {
 
         let parent_pubkey_bytes = if let Some(parent_public) = &self.parent_public {
             Some(OctetString::copy_from_slice(
-                &tpm_marshal_array(&[parent_public]).map_err(|_| Error::OperationFailed)?,
+                &tpm_marshal_array(&[parent_public]).map_err(|_| TpmKeyError::OperationFailed)?,
             ))
         } else {
             None
@@ -643,20 +646,22 @@ impl TpmKey {
             parent_pubkey: parent_pubkey_bytes,
             parent: self.parent_handle.0,
             pubkey: OctetString::copy_from_slice(
-                &tpm_marshal_array(&[&self.public]).map_err(|_| Error::OperationFailed)?,
+                &tpm_marshal_array(&[&self.public]).map_err(|_| TpmKeyError::OperationFailed)?,
             ),
             privkey: OctetString::copy_from_slice(
-                &tpm_marshal_array(&[&self.private]).map_err(|_| Error::OperationFailed)?,
+                &tpm_marshal_array(&[&self.private]).map_err(|_| TpmKeyError::OperationFailed)?,
             ),
         })
     }
 
-    fn from_asn1(asn1: TpmKeyAsn1) -> Result<Self, Error> {
-        let (public, _) = Tpm2bPublic::unmarshal(&asn1.pubkey).map_err(|_| Error::InvalidDer)?;
-        let (private, _) = Tpm2bPrivate::unmarshal(&asn1.privkey).map_err(|_| Error::InvalidDer)?;
+    fn from_asn1(asn1: TpmKeyAsn1) -> Result<Self, TpmKeyError> {
+        let (public, _) =
+            Tpm2bPublic::unmarshal(&asn1.pubkey).map_err(|_| TpmKeyError::InvalidDer)?;
+        let (private, _) =
+            Tpm2bPrivate::unmarshal(&asn1.privkey).map_err(|_| TpmKeyError::InvalidDer)?;
         let parent_public = if let Some(parent_bytes) = &asn1.parent_pubkey {
             let (parent_pub, _) =
-                Tpm2bPublic::unmarshal(parent_bytes).map_err(|_| Error::InvalidDer)?;
+                Tpm2bPublic::unmarshal(parent_bytes).map_err(|_| TpmKeyError::InvalidDer)?;
             Some(parent_pub)
         } else {
             None
@@ -666,19 +671,19 @@ impl TpmKey {
 
         if asn1.key_type == OID_LOADABLE_KEY || asn1.key_type == OID_IMPORTABLE_KEY {
             if !(key_type == TpmAlgId::Rsa || key_type == TpmAlgId::Ecc) {
-                return Err(Error::InvalidKeyType);
+                return Err(TpmKeyError::InvalidKeyType);
             }
         } else if asn1.key_type == OID_SEALED_DATA {
             if key_type != TpmAlgId::KeyedHash {
-                return Err(Error::InvalidKeyType);
+                return Err(TpmKeyError::InvalidKeyType);
             }
         } else {
-            return Err(Error::InvalidDerTag(asn1.key_type.to_string()));
+            return Err(TpmKeyError::InvalidDerTag(asn1.key_type.to_string()));
         }
 
         let is_importable_oid = asn1.key_type == OID_IMPORTABLE_KEY;
         if is_importable_oid && asn1.secret.is_none() {
-            return Err(Error::MissingSecret);
+            return Err(TpmKeyError::MissingSecret);
         }
 
         let policy = asn1.policy.map(TpmPolicy::try_from).transpose()?;
@@ -708,7 +713,7 @@ impl TpmKey {
 }
 
 impl TryFrom<&[u8]> for TpmKey {
-    type Error = Error;
+    type Error = TpmKeyError;
 
     /// Parse a key from DER bytes.
     ///
@@ -726,11 +731,11 @@ impl TryFrom<&[u8]> for TpmKey {
 }
 
 impl TryFrom<TpmPolicyCommandAsn1> for TpmPolicyCommand {
-    type Error = Error;
+    type Error = TpmKeyError;
 
     fn try_from(val: TpmPolicyCommandAsn1) -> Result<Self, Self::Error> {
-        let cc =
-            TpmCc::try_from(val.command_code).map_err(|_| Error::InvalidCc(val.command_code))?;
+        let cc = TpmCc::try_from(val.command_code)
+            .map_err(|_| TpmKeyError::InvalidCc(val.command_code))?;
         let body = val.command_policy.as_ref().to_vec();
         validate_policy_command(cc, &body)?;
         Ok(Self { cc, body })
@@ -738,7 +743,7 @@ impl TryFrom<TpmPolicyCommandAsn1> for TpmPolicyCommand {
 }
 
 impl TryFrom<TpmAuthPolicyAsn1> for TpmPolicy {
-    type Error = Error;
+    type Error = TpmKeyError;
 
     fn try_from(val: TpmAuthPolicyAsn1) -> Result<Self, Self::Error> {
         let cmds = val
@@ -755,7 +760,7 @@ impl TryFrom<TpmAuthPolicyAsn1> for TpmPolicy {
 }
 
 impl TryFrom<Vec<TpmPolicyCommandAsn1>> for TpmPolicy {
-    type Error = Error;
+    type Error = TpmKeyError;
 
     fn try_from(cmds: Vec<TpmPolicyCommandAsn1>) -> Result<Self, Self::Error> {
         let cmds = cmds
@@ -802,10 +807,10 @@ const ZERO_PARAM_CMDS: &[TpmCc] = &[
     TpmCc::PolicyPhysicalPresence,
 ];
 
-fn validate_policy_command(cc: TpmCc, body: &[u8]) -> Result<(), Error> {
+fn validate_policy_command(cc: TpmCc, body: &[u8]) -> Result<(), TpmKeyError> {
     if ZERO_PARAM_CMDS.contains(&cc) {
         if !body.is_empty() {
-            return Err(Error::InvalidPolicy);
+            return Err(TpmKeyError::InvalidPolicy);
         }
         return Ok(());
     }
@@ -819,39 +824,39 @@ fn validate_policy_command(cc: TpmCc, body: &[u8]) -> Result<(), Error> {
     }
 }
 
-fn validate_policy_authorize(body: &[u8]) -> Result<(), Error> {
-    let (.., rest) = Tpm2bPublic::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
-    let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
-    let (.., rest) = TpmtSignature::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+fn validate_policy_authorize(body: &[u8]) -> Result<(), TpmKeyError> {
+    let (.., rest) = Tpm2bPublic::unmarshal(body).map_err(|_| TpmKeyError::InvalidPolicy)?;
+    let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| TpmKeyError::InvalidPolicy)?;
+    let (.., rest) = TpmtSignature::unmarshal(rest).map_err(|_| TpmKeyError::InvalidPolicy)?;
     if !rest.is_empty() {
-        return Err(Error::InvalidPolicy);
+        return Err(TpmKeyError::InvalidPolicy);
     }
     Ok(())
 }
 
-fn validate_policy_secret(body: &[u8]) -> Result<(), Error> {
-    let (.., rest) = TpmHandle::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
-    let (.., rest) = Tpm2bName::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
-    let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+fn validate_policy_secret(body: &[u8]) -> Result<(), TpmKeyError> {
+    let (.., rest) = TpmHandle::unmarshal(body).map_err(|_| TpmKeyError::InvalidPolicy)?;
+    let (.., rest) = Tpm2bName::unmarshal(rest).map_err(|_| TpmKeyError::InvalidPolicy)?;
+    let (.., rest) = Tpm2bDigest::unmarshal(rest).map_err(|_| TpmKeyError::InvalidPolicy)?;
     if !rest.is_empty() {
-        return Err(Error::InvalidPolicy);
+        return Err(TpmKeyError::InvalidPolicy);
     }
     Ok(())
 }
 
-fn validate_policy_pcr(body: &[u8]) -> Result<(), Error> {
-    let (.., rest) = Tpm2bDigest::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
-    let (.., rest) = TpmlPcrSelection::unmarshal(rest).map_err(|_| Error::InvalidPolicy)?;
+fn validate_policy_pcr(body: &[u8]) -> Result<(), TpmKeyError> {
+    let (.., rest) = Tpm2bDigest::unmarshal(body).map_err(|_| TpmKeyError::InvalidPolicy)?;
+    let (.., rest) = TpmlPcrSelection::unmarshal(rest).map_err(|_| TpmKeyError::InvalidPolicy)?;
     if !rest.is_empty() {
-        return Err(Error::InvalidPolicy);
+        return Err(TpmKeyError::InvalidPolicy);
     }
     Ok(())
 }
 
-fn validate_policy_or(body: &[u8]) -> Result<(), Error> {
-    let (.., rest) = TpmlDigest::unmarshal(body).map_err(|_| Error::InvalidPolicy)?;
+fn validate_policy_or(body: &[u8]) -> Result<(), TpmKeyError> {
+    let (.., rest) = TpmlDigest::unmarshal(body).map_err(|_| TpmKeyError::InvalidPolicy)?;
     if !rest.is_empty() {
-        return Err(Error::InvalidPolicy);
+        return Err(TpmKeyError::InvalidPolicy);
     }
     Ok(())
 }
@@ -886,7 +891,7 @@ mod tests {
     fn zero_param_non_empty_err(#[case] cc: TpmCc) {
         assert!(matches!(
             validate_policy_command(cc, &[0x00]),
-            Err(Error::InvalidPolicy)
+            Err(TpmKeyError::InvalidPolicy)
         ));
         assert!(TpmPolicyCommand::from_raw(cc, vec![0]).is_err());
     }
@@ -902,7 +907,7 @@ mod tests {
         let body = [0u8, 0, 0, 0, 0, 0, 0];
         assert!(matches!(
             validate_policy_command(TpmCc::PolicySecret, &body),
-            Err(Error::InvalidPolicy)
+            Err(TpmKeyError::InvalidPolicy)
         ));
     }
 
@@ -910,7 +915,7 @@ mod tests {
     fn policy_authorize_empty_err() {
         assert!(matches!(
             validate_policy_command(TpmCc::PolicyAuthorize, &[]),
-            Err(Error::InvalidPolicy)
+            Err(TpmKeyError::InvalidPolicy)
         ));
     }
 
@@ -970,7 +975,7 @@ mod tests {
         let der = rasn::der::encode(&asn1).unwrap();
         let res = TpmKey::from_der(&der);
         match res {
-            Err(Error::InvalidCc(0xFFFF_FF00)) => {}
+            Err(TpmKeyError::InvalidCc(0xFFFF_FF00)) => {}
             other => panic!("expected InvalidCc, got: {other:?}"),
         }
     }
@@ -997,7 +1002,7 @@ mod tests {
 
         let der = rasn::der::encode(&asn1).unwrap();
         let res = TpmKey::from_der(&der);
-        assert!(matches!(res, Err(Error::MissingSecret)));
+        assert!(matches!(res, Err(TpmKeyError::MissingSecret)));
     }
 
     fn minimal_key() -> TpmKey {
@@ -1036,14 +1041,14 @@ mod tests {
     fn from_pem_invalid_tag_err() {
         let bad_pem = "-----BEGIN RSA PRIVATE KEY-----\nMQ==\n-----END RSA PRIVATE KEY-----\n";
         let res = TpmKey::from_pem(bad_pem.as_bytes());
-        assert!(matches!(res, Err(Error::InvalidPemTag(tag)) if tag == "RSA PRIVATE KEY"));
+        assert!(matches!(res, Err(TpmKeyError::InvalidPemTag(tag)) if tag == "RSA PRIVATE KEY"));
     }
 
     #[test]
     fn from_pem_malformed_data_err() {
         let bad_pem = "not pem data at all";
         let res = TpmKey::from_pem(bad_pem.as_bytes());
-        assert!(matches!(res, Err(Error::InvalidPem(_))));
+        assert!(matches!(res, Err(TpmKeyError::InvalidPem(_))));
     }
 
     #[test]
@@ -1147,7 +1152,7 @@ mod tests {
     }
 
     #[test]
-    fn policy_secret_to_command_uses_fixed_session() -> Result<(), Error> {
+    fn policy_secret_to_command_uses_fixed_session() -> Result<(), TpmKeyError> {
         let step = TpmPolicyCommand::secret(
             TpmHandle(0x8100_0000),
             &Tpm2bName::default(),
