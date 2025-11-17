@@ -725,6 +725,34 @@ impl<'a> TaskState<'a> {
         phandle.ok_or(TaskError::HandleNotFound("vtpm:", target_vhandle))
     }
 
+    /// Resolves policy details (policy blob, name algorithm, and empty auth
+    /// status) for a handle.
+    ///
+    /// If the handle is a vTPM handle, details are fetched from the cache.
+    /// If it is a physical TPM handle, details are read from the device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Vtpm`](crate::task::TaskError::Vtpm) when a vTPM cache lookup
+    /// fails.
+    /// Returns [`Device`](crate::task::TaskError::Device) when reading the
+    /// public area fails.
+    pub fn resolve_policy(
+        &self,
+        device: &mut TpmDevice,
+        handle: &TpmHandleRef,
+        phys_handle: TpmHandle,
+    ) -> Result<(Vec<u8>, TpmAlgId, bool), TaskError> {
+        if handle.class() == TpmHandleClass::Vtpm {
+            let vhandle = handle.value().ok_or(TaskError::InvalidAuth)?;
+            self.cache.fetch_policy(vhandle).map_err(TaskError::Vtpm)
+        } else {
+            let (public, _) = device.read_public(phys_handle)?;
+            let empty = is_empty_auth(&public);
+            Ok((Vec::new(), public.name_alg, empty))
+        }
+    }
+
     /// Builds the authorization area for a command.
     ///
     /// # Errors

@@ -152,20 +152,10 @@ impl Create {
         writer: &mut dyn std::io::Write,
         device: &mut TpmDevice,
     ) -> Result<(), CommandError> {
-        let parent_virt_handle = self
-            .parent
-            .value()
-            .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
         let parent_phys_handle = task_state.load_context(device, &self.parent)?;
 
         let (policy_blob, name_alg, parent_empty_auth) =
-            if self.parent.class() == TpmHandleClass::Vtpm {
-                task_state.cache.fetch_policy(parent_virt_handle)?
-            } else {
-                let (public, _) = device.read_public(parent_phys_handle)?;
-                let empty = is_empty_auth(&public);
-                (Vec::new(), public.name_alg, empty)
-            };
+            task_state.resolve_policy(device, &self.parent, parent_phys_handle)?;
 
         let (auths, policy_session_auth) = task_state.build_auth(
             device,

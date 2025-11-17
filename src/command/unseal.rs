@@ -4,11 +4,11 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
-    task::{is_empty_auth, TaskAuth, TaskState},
+    task::{TaskAuth, TaskState},
 };
 use clap::Args;
 use tpm2_device::with_device;
-use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
+use tpm2_policy_language::TpmHandleRef;
 use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
@@ -32,22 +32,15 @@ impl Task for Unseal {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
     ) -> Result<(), CommandError> {
-        let vhandle = self
-            .input
-            .value()
-            .ok_or_else(|| CommandError::PatternNotAllowed(self.input.to_string()))?;
+        if self.input.value().is_none() {
+            return Err(CommandError::PatternNotAllowed(self.input.to_string()));
+        }
 
         with_device(task_state.device.clone(), |device| {
             let item_handle = task_state.load_context(device, &self.input)?;
 
-            let (policy_blob, name_alg, empty_auth) = if self.input.class() == TpmHandleClass::Vtpm
-            {
-                task_state.cache.fetch_policy(vhandle)?
-            } else {
-                let (public, _) = device.read_public(item_handle)?;
-                let empty = is_empty_auth(&public);
-                (Vec::new(), public.name_alg, empty)
-            };
+            let (policy_blob, name_alg, empty_auth) =
+                task_state.resolve_policy(device, &self.input, item_handle)?;
 
             let (auths, policy_session_auth) = task_state.build_auth(
                 device,

@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
     io::{read_file_input, write_key_data, write_object},
-    task::{is_empty_auth, TaskAuth, TaskState},
+    task::{TaskAuth, TaskState},
 };
 use clap::Args;
 use openssl::symm::{encrypt, Cipher};
@@ -16,7 +16,7 @@ use tpm2_crypto::{
     KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_device::{with_device, TpmDevice};
-use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
+use tpm2_policy_language::TpmHandleRef;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -59,28 +59,34 @@ impl Task for Convert {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            let parent_handle = match self.parent.class() {
-                TpmHandleClass::Tpm => self
-                    .parent
-                    .value()
-                    .map(TpmHandle)
-                    .ok_or(CommandError::InvalidHandle),
-                TpmHandleClass::Vtpm => task_state
-                    .load_context(device, &self.parent)
-                    .map_err(Into::into),
-            }?;
+            let parent_handle = task_state.load_context(device, &self.parent)?;
+
+            let (policy_blob, name_alg, parent_empty_auth) =
+                task_state.resolve_policy(device, &self.parent, parent_handle)?;
+
+            let (auths, policy_session_auth) = task_state.build_auth(
+                device,
+                &policy_blob,
+                name_alg,
+                parent_empty_auth,
+                &self.auth_args,
+            )?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
             if input_bytes.is_empty() {
                 return Ok(());
             }
-            let tpm_key = Self::create_external_key(
-                task_state,
-                device,
-                parent_handle,
-                &input_bytes,
-                &self.auth_args,
-            )?;
+
+            let tpm_key_result =
+                Self::create_external_key(task_state, device, parent_handle, &input_bytes, &auths);
+
+            if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
+                if let Err(e) = task_state.remove_session(device, vhandle) {
+                    log::error!("vtpm:{vhandle:08x}: {e}");
+                }
+            }
+
+            let tpm_key = tpm_key_result?;
 
             write_key_data(
                 writer,
@@ -215,7 +221,7 @@ impl Convert {
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
-        auth_args: &AuthArgs,
+        auths: &[TaskAuth],
     ) -> Result<TpmKey, CommandError> {
         let der_bytes = pem::parse_many(input_bytes)
             .ok()
@@ -280,17 +286,8 @@ impl Convert {
         };
 
         let handles = [parent_handle.0];
-        let parent_empty_auth = is_empty_auth(&parent_public);
-        let (resp, _) = task_state.execute(
-            device,
-            &import_cmd,
-            &handles,
-            &auth_args
-                .auths(parent_empty_auth)
-                .iter()
-                .cloned()
-                .collect::<Vec<TaskAuth>>(),
-        )?;
+
+        let (resp, _) = task_state.execute(device, &import_cmd, &handles, auths)?;
 
         let import_resp = resp
             .Import()

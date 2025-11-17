@@ -7,7 +7,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
     io::read_file_input,
-    task::{is_empty_auth, TaskAuth, TaskState},
+    task::{TaskAuth, TaskState},
 };
 use clap::Args;
 use tpm2_device::{with_device, TpmDevice};
@@ -60,16 +60,14 @@ impl Task for Load {
                     .find(|(_, key)| key.public == parent_public.inner)
                     .map(|(vhandle, _)| *vhandle);
 
+                let parent_handle_ref = if let Some(vhandle) = parent_vhandle_opt {
+                    TpmHandleRef::new(TpmHandleClass::Vtpm, vhandle)
+                } else {
+                    TpmHandleRef::new(TpmHandleClass::Tpm, parent_handle.0)
+                };
+
                 let (policy_blob, name_alg, parent_empty_auth) =
-                    if let Some(parent_vhandle) = parent_vhandle_opt {
-                        task_state.cache.fetch_policy(parent_vhandle)?
-                    } else {
-                        (
-                            Vec::new(),
-                            parent_public.inner.name_alg,
-                            is_empty_auth(&parent_public.inner),
-                        )
-                    };
+                    task_state.resolve_policy(device, &parent_handle_ref, parent_handle)?;
 
                 let (auths, policy_session_auth) = task_state.build_auth(
                     device,
