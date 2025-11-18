@@ -28,6 +28,7 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
 use tpm2_tpmkey::TpmKey as TpmKeyFile;
+use tpm2_tpmkey::{TpmPolicy, TpmPolicyCommand};
 
 /// A template for creating a new TPM key object.
 pub struct TpmKeyTemplate<'a> {
@@ -222,7 +223,22 @@ impl Create {
             let empty_auth = is_empty_auth(&create_resp.out_public.inner);
 
             let tpm_key_policy = if let Some(commands) = &policy_commands {
-                Some(crate::io::tpm_key_to_blob(device, commands)?)
+                let mut policy = Vec::new();
+                for (cmd, auths) in commands {
+                    let step = match cmd {
+                        TpmCommand::PolicySecret(inner) => {
+                            let (_, name) = device.read_public(inner.auth_handle)?;
+                            TpmPolicyCommand::from_policy_secret(inner, &name)
+                                .map_err(CommandError::Key)?
+                        }
+                        _ => {
+                            TpmPolicyCommand::from_command(cmd, auths).map_err(CommandError::Key)?
+                        }
+                    };
+                    policy.push(step);
+                }
+
+                Some(TpmPolicy { name: None, policy })
             } else {
                 None
             };

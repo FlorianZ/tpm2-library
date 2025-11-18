@@ -13,14 +13,8 @@ use std::{
     path::Path,
 };
 
-use tpm2_device::TpmDevice;
-use tpm2_protocol::{
-    basic::TpmBuffer,
-    constant::TPM_MAX_COMMAND_SIZE,
-    frame::{TpmAuthCommands, TpmCommand},
-    TpmMarshal, TpmProtocolError, TpmWriter,
-};
-use tpm2_tpmkey::{TpmKey, TpmPolicy, TpmPolicyCommand};
+use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmMarshal, TpmProtocolError, TpmWriter};
+use tpm2_tpmkey::TpmKey;
 
 /// Reads data from a file path or from stdin if the path is not provided.
 ///
@@ -75,61 +69,6 @@ fn write_data(
         writer.write_all(data)?;
     }
     Ok(())
-}
-
-/// Converts a "live" `TpmCommandList` into a "storable" `TpmPolicy`.
-///
-/// This performs the "second pass" for `PolicySecret`, converting the
-/// `auth_handle` into a `Tpm2bName` for durable storage.
-///
-/// # Errors
-///
-/// Returns [`Key`](CommandError::Key) if the command conversion fails.
-/// Returns [`Device`](CommandError::Device) if reading the public handle name fails.
-pub fn tpm_key_to_blob(
-    device: &mut TpmDevice,
-    commands: &[(TpmCommand, TpmAuthCommands)],
-) -> Result<TpmPolicy, CommandError> {
-    let mut policy = Vec::new();
-    for (cmd, auths) in commands {
-        let step = match cmd {
-            TpmCommand::PolicySecret(inner) => {
-                let (_, name) = device.read_public(inner.auth_handle)?;
-                TpmPolicyCommand::from_policy_secret(inner, &name)
-                    .map_err(|e| CommandError::Key(AlgError::TpmKey(e)))?
-            }
-            _ => TpmPolicyCommand::from_command(cmd, auths)
-                .map_err(|e| CommandError::Key(AlgError::TpmKey(e)))?,
-        };
-        policy.push(step);
-    }
-    Ok(TpmPolicy { name: None, policy })
-}
-
-/// Converts a "storable" `TpmPolicy` (from a `TpmKey` file) into the
-/// custom binary cache format.
-///
-/// # Errors
-///
-/// Returns [`IntDecode`](CommandError::IntDecode) if the policy command count exceeds `u32::MAX`.
-/// Returns [`Protocol`](CommandError::Protocol) if marshalling fails or the policy body is too large.
-/// Returns [`Key`](CommandError::Key) if the policy blob is malformed.
-pub fn tpm_key_from_blob(policy: &TpmPolicy) -> Result<Vec<u8>, CommandError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        let count = u32::try_from(policy.policy.len())?;
-        count.marshal(&mut writer)?;
-
-        for cmd in &policy.policy {
-            cmd.code().marshal(&mut writer)?;
-            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())?
-                .marshal(&mut writer)?;
-        }
-        writer.len()
-    };
-    buf.truncate(len);
-    Ok(buf)
 }
 
 /// Serialize a type implementing `TpmMarshal` type into `Vec<u8>`.

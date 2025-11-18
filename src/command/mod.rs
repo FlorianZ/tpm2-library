@@ -99,6 +99,8 @@ pub fn deny_keyedhash(algorithm: &crate::alg::Alg) -> Result<(), CommandError> {
 pub enum CommandError {
     #[error("access denied")]
     AccessDenied,
+    #[error("algorithm: {0}")]
+    Algorithm(#[from] AlgError),
     #[error("authentication missing")]
     AuthenticationMissing,
     #[error("cache: {0}")]
@@ -117,6 +119,8 @@ pub enum CommandError {
     HexDecode(#[from] hex::FromHexError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
+    #[error("key: {0}")]
+    Key(#[from] tpm2_tpmkey::TpmKeyError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("invalid key format")]
@@ -131,8 +135,6 @@ pub enum CommandError {
     InvalidParentType,
     #[error("invalid policy expression: {0}")]
     InvalidPolicyExpression(String),
-    #[error("key error: {0}")]
-    Key(#[from] AlgError),
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmProtocolError),
     #[error("openssl: {0}")]
@@ -180,7 +182,7 @@ impl From<TaskError> for CommandError {
                 Self::HandleNotFound("vtpm", handle.into())
             }
             TaskError::Vtpm(e) => Self::Cache(e),
-            TaskError::Key(e) => Self::Key(e),
+            TaskError::Key(e) => Self::Algorithm(e),
             TaskError::Crypto(e) => Self::Crypto(e),
             TaskError::Io(e) => Self::Io(e),
             TaskError::IntDecode(e) => Self::IntDecode(e),

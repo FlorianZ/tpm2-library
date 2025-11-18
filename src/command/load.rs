@@ -13,9 +13,11 @@ use clap::Args;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
+    basic::TpmBuffer,
+    constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bName, Tpm2bPublic, TpmCc},
     frame::TpmLoadCommand,
-    TpmHandle,
+    TpmHandle, TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKey;
 
@@ -98,7 +100,21 @@ impl Task for Load {
                     })?;
 
                 let policy_blob = if let Some(policy) = &tpm_key.policy {
-                    Some(crate::io::tpm_key_from_blob(policy)?)
+                    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+                    let len = {
+                        let mut writer = TpmWriter::new(&mut buf);
+                        let count = u32::try_from(policy.policy.len())?;
+                        count.marshal(&mut writer)?;
+
+                        for cmd in &policy.policy {
+                            cmd.code().marshal(&mut writer)?;
+                            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())?
+                                .marshal(&mut writer)?;
+                        }
+                        writer.len()
+                    };
+                    buf.truncate(len);
+                    Some(buf)
                 } else {
                     None
                 };
