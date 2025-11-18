@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::Error;
+use crate::TpmPolicyError;
 use std::{fmt, str::FromStr};
 use tpm2_protocol::data::TpmHt;
 
@@ -90,15 +90,17 @@ impl std::fmt::Display for TpmHandleRef {
 }
 
 impl FromStr for TpmHandleRef {
-    type Err = Error;
+    type Err = TpmPolicyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (scheme_str, value_str) = s.split_once(':').ok_or(Error::HandlePrefixMissing)?;
+        let (scheme_str, value_str) = s
+            .split_once(':')
+            .ok_or(TpmPolicyError::HandlePrefixMissing)?;
 
         let class = match scheme_str {
             "tpm" => TpmHandleClass::Tpm,
             "vtpm" => TpmHandleClass::Vtpm,
-            _ => return Err(Error::InvalidHandlePrefix),
+            _ => return Err(TpmPolicyError::InvalidHandlePrefix),
         };
 
         if value_str == "*" {
@@ -112,10 +114,10 @@ impl FromStr for TpmHandleRef {
         let mut normalized_str = String::with_capacity(8);
         if let Some((prefix, suffix)) = value_str.split_once('*') {
             if suffix.contains('*') {
-                return Err(Error::HandleHasTooManyAsterisks);
+                return Err(TpmPolicyError::HandleHasTooManyAsterisks);
             }
             if prefix.len() + suffix.len() > 8 {
-                return Err(Error::HandleTooShort);
+                return Err(TpmPolicyError::HandleTooShort);
             }
             normalized_str.push_str(prefix);
             normalized_str.extend(
@@ -124,10 +126,10 @@ impl FromStr for TpmHandleRef {
             normalized_str.push_str(suffix);
         } else {
             if value_str.len() < 8 {
-                return Err(Error::HandleTooLong);
+                return Err(TpmPolicyError::HandleTooLong);
             }
             if value_str.len() > 8 {
-                return Err(Error::HandleTooShort);
+                return Err(TpmPolicyError::HandleTooShort);
             }
             normalized_str.push_str(value_str);
         }
@@ -146,7 +148,7 @@ impl FromStr for TpmHandleRef {
                 None if c == '?' => {}
                 None => {
                     let c = if c.is_alphanumeric() { c } else { '?' };
-                    return Err(Error::InvalidHandleCharacter(c));
+                    return Err(TpmPolicyError::InvalidHandleCharacter(c));
                 }
             }
         }
@@ -156,11 +158,13 @@ impl FromStr for TpmHandleRef {
 }
 
 impl TryFrom<TpmHandleRef> for TpmHt {
-    type Error = Error;
+    type Error = TpmPolicyError;
 
     fn try_from(handle: TpmHandleRef) -> Result<Self, Self::Error> {
-        let raw_handle = handle.value().ok_or(Error::HandlePatternNotAllowed)?;
+        let raw_handle = handle
+            .value()
+            .ok_or(TpmPolicyError::HandlePatternNotAllowed)?;
         let ht_byte = (raw_handle >> 24) as u8;
-        TpmHt::try_from(ht_byte).map_err(|_| Error::InvalidHandleType(ht_byte))
+        TpmHt::try_from(ht_byte).map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))
     }
 }

@@ -9,7 +9,7 @@ use tpm2_protocol::data::TpmCc;
 
 /// Language interpretation and compilation errors.
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum Error {
+pub enum TpmPolicyError {
     #[error("authorization list is too long")]
     AuthListTooLong,
     #[error("handle has more than one asterisk")]
