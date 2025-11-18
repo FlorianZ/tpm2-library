@@ -78,7 +78,7 @@ impl TryFrom<&TpmtPublic> for TpmEccPublicKey {
         }?;
 
         Ok(Self {
-            curve: params.curve_id.into(),
+            curve: params.curve_id,
             x,
             y,
         })
@@ -129,7 +129,7 @@ impl TpmPublicKey for TpmEccPublicKey {
                     scheme: TpmAlgId::Ecdh,
                     details: TpmuAsymScheme::Hash(TpmsSchemeHash { hash_alg }),
                 },
-                curve_id: self.curve.into(),
+                curve_id: self.curve,
                 kdf: TpmtKdfScheme::default(),
             }),
             unique: TpmuPublicId::Ecc(TpmsEccPoint {

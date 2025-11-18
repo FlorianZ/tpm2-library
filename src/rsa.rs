@@ -22,13 +22,13 @@ use tpm2_protocol::data::{
 
 /// RSA public key parameters.
 #[derive(Debug, Clone)]
-pub struct RsaPublicKey {
+pub struct TpmRsaPublicKey {
     pub n: Tpm2bPublicKeyRsa,
     pub e: u32,
     pub key_bits: u16,
 }
 
-impl TryFrom<&TpmtPublic> for RsaPublicKey {
+impl TryFrom<&TpmtPublic> for TpmRsaPublicKey {
     type Error = TpmCryptoError;
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
@@ -60,7 +60,7 @@ impl TryFrom<&TpmtPublic> for RsaPublicKey {
     }
 }
 
-impl TryFrom<&PKey<Private>> for RsaPublicKey {
+impl TryFrom<&PKey<Private>> for TpmRsaPublicKey {
     type Error = TpmCryptoError;
 
     fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
@@ -86,11 +86,11 @@ impl TryFrom<&PKey<Private>> for RsaPublicKey {
     }
 }
 
-impl TpmPublicKey for RsaPublicKey {
+impl TpmPublicKey for TpmRsaPublicKey {
     fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
-        let public_key = RsaPublicKey::try_from(&pkey)?;
+        let public_key = TpmRsaPublicKey::try_from(&pkey)?;
         let rsa = pkey
             .rsa()
             .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
@@ -135,7 +135,7 @@ impl TpmPublicKey for RsaPublicKey {
     }
 }
 
-impl RsaPublicKey {
+impl TpmRsaPublicKey {
     /// Performs RSA-OAEP.
     ///
     /// # Errors
