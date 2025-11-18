@@ -68,10 +68,7 @@ use crate::asn1::{
     TpmKeyCommandAsn1, OID_IMPORTABLE_KEY, OID_LOADABLE_KEY, OID_SEALED_DATA,
 };
 use pem::{EncodeConfig, LineEnding, Pem};
-use rasn::{
-    types::{OctetString, Utf8String},
-    Decode, Encode,
-};
+use rasn::types::{OctetString, Utf8String};
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
@@ -299,24 +296,6 @@ impl TpmKey {
             secret: asn1.secret.as_ref().map(|o| o.as_ref().to_vec()),
             description: asn1.description,
         })
-    }
-}
-
-impl TryFrom<&[u8]> for TpmKey {
-    type Error = TpmKeyError;
-
-    /// Parse a key from DER bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidDer`](crate::Error::InvalidDer)
-    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType)
-    /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag)
-    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy)
-    /// Returns [`InvalidCc`](crate::Error::InvalidCc)
-    /// Returns [`MissingSecret`](crate::Error::MissingSecret)
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        Self::from_der(value)
     }
 }
 
