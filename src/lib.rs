@@ -431,21 +431,6 @@ pub struct TpmPolicy {
 pub type TpmCommandList = Vec<TpmCommand>;
 
 impl TpmPolicy {
-    /// Converts the policy into a list of typed TPM commands and their
-    /// authorization areas.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) or
-    /// [`InvalidCc`](crate::Error::InvalidCc) when any policy step cannot be
-    /// converted into a TPM command.
-    pub fn to_command_list(&self) -> Result<TpmCommandList, TpmKeyError> {
-        self.policy
-            .iter()
-            .map(TpmPolicyCommand::to_command)
-            .collect()
-    }
-
     /// Constructs a policy from a list of typed TPM commands and their
     /// authorization areas.
     ///
@@ -1174,33 +1159,5 @@ mod tests {
 
         let (decoded, _) = TpmHandle::unmarshal(step.body()).unwrap();
         assert_eq!(decoded, TpmHandle(0x8100_0000));
-    }
-
-    #[test]
-    fn policy_to_and_from_command_list_roundtrip() {
-        let step_restart = TpmPolicyCommand::zero(TpmCc::PolicyRestart).unwrap();
-        let mut pcr_body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-        let pcr_len = {
-            let mut writer = TpmWriter::new(&mut pcr_body);
-            Tpm2bDigest::default().marshal(&mut writer).unwrap();
-            TpmlPcrSelection::default().marshal(&mut writer).unwrap();
-            writer.len()
-        };
-        pcr_body.truncate(pcr_len);
-        let step_pcr = TpmPolicyCommand::from_raw(TpmCc::PolicyPcr, pcr_body).unwrap();
-
-        let policy = TpmPolicy {
-            name: Some("test".to_string()),
-            policy: vec![step_restart.clone(), step_pcr.clone()],
-        };
-
-        let list = policy.to_command_list().unwrap();
-        assert_eq!(list.len(), 2);
-
-        let reconstructed = TpmPolicy::from_command_list(Some("test".to_string()), &list).unwrap();
-        assert_eq!(reconstructed.name, policy.name);
-        assert_eq!(reconstructed.policy.len(), 2);
-        assert_eq!(reconstructed.policy[0], step_restart);
-        assert_eq!(reconstructed.policy[1], step_pcr);
     }
 }
