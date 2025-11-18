@@ -13,8 +13,8 @@ use tpm2_protocol::{
         Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmCc, TpmlDigest, TpmlPcrSelection, TpmtSignature,
     },
     frame::{
-        TpmCommand, TpmFrame, TpmMarshalBody,
-        TpmPolicyOrCommand, TpmPolicyPcrCommand, TpmPolicySecretCommand,
+        TpmCommand, TpmFrame, TpmMarshalBody, TpmPolicyOrCommand, TpmPolicyPcrCommand,
+        TpmPolicySecretCommand,
     },
     TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };

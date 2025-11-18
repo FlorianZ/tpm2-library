@@ -11,7 +11,7 @@ pub enum TpmKeyError {
     InvalidKeyType,
 
     /// Command code in a policy command is not a valid `TPM_CC`.
-    #[error("invalid command code: {0:08x}")]
+    #[error("invalid cc: {0:08x}")]
     InvalidCc(u32),
 
     /// ASN.1 object identifier is not one of the supported TPM key OIDs.
@@ -19,8 +19,8 @@ pub enum TpmKeyError {
     InvalidDerTag(String),
 
     /// DER encoded ASN.1 data is malformed.
-    #[error("invalid or malformed DER data")]
-    InvalidDer,
+    #[error("invalid ASN.1: {0}")]
+    InvalidAsn1(String),
 
     /// A policy command body is malformed or invalid for that command.
     #[error("invalid policy")]

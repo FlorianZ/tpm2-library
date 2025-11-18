@@ -125,7 +125,7 @@ impl TpmKey {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidDer`](crate::Error::InvalidDer) when ASN.1 encoding fails.
+    /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 encoding fails.
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
     /// is not `Rsa`, `Ecc`, or `KeyedHash`.
     /// Returns [`Marshal`](crate::VtpmError::Marshal) when the value cannot be
@@ -144,7 +144,7 @@ impl TpmKey {
     /// Returns [`InvalidPem`](crate::Error::InvalidPem) when PEM parsing fails.
     /// Returns [`InvalidPemTag`](crate::Error::InvalidPemTag) when the PEM tag
     /// is not `TSS2 PRIVATE KEY`.
-    /// Returns [`InvalidDer`](crate::Error::InvalidDer) when ASN.1 decoding or
+    /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 decoding or
     /// embedded layout checks fail.
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when the OID
     /// and inner public key type mismatch.
@@ -169,21 +169,21 @@ impl TpmKey {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidDer`](crate::Error::InvalidDer) when ASN.1 encoding fails.
+    /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 encoding fails.
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
     /// is not `Rsa`, `Ecc`, or `KeyedHash`.
     /// Returns [`Marshal`](crate::VtpmError::Marshal) when the value cannot be
     /// marshalled into the underlying TPM buffer.
     pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
         let asn1 = self.to_asn1()?;
-        rasn::der::encode(&asn1).map_err(|_| TpmKeyError::InvalidDer)
+        rasn::der::encode(&asn1).map_err(|e| TpmKeyError::InvalidAsn1(e.to_string()))
     }
 
     /// Parse a key from DER bytes.
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidDer`](crate::Error::InvalidDer) when ASN.1 decoding or
+    /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 decoding or
     /// embedded layout checks fail.
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when the OID
     /// and inner public key type mismatch.
@@ -196,7 +196,8 @@ impl TpmKey {
     /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
     /// an *Importable Key* but `secret` is absent.
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
-        let asn1: TpmKeyAsn1 = rasn::der::decode(der_bytes).map_err(|_| TpmKeyError::InvalidDer)?;
+        let asn1: TpmKeyAsn1 =
+            rasn::der::decode(der_bytes).map_err(|e| TpmKeyError::InvalidAsn1(e.to_string()))?;
         Self::from_asn1(asn1)
     }
 
