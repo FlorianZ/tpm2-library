@@ -4,7 +4,7 @@
 
 use std::str::FromStr;
 use thiserror::Error;
-use tpm2_crypto::{EccCurve, Hash};
+use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_protocol::data::{TpmAlgId, TpmEccCurve, TpmtPublic, TpmuPublicParms};
 use tpm2_tpmkey::TpmKeyError;
 
@@ -44,7 +44,7 @@ impl Alg {
     ///
     /// Returns an `KeyError` if the provided hash algorithm string is invalid.
     pub fn new_keyedhash(hash_alg: &str) -> Result<Self, AlgError> {
-        let name_alg = Hash::from_str(hash_alg)
+        let name_alg = TpmHash::from_str(hash_alg)
             .map_err(|_| AlgError::InvalidAlgorithm(hash_alg.to_string()))?
             .into();
         Ok(Self {
@@ -73,7 +73,7 @@ impl std::str::FromStr for Alg {
             let key_bits: u16 = bits_str
                 .parse()
                 .map_err(|_| AlgError::InvalidRsaKeyBits(bits_str.to_string()))?;
-            let name_alg = Hash::from_str(name_alg_str)
+            let name_alg = TpmHash::from_str(name_alg_str)
                 .map_err(|_| AlgError::InvalidAlgorithm(name_alg_str.to_string()))?
                 .into();
             Ok(Self {
@@ -86,10 +86,10 @@ impl std::str::FromStr for Alg {
             let (curve_str, name_alg_str) = rest
                 .split_once(':')
                 .ok_or_else(|| AlgError::InvalidAlgorithmFormat(s.to_string()))?;
-            let curve_id: TpmEccCurve = EccCurve::from_str(curve_str)
+            let curve_id: TpmEccCurve = TpmEllipticCurve::from_str(curve_str)
                 .map_err(|_| AlgError::InvalidEccCurve(curve_str.to_string()))?
                 .into();
-            let name_alg = Hash::from_str(name_alg_str)
+            let name_alg = TpmHash::from_str(name_alg_str)
                 .map_err(|_| AlgError::InvalidAlgorithm(name_alg_str.to_string()))?
                 .into();
             Ok(Self {
@@ -121,7 +121,7 @@ impl std::cmp::PartialOrd for Alg {
 /// Formats a human-readable algorithm string from a `TpmtPublic` structure.
 #[must_use]
 pub fn alg_details(public: &TpmtPublic) -> String {
-    let name_alg_str = Hash::from(public.name_alg).to_string();
+    let name_alg_str = TpmHash::from(public.name_alg).to_string();
     match public.object_type {
         TpmAlgId::Rsa => {
             if let TpmuPublicParms::Rsa(params) = &public.parameters {
@@ -132,13 +132,13 @@ pub fn alg_details(public: &TpmtPublic) -> String {
         }
         TpmAlgId::Ecc => {
             if let TpmuPublicParms::Ecc(params) = &public.parameters {
-                let curve_str = EccCurve::from(params.curve_id).to_string();
+                let curve_str = TpmEllipticCurve::from(params.curve_id).to_string();
                 format!("ecc-{curve_str}:{name_alg_str}")
             } else {
                 "ecc".to_string()
             }
         }
         TpmAlgId::KeyedHash => format!("keyedhash:{name_alg_str}"),
-        _ => Hash::from(public.object_type).to_string(),
+        _ => TpmHash::from(public.object_type).to_string(),
     }
 }

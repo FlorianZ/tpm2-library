@@ -17,7 +17,7 @@ use hex;
 use indicatif::ProgressBar;
 use rand::{thread_rng, RngCore};
 use thiserror::Error;
-use tpm2_crypto::{tpm_make_name, Error as CryptoError, Hash};
+use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
 use tpm2_device::{TpmCommandObject, TpmDevice, TpmDeviceError};
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
@@ -187,8 +187,8 @@ pub enum TaskError {
     Vtpm(#[from] VtpmError),
     #[error("device: {0}")]
     Device(#[from] TpmDeviceError),
-    #[error("auth error: {0}")]
-    Crypto(#[from] CryptoError),
+    #[error("crypto: {0}")]
+    Crypto(#[from] TpmCryptoError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),
     #[error("marshal: {0}")]
@@ -772,7 +772,7 @@ impl<'a> TaskState<'a> {
                     let session = self
                         .get_session(*vhandle)
                         .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
-                    let nonce_size = Hash::from(session.auth_hash).size();
+                    let nonce_size = TpmHash::from(session.auth_hash).size();
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
@@ -929,7 +929,7 @@ impl<'a> TaskState<'a> {
         auth_hash: TpmAlgId,
         bind: TpmHandle,
     ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), TaskError> {
-        let digest_len = Hash::from(auth_hash).size();
+        let digest_len = TpmHash::from(auth_hash).size();
         let mut nonce_bytes = vec![0; digest_len];
         thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce_caller =

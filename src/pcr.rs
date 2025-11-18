@@ -8,7 +8,7 @@ use crate::task::{TaskError, TaskState};
 use std::collections::HashMap;
 use thiserror::Error;
 
-use tpm2_crypto::{Error as CryptoError, Hash};
+use tpm2_crypto::{TpmCryptoError, TpmHash};
 use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
@@ -31,7 +31,7 @@ pub enum PcrError {
     #[error("invalid PCR selection: {0}")]
     InvalidPcrSelection(String),
     #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
+    Crypto(#[from] TpmCryptoError),
     #[error("session: {0}")]
     Session(#[from] TaskError),
     #[error("protocol: {0}")]
@@ -177,7 +177,7 @@ pub fn pcr_read(
 /// creating a composite digest.
 pub fn pcr_composite_digest(pcrs: &[Pcr], alg: TpmAlgId) -> Result<Vec<u8>, PcrError> {
     let digests: Vec<&[u8]> = pcrs.iter().map(|p| p.value.as_slice()).collect();
-    Ok(Hash::from(alg).digest(&digests)?)
+    Ok(TpmHash::from(alg).digest(&digests)?)
 }
 
 /// Populates the AST with PCR digests by reading current values from the TPM.

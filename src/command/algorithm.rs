@@ -3,7 +3,7 @@
 //! Copyright (c) 2024-2025 Jarkko Sakkinen
 use crate::{cli::Task, command::CommandError, task::TaskState};
 use clap::Args;
-use tpm2_crypto::{EccCurve, Hash};
+use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     constant::MAX_HANDLES,
@@ -58,7 +58,7 @@ impl Algorithm {
                 }
 
                 for &name_alg in &name_algs {
-                    results.push(format!("rsa-{}:{}", key_bits, Hash::from(name_alg)));
+                    results.push(format!("rsa-{}:{}", key_bits, TpmHash::from(name_alg)));
                 }
             }
         }
@@ -78,8 +78,8 @@ impl Algorithm {
                 for &name_alg in &name_algs {
                     results.push(format!(
                         "ecc-{}:{}",
-                        EccCurve::from(curve_id),
-                        Hash::from(name_alg)
+                        TpmEllipticCurve::from(curve_id),
+                        TpmHash::from(name_alg)
                     ));
                 }
             }
@@ -87,7 +87,7 @@ impl Algorithm {
 
         if all_algs.contains(&TpmAlgId::KeyedHash) {
             for &name_alg in &name_algs {
-                results.push(format!("keyedhash:{}", Hash::from(name_alg)));
+                results.push(format!("keyedhash:{}", TpmHash::from(name_alg)));
             }
         }
         Ok(results)

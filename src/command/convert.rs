@@ -12,7 +12,7 @@ use clap::Args;
 use openssl::symm::{encrypt, Cipher};
 use rand;
 use tpm2_crypto::{
-    tpm_make_name, EccPublicKey, Error as CryptoError, Hash, PublicKey, RsaPublicKey,
+    tpm_make_name, TpmCryptoError, TpmEccPublicKey, TpmHash, TpmPublicKey, TpmRsaPublicKey,
     KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_device::{with_device, TpmDevice};
@@ -104,14 +104,14 @@ impl Convert {
         seed: &[u8],
         object_name: &Tpm2bName,
     ) -> Result<(Vec<u8>, Vec<u8>), CommandError> {
-        let sym_key = Hash::from(parent_name_alg)
+        let sym_key = TpmHash::from(parent_name_alg)
             .kdfa(seed, KDF_LABEL_STORAGE, object_name.as_ref(), &[], 128)
             .map_err(CommandError::Crypto)?;
 
-        let key_bits = Hash::from(parent_name_alg).size() * 8;
+        let key_bits = TpmHash::from(parent_name_alg).size() * 8;
         let key_bits = u16::try_from(key_bits)?;
 
-        let hmac_key = Hash::from(parent_name_alg)
+        let hmac_key = TpmHash::from(parent_name_alg)
             .kdfa(seed, KDF_LABEL_INTEGRITY, &[], &[], key_bits)
             .map_err(CommandError::Crypto)?;
 
@@ -167,7 +167,7 @@ impl Convert {
         sensitive: &[u8],
         object_name: &Tpm2bName,
     ) -> Result<Tpm2bPrivate, CommandError> {
-        let final_mac = Hash::from(parent_name_alg)
+        let final_mac = TpmHash::from(parent_name_alg)
             .hmac(hmac_key, &[sensitive, object_name.as_ref()])
             .map_err(CommandError::Crypto)?;
 
@@ -199,13 +199,13 @@ impl Convert {
         let name_alg = parent_public.name_alg;
         let (seed, in_sym_seed) = match parent_public.object_type {
             TpmAlgId::Rsa => {
-                let key = RsaPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
-                key.to_seed(Hash::from(name_alg), rng)
+                let key = TpmRsaPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
+                key.to_seed(TpmHash::from(name_alg), rng)
                     .map_err(CommandError::Crypto)?
             }
             TpmAlgId::Ecc => {
-                let key = EccPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
-                key.to_seed(Hash::from(name_alg), rng)
+                let key = TpmEccPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
+                key.to_seed(TpmHash::from(name_alg), rng)
                     .map_err(CommandError::Crypto)?
             }
             _ => return Err(CommandError::InvalidParentType),
@@ -249,12 +249,12 @@ impl Convert {
             let symmetric = TpmtSymDefObject::default();
             let name_alg = parent_public.name_alg;
 
-            match RsaPublicKey::from_der(&der_bytes) {
+            match TpmRsaPublicKey::from_der(&der_bytes) {
                 Ok((public_key, sensitive)) => {
                     let public = public_key.to_public(name_alg, symmetric);
                     Ok((public, sensitive))
                 }
-                Err(CryptoError::InvalidRsaParameters) => EccPublicKey::from_der(&der_bytes)
+                Err(TpmCryptoError::InvalidRsaParameters) => TpmEccPublicKey::from_der(&der_bytes)
                     .map_err(CommandError::Crypto)
                     .map(|(public_key, sensitive)| {
                         let public = public_key.to_public(name_alg, symmetric);

@@ -48,7 +48,7 @@ use tabled::{
     Table, Tabled,
 };
 use thiserror::Error;
-use tpm2_crypto::Error as CryptoError;
+use tpm2_crypto::TpmCryptoError;
 use tpm2_device::TpmDeviceError;
 use tpm2_protocol::{
     data::{TpmCc, TpmRcBase},
@@ -146,7 +146,7 @@ pub enum CommandError {
     #[error("device: {0}")]
     Device(TpmDeviceError),
     #[error("crypto: {0}")]
-    Crypto(#[from] CryptoError),
+    Crypto(#[from] TpmCryptoError),
     #[error("key error: {0}")]
     Key(#[from] AlgError),
     #[error("pcr: {0}")]

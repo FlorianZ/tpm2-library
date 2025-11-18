@@ -9,7 +9,7 @@ use crate::{
     task::TaskState,
 };
 use clap::Args;
-use tpm2_crypto::Hash;
+use tpm2_crypto::TpmHash;
 use tpm2_device::with_device;
 use tpm2_protocol::{
     data::{Tpm2bEvent, TpmCc, TpmuHa},
@@ -71,7 +71,7 @@ impl Task for PcrEvent {
                     if let TpmuHa::Digest(bytes) = digest_struct.digest {
                         Some(format!(
                             "{}:{}:{}",
-                            Hash::from(bank.alg),
+                            TpmHash::from(bank.alg),
                             self.pcr_index.0,
                             hex::encode(bytes)
                         ))

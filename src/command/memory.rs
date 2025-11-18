@@ -13,7 +13,7 @@ use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
 use strum::Display;
 use tabled::Tabled;
-use tpm2_crypto::{EccCurve, Hash};
+use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmHandleRef;
 use tpm2_protocol::{
@@ -341,12 +341,12 @@ impl Memory {
         }
     }
 
-    fn fetch_hash_alg(oid_nid: Nid) -> Result<Hash, CommandError> {
+    fn fetch_hash_alg(oid_nid: Nid) -> Result<TpmHash, CommandError> {
         match oid_nid {
-            Nid::SHA1WITHRSAENCRYPTION => Ok(Hash::Sha1),
-            Nid::ECDSA_WITH_SHA256 | Nid::SHA256WITHRSAENCRYPTION => Ok(Hash::Sha256),
-            Nid::ECDSA_WITH_SHA384 | Nid::SHA384WITHRSAENCRYPTION => Ok(Hash::Sha384),
-            Nid::ECDSA_WITH_SHA512 | Nid::SHA512WITHRSAENCRYPTION => Ok(Hash::Sha512),
+            Nid::SHA1WITHRSAENCRYPTION => Ok(TpmHash::Sha1),
+            Nid::ECDSA_WITH_SHA256 | Nid::SHA256WITHRSAENCRYPTION => Ok(TpmHash::Sha256),
+            Nid::ECDSA_WITH_SHA384 | Nid::SHA384WITHRSAENCRYPTION => Ok(TpmHash::Sha384),
+            Nid::ECDSA_WITH_SHA512 | Nid::SHA512WITHRSAENCRYPTION => Ok(TpmHash::Sha512),
             _ => Err(CommandError::UnsupportedSignatureAlgorithm(Alg {
                 name: oid_nid.long_name().unwrap_or("unknown").to_string(),
                 object_type: TpmAlgId::Null,
@@ -376,9 +376,9 @@ impl Memory {
                 let ec_key = pkey.ec_key()?;
                 let curve_nid = ec_key.group().curve_name();
                 let curve = match curve_nid {
-                    Some(Nid::X9_62_PRIME256V1) => EccCurve::NistP256,
-                    Some(Nid::SECP384R1) => EccCurve::NistP384,
-                    Some(Nid::SECP521R1) => EccCurve::NistP521,
+                    Some(Nid::X9_62_PRIME256V1) => TpmEllipticCurve::NistP256,
+                    Some(Nid::SECP384R1) => TpmEllipticCurve::NistP384,
+                    Some(Nid::SECP521R1) => TpmEllipticCurve::NistP521,
                     _ => {
                         let name = curve_nid
                             .and_then(|n| n.long_name().ok())
