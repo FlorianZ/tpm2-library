@@ -17,11 +17,10 @@ use tpm2_device::TpmDevice;
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bDigest, Tpm2bName, TpmCc},
     frame::{TpmAuthCommands, TpmCommand},
-    TpmHandle, TpmMarshal, TpmProtocolError, TpmUnmarshal, TpmWriter,
+    TpmMarshal, TpmProtocolError, TpmWriter,
 };
-use tpm2_tpmkey::{TpmKey, TpmKeyError, TpmPolicy, TpmPolicyCommand};
+use tpm2_tpmkey::{TpmKey, TpmPolicy, TpmPolicyCommand};
 
 /// Reads data from a file path or from stdin if the path is not provided.
 ///
@@ -124,22 +123,8 @@ pub fn tpm_key_from_blob(policy: &TpmPolicy) -> Result<Vec<u8>, CommandError> {
 
         for cmd in &policy.policy {
             cmd.code().marshal(&mut writer)?;
-
-            if cmd.code() == TpmCc::PolicySecret {
-                let (handle, rest) = TpmHandle::unmarshal(cmd.body())
-                    .map_err(|_| CommandError::Key(AlgError::TpmKey(TpmKeyError::InvalidPolicy)))?;
-                let (name, rest) = Tpm2bName::unmarshal(rest)
-                    .map_err(|_| CommandError::Key(AlgError::TpmKey(TpmKeyError::InvalidPolicy)))?;
-                let (digest, _) = Tpm2bDigest::unmarshal(rest)
-                    .map_err(|_| CommandError::Key(AlgError::TpmKey(TpmKeyError::InvalidPolicy)))?;
-
-                handle.marshal(&mut writer)?;
-                name.marshal(&mut writer)?;
-                digest.marshal(&mut writer)?;
-            } else {
-                TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())?
-                    .marshal(&mut writer)?;
-            }
+            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())?
+                .marshal(&mut writer)?;
         }
         writer.len()
     };

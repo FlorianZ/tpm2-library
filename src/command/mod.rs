@@ -101,12 +101,24 @@ pub enum CommandError {
     AccessDenied,
     #[error("authentication missing")]
     AuthenticationMissing,
+    #[error("cache: {0}")]
+    Cache(VtpmError),
     #[error("capacity exceeded")]
     CapacityExceeded,
+    #[error("crypto: {0}")]
+    Crypto(#[from] TpmCryptoError),
+    #[error("device: {0}")]
+    Device(TpmDeviceError),
     #[error("dictionary attack lockout is active")]
     DictionaryAttackLocked,
     #[error("handle not found: {0}:{1:08x}")]
     HandleNotFound(&'static str, u32),
+    #[error("ECDH private key generation failed")]
+    HexDecode(#[from] hex::FromHexError),
+    #[error("int decode: {0}")]
+    IntDecode(#[from] TryFromIntError),
+    #[error("I/O: {0}")]
+    Io(#[from] std::io::Error),
     #[error("invalid key format")]
     InvalidFormat,
     #[error("invalid handle")]
@@ -119,50 +131,42 @@ pub enum CommandError {
     InvalidParentType,
     #[error("invalid policy expression: {0}")]
     InvalidPolicyExpression(String),
+    #[error("key error: {0}")]
+    Key(#[from] AlgError),
+    #[error("marshal: {0}")]
+    Marshal(tpm2_protocol::TpmProtocolError),
+    #[error("openssl: {0}")]
+    Openssl(#[from] ErrorStack),
     #[error("out of memory")]
     OutOfMemory,
     #[error("handle pattern not allowed: {0}")]
     PatternNotAllowed(String),
+    #[error("pcr: {0}")]
+    Pcr(#[from] PcrError),
+    #[error("policy: {0}")]
+    Policy(#[from] tpm2_policy_language::TpmPolicyError),
     #[error("policy denied")]
     PolicyDenied,
+    #[error("protocol: {0}")]
+    Protocol(#[from] TpmProtocolError),
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
     #[error("sensitive data denied")]
     SensitiveDataDenied,
     #[error("sensitive data missing")]
     SensitiveDataMissing,
+    #[error("task_state: {0}")]
+    Session(TaskError),
     #[error("unknown handle: {0}")]
     UnknownHandle(String),
     #[error("unknown parent")]
     UnknownParent,
+    #[error("unmarshal: {0}")]
+    Unmarshal(tpm2_protocol::TpmProtocolError),
     #[error("unsupported key algorithm: '{0}'")]
     UnsupportedKeyAlgorithm(crate::alg::Alg),
     #[error("unsupported signature algorithm: {0}")]
     UnsupportedSignatureAlgorithm(crate::alg::Alg),
-    #[error("cache: {0}")]
-    Cache(VtpmError),
-    #[error("task_state: {0}")]
-    Session(TaskError),
-    #[error("device: {0}")]
-    Device(TpmDeviceError),
-    #[error("crypto: {0}")]
-    Crypto(#[from] TpmCryptoError),
-    #[error("key error: {0}")]
-    Key(#[from] AlgError),
-    #[error("pcr: {0}")]
-    Pcr(#[from] PcrError),
-    #[error("policy: {0}")]
-    Policy(#[from] tpm2_policy_language::TpmPolicyError),
-    #[error("ECDH private key generation failed")]
-    HexDecode(#[from] hex::FromHexError),
-    #[error("int decode: {0}")]
-    IntDecode(#[from] TryFromIntError),
-    #[error("I/O: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("openssl: {0}")]
-    Openssl(#[from] ErrorStack),
-    #[error("protocol: {0}")]
-    Protocol(#[from] TpmProtocolError),
 }
 
 impl From<TaskError> for CommandError {
