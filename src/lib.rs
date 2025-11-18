@@ -402,9 +402,9 @@ fn update_policy_digest(
 
     let new_digest_bytes = Hash::from(hash_alg)
         .digest(&chunks)
-        .map_err(|_| TpmPolicyError::OperationFailed)?;
-    *current_digest = Tpm2bDigest::try_from(new_digest_bytes.as_slice())
-        .map_err(|_| TpmPolicyError::OperationFailed)?;
+        .map_err(TpmPolicyError::Crypto)?;
+    *current_digest =
+        Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
 
     Ok(())
 }
@@ -414,7 +414,7 @@ impl TpmPolicySession {
     fn new(hash_alg: TpmAlgId) -> Result<Self, TpmPolicyError> {
         let digest_size = Hash::from(hash_alg).size();
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
-            .map_err(|_| TpmPolicyError::OperationFailed)?;
+            .map_err(TpmPolicyError::Marshal)?;
         Ok(Self {
             digest,
             hash_alg,
@@ -429,7 +429,7 @@ impl TpmPolicySession {
             let mut writer = TpmWriter::new(&mut pcrs_bytes);
             cmd.pcrs
                 .marshal(&mut writer)
-                .map_err(|_| TpmPolicyError::OperationFailed)?;
+                .map_err(TpmPolicyError::Marshal)?;
             writer.len()
         };
         pcrs_bytes.truncate(pcrs_bytes_len);
@@ -450,7 +450,7 @@ impl TpmPolicySession {
         }
 
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(|_| TpmPolicyError::OperationFailed)?;
+            .map_err(TpmPolicyError::Marshal)?;
 
         update_policy_digest(
             &mut self.digest,
@@ -484,7 +484,7 @@ impl TpmPolicySession {
     /// Applies a `TPM2_PolicyRestart` action to the session.
     fn policy_restart(&mut self) -> Result<(), TpmPolicyError> {
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(|_| TpmPolicyError::OperationFailed)?;
+            .map_err(TpmPolicyError::Marshal)?;
         Ok(())
     }
 

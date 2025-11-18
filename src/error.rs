@@ -12,6 +12,11 @@ use tpm2_protocol::data::TpmCc;
 pub enum TpmPolicyError {
     #[error("authorization list is too long")]
     AuthListTooLong,
+
+    /// A digest calculation failed.
+    #[error("crypto: {0}")]
+    Crypto(#[from] tpm2_crypto::Error),
+
     #[error("handle has more than one asterisk")]
     HandleHasTooManyAsterisks,
     #[error("handle pattern is not allowed")]
@@ -42,6 +47,11 @@ pub enum TpmPolicyError {
     InvalidPcrSelection,
     #[error("invalid policy digest algorithm")]
     InvalidPolicyDigestAlgorithm,
+
+    /// Marshaling a TPM protocol encoded object failed.
+    #[error("marshal: {0}")]
+    Marshal(tpm2_protocol::TpmProtocolError),
+
     #[error("operation failed")]
     OperationFailed,
     #[error("parenthesis mismatch")]
