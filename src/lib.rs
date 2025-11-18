@@ -64,8 +64,8 @@ pub use command::*;
 pub use error::*;
 
 use crate::asn1::{
-    key_type_to_oid_for_encode, tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1,
-    TpmKeyCommandAsn1, OID_IMPORTABLE_KEY, OID_LOADABLE_KEY, OID_SEALED_DATA,
+    tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1, OID_IMPORTABLE_KEY,
+    OID_LOADABLE_KEY, OID_SEALED_DATA,
 };
 use pem::{EncodeConfig, LineEnding, Pem};
 use rasn::types::{OctetString, Utf8String};
@@ -98,6 +98,7 @@ pub struct TpmKey {
     pub auth_policy: Option<Vec<TpmPolicy>>,
     pub secret: Option<Vec<u8>>,
     pub description: Option<String>,
+    pub oid: rasn::prelude::ObjectIdentifier,
 }
 
 impl TpmKey {
@@ -157,7 +158,7 @@ impl TpmKey {
     /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
     /// an *Importable Key* but `secret` is absent.
     pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, TpmKeyError> {
-        let pem = pem::parse(pem_bytes)?;
+        let pem = pem::parse(pem_bytes).map_err(TpmKeyError::PemDecodingFailed)?;
         if pem.tag() == "TSS2 PRIVATE KEY" {
             Self::from_der(pem.contents())
         } else {
@@ -176,7 +177,7 @@ impl TpmKey {
     /// marshalled into the underlying TPM buffer.
     pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
         let asn1 = self.to_asn1()?;
-        rasn::der::encode(&asn1).map_err(|e| TpmKeyError::InvalidAsn1(e.to_string()))
+        rasn::der::encode(&asn1).map_err(TpmKeyError::DerEncodingFailed)
     }
 
     /// Parse a key from DER bytes.
@@ -197,7 +198,7 @@ impl TpmKey {
     /// an *Importable Key* but `secret` is absent.
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let asn1: TpmKeyAsn1 =
-            rasn::der::decode(der_bytes).map_err(|e| TpmKeyError::InvalidAsn1(e.to_string()))?;
+            rasn::der::decode(der_bytes).map_err(TpmKeyError::DerDecodingFailed)?;
         Self::from_asn1(asn1)
     }
 
@@ -215,9 +216,6 @@ impl TpmKey {
             None
         };
 
-        let key_type_oid =
-            key_type_to_oid_for_encode(self.public.inner.object_type, self.secret.is_some())?;
-
         let policy_asn1 = self.policy.as_ref().map(Vec::<TpmKeyCommandAsn1>::from);
 
         let auth_policy_asn1 = self
@@ -226,7 +224,7 @@ impl TpmKey {
             .map(|list| list.iter().map(TpmAuthPolicyAsn1::from).collect::<Vec<_>>());
 
         Ok(TpmKeyAsn1 {
-            key_type: key_type_oid,
+            key_type: self.oid.clone(),
             empty_auth: self.empty_auth,
             policy: policy_asn1,
             secret: self
@@ -257,16 +255,20 @@ impl TpmKey {
 
         let key_type = public.inner.object_type;
 
-        if asn1.key_type == OID_LOADABLE_KEY || asn1.key_type == OID_IMPORTABLE_KEY {
+        if asn1.key_type == OID_LOADABLE_KEY {
             if !(key_type == TpmAlgId::Rsa || key_type == TpmAlgId::Ecc) {
-                return Err(TpmKeyError::InvalidKeyType);
+                return Err(TpmKeyError::InvalidLoadable(key_type));
+            }
+        } else if asn1.key_type == OID_IMPORTABLE_KEY {
+            if !(key_type == TpmAlgId::Rsa || key_type == TpmAlgId::Ecc) {
+                return Err(TpmKeyError::InvalidImportable(key_type));
             }
         } else if asn1.key_type == OID_SEALED_DATA {
             if key_type != TpmAlgId::KeyedHash {
-                return Err(TpmKeyError::InvalidKeyType);
+                return Err(TpmKeyError::InvalidSealed(key_type));
             }
         } else {
-            return Err(TpmKeyError::InvalidDerTag(asn1.key_type.to_string()));
+            return Err(TpmKeyError::InvalidOid(asn1.key_type));
         }
 
         let is_importable_oid = asn1.key_type == OID_IMPORTABLE_KEY;
@@ -296,6 +298,7 @@ impl TpmKey {
             auth_policy,
             secret: asn1.secret.as_ref().map(|o| o.as_ref().to_vec()),
             description: asn1.description,
+            oid: asn1.key_type,
         })
     }
 }
@@ -361,7 +364,7 @@ mod tests {
     use tpm2_protocol::{
         constant::TPM_MAX_COMMAND_SIZE,
         data::{
-            Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmsRsaParms, TpmtPublic, TpmtSensitive,
+            Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc, TpmsRsaParms, TpmtPublic, TpmtSensitive,
             TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
         },
         TpmMarshal, TpmWriter,
@@ -402,7 +405,7 @@ mod tests {
         let priv_bytes = crate::asn1::tpm_marshal_array(&[&private]).unwrap();
 
         let bad_cmd = TpmKeyCommandAsn1 {
-            command_code: 0xFFFF_FF00,
+            command_code: TpmCc::SelfTest as u32,
             command_policy: OctetString::copy_from_slice(&[]),
         };
 
@@ -423,7 +426,7 @@ mod tests {
         let der = rasn::der::encode(&asn1).unwrap();
         let res = TpmKey::from_der(&der);
         match res {
-            Err(TpmKeyError::InvalidCc(0xFFFF_FF00)) => {}
+            Err(TpmKeyError::InvalidCc(TpmCc::SelfTest)) => {}
             other => panic!("expected InvalidCc, got: {other:?}"),
         }
     }
@@ -466,6 +469,7 @@ mod tests {
             auth_policy: None,
             secret: None,
             description: None,
+            oid: OID_LOADABLE_KEY.clone(),
         }
     }
 
@@ -496,6 +500,6 @@ mod tests {
     fn from_pem_malformed_data_err() {
         let bad_pem = "not pem data at all";
         let res = TpmKey::from_pem(bad_pem.as_bytes());
-        assert!(matches!(res, Err(TpmKeyError::InvalidPem(_))));
+        assert!(matches!(res, Err(TpmKeyError::PemDecodingFailed(_))));
     }
 }

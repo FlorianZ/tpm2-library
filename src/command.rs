@@ -120,7 +120,7 @@ pub fn tpm_key_command_from_parts(
             let _ = p_hash_list;
             Ok(Box::new(TpmKeyDefaultCommand { cc, body }))
         }
-        _ => Err(TpmKeyError::InvalidCc(cc as u32)),
+        _ => Err(TpmKeyError::InvalidCc(cc)),
     }
 }
 
@@ -160,7 +160,7 @@ pub fn tpm_key_command_from_command(
             cc: cmd.cc(),
             body: Vec::new(),
         })),
-        _ => Err(TpmKeyError::InvalidCc(cmd.cc() as u32)),
+        _ => Err(TpmKeyError::InvalidCc(cmd.cc())),
     }
 }
 
@@ -213,7 +213,7 @@ impl TpmKeyCommand for TpmKeyDefaultCommand {
 
                 Ok(TpmCommand::PolicyOr(inner))
             }
-            other => Err(TpmKeyError::InvalidCc(other as u32)),
+            other => Err(TpmKeyError::InvalidCc(other)),
         }
     }
 
@@ -356,8 +356,7 @@ impl TryFrom<TpmKeyCommandAsn1> for Box<dyn TpmKeyCommand> {
     type Error = TpmKeyError;
 
     fn try_from(val: TpmKeyCommandAsn1) -> Result<Self, Self::Error> {
-        let cc = TpmCc::try_from(val.command_code)
-            .map_err(|_| TpmKeyError::InvalidCc(val.command_code))?;
+        let cc = TpmCc::try_from(val.command_code).map_err(TpmKeyError::Unmarshal)?;
         tpm_key_command_from_parts(cc, val.command_policy.as_ref().to_vec())
     }
 }

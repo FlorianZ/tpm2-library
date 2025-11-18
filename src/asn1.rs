@@ -8,7 +8,7 @@ use rasn::{
     types::{OctetString, Utf8String},
     AsnType, Decode, Decoder, Encode, Encoder,
 };
-use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, data::TpmAlgId, TpmMarshal, TpmWriter};
+use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmMarshal, TpmWriter};
 
 pub(crate) const OID_LOADABLE_KEY: ObjectIdentifier =
     ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 3]));
@@ -28,23 +28,6 @@ pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, Tpm
     };
     buf.truncate(len);
     Ok(buf)
-}
-
-pub(crate) fn key_type_to_oid_for_encode(
-    key_type: TpmAlgId,
-    has_secret: bool,
-) -> Result<ObjectIdentifier, TpmKeyError> {
-    match key_type {
-        TpmAlgId::Rsa | TpmAlgId::Ecc => {
-            if has_secret {
-                Ok(OID_IMPORTABLE_KEY.clone())
-            } else {
-                Ok(OID_LOADABLE_KEY.clone())
-            }
-        }
-        TpmAlgId::KeyedHash => Ok(OID_SEALED_DATA.clone()),
-        _ => Err(TpmKeyError::InvalidKeyType),
-    }
 }
 
 /// A single policy command step, directly compatible with ASN.1.
