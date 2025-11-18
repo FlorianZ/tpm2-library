@@ -275,13 +275,11 @@ impl TpmPolicyCommand {
     /// context.
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when the command code is
     /// not supported by this conversion.
-    pub fn from_command(cmd: &TpmCommand) -> Result<Self, TpmKeyError> {
+    pub fn from_command(cmd: &TpmCommand, object_name: &Tpm2bName) -> Result<Self, TpmKeyError> {
         match cmd {
             TpmCommand::PolicyPcr(ref inner) => Self::from_policy_pcr_command(inner),
             TpmCommand::PolicyOr(inner) => Self::from_policy_or_command(inner),
-            TpmCommand::PolicySecret(inner) => {
-                Self::from_policy_secret(inner, &Tpm2bName::default())
-            }
+            TpmCommand::PolicySecret(inner) => Self::from_policy_secret(inner, object_name),
             TpmCommand::PolicyAuthValue(_)
             | TpmCommand::PolicyPassword(_)
             | TpmCommand::PolicyGetDigest(_)
@@ -407,7 +405,7 @@ impl TpmPolicyCommand {
     ///
     /// Returns [`Marshal`](crate::VtpmError::Marshal) when the value cannot be
     /// marshalled into the underlying TPM buffer.
-    pub fn from_policy_secret(
+    fn from_policy_secret(
         inner: &TpmPolicySecretCommand,
         object_name: &Tpm2bName,
     ) -> Result<Self, TpmKeyError> {
@@ -1046,7 +1044,7 @@ mod tests {
             _ => panic!("Unexpected command variant in zero-param test"),
         }
 
-        let back = TpmPolicyCommand::from_command(&cmd).unwrap();
+        let back = TpmPolicyCommand::from_command(&cmd, &Tpm2bName::default()).unwrap();
         assert_eq!(back.code(), cc);
         assert!(back.body().is_empty());
     }
@@ -1068,7 +1066,7 @@ mod tests {
         match cmd {
             TpmCommand::PolicyPcr(inner) => {
                 assert_eq!(inner.policy_session, POLICY_SESSION);
-                let back = TpmPolicyCommand::from_command(&cmd).unwrap();
+                let back = TpmPolicyCommand::from_command(&cmd, &Tpm2bName::default()).unwrap();
                 assert_eq!(back, step);
             }
             other => panic!("unexpected command variant: {other:?}"),
@@ -1091,7 +1089,7 @@ mod tests {
         match cmd {
             TpmCommand::PolicyOr(inner) => {
                 assert_eq!(inner.policy_session, POLICY_SESSION);
-                let back = TpmPolicyCommand::from_command(&cmd).unwrap();
+                let back = TpmPolicyCommand::from_command(&cmd, &Tpm2bName::default()).unwrap();
                 assert_eq!(back, step);
             }
             other => panic!("unexpected command variant: {other:?}"),
