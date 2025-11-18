@@ -25,7 +25,7 @@ use tpm2_protocol::{
         TpmCc, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     frame::TpmImportCommand,
-    TpmHandle, TpmMarshal, TpmProtocolError, TpmWriter,
+    TpmHandle, TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKey;
 
@@ -153,7 +153,7 @@ impl Convert {
             sensitive: sensitive_composite,
         };
         let sensitive_tpm2b = Tpm2bSensitive::from(sensitive);
-        let enc_data_in = write_object(&sensitive_tpm2b)?;
+        let enc_data_in = write_object(&sensitive_tpm2b).map_err(CommandError::Marshal)?;
         let iv = [0u8; 16];
 
         let enc_data = encrypt(Cipher::aes_128_cfb128(), sym_key, Some(&iv), &enc_data_in)?;
@@ -176,10 +176,12 @@ impl Convert {
             let len = {
                 let mut writer = TpmWriter::new(&mut duplicate_blob_buf);
                 Tpm2bDigest::try_from(final_mac.as_slice())
-                    .map_err(|_| CommandError::CapacityExceeded)?
+                    .map_err(CommandError::Unmarshal)?
                     .marshal(&mut writer)
-                    .map_err(|e: TpmProtocolError| e)?;
-                writer.write_bytes(sensitive)?;
+                    .map_err(CommandError::Marshal)?;
+                writer
+                    .write_bytes(sensitive)
+                    .map_err(CommandError::Marshal)?;
                 writer.len()
             };
             duplicate_blob_buf[..len].to_vec()

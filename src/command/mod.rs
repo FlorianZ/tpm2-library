@@ -50,10 +50,7 @@ use tabled::{
 use thiserror::Error;
 use tpm2_crypto::TpmCryptoError;
 use tpm2_device::TpmDeviceError;
-use tpm2_protocol::{
-    data::{TpmCc, TpmRcBase},
-    TpmProtocolError,
-};
+use tpm2_protocol::data::{TpmCc, TpmRcBase};
 use tpm2_vtpm::VtpmError;
 
 /// Creates, styles, and prints a table from a vector of `Tabled` items.
@@ -149,8 +146,6 @@ pub enum CommandError {
     Policy(#[from] tpm2_policy_language::TpmPolicyError),
     #[error("policy denied")]
     PolicyDenied,
-    #[error("protocol: {0}")]
-    Protocol(#[from] TpmProtocolError),
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
     #[error("sensitive data denied")]

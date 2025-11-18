@@ -104,12 +104,16 @@ impl Task for Load {
                     let len = {
                         let mut writer = TpmWriter::new(&mut buf);
                         let count = u32::try_from(policy.policy.len())?;
-                        count.marshal(&mut writer)?;
+                        count.marshal(&mut writer).map_err(CommandError::Marshal)?;
 
                         for cmd in &policy.policy {
-                            cmd.code().marshal(&mut writer)?;
-                            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())?
-                                .marshal(&mut writer)?;
+                            cmd.code()
+                                .marshal(&mut writer)
+                                .map_err(CommandError::Marshal)?;
+                            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())
+                                .map_err(CommandError::Unmarshal)?
+                                .marshal(&mut writer)
+                                .map_err(CommandError::Marshal)?;
                         }
                         writer.len()
                     };
