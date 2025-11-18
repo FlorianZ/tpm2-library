@@ -4,7 +4,7 @@
 
 //! TPM 2.0 ECC curves and cryptographic operations.
 
-use crate::{Hash, PublicKey, TpmCryptoError, KDF_LABEL_DUPLICATE};
+use crate::{Hash, TpmCryptoError, TpmPublicKey, KDF_LABEL_DUPLICATE};
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::ops::bytes::ToBytes;
 use openssl::{
@@ -178,7 +178,7 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
     }
 }
 
-impl PublicKey for EccPublicKey {
+impl TpmPublicKey for EccPublicKey {
     fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;

@@ -8,7 +8,7 @@
 #![deny(clippy::pedantic)]
 
 use rstest::rstest;
-use tpm2_crypto::{EccCurve, EccPublicKey, PublicKey, RsaPublicKey};
+use tpm2_crypto::{EccCurve, EccPublicKey, RsaPublicKey, TpmPublicKey};
 use tpm2_protocol::data::{
     Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmtSymDefObject, TpmuAsymScheme,
     TpmuPublicId, TpmuPublicParms,

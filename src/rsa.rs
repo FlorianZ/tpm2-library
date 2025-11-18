@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 //! TPM 2.0 RSA cryptographic operations.
 
-use crate::{Hash, PublicKey, TpmCryptoError};
+use crate::{Hash, TpmCryptoError, TpmPublicKey};
 use openssl::{
     bn::BigNum,
     hash::MessageDigest,
@@ -86,7 +86,7 @@ impl TryFrom<&PKey<Private>> for RsaPublicKey {
     }
 }
 
-impl PublicKey for RsaPublicKey {
+impl TpmPublicKey for RsaPublicKey {
     fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
