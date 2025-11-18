@@ -1,7 +1,7 @@
 [package]
 name = "tpm2-device"
 description = "TPM 2.0 device interface"
-version = "0.1.4"
+version = "0.1.5"
 license = "MIT OR Apache-2.0"
 homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-device.git/about/?h=main"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-device.git"
@@ -16,7 +16,7 @@ log = "0.4"
 nix = { version = "0.29", features = ["fs", "poll"] }
 thiserror = "1.0"
 tpm2-crypto = "0.7.1"
-tpm2-policy-language = "0.8.1"
+tpm2-policy-language = "0.8.2"
 tpm2-protocol = "0.15.4"
 tracing = { version = "0.1", default-features = false }
 
