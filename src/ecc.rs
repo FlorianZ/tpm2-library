@@ -29,7 +29,7 @@ use tpm2_protocol::{
 /// TPM 2.0 ECC curves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "kebab-case")]
-pub enum EccCurve {
+pub enum TpmEllipticCurve {
     NistP192,
     NistP224,
     NistP256,
@@ -49,7 +49,7 @@ pub enum EccCurve {
     None,
 }
 
-impl From<TpmEccCurve> for EccCurve {
+impl From<TpmEccCurve> for TpmEllipticCurve {
     fn from(curve: TpmEccCurve) -> Self {
         match curve {
             TpmEccCurve::NistP192 => Self::NistP192,
@@ -70,58 +70,58 @@ impl From<TpmEccCurve> for EccCurve {
     }
 }
 
-impl From<EccCurve> for TpmEccCurve {
-    fn from(curve: EccCurve) -> Self {
+impl From<TpmEllipticCurve> for TpmEccCurve {
+    fn from(curve: TpmEllipticCurve) -> Self {
         match curve {
-            EccCurve::NistP192 => Self::NistP192,
-            EccCurve::NistP224 => Self::NistP224,
-            EccCurve::NistP256 => Self::NistP256,
-            EccCurve::NistP384 => Self::NistP384,
-            EccCurve::NistP521 => Self::NistP521,
-            EccCurve::BnP256 => Self::BnP256,
-            EccCurve::BnP638 => Self::BnP638,
-            EccCurve::Sm2P256 => Self::Sm2P256,
-            EccCurve::BpP256R1 => Self::BpP256R1,
-            EccCurve::BpP384R1 => Self::BpP384R1,
-            EccCurve::BpP512R1 => Self::BpP512R1,
-            EccCurve::Curve25519 => Self::Curve25519,
-            EccCurve::Curve448 => Self::Curve448,
-            EccCurve::None => Self::None,
+            TpmEllipticCurve::NistP192 => Self::NistP192,
+            TpmEllipticCurve::NistP224 => Self::NistP224,
+            TpmEllipticCurve::NistP256 => Self::NistP256,
+            TpmEllipticCurve::NistP384 => Self::NistP384,
+            TpmEllipticCurve::NistP521 => Self::NistP521,
+            TpmEllipticCurve::BnP256 => Self::BnP256,
+            TpmEllipticCurve::BnP638 => Self::BnP638,
+            TpmEllipticCurve::Sm2P256 => Self::Sm2P256,
+            TpmEllipticCurve::BpP256R1 => Self::BpP256R1,
+            TpmEllipticCurve::BpP384R1 => Self::BpP384R1,
+            TpmEllipticCurve::BpP512R1 => Self::BpP512R1,
+            TpmEllipticCurve::Curve25519 => Self::Curve25519,
+            TpmEllipticCurve::Curve448 => Self::Curve448,
+            TpmEllipticCurve::None => Self::None,
         }
     }
 }
 
-impl From<EccCurve> for Nid {
+impl From<TpmEllipticCurve> for Nid {
     /// Maps a TPM ECC curve ID to an OpenSSL NID.
-    fn from(curve: EccCurve) -> Self {
+    fn from(curve: TpmEllipticCurve) -> Self {
         match curve {
-            EccCurve::NistP192 => Nid::X9_62_PRIME192V1,
-            EccCurve::NistP224 => Nid::SECP224R1,
-            EccCurve::NistP256 => Nid::X9_62_PRIME256V1,
-            EccCurve::NistP384 => Nid::SECP384R1,
-            EccCurve::NistP521 => Nid::SECP521R1,
-            EccCurve::BpP256R1 => Nid::BRAINPOOL_P256R1,
-            EccCurve::BpP384R1 => Nid::BRAINPOOL_P384R1,
-            EccCurve::BpP512R1 => Nid::BRAINPOOL_P512R1,
-            EccCurve::Sm2P256 => Nid::SM2,
+            TpmEllipticCurve::NistP192 => Nid::X9_62_PRIME192V1,
+            TpmEllipticCurve::NistP224 => Nid::SECP224R1,
+            TpmEllipticCurve::NistP256 => Nid::X9_62_PRIME256V1,
+            TpmEllipticCurve::NistP384 => Nid::SECP384R1,
+            TpmEllipticCurve::NistP521 => Nid::SECP521R1,
+            TpmEllipticCurve::BpP256R1 => Nid::BRAINPOOL_P256R1,
+            TpmEllipticCurve::BpP384R1 => Nid::BRAINPOOL_P384R1,
+            TpmEllipticCurve::BpP512R1 => Nid::BRAINPOOL_P512R1,
+            TpmEllipticCurve::Sm2P256 => Nid::SM2,
             _ => Nid::UNDEF,
         }
     }
 }
 
-impl From<Nid> for EccCurve {
+impl From<Nid> for TpmEllipticCurve {
     fn from(nid: Nid) -> Self {
         match nid {
-            Nid::X9_62_PRIME192V1 => EccCurve::NistP192,
-            Nid::SECP224R1 => EccCurve::NistP224,
-            Nid::X9_62_PRIME256V1 => EccCurve::NistP256,
-            Nid::SECP384R1 => EccCurve::NistP384,
-            Nid::SECP521R1 => EccCurve::NistP521,
-            Nid::BRAINPOOL_P256R1 => EccCurve::BpP256R1,
-            Nid::BRAINPOOL_P384R1 => EccCurve::BpP384R1,
-            Nid::BRAINPOOL_P512R1 => EccCurve::BpP512R1,
-            Nid::SM2 => EccCurve::Sm2P256,
-            _ => EccCurve::None,
+            Nid::X9_62_PRIME192V1 => TpmEllipticCurve::NistP192,
+            Nid::SECP224R1 => TpmEllipticCurve::NistP224,
+            Nid::X9_62_PRIME256V1 => TpmEllipticCurve::NistP256,
+            Nid::SECP384R1 => TpmEllipticCurve::NistP384,
+            Nid::SECP521R1 => TpmEllipticCurve::NistP521,
+            Nid::BRAINPOOL_P256R1 => TpmEllipticCurve::BpP256R1,
+            Nid::BRAINPOOL_P384R1 => TpmEllipticCurve::BpP384R1,
+            Nid::BRAINPOOL_P512R1 => TpmEllipticCurve::BpP512R1,
+            Nid::SM2 => TpmEllipticCurve::Sm2P256,
+            _ => TpmEllipticCurve::None,
         }
     }
 }
@@ -129,7 +129,7 @@ impl From<Nid> for EccCurve {
 /// ECC public key parameters.
 #[derive(Debug, Clone)]
 pub struct TpmEccPublicKey {
-    pub curve: EccCurve,
+    pub curve: TpmEllipticCurve,
     pub x: Tpm2bEccParameter,
     pub y: Tpm2bEccParameter,
 }
@@ -167,7 +167,7 @@ impl TryFrom<&PKey<Private>> for TpmEccPublicKey {
         let nid = group
             .curve_name()
             .ok_or(TpmCryptoError::InvalidEccParameters)?;
-        let curve = EccCurve::from(nid);
+        let curve = TpmEllipticCurve::from(nid);
 
         let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
         let (x, y) = crate::tpm_make_point(ec_key.public_key(), group, &mut ctx)?;

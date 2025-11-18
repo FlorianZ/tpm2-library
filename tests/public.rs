@@ -8,7 +8,7 @@
 #![deny(clippy::pedantic)]
 
 use rstest::rstest;
-use tpm2_crypto::{EccCurve, TpmEccPublicKey, TpmPublicKey, TpmRsaPublicKey};
+use tpm2_crypto::{TpmEccPublicKey, TpmEllipticCurve, TpmPublicKey, TpmRsaPublicKey};
 use tpm2_protocol::data::{
     Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmtSymDefObject, TpmuAsymScheme,
     TpmuPublicId, TpmuPublicParms,
@@ -59,11 +59,11 @@ fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
 }
 
 #[rstest]
-#[case(TpmAlgId::Sha256, EccCurve::NistP256, &TEST_COORD, &TEST_COORD)]
-#[case(TpmAlgId::Sha1, EccCurve::NistP192, &[3; 24], &[4; 24])]
+#[case(TpmAlgId::Sha256, TpmEllipticCurve::NistP256, &TEST_COORD, &TEST_COORD)]
+#[case(TpmAlgId::Sha1, TpmEllipticCurve::NistP192, &[3; 24], &[4; 24])]
 fn test_ecc_to_public(
     #[case] hash_alg: TpmAlgId,
-    #[case] curve: EccCurve,
+    #[case] curve: TpmEllipticCurve,
     #[case] x_bytes: &[u8],
     #[case] y_bytes: &[u8],
 ) {
