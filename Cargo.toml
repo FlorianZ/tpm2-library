@@ -14,7 +14,7 @@ readme = "README.md"
 log = "0.4"
 thiserror = "1.0"
 tpm2-crypto = "0.6.3"
-tpm2-policy-language = "0.7.2"
+tpm2-policy-language = "0.8.0"
 tpm2-protocol = "0.15.4"
 
 [dev-dependencies]
