@@ -430,31 +430,6 @@ pub struct TpmPolicy {
 /// List of typed TPM commands corresponding to a policy sequence.
 pub type TpmCommandList = Vec<TpmCommand>;
 
-impl TpmPolicy {
-    /// Constructs a policy from a list of typed TPM commands and their
-    /// authorization areas.
-    ///
-    /// The `name` parameter becomes the policy branch name in the returned
-    /// [`TpmPolicy`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) or
-    /// [`InvalidCc`](crate::Error::InvalidCc) when any command is not
-    /// representable as a policy step.
-    pub fn from_command_list(
-        name: Option<String>,
-        commands: &[TpmCommand],
-    ) -> Result<Self, TpmKeyError> {
-        let policy = commands
-            .iter()
-            .map(TpmPolicyCommand::from_command)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self { name, policy })
-    }
-}
-
 /// High-level runtime representation of a TPM key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmKey {
