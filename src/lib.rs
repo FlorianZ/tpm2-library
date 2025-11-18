@@ -22,7 +22,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tpm2_crypto::{tpm_make_name, Error as CryptoError};
+use tpm2_crypto::{tpm_make_name, TpmCryptoError};
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
@@ -50,6 +50,11 @@ pub enum TpmDeviceError {
     AlreadyBorrowed,
     #[error("capability not found: {0}")]
     CapabilityMissing(TpmCap),
+
+    /// A cryptographic operation failed.
+    #[error("crypto: {0}")]
+    Crypto(#[from] TpmCryptoError),
+
     #[error("operation interrupted by user")]
     Interrupted,
     #[error("invalid response")]
@@ -77,8 +82,6 @@ pub enum TpmDeviceError {
     Io(#[from] std::io::Error),
     #[error("syscall: {0}")]
     Nix(#[from] nix::Error),
-    #[error("crypto: {0}")]
-    InvalidCrypto(#[from] CryptoError),
     #[error("TPM return code: {0}")]
     TpmRc(TpmRc),
 }
