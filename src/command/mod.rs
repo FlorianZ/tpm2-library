@@ -151,8 +151,8 @@ pub enum CommandError {
     Key(#[from] AlgError),
     #[error("pcr: {0}")]
     Pcr(#[from] PcrError),
-    #[error("policy parse: {0}")]
-    PolicyLanguage(#[from] tpm2_policy_language::Error),
+    #[error("policy: {0}")]
+    Policy(#[from] tpm2_policy_language::TpmPolicyError),
     #[error("ECDH private key generation failed")]
     HexDecode(#[from] hex::FromHexError),
     #[error("int decode: {0}")]
