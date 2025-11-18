@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 //! TPM 2.0 RSA cryptographic operations.
 
-use crate::{Error, Hash, PublicKey};
+use crate::{Hash, PublicKey, TpmCryptoError};
 use openssl::{
     bn::BigNum,
     hash::MessageDigest,
@@ -29,21 +29,21 @@ pub struct RsaPublicKey {
 }
 
 impl TryFrom<&TpmtPublic> for RsaPublicKey {
-    type Error = Error;
+    type Error = TpmCryptoError;
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
         if public.object_type != TpmAlgId::Rsa {
-            return Err(Error::InvalidRsaParameters);
+            return Err(TpmCryptoError::InvalidRsaParameters);
         }
 
         let params = match &public.parameters {
             TpmuPublicParms::Rsa(params) => Ok(params),
-            _ => Err(Error::InvalidRsaParameters),
+            _ => Err(TpmCryptoError::InvalidRsaParameters),
         }?;
 
         let n = match &public.unique {
             TpmuPublicId::Rsa(n) => Ok(*n),
-            _ => Err(Error::InvalidRsaParameters),
+            _ => Err(TpmCryptoError::InvalidRsaParameters),
         }?;
 
         let e = if params.exponent == 0 {
@@ -61,34 +61,40 @@ impl TryFrom<&TpmtPublic> for RsaPublicKey {
 }
 
 impl TryFrom<&PKey<Private>> for RsaPublicKey {
-    type Error = Error;
+    type Error = TpmCryptoError;
 
     fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
-        let rsa = pkey.rsa().map_err(|_| Error::InvalidRsaParameters)?;
+        let rsa = pkey
+            .rsa()
+            .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
         let n = Tpm2bPublicKeyRsa::try_from(rsa.n().to_vec().as_slice())
-            .map_err(|_| Error::InvalidRsaParameters)?;
+            .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
 
         let e_bn = rsa.e();
         if e_bn.is_negative() || e_bn.num_bits() > 32 {
-            return Err(Error::InvalidRsaParameters);
+            return Err(TpmCryptoError::InvalidRsaParameters);
         }
         let e_bytes = e_bn.to_vec();
         let mut e_buf = [0u8; 4];
         e_buf[4 - e_bytes.len()..].copy_from_slice(&e_bytes);
         let e = u32::from_be_bytes(e_buf);
 
-        let key_bits = u16::try_from(rsa.size() * 8).map_err(|_| Error::InvalidRsaParameters)?;
+        let key_bits =
+            u16::try_from(rsa.size() * 8).map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
 
         Ok(Self { n, e, key_bits })
     }
 }
 
 impl PublicKey for RsaPublicKey {
-    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error> {
-        let pkey = PKey::private_key_from_der(bytes).map_err(|_| Error::OperationFailed)?;
+    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
+        let pkey =
+            PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
         let public_key = RsaPublicKey::try_from(&pkey)?;
-        let rsa = pkey.rsa().map_err(|_| Error::InvalidRsaParameters)?;
-        let sensitive = rsa.p().ok_or(Error::OperationFailed)?.to_vec();
+        let rsa = pkey
+            .rsa()
+            .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
+        let sensitive = rsa.p().ok_or(TpmCryptoError::OperationFailed)?.to_vec();
         Ok((public_key, sensitive))
     }
 
@@ -115,15 +121,15 @@ impl PublicKey for RsaPublicKey {
         &self,
         name_alg: Hash,
         _rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), Error> {
+    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError> {
         let seed_size = name_alg.size();
         let mut seed = vec![0u8; seed_size];
-        rand_bytes(&mut seed).map_err(|_| Error::OperationFailed)?;
+        rand_bytes(&mut seed).map_err(|_| TpmCryptoError::OperationFailed)?;
 
         let encrypted_seed_bytes = self.oaep(name_alg, &seed)?;
 
         let encrypted_seed = Tpm2bEncryptedSecret::try_from(encrypted_seed_bytes.as_slice())
-            .map_err(|_| Error::OutOfMemory)?;
+            .map_err(|_| TpmCryptoError::OutOfMemory)?;
 
         Ok((seed, encrypted_seed))
     }
@@ -140,32 +146,33 @@ impl RsaPublicKey {
     /// internal cryptographic operation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation
     /// fails.
-    fn oaep(&self, name_alg: Hash, seed: &[u8]) -> Result<Vec<u8>, Error> {
+    fn oaep(&self, name_alg: Hash, seed: &[u8]) -> Result<Vec<u8>, TpmCryptoError> {
         let md = Into::<MessageDigest>::into(name_alg);
 
-        let oaep_md = Md::from_nid(md.type_()).ok_or(Error::OperationFailed)?;
+        let oaep_md = Md::from_nid(md.type_()).ok_or(TpmCryptoError::OperationFailed)?;
 
-        let n = BigNum::from_slice(self.n.as_ref()).map_err(|_| Error::OutOfMemory)?;
-        let e = BigNum::from_u32(self.e).map_err(|_| Error::OutOfMemory)?;
-        let rsa = Rsa::from_public_components(n, e).map_err(|_| Error::OperationFailed)?;
-        let pkey = PKey::from_rsa(rsa).map_err(|_| Error::OperationFailed)?;
+        let n = BigNum::from_slice(self.n.as_ref()).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let e = BigNum::from_u32(self.e).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let rsa = Rsa::from_public_components(n, e).map_err(|_| TpmCryptoError::OperationFailed)?;
+        let pkey = PKey::from_rsa(rsa).map_err(|_| TpmCryptoError::OperationFailed)?;
 
-        let mut ctx = PkeyCtx::new(&pkey).map_err(|_| Error::OutOfMemory)?;
+        let mut ctx = PkeyCtx::new(&pkey).map_err(|_| TpmCryptoError::OutOfMemory)?;
 
-        ctx.encrypt_init().map_err(|_| Error::OperationFailed)?;
+        ctx.encrypt_init()
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
         ctx.set_rsa_padding(Padding::PKCS1_OAEP)
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
         ctx.set_rsa_oaep_md(oaep_md)
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
         ctx.set_rsa_mgf1_md(oaep_md)
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
         ctx.set_rsa_oaep_label(b"DUPLICATE\0")
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
 
         let mut encrypted_seed = vec![0; pkey.size()];
         let len = ctx
             .encrypt(seed, Some(encrypted_seed.as_mut_slice()))
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
 
         encrypted_seed.truncate(len);
         Ok(encrypted_seed)

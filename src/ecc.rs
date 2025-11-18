@@ -4,7 +4,7 @@
 
 //! TPM 2.0 ECC curves and cryptographic operations.
 
-use crate::{Error, Hash, PublicKey, KDF_LABEL_DUPLICATE};
+use crate::{Hash, PublicKey, TpmCryptoError, KDF_LABEL_DUPLICATE};
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::ops::bytes::ToBytes;
 use openssl::{
@@ -110,7 +110,7 @@ impl From<EccCurve> for Nid {
 }
 
 impl TryFrom<Nid> for EccCurve {
-    type Error = Error;
+    type Error = TpmCryptoError;
 
     fn try_from(nid: Nid) -> Result<Self, Self::Error> {
         match nid {
@@ -123,7 +123,7 @@ impl TryFrom<Nid> for EccCurve {
             Nid::BRAINPOOL_P384R1 => Ok(EccCurve::BpP384R1),
             Nid::BRAINPOOL_P512R1 => Ok(EccCurve::BpP512R1),
             Nid::SM2 => Ok(EccCurve::Sm2P256),
-            _ => Err(Error::InvalidEccCurve),
+            _ => Err(TpmCryptoError::InvalidEccCurve),
         }
     }
 }
@@ -137,17 +137,17 @@ pub struct EccPublicKey {
 }
 
 impl TryFrom<&TpmtPublic> for EccPublicKey {
-    type Error = Error;
+    type Error = TpmCryptoError;
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
         let params = match &public.parameters {
             TpmuPublicParms::Ecc(params) => Ok(params),
-            _ => Err(Error::InvalidEccParameters),
+            _ => Err(TpmCryptoError::InvalidEccParameters),
         }?;
 
         let (x, y) = match &public.unique {
             TpmuPublicId::Ecc(point) => Ok((point.x, point.y)),
-            _ => Err(Error::InvalidEccParameters),
+            _ => Err(TpmCryptoError::InvalidEccParameters),
         }?;
 
         Ok(Self {
@@ -159,15 +159,19 @@ impl TryFrom<&TpmtPublic> for EccPublicKey {
 }
 
 impl TryFrom<&PKey<Private>> for EccPublicKey {
-    type Error = Error;
+    type Error = TpmCryptoError;
 
     fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
-        let ec_key = pkey.ec_key().map_err(|_| Error::InvalidEccParameters)?;
+        let ec_key = pkey
+            .ec_key()
+            .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
         let group = ec_key.group();
-        let nid = group.curve_name().ok_or(Error::InvalidEccParameters)?;
+        let nid = group
+            .curve_name()
+            .ok_or(TpmCryptoError::InvalidEccParameters)?;
         let curve = EccCurve::try_from(nid)?;
 
-        let mut ctx = BigNumContext::new().map_err(|_| Error::OutOfMemory)?;
+        let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
         let (x, y) = crate::tpm_make_point(ec_key.public_key(), group, &mut ctx)?;
 
         Ok(Self { curve, x, y })
@@ -175,10 +179,13 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
 }
 
 impl PublicKey for EccPublicKey {
-    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), Error> {
-        let pkey = PKey::private_key_from_der(bytes).map_err(|_| Error::OperationFailed)?;
+    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
+        let pkey =
+            PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
         let public_key = EccPublicKey::try_from(&pkey)?;
-        let ec_key = pkey.ec_key().map_err(|_| Error::InvalidEccParameters)?;
+        let ec_key = pkey
+            .ec_key()
+            .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
         let sensitive = ec_key.private_key().to_vec();
         Ok((public_key, sensitive))
     }
@@ -209,7 +216,7 @@ impl PublicKey for EccPublicKey {
         &self,
         name_alg: Hash,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), Error> {
+    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError> {
         let (derived_seed, ephemeral_point) = self.ecdh(name_alg, rng)?;
 
         let mut point_bytes_buf = [0u8; TPM_MAX_COMMAND_SIZE as usize];
@@ -217,12 +224,13 @@ impl PublicKey for EccPublicKey {
             let mut writer = TpmWriter::new(&mut point_bytes_buf);
             ephemeral_point
                 .marshal(&mut writer)
-                .map_err(Error::Marshal)?;
+                .map_err(TpmCryptoError::Marshal)?;
             writer.len()
         };
         let point_bytes = &point_bytes_buf[..len];
 
-        let secret = Tpm2bEncryptedSecret::try_from(point_bytes).map_err(Error::Unmarshal)?;
+        let secret =
+            Tpm2bEncryptedSecret::try_from(point_bytes).map_err(TpmCryptoError::Unmarshal)?;
 
         Ok((derived_seed, secret))
     }
@@ -245,53 +253,58 @@ impl EccPublicKey {
         &self,
         name_alg: Hash,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(Vec<u8>, TpmsEccPoint), Error> {
+    ) -> Result<(Vec<u8>, TpmsEccPoint), TpmCryptoError> {
         let nid = self.curve.into();
         if nid == Nid::UNDEF {
-            return Err(Error::InvalidEccCurve);
+            return Err(TpmCryptoError::InvalidEccCurve);
         }
-        let group = EcGroup::from_curve_name(nid).map_err(|_| Error::OutOfMemory)?;
-        let mut ctx = BigNumContext::new().map_err(|_| Error::OutOfMemory)?;
+        let group = EcGroup::from_curve_name(nid).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
 
-        let parent_x = BigNum::from_slice(self.x.as_ref()).map_err(|_| Error::OutOfMemory)?;
-        let parent_y = BigNum::from_slice(self.y.as_ref()).map_err(|_| Error::OutOfMemory)?;
+        let parent_x =
+            BigNum::from_slice(self.x.as_ref()).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let parent_y =
+            BigNum::from_slice(self.y.as_ref()).map_err(|_| TpmCryptoError::OutOfMemory)?;
         let parent_key = EcKey::from_public_key_affine_coordinates(&group, &parent_x, &parent_y)
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
         let parent_public_key =
-            PKey::from_ec_key(parent_key).map_err(|_| Error::OperationFailed)?;
+            PKey::from_ec_key(parent_key).map_err(|_| TpmCryptoError::OperationFailed)?;
 
-        let mut order = BigNum::new().map_err(|_| Error::OutOfMemory)?;
+        let mut order = BigNum::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
         group
             .order(&mut order, &mut ctx)
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
         let order_uint = BigUint::from_bytes_be(&order.to_vec());
         let one = BigUint::from(1u8);
 
         let priv_uint = rng.gen_biguint_range(&one, &order_uint);
-        let priv_bn =
-            BigNum::from_slice(&priv_uint.to_be_bytes()).map_err(|_| Error::OutOfMemory)?;
+        let priv_bn = BigNum::from_slice(&priv_uint.to_be_bytes())
+            .map_err(|_| TpmCryptoError::OutOfMemory)?;
 
-        let mut ephemeral_pub_point = EcPoint::new(&group).map_err(|_| Error::OutOfMemory)?;
+        let mut ephemeral_pub_point =
+            EcPoint::new(&group).map_err(|_| TpmCryptoError::OutOfMemory)?;
         ephemeral_pub_point
             .mul_generator(&group, &priv_bn, &ctx)
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
         let ephemeral_key = EcKey::from_private_components(&group, &priv_bn, &ephemeral_pub_point)
-            .map_err(|_| Error::OutOfMemory)?;
+            .map_err(|_| TpmCryptoError::OutOfMemory)?;
 
         let ephemeral_public_key =
-            PKey::from_ec_key(ephemeral_key).map_err(|_| Error::OutOfMemory)?;
-        let mut deriver = Deriver::new(&ephemeral_public_key).map_err(|_| Error::OutOfMemory)?;
+            PKey::from_ec_key(ephemeral_key).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let mut deriver =
+            Deriver::new(&ephemeral_public_key).map_err(|_| TpmCryptoError::OutOfMemory)?;
         deriver
             .set_peer(&parent_public_key)
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
         let z = deriver
             .derive_to_vec()
-            .map_err(|_| Error::OperationFailed)?;
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
 
         let (ephemeral_x, ephemeral_y) =
             crate::tpm_make_point(&ephemeral_pub_point, &group, &mut ctx)?;
 
-        let seed_bits = u16::try_from(name_alg.size() * 8).map_err(|_| Error::OperationFailed)?;
+        let seed_bits =
+            u16::try_from(name_alg.size() * 8).map_err(|_| TpmCryptoError::OperationFailed)?;
         let context_u = ephemeral_x.as_ref();
         let context_v = self.x.as_ref();
 

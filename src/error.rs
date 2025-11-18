@@ -6,7 +6,7 @@ use thiserror::Error;
 
 /// The top-level error type for cryptographic operations.
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum Error {
+pub enum TpmCryptoError {
     /// Hash algorithm is not supported in the context of use.
     #[error("invalid hash algorithm")]
     InvalidHash,

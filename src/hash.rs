@@ -4,7 +4,7 @@
 
 //! TPM 2.0 hash algorithms and cryptographic operations.
 
-use crate::Error;
+use crate::TpmCryptoError;
 use openssl::{
     hash::{Hasher, MessageDigest},
     memcmp,
@@ -100,15 +100,17 @@ impl Hash {
     /// Returns [`OperationFailed`](crate::Error::OperationFailed)
     /// when the digest computation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
-    pub fn digest(&self, data_chunks: &[&[u8]]) -> Result<Vec<u8>, Error> {
+    pub fn digest(&self, data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
         let md = (*self).into();
-        let mut hasher = Hasher::new(md).map_err(|_| Error::OutOfMemory)?;
+        let mut hasher = Hasher::new(md).map_err(|_| TpmCryptoError::OutOfMemory)?;
         for chunk in data_chunks {
-            hasher.update(chunk).map_err(|_| Error::OperationFailed)?;
+            hasher
+                .update(chunk)
+                .map_err(|_| TpmCryptoError::OperationFailed)?;
         }
         Ok(hasher
             .finish()
-            .map_err(|_| Error::OperationFailed)?
+            .map_err(|_| TpmCryptoError::OperationFailed)?
             .to_vec())
     }
 
@@ -122,17 +124,21 @@ impl Hash {
     /// Returns [`OperationFailed`](crate::Error::OperationFailed)
     /// when the HMAC computation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
-    pub fn hmac(&self, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>, Error> {
+    pub fn hmac(&self, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
         if key.is_empty() {
-            return Err(Error::KeyIsEmpty);
+            return Err(TpmCryptoError::KeyIsEmpty);
         }
         let md = (*self).into();
-        let public_key = PKey::hmac(key).map_err(|_| Error::OutOfMemory)?;
-        let mut signer = Signer::new(md, &public_key).map_err(|_| Error::OutOfMemory)?;
+        let public_key = PKey::hmac(key).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let mut signer = Signer::new(md, &public_key).map_err(|_| TpmCryptoError::OutOfMemory)?;
         for chunk in data_chunks {
-            signer.update(chunk).map_err(|_| Error::OperationFailed)?;
+            signer
+                .update(chunk)
+                .map_err(|_| TpmCryptoError::OperationFailed)?;
         }
-        signer.sign_to_vec().map_err(|_| Error::OperationFailed)
+        signer
+            .sign_to_vec()
+            .map_err(|_| TpmCryptoError::OperationFailed)
     }
 
     /// Verifies an HMAC signature over a series of data chunks.
@@ -151,12 +157,12 @@ impl Hash {
         key: &[u8],
         data_chunks: &[&[u8]],
         signature: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<(), TpmCryptoError> {
         let expected = self.hmac(key, data_chunks)?;
         if memcmp::eq(&expected, signature) {
             Ok(())
         } else {
-            Err(Error::PermissionDenied)
+            Err(TpmCryptoError::PermissionDenied)
         }
     }
 
@@ -176,7 +182,7 @@ impl Hash {
         context_a: &[u8],
         context_b: &[u8],
         key_bits: u16,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, TpmCryptoError> {
         let mut key_stream = Vec::new();
         let key_bytes = (key_bits as usize).div_ceil(8);
 
@@ -221,7 +227,7 @@ impl Hash {
         context_u: &[u8],
         context_v: &[u8],
         key_bits: u16,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, TpmCryptoError> {
         let mut key_stream = Vec::new();
         let key_bytes = (key_bits as usize).div_ceil(8);
 
