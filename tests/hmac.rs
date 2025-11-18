@@ -5,7 +5,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-use tpm2_crypto::Hash;
+use tpm2_crypto::TpmHash;
 
 fn hex_to_bytes(s: &str) -> Vec<u8> {
     let s_no_whitespace: String = s.chars().filter(|c| !c.is_ascii_whitespace()).collect();
@@ -16,7 +16,7 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
 fn fail() {
     let key = b"key";
     let data = b"data";
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let mac = alg.hmac(key, &[data.as_ref()]).expect("hmac ok");
     let mut bad = mac.clone();
     bad[0] ^= 0x01;
@@ -27,7 +27,7 @@ fn fail() {
 fn pass() {
     let key = b"key";
     let data = b"data";
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let mac = alg.hmac(key, &[data.as_ref()]).expect("hmac ok");
     assert!(alg.hmac_verify(key, &[data.as_ref()], &mac).is_ok());
     let mut bad = mac.clone();
@@ -40,7 +40,7 @@ fn rfc_4231_test_case_1() {
     let key = vec![0x0b; 20];
     let data = b"Hi There";
     let expected = hex_to_bytes("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let mac = alg.hmac(&key, &[data.as_ref()]).expect("hmac ok");
     assert_eq!(mac, expected);
 }
@@ -57,7 +57,7 @@ fn sm3_digest() {
          7C0240F88F1CD4E16352A73C17B7F16F07353E53A176D684A9FE0C6BB798E857",
     );
     let expected = hex_to_bytes("F4A38489E32B45B6F876E3AC2168CA392362DC8F23459C1D1146FC3DBFB7BC9A");
-    let alg = Hash::Sm3_256;
+    let alg = TpmHash::Sm3_256;
     let output = alg.digest(&[&input]).expect("digest ok");
     assert_eq!(output, expected);
 }

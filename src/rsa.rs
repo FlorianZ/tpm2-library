@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 //! TPM 2.0 RSA cryptographic operations.
 
-use crate::{Hash, TpmCryptoError, TpmPublicKey};
+use crate::{TpmCryptoError, TpmHash, TpmPublicKey};
 use openssl::{
     bn::BigNum,
     hash::MessageDigest,
@@ -119,7 +119,7 @@ impl TpmPublicKey for TpmRsaPublicKey {
 
     fn to_seed(
         &self,
-        name_alg: Hash,
+        name_alg: TpmHash,
         _rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError> {
         let seed_size = name_alg.size();
@@ -146,7 +146,7 @@ impl TpmRsaPublicKey {
     /// internal cryptographic operation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation
     /// fails.
-    fn oaep(&self, name_alg: Hash, seed: &[u8]) -> Result<Vec<u8>, TpmCryptoError> {
+    fn oaep(&self, name_alg: TpmHash, seed: &[u8]) -> Result<Vec<u8>, TpmCryptoError> {
         let md = Into::<MessageDigest>::into(name_alg);
 
         let oaep_md = Md::from_nid(md.type_()).ok_or(TpmCryptoError::OperationFailed)?;

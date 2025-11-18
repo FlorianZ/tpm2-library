@@ -4,7 +4,7 @@
 
 //! TPM 2.0 ECC curves and cryptographic operations.
 
-use crate::{Hash, TpmCryptoError, TpmPublicKey, KDF_LABEL_DUPLICATE};
+use crate::{TpmCryptoError, TpmHash, TpmPublicKey, KDF_LABEL_DUPLICATE};
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::ops::bytes::ToBytes;
 use openssl::{
@@ -141,7 +141,7 @@ impl TpmPublicKey for TpmEccPublicKey {
 
     fn to_seed(
         &self,
-        name_alg: Hash,
+        name_alg: TpmHash,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError> {
         let (derived_seed, ephemeral_point) = self.ecdh(name_alg, rng)?;
@@ -178,7 +178,7 @@ impl TpmEccPublicKey {
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
     fn ecdh(
         &self,
-        name_alg: Hash,
+        name_alg: TpmHash,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(Vec<u8>, TpmsEccPoint), TpmCryptoError> {
         let nid = from_ecc_curve_to_nid(self.curve);

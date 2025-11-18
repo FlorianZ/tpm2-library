@@ -62,7 +62,7 @@ where
     /// generation or encryption fails.
     fn to_seed(
         &self,
-        name_alg: Hash,
+        name_alg: TpmHash,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError>;
 }
@@ -82,7 +82,7 @@ pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when memory allocation
 /// for temporary data fails.
 pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, TpmCryptoError> {
-    let name_alg = Hash::from(public.name_alg);
+    let name_alg = TpmHash::from(public.name_alg);
     let alg_bytes = (public.name_alg as u16).to_be_bytes();
 
     let len = public.len();

@@ -17,7 +17,7 @@ use tpm2_protocol::data::TpmAlgId;
 /// TPM 2.0 hash algorithms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "kebab-case")]
-pub enum Hash {
+pub enum TpmHash {
     Sha1,
     Sha256,
     Sha384,
@@ -31,7 +31,7 @@ pub enum Hash {
     Null,
 }
 
-impl From<TpmAlgId> for Hash {
+impl From<TpmAlgId> for TpmHash {
     fn from(alg: TpmAlgId) -> Self {
         match alg {
             TpmAlgId::Sha1 => Self::Sha1,
@@ -49,42 +49,42 @@ impl From<TpmAlgId> for Hash {
     }
 }
 
-impl From<Hash> for TpmAlgId {
-    fn from(alg: Hash) -> Self {
+impl From<TpmHash> for TpmAlgId {
+    fn from(alg: TpmHash) -> Self {
         match alg {
-            Hash::Sha1 => Self::Sha1,
-            Hash::Sha256 => Self::Sha256,
-            Hash::Sha384 => Self::Sha384,
-            Hash::Sha512 => Self::Sha512,
-            Hash::Sm3_256 => Self::Sm3_256,
-            Hash::Sha3_256 => Self::Sha3_256,
-            Hash::Sha3_384 => Self::Sha3_384,
-            Hash::Sha3_512 => Self::Sha3_512,
-            Hash::Shake128 => Self::Shake128,
-            Hash::Shake256 => Self::Shake256,
-            Hash::Null => Self::Null,
+            TpmHash::Sha1 => Self::Sha1,
+            TpmHash::Sha256 => Self::Sha256,
+            TpmHash::Sha384 => Self::Sha384,
+            TpmHash::Sha512 => Self::Sha512,
+            TpmHash::Sm3_256 => Self::Sm3_256,
+            TpmHash::Sha3_256 => Self::Sha3_256,
+            TpmHash::Sha3_384 => Self::Sha3_384,
+            TpmHash::Sha3_512 => Self::Sha3_512,
+            TpmHash::Shake128 => Self::Shake128,
+            TpmHash::Shake256 => Self::Shake256,
+            TpmHash::Null => Self::Null,
         }
     }
 }
 
-impl From<Hash> for MessageDigest {
-    fn from(alg: Hash) -> Self {
+impl From<TpmHash> for MessageDigest {
+    fn from(alg: TpmHash) -> Self {
         match alg {
-            Hash::Sha1 => MessageDigest::sha1(),
-            Hash::Sha256 => MessageDigest::sha256(),
-            Hash::Sha384 => MessageDigest::sha384(),
-            Hash::Sha512 => MessageDigest::sha512(),
-            Hash::Sm3_256 | Hash::Sha3_512 => MessageDigest::sm3(),
-            Hash::Sha3_256 => MessageDigest::sha3_256(),
-            Hash::Sha3_384 => MessageDigest::sha3_384(),
-            Hash::Shake128 => MessageDigest::shake_128(),
-            Hash::Shake256 => MessageDigest::shake_256(),
-            Hash::Null => MessageDigest::null(),
+            TpmHash::Sha1 => MessageDigest::sha1(),
+            TpmHash::Sha256 => MessageDigest::sha256(),
+            TpmHash::Sha384 => MessageDigest::sha384(),
+            TpmHash::Sha512 => MessageDigest::sha512(),
+            TpmHash::Sm3_256 | TpmHash::Sha3_512 => MessageDigest::sm3(),
+            TpmHash::Sha3_256 => MessageDigest::sha3_256(),
+            TpmHash::Sha3_384 => MessageDigest::sha3_384(),
+            TpmHash::Shake128 => MessageDigest::shake_128(),
+            TpmHash::Shake256 => MessageDigest::shake_256(),
+            TpmHash::Null => MessageDigest::null(),
         }
     }
 }
 
-impl Hash {
+impl TpmHash {
     /// Returns the size of the digest size.
     #[must_use]
     pub fn size(&self) -> usize {

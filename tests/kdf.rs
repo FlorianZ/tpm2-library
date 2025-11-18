@@ -7,10 +7,10 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-use tpm2_crypto::Hash;
+use tpm2_crypto::TpmHash;
 
 fn kdfa_expected(
-    alg: Hash,
+    alg: TpmHash,
     hmac_key: &[u8],
     label: &str,
     context_a: &[u8],
@@ -43,7 +43,7 @@ fn kdfa_expected(
 }
 
 fn kdfe_expected(
-    alg: Hash,
+    alg: TpmHash,
     z: &[u8],
     label: &str,
     context_u: &[u8],
@@ -79,7 +79,7 @@ fn kdfe_expected(
 
 #[test]
 fn kdfa_sha256_eq() {
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let key = b"supersecretkey";
     let label = "LABEL";
     let ctx_a = b"A";
@@ -97,7 +97,7 @@ fn kdfa_sha256_eq() {
 
 #[test]
 fn kdfa_key_length_variance() {
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let key = b"k";
     let label = "X";
     let ctx_a = b"Y";
@@ -116,7 +116,7 @@ fn kdfa_key_length_variance() {
 
 #[test]
 fn kdfa_input_sensitivity() {
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let key = b"key";
     let label = "LBL";
     let ctx_a = b"AAA";
@@ -136,7 +136,7 @@ fn kdfa_input_sensitivity() {
 
 #[test]
 fn kdfe_sha256_eq() {
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let z = b"sharedsecretZ";
     let label = "DUPLICATE";
     let u = b"Ux";
@@ -152,7 +152,7 @@ fn kdfe_sha256_eq() {
 
 #[test]
 fn kdfe_label_null_termination_eq() {
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let z_val = b"Z";
     let u_val = b"U";
     let v_val = b"V";
@@ -166,7 +166,7 @@ fn kdfe_label_null_termination_eq() {
 
 #[test]
 fn kdfa_label_null_termination_diff() {
-    let alg = Hash::Sha256;
+    let alg = TpmHash::Sha256;
     let key = b"K";
     let ctx_a = b"A";
     let ctx_b = b"B";
