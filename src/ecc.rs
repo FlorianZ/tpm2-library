@@ -91,38 +91,33 @@ impl From<EccCurve> for TpmEccCurve {
     }
 }
 
-impl From<EccCurve> for Nid {
-    /// Maps a TPM ECC curve ID to an OpenSSL NID.
-    fn from(curve: EccCurve) -> Self {
-        match curve {
-            EccCurve::NistP192 => Nid::X9_62_PRIME192V1,
-            EccCurve::NistP224 => Nid::SECP224R1,
-            EccCurve::NistP256 => Nid::X9_62_PRIME256V1,
-            EccCurve::NistP384 => Nid::SECP384R1,
-            EccCurve::NistP521 => Nid::SECP521R1,
-            EccCurve::BpP256R1 => Nid::BRAINPOOL_P256R1,
-            EccCurve::BpP384R1 => Nid::BRAINPOOL_P384R1,
-            EccCurve::BpP512R1 => Nid::BRAINPOOL_P512R1,
-            EccCurve::Sm2P256 => Nid::SM2,
-            _ => Nid::UNDEF,
-        }
+fn from_ecc_curve_to_nid(value: EccCurve) -> Nid {
+    match value {
+        EccCurve::NistP192 => Nid::X9_62_PRIME192V1,
+        EccCurve::NistP224 => Nid::SECP224R1,
+        EccCurve::NistP256 => Nid::X9_62_PRIME256V1,
+        EccCurve::NistP384 => Nid::SECP384R1,
+        EccCurve::NistP521 => Nid::SECP521R1,
+        EccCurve::BpP256R1 => Nid::BRAINPOOL_P256R1,
+        EccCurve::BpP384R1 => Nid::BRAINPOOL_P384R1,
+        EccCurve::BpP512R1 => Nid::BRAINPOOL_P512R1,
+        EccCurve::Sm2P256 => Nid::SM2,
+        _ => Nid::UNDEF,
     }
 }
 
-impl From<Nid> for EccCurve {
-    fn from(nid: Nid) -> Self {
-        match nid {
-            Nid::X9_62_PRIME192V1 => EccCurve::NistP192,
-            Nid::SECP224R1 => EccCurve::NistP224,
-            Nid::X9_62_PRIME256V1 => EccCurve::NistP256,
-            Nid::SECP384R1 => EccCurve::NistP384,
-            Nid::SECP521R1 => EccCurve::NistP521,
-            Nid::BRAINPOOL_P256R1 => EccCurve::BpP256R1,
-            Nid::BRAINPOOL_P384R1 => EccCurve::BpP384R1,
-            Nid::BRAINPOOL_P512R1 => EccCurve::BpP512R1,
-            Nid::SM2 => EccCurve::Sm2P256,
-            _ => EccCurve::None,
-        }
+fn from_nid_to_ecc_curve(value: Nid) -> EccCurve {
+    match value {
+        Nid::X9_62_PRIME192V1 => EccCurve::NistP192,
+        Nid::SECP224R1 => EccCurve::NistP224,
+        Nid::X9_62_PRIME256V1 => EccCurve::NistP256,
+        Nid::SECP384R1 => EccCurve::NistP384,
+        Nid::SECP521R1 => EccCurve::NistP521,
+        Nid::BRAINPOOL_P256R1 => EccCurve::BpP256R1,
+        Nid::BRAINPOOL_P384R1 => EccCurve::BpP384R1,
+        Nid::BRAINPOOL_P512R1 => EccCurve::BpP512R1,
+        Nid::SM2 => EccCurve::Sm2P256,
+        _ => EccCurve::None,
     }
 }
 
@@ -167,7 +162,7 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
         let nid = group
             .curve_name()
             .ok_or(TpmCryptoError::InvalidEccParameters)?;
-        let curve = EccCurve::from(nid);
+        let curve = from_nid_to_ecc_curve(nid);
 
         let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
         let (x, y) = crate::tpm_make_point(ec_key.public_key(), group, &mut ctx)?;
@@ -252,7 +247,7 @@ impl EccPublicKey {
         name_alg: Hash,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(Vec<u8>, TpmsEccPoint), TpmCryptoError> {
-        let nid = self.curve.into();
+        let nid = from_ecc_curve_to_nid(self.curve);
         if nid == Nid::UNDEF {
             return Err(TpmCryptoError::InvalidEccCurve);
         }
