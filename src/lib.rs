@@ -88,9 +88,7 @@ pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, Error> {
     let len = public.len();
     let mut public_bytes = vec![0u8; len];
     let mut writer = TpmWriter::new(&mut public_bytes);
-    public
-        .marshal(&mut writer)
-        .map_err(|_| Error::OperationFailed)?;
+    public.marshal(&mut writer).map_err(Error::Marshal)?;
 
     let digest = name_alg.digest(&[&public_bytes])?;
     let digest_len = digest.len();

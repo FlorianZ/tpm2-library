@@ -217,12 +217,12 @@ impl PublicKey for EccPublicKey {
             let mut writer = TpmWriter::new(&mut point_bytes_buf);
             ephemeral_point
                 .marshal(&mut writer)
-                .map_err(|_| Error::OperationFailed)?;
+                .map_err(Error::Marshal)?;
             writer.len()
         };
         let point_bytes = &point_bytes_buf[..len];
 
-        let secret = Tpm2bEncryptedSecret::try_from(point_bytes).map_err(|_| Error::OutOfMemory)?;
+        let secret = Tpm2bEncryptedSecret::try_from(point_bytes).map_err(Error::Unmarshal)?;
 
         Ok((derived_seed, secret))
     }
