@@ -466,18 +466,11 @@ impl TpmPolicySession {
         auth_handle_name: &Tpm2bName,
         policy_ref: &Tpm2bNonce,
     ) -> Result<(), TpmPolicyError> {
-        let expiration: i32 = 0;
-        let expiration_bytes = expiration.to_be_bytes();
-
         update_policy_digest(
             &mut self.digest,
             self.hash_alg,
             TpmCc::PolicySecret,
-            &[
-                auth_handle_name.as_ref(),
-                policy_ref.as_ref(),
-                &expiration_bytes,
-            ],
+            &[auth_handle_name.as_ref(), policy_ref.as_ref()],
         )
     }
 
