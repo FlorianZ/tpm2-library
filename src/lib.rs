@@ -56,87 +56,28 @@
 #![deny(clippy::pedantic)]
 #![allow(clippy::no_effect_underscore_binding)]
 
+mod asn1;
 mod command;
 mod error;
 
 pub use command::*;
 pub use error::*;
 
+use crate::asn1::{
+    key_type_to_oid_for_encode, tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1,
+    TpmKeyCommandAsn1, OID_IMPORTABLE_KEY, OID_LOADABLE_KEY, OID_SEALED_DATA,
+};
 use pem::{EncodeConfig, LineEnding, Pem};
 use rasn::{
-    prelude::ObjectIdentifier,
     types::{OctetString, Utf8String},
-    AsnType, Decode, Encode,
+    Decode, Encode,
 };
-use rasn::{Decoder, Encoder};
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
-    constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
-    TpmHandle, TpmMarshal, TpmUnmarshal, TpmWriter,
+    TpmHandle, TpmUnmarshal,
 };
-
-fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmKeyError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        for obj in objs {
-            obj.marshal(&mut writer).map_err(TpmKeyError::Marshal)?;
-        }
-        writer.len()
-    };
-    buf.truncate(len);
-    Ok(buf)
-}
-
-const OID_LOADABLE_KEY: ObjectIdentifier =
-    ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 3]));
-const OID_IMPORTABLE_KEY: ObjectIdentifier =
-    ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 4]));
-const OID_SEALED_DATA: ObjectIdentifier =
-    ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 5]));
-
-/// A single policy command step, directly compatible with ASN.1.
-#[derive(AsnType, Decode, Encode, Clone, Debug, Eq, PartialEq)]
-struct TpmKeyCommandAsn1 {
-    #[rasn(tag(explicit(context, 0)))]
-    pub command_code: u32,
-    #[rasn(tag(explicit(context, 1)))]
-    pub command_policy: OctetString,
-}
-
-/// A policy branch (`authPolicy` case) in ASN.1.
-#[derive(AsnType, Decode, Encode, Clone, Debug, Eq, PartialEq)]
-struct TpmAuthPolicyAsn1 {
-    #[rasn(tag(explicit(context, 0)))]
-    pub name: Option<Utf8String>,
-    #[rasn(tag(explicit(context, 1)))]
-    pub policy: Vec<TpmKeyCommandAsn1>,
-}
-
-/// A TPM key struct directly compatible with ASN.1 DER encoding.
-#[derive(AsnType, Decode, Encode, Clone, Debug, Eq, PartialEq)]
-struct TpmKeyAsn1 {
-    pub key_type: ObjectIdentifier,
-    #[rasn(tag(explicit(context, 0)))]
-    pub empty_auth: Option<bool>,
-    #[rasn(tag(explicit(context, 1)))]
-    pub policy: Option<Vec<TpmKeyCommandAsn1>>,
-    #[rasn(tag(explicit(context, 2)))]
-    pub secret: Option<OctetString>,
-    #[rasn(tag(explicit(context, 3)))]
-    pub auth_policy: Option<Vec<TpmAuthPolicyAsn1>>,
-    #[rasn(tag(explicit(context, 4)))]
-    pub description: Option<Utf8String>,
-    #[rasn(tag(explicit(context, 5)))]
-    pub rsa_parent: Option<bool>,
-    #[rasn(tag(explicit(context, 6)))]
-    pub parent_pubkey: Option<OctetString>,
-    pub parent: u32,
-    pub pubkey: OctetString,
-    pub privkey: OctetString,
-}
 
 /// A policy branch (used for `auth_policy` list).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,23 +101,6 @@ pub struct TpmKey {
     pub auth_policy: Option<Vec<TpmPolicy>>,
     pub secret: Option<Vec<u8>>,
     pub description: Option<String>,
-}
-
-fn key_type_to_oid_for_encode(
-    key_type: TpmAlgId,
-    has_secret: bool,
-) -> Result<ObjectIdentifier, TpmKeyError> {
-    match key_type {
-        TpmAlgId::Rsa | TpmAlgId::Ecc => {
-            if has_secret {
-                Ok(OID_IMPORTABLE_KEY.clone())
-            } else {
-                Ok(OID_LOADABLE_KEY.clone())
-            }
-        }
-        TpmAlgId::KeyedHash => Ok(OID_SEALED_DATA.clone()),
-        _ => Err(TpmKeyError::InvalidKeyType),
-    }
 }
 
 impl TpmKey {
@@ -454,9 +378,13 @@ impl From<&TpmPolicy> for Vec<TpmKeyCommandAsn1> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tpm2_protocol::data::{
-        Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmsRsaParms, TpmtPublic, TpmtSensitive,
-        TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+    use tpm2_protocol::{
+        constant::TPM_MAX_COMMAND_SIZE,
+        data::{
+            Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmsRsaParms, TpmtPublic, TpmtSensitive,
+            TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+        },
+        TpmMarshal, TpmWriter,
     };
 
     fn minimal_rsa_key_components() -> (Tpm2bPublic, Tpm2bPrivate) {
@@ -490,8 +418,8 @@ mod tests {
     #[test]
     fn invalid_cc_is_rejected_on_load() {
         let (public, private) = minimal_rsa_key_components();
-        let pub_bytes = tpm_marshal_array(&[&public]).unwrap();
-        let priv_bytes = tpm_marshal_array(&[&private]).unwrap();
+        let pub_bytes = crate::asn1::tpm_marshal_array(&[&public]).unwrap();
+        let priv_bytes = crate::asn1::tpm_marshal_array(&[&private]).unwrap();
 
         let bad_cmd = TpmKeyCommandAsn1 {
             command_code: 0xFFFF_FF00,
@@ -523,8 +451,8 @@ mod tests {
     #[test]
     fn importable_without_secret_fails() {
         let (public, private) = minimal_rsa_key_components();
-        let pub_bytes = tpm_marshal_array(&[&public]).unwrap();
-        let priv_bytes = tpm_marshal_array(&[&private]).unwrap();
+        let pub_bytes = crate::asn1::tpm_marshal_array(&[&public]).unwrap();
+        let priv_bytes = crate::asn1::tpm_marshal_array(&[&private]).unwrap();
 
         let asn1 = TpmKeyAsn1 {
             key_type: OID_IMPORTABLE_KEY.clone(),

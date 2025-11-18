@@ -2,7 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{tpm_marshal_array, TpmKeyCommandAsn1, TpmKeyError};
+use crate::{
+    asn1::{tpm_marshal_array, TpmKeyCommandAsn1},
+    TpmKeyError,
+};
 use std::fmt::Debug;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
