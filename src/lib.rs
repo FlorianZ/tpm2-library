@@ -76,10 +76,9 @@ use tpm2_protocol::{
         TpmlPcrSelection, TpmtSignature,
     },
     frame::{
-        TpmAuthCommands, TpmCommand, TpmFrame, TpmPolicyAuthValueCommand,
-        TpmPolicyGetDigestCommand, TpmPolicyOrCommand, TpmPolicyPasswordCommand,
-        TpmPolicyPcrCommand, TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand,
-        TpmPolicySecretCommand,
+        TpmCommand, TpmFrame, TpmPolicyAuthValueCommand, TpmPolicyGetDigestCommand,
+        TpmPolicyOrCommand, TpmPolicyPasswordCommand, TpmPolicyPcrCommand,
+        TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
     TpmHandle, TpmMarshal, TpmUnmarshal, TpmWriter,
 };
@@ -252,8 +251,7 @@ impl TpmPolicyCommand {
     ///
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when `cc` has no mapping
     /// to a TPM command in this crate.
-    pub fn to_command(&self) -> Result<(TpmCommand, TpmAuthCommands), TpmKeyError> {
-        let auth = TpmAuthCommands::new();
+    pub fn to_command(&self) -> Result<TpmCommand, TpmKeyError> {
         let command = match self.cc {
             TpmCc::PolicyPcr => self.to_policy_pcr_command()?,
             TpmCc::PolicyOr => self.to_policy_or_command()?,
@@ -262,7 +260,7 @@ impl TpmPolicyCommand {
             cc if ZERO_PARAM_CMDS.contains(&cc) => self.to_policy_zero_command()?,
             other => return Err(TpmKeyError::InvalidCc(other as u32)),
         };
-        Ok((command, auth))
+        Ok(command)
     }
 
     /// Constructs a `TpmPolicyCommand` from a typed TPM policy command.
@@ -277,7 +275,7 @@ impl TpmPolicyCommand {
     /// context.
     /// Returns [`InvalidCc`](crate::Error::InvalidCc) when the command code is
     /// not supported by this conversion.
-    pub fn from_command(cmd: &TpmCommand, _auth: &TpmAuthCommands) -> Result<Self, TpmKeyError> {
+    pub fn from_command(cmd: &TpmCommand) -> Result<Self, TpmKeyError> {
         match cmd {
             TpmCommand::PolicyPcr(ref inner) => Self::from_policy_pcr_command(inner),
             TpmCommand::PolicyOr(inner) => Self::from_policy_or_command(inner),
@@ -430,7 +428,7 @@ pub struct TpmPolicy {
 }
 
 /// List of typed TPM commands corresponding to a policy sequence.
-pub type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
+pub type TpmCommandList = Vec<TpmCommand>;
 
 impl TpmPolicy {
     /// Converts the policy into a list of typed TPM commands and their
@@ -461,11 +459,11 @@ impl TpmPolicy {
     /// representable as a policy step.
     pub fn from_command_list(
         name: Option<String>,
-        commands: &[(TpmCommand, TpmAuthCommands)],
+        commands: &[TpmCommand],
     ) -> Result<Self, TpmKeyError> {
         let policy = commands
             .iter()
-            .map(|(cmd, auth)| TpmPolicyCommand::from_command(cmd, auth))
+            .map(TpmPolicyCommand::from_command)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self { name, policy })
@@ -1075,10 +1073,9 @@ mod tests {
     #[case(TpmCc::PolicyPhysicalPresence)]
     fn policy_zero_param_to_and_from_command_roundtrip(#[case] cc: TpmCc) {
         let step = TpmPolicyCommand::zero(cc).unwrap();
-        let (cmd, auth) = step.to_command().unwrap();
+        let cmd = step.to_command().unwrap();
 
         assert_eq!(cmd.cc(), cc);
-        assert_eq!(auth.len(), 0);
 
         match &cmd {
             TpmCommand::PolicyAuthValue(c) => assert_eq!(c.policy_session, POLICY_SESSION),
@@ -1089,7 +1086,7 @@ mod tests {
             _ => panic!("Unexpected command variant in zero-param test"),
         }
 
-        let back = TpmPolicyCommand::from_command(&cmd, &auth).unwrap();
+        let back = TpmPolicyCommand::from_command(&cmd).unwrap();
         assert_eq!(back.code(), cc);
         assert!(back.body().is_empty());
     }
@@ -1106,12 +1103,12 @@ mod tests {
         body.truncate(len);
 
         let step = TpmPolicyCommand::from_raw(TpmCc::PolicyPcr, body).unwrap();
-        let (cmd, auth) = step.to_command().unwrap();
+        let cmd = step.to_command().unwrap();
 
         match cmd {
             TpmCommand::PolicyPcr(inner) => {
                 assert_eq!(inner.policy_session, POLICY_SESSION);
-                let back = TpmPolicyCommand::from_command(&cmd, &auth).unwrap();
+                let back = TpmPolicyCommand::from_command(&cmd).unwrap();
                 assert_eq!(back, step);
             }
             other => panic!("unexpected command variant: {other:?}"),
@@ -1129,12 +1126,12 @@ mod tests {
         body.truncate(len);
 
         let step = TpmPolicyCommand::from_raw(TpmCc::PolicyOr, body).unwrap();
-        let (cmd, auth) = step.to_command().unwrap();
+        let cmd = step.to_command().unwrap();
 
         match cmd {
             TpmCommand::PolicyOr(inner) => {
                 assert_eq!(inner.policy_session, POLICY_SESSION);
-                let back = TpmPolicyCommand::from_command(&cmd, &auth).unwrap();
+                let back = TpmPolicyCommand::from_command(&cmd).unwrap();
                 assert_eq!(back, step);
             }
             other => panic!("unexpected command variant: {other:?}"),
@@ -1149,8 +1146,7 @@ mod tests {
             &Tpm2bDigest::default(),
         )?;
 
-        let (cmd, auth) = step.to_command()?;
-        assert_eq!(auth.len(), 0);
+        let cmd = step.to_command()?;
 
         match cmd {
             TpmCommand::PolicySecret(inner) => {
