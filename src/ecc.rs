@@ -15,7 +15,6 @@ use openssl::{
     pkey::{PKey, Private},
 };
 use rand::{CryptoRng, RngCore};
-use strum::{Display, EnumString};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -26,105 +25,40 @@ use tpm2_protocol::{
     TpmMarshal, TpmWriter,
 };
 
-/// TPM 2.0 ECC curves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
-#[strum(serialize_all = "kebab-case")]
-pub enum EccCurve {
-    NistP192,
-    NistP224,
-    NistP256,
-    NistP384,
-    NistP521,
-    BnP256,
-    BnP638,
-    Sm2P256,
-    #[strum(serialize = "bp-p256-r1")]
-    BpP256R1,
-    #[strum(serialize = "bp-p384-r1")]
-    BpP384R1,
-    #[strum(serialize = "bp-p512-r1")]
-    BpP512R1,
-    Curve25519,
-    Curve448,
-    None,
-}
-
-impl From<TpmEccCurve> for EccCurve {
-    fn from(curve: TpmEccCurve) -> Self {
-        match curve {
-            TpmEccCurve::NistP192 => Self::NistP192,
-            TpmEccCurve::NistP224 => Self::NistP224,
-            TpmEccCurve::NistP256 => Self::NistP256,
-            TpmEccCurve::NistP384 => Self::NistP384,
-            TpmEccCurve::NistP521 => Self::NistP521,
-            TpmEccCurve::BnP256 => Self::BnP256,
-            TpmEccCurve::BnP638 => Self::BnP638,
-            TpmEccCurve::Sm2P256 => Self::Sm2P256,
-            TpmEccCurve::BpP256R1 => Self::BpP256R1,
-            TpmEccCurve::BpP384R1 => Self::BpP384R1,
-            TpmEccCurve::BpP512R1 => Self::BpP512R1,
-            TpmEccCurve::Curve25519 => Self::Curve25519,
-            TpmEccCurve::Curve448 => Self::Curve448,
-            TpmEccCurve::None => Self::None,
-        }
-    }
-}
-
-impl From<EccCurve> for TpmEccCurve {
-    fn from(curve: EccCurve) -> Self {
-        match curve {
-            EccCurve::NistP192 => Self::NistP192,
-            EccCurve::NistP224 => Self::NistP224,
-            EccCurve::NistP256 => Self::NistP256,
-            EccCurve::NistP384 => Self::NistP384,
-            EccCurve::NistP521 => Self::NistP521,
-            EccCurve::BnP256 => Self::BnP256,
-            EccCurve::BnP638 => Self::BnP638,
-            EccCurve::Sm2P256 => Self::Sm2P256,
-            EccCurve::BpP256R1 => Self::BpP256R1,
-            EccCurve::BpP384R1 => Self::BpP384R1,
-            EccCurve::BpP512R1 => Self::BpP512R1,
-            EccCurve::Curve25519 => Self::Curve25519,
-            EccCurve::Curve448 => Self::Curve448,
-            EccCurve::None => Self::None,
-        }
-    }
-}
-
-fn from_ecc_curve_to_nid(value: EccCurve) -> Nid {
+fn from_ecc_curve_to_nid(value: TpmEccCurve) -> Nid {
     match value {
-        EccCurve::NistP192 => Nid::X9_62_PRIME192V1,
-        EccCurve::NistP224 => Nid::SECP224R1,
-        EccCurve::NistP256 => Nid::X9_62_PRIME256V1,
-        EccCurve::NistP384 => Nid::SECP384R1,
-        EccCurve::NistP521 => Nid::SECP521R1,
-        EccCurve::BpP256R1 => Nid::BRAINPOOL_P256R1,
-        EccCurve::BpP384R1 => Nid::BRAINPOOL_P384R1,
-        EccCurve::BpP512R1 => Nid::BRAINPOOL_P512R1,
-        EccCurve::Sm2P256 => Nid::SM2,
+        TpmEccCurve::NistP192 => Nid::X9_62_PRIME192V1,
+        TpmEccCurve::NistP224 => Nid::SECP224R1,
+        TpmEccCurve::NistP256 => Nid::X9_62_PRIME256V1,
+        TpmEccCurve::NistP384 => Nid::SECP384R1,
+        TpmEccCurve::NistP521 => Nid::SECP521R1,
+        TpmEccCurve::BpP256R1 => Nid::BRAINPOOL_P256R1,
+        TpmEccCurve::BpP384R1 => Nid::BRAINPOOL_P384R1,
+        TpmEccCurve::BpP512R1 => Nid::BRAINPOOL_P512R1,
+        TpmEccCurve::Sm2P256 => Nid::SM2,
         _ => Nid::UNDEF,
     }
 }
 
-fn from_nid_to_ecc_curve(value: Nid) -> EccCurve {
+fn from_nid_to_ecc_curve(value: Nid) -> TpmEccCurve {
     match value {
-        Nid::X9_62_PRIME192V1 => EccCurve::NistP192,
-        Nid::SECP224R1 => EccCurve::NistP224,
-        Nid::X9_62_PRIME256V1 => EccCurve::NistP256,
-        Nid::SECP384R1 => EccCurve::NistP384,
-        Nid::SECP521R1 => EccCurve::NistP521,
-        Nid::BRAINPOOL_P256R1 => EccCurve::BpP256R1,
-        Nid::BRAINPOOL_P384R1 => EccCurve::BpP384R1,
-        Nid::BRAINPOOL_P512R1 => EccCurve::BpP512R1,
-        Nid::SM2 => EccCurve::Sm2P256,
-        _ => EccCurve::None,
+        Nid::X9_62_PRIME192V1 => TpmEccCurve::NistP192,
+        Nid::SECP224R1 => TpmEccCurve::NistP224,
+        Nid::X9_62_PRIME256V1 => TpmEccCurve::NistP256,
+        Nid::SECP384R1 => TpmEccCurve::NistP384,
+        Nid::SECP521R1 => TpmEccCurve::NistP521,
+        Nid::BRAINPOOL_P256R1 => TpmEccCurve::BpP256R1,
+        Nid::BRAINPOOL_P384R1 => TpmEccCurve::BpP384R1,
+        Nid::BRAINPOOL_P512R1 => TpmEccCurve::BpP512R1,
+        Nid::SM2 => TpmEccCurve::Sm2P256,
+        _ => TpmEccCurve::None,
     }
 }
 
 /// ECC public key parameters.
 #[derive(Debug, Clone)]
 pub struct EccPublicKey {
-    pub curve: EccCurve,
+    pub curve: TpmEccCurve,
     pub x: Tpm2bEccParameter,
     pub y: Tpm2bEccParameter,
 }
