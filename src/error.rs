@@ -4,7 +4,6 @@
 
 use crate::TpmPolicyExpression;
 use thiserror::Error;
-use tpm2_crypto::Hash;
 use tpm2_protocol::data::TpmCc;
 
 /// Language interpretation and compilation errors.
@@ -15,7 +14,7 @@ pub enum TpmPolicyError {
 
     /// A digest calculation failed.
     #[error("crypto: {0}")]
-    Crypto(#[from] tpm2_crypto::Error),
+    Crypto(#[from] tpm2_crypto::TpmCryptoError),
 
     #[error("handle has more than one asterisk")]
     HandleHasTooManyAsterisks,
@@ -57,7 +56,7 @@ pub enum TpmPolicyError {
     #[error("parenthesis mismatch")]
     ParenthesisMismatch,
     #[error("PCR bank not available: {0}")]
-    PcrBankNotAvailable(Hash),
+    PcrBankNotAvailable(tpm2_crypto::TpmHash),
     #[error("PCR digest is missing")]
     PcrDigestMissing,
     #[error("PCR digest is too large")]

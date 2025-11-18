@@ -8,7 +8,7 @@ use crate::{
 };
 use std::borrow::Cow;
 use std::fmt;
-use tpm2_crypto::Hash;
+use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
     data::{
         Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmlDigest, TpmlPcrSelection,
@@ -72,7 +72,7 @@ impl fmt::Display for TpmPolicyExpression {
                 let selection_strings: Vec<String> = selections
                     .iter()
                     .map(|tpms| {
-                        let alg_str = Hash::from(tpms.hash).to_string();
+                        let alg_str = TpmHash::from(tpms.hash).to_string();
                         let mut indices = Vec::new();
                         for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
                             for bit_index in 0..8 {

@@ -578,9 +578,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.6.3"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9618ef26ecbc6d562e16d03b90a29764c63a68e79123e0c92c9c2cda8fdfdbb"
+checksum = "526b5377d780752237cfa37ea221a6766ce1e5d666531c86e3601b8558c25b0a"
 dependencies = [
  "num-bigint",
  "num-traits",

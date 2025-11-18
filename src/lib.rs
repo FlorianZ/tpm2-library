@@ -26,7 +26,7 @@ pub use expression::*;
 pub use handle::*;
 
 use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
-use tpm2_crypto::Hash;
+use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
     data::{
@@ -69,7 +69,7 @@ fn parse_tpml_pcr_selection_str(
             .ok_or(TpmPolicyError::InvalidPcrSelection)?;
 
         let alg = alg_str
-            .parse::<Hash>()
+            .parse::<TpmHash>()
             .map_err(|_| TpmPolicyError::InvalidPcrDigestAlgorithm)?;
         if !context.pcr_banks.contains(&alg.into()) {
             return Err(TpmPolicyError::PcrBankNotAvailable(alg));
@@ -400,7 +400,7 @@ fn update_policy_digest(
     chunks.push(&cc_bytes);
     chunks.extend(params.iter());
 
-    let new_digest_bytes = Hash::from(hash_alg)
+    let new_digest_bytes = TpmHash::from(hash_alg)
         .digest(&chunks)
         .map_err(TpmPolicyError::Crypto)?;
     *current_digest =
@@ -412,7 +412,7 @@ fn update_policy_digest(
 impl TpmPolicySession {
     /// Creates a new software policy session.
     fn new(hash_alg: TpmAlgId) -> Result<Self, TpmPolicyError> {
-        let digest_size = Hash::from(hash_alg).size();
+        let digest_size = TpmHash::from(hash_alg).size();
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
             .map_err(TpmPolicyError::Marshal)?;
         Ok(Self {
