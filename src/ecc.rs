@@ -57,13 +57,13 @@ fn from_nid_to_ecc_curve(value: Nid) -> TpmEccCurve {
 
 /// ECC public key parameters.
 #[derive(Debug, Clone)]
-pub struct EccPublicKey {
+pub struct TpmEccPublicKey {
     pub curve: TpmEccCurve,
     pub x: Tpm2bEccParameter,
     pub y: Tpm2bEccParameter,
 }
 
-impl TryFrom<&TpmtPublic> for EccPublicKey {
+impl TryFrom<&TpmtPublic> for TpmEccPublicKey {
     type Error = TpmCryptoError;
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
@@ -85,7 +85,7 @@ impl TryFrom<&TpmtPublic> for EccPublicKey {
     }
 }
 
-impl TryFrom<&PKey<Private>> for EccPublicKey {
+impl TryFrom<&PKey<Private>> for TpmEccPublicKey {
     type Error = TpmCryptoError;
 
     fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
@@ -105,11 +105,11 @@ impl TryFrom<&PKey<Private>> for EccPublicKey {
     }
 }
 
-impl TpmPublicKey for EccPublicKey {
+impl TpmPublicKey for TpmEccPublicKey {
     fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
-        let public_key = EccPublicKey::try_from(&pkey)?;
+        let public_key = TpmEccPublicKey::try_from(&pkey)?;
         let ec_key = pkey
             .ec_key()
             .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
@@ -163,7 +163,7 @@ impl TpmPublicKey for EccPublicKey {
     }
 }
 
-impl EccPublicKey {
+impl TpmEccPublicKey {
     /// Performs ECDH and derives a seed using `KDFe` key derivation function from
     /// TCG TPM 2.0 Architecture specification.
     ///

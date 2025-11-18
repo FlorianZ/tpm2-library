@@ -8,7 +8,7 @@
 #![deny(clippy::pedantic)]
 
 use rstest::rstest;
-use tpm2_crypto::{EccPublicKey, RsaPublicKey, TpmPublicKey};
+use tpm2_crypto::{RsaPublicKey, TpmEccPublicKey, TpmPublicKey};
 use tpm2_protocol::data::{
     Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmEccCurve, TpmaObject, TpmtSymDefObject,
     TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
@@ -69,7 +69,7 @@ fn test_ecc_to_public(
 ) {
     let x = Tpm2bEccParameter::try_from(x_bytes).unwrap();
     let y = Tpm2bEccParameter::try_from(y_bytes).unwrap();
-    let ecc_key = EccPublicKey { curve, x, y };
+    let ecc_key = TpmEccPublicKey { curve, x, y };
     let symmetric = TpmtSymDefObject::default();
 
     let public = ecc_key.to_public(hash_alg, symmetric);
