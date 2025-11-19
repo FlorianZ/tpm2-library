@@ -386,29 +386,6 @@ struct TpmPolicySession {
     digest_size: usize,
 }
 
-/// Updates a policy digest with a new command, mimicking the TPM's internal
-/// hashing.
-fn update_policy_digest(
-    current_digest: &mut Tpm2bDigest,
-    hash_alg: TpmAlgId,
-    cc: TpmCc,
-    params: &[&[u8]],
-) -> Result<(), TpmPolicyError> {
-    let cc_bytes = (cc as u32).to_be_bytes();
-    let mut chunks: Vec<&[u8]> = Vec::with_capacity(2 + params.len());
-    chunks.push(current_digest.as_ref());
-    chunks.push(&cc_bytes);
-    chunks.extend(params.iter());
-
-    let new_digest_bytes = TpmHash::from(hash_alg)
-        .digest(&chunks)
-        .map_err(TpmPolicyError::Crypto)?;
-    *current_digest =
-        Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
-
-    Ok(())
-}
-
 impl TpmPolicySession {
     /// Creates a new software policy session.
     fn new(hash_alg: TpmAlgId) -> Result<Self, TpmPolicyError> {
@@ -434,12 +411,20 @@ impl TpmPolicySession {
         };
         pcrs_bytes.truncate(pcrs_bytes_len);
 
-        update_policy_digest(
-            &mut self.digest,
-            self.hash_alg,
-            TpmCc::PolicyPcr,
-            &[&pcrs_bytes, cmd.pcr_digest.as_ref()],
-        )
+        let cc_bytes = (TpmCc::PolicyPcr as u32).to_be_bytes();
+        let chunks: Vec<&[u8]> = vec![
+            self.digest.as_ref(),
+            &cc_bytes,
+            &pcrs_bytes,
+            cmd.pcr_digest.as_ref(),
+        ];
+
+        let new_digest_bytes = TpmHash::from(self.hash_alg)
+            .digest(&chunks)
+            .map_err(TpmPolicyError::Crypto)?;
+        self.digest =
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
+        Ok(())
     }
 
     /// Applies a `TPM2_PolicyOR` action to the session.
@@ -449,15 +434,19 @@ impl TpmPolicySession {
             digests_as_bytes.extend_from_slice(digest.as_ref());
         }
 
-        self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
+        let zero_digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
             .map_err(TpmPolicyError::Marshal)?;
+        self.digest = zero_digest;
 
-        update_policy_digest(
-            &mut self.digest,
-            self.hash_alg,
-            TpmCc::PolicyOr,
-            &[&digests_as_bytes],
-        )
+        let cc_bytes = (TpmCc::PolicyOr as u32).to_be_bytes();
+        let chunks: Vec<&[u8]> = vec![self.digest.as_ref(), &cc_bytes, digests_as_bytes.as_slice()];
+
+        let new_digest_bytes = TpmHash::from(self.hash_alg)
+            .digest(&chunks)
+            .map_err(TpmPolicyError::Crypto)?;
+        self.digest =
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
+        Ok(())
     }
 
     /// Applies a `TPM2_PolicySecret` action to the session.
@@ -466,12 +455,25 @@ impl TpmPolicySession {
         auth_handle_name: &Tpm2bName,
         policy_ref: &Tpm2bNonce,
     ) -> Result<(), TpmPolicyError> {
-        update_policy_digest(
-            &mut self.digest,
-            self.hash_alg,
-            TpmCc::PolicySecret,
-            &[auth_handle_name.as_ref(), policy_ref.as_ref()],
-        )
+        let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
+
+        let first_chunks: Vec<&[u8]> =
+            vec![self.digest.as_ref(), &cc_bytes, auth_handle_name.as_ref()];
+
+        let first_digest_bytes = TpmHash::from(self.hash_alg)
+            .digest(&first_chunks)
+            .map_err(TpmPolicyError::Crypto)?;
+        let first_digest = Tpm2bDigest::try_from(first_digest_bytes.as_slice())
+            .map_err(TpmPolicyError::Marshal)?;
+
+        let second_chunks: Vec<&[u8]> = vec![first_digest.as_ref(), policy_ref.as_ref()];
+
+        let new_digest_bytes = TpmHash::from(self.hash_alg)
+            .digest(&second_chunks)
+            .map_err(TpmPolicyError::Crypto)?;
+        self.digest =
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
+        Ok(())
     }
 
     /// Applies a `TPM2_PolicyRestart` action to the session.
