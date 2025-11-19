@@ -29,14 +29,13 @@ macro_rules! tpm_enum {
         impl TryFrom<$repr> for $name {
             type Error = $crate::TpmProtocolError;
 
-            #[allow(clippy::cognitive_complexity)]
             fn try_from(value: $repr) -> Result<Self, $crate::TpmProtocolError> {
-                $(
-                    if value == $value {
-                        return Ok(Self::$variant);
-                    }
-                )*
-                Err($crate::TpmProtocolError::VariantMissing)
+                match value {
+                    $(
+                        _ if value == $value => Ok(Self::$variant),
+                    )*
+                    _ => Err($crate::TpmProtocolError::VariantMissing),
+                }
             }
         }
 
