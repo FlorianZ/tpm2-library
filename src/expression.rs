@@ -177,7 +177,7 @@ impl TpmPolicyExpression {
                 TpmCommand::PolicySecret(cmd) => {
                     let auth_handle = Box::new(TpmPolicyExpression::Handle(VtpmHandle::new(
                         VtpmHandleClass::Tpm,
-                        cmd.auth_handle.into(),
+                        cmd.handles[0].into(),
                     )));
 
                     let copy_ref = if cmd.policy_ref.as_ref().is_empty() {
@@ -307,9 +307,9 @@ impl TpmPolicyExpression {
         }
 
         let cmd = TpmPolicyPcrCommand {
-            policy_session: 0.into(),
             pcr_digest,
             pcrs: *selections,
+            handles: [0.into()],
         };
 
         command_list.push((TpmCommand::PolicyPcr(cmd), TpmAuthCommands::new()));
@@ -383,12 +383,11 @@ impl TpmPolicyExpression {
 
         let policy_ref = copy_ref.unwrap_or_default();
         let cmd = TpmPolicySecretCommand {
-            auth_handle: h_val.into(),
-            policy_session: 0.into(),
             nonce_tpm: Tpm2bNonce::default(),
             cp_hash_a: Tpm2bDigest::default(),
             policy_ref,
             expiration: 0,
+            handles: [h_val.into(), 0.into()],
         };
 
         command_list.push((TpmCommand::PolicySecret(cmd), TpmAuthCommands::new()));
@@ -410,7 +409,7 @@ impl TpmPolicyExpression {
         let mut digest_list = TpmlDigest::new();
         for branch in branches {
             let restart_cmd = TpmPolicyRestartCommand {
-                session_handle: 0.into(),
+                handles: [0.into()],
             };
             command_list.push((
                 TpmCommand::PolicyRestart(restart_cmd),
@@ -426,8 +425,8 @@ impl TpmPolicyExpression {
         }
 
         let or_cmd = TpmPolicyOrCommand {
-            policy_session: 0.into(),
             p_hash_list: digest_list,
+            handles: [0.into()],
         };
         command_list.push((TpmCommand::PolicyOr(or_cmd), TpmAuthCommands::new()));
         software_session.policy_or(&or_cmd)?;
