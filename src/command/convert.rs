@@ -277,7 +277,6 @@ impl Convert {
         )?;
 
         let import_cmd = TpmImportCommand {
-            parent_handle: parent_handle.0.into(),
             encryption_key,
             object_public: Tpm2bPublic {
                 inner: public.clone(),
@@ -285,6 +284,7 @@ impl Convert {
             duplicate,
             in_sym_seed,
             symmetric_alg: TpmtSymDefObject::default(),
+            handles: [parent_handle.0.into()],
         };
 
         let handles = [parent_handle.0];

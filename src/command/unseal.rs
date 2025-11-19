@@ -51,7 +51,7 @@ impl Task for Unseal {
             )?;
 
             let unseal_cmd = TpmUnsealCommand {
-                item_handle: item_handle.0.into(),
+                handles: [item_handle.0.into()],
             };
             let unseal_handles = [item_handle.0];
 

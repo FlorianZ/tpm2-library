@@ -53,7 +53,6 @@ impl Task for CreatePrimary {
                 build_public(&self.algorithm, Tpm2bDigest::default(), object_attributes);
 
             let cmd = TpmCreatePrimaryCommand {
-                primary_handle: (primary_handle as u32).into(),
                 in_sensitive: Tpm2bSensitiveCreate {
                     inner: TpmsSensitiveCreate {
                         user_auth,
@@ -65,6 +64,7 @@ impl Task for CreatePrimary {
                 },
                 outside_info: Tpm2bData::default(),
                 creation_pcr: TpmlPcrSelection::default(),
+                handles: [(primary_handle as u32).into()],
             };
 
             let empty_auth = is_empty_auth(&cmd.in_public.inner);
@@ -76,7 +76,7 @@ impl Task for CreatePrimary {
                 .CreatePrimary()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
 
-            let object_handle = resp.object_handle;
+            let object_handle = resp.handles[0];
             task_state.track_handle(object_handle)?;
             let object_context = device.save_context(object_handle)?;
             let vhandle = task_state.cache.save_context(

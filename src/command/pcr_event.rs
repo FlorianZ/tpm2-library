@@ -53,8 +53,8 @@ impl Task for PcrEvent {
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())
                 .map_err(|_| CommandError::CapacityExceeded)?;
             let command = TpmPcrEventCommand {
-                pcr_handle: handles[0].into(),
                 event_data,
+                handles: [handles[0].into()],
             };
 
             let (resp, _) =

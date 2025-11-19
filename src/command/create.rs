@@ -184,7 +184,6 @@ impl Create {
                 template::build_public(template.alg_desc, auth_policy_digest, object_attributes);
 
             let create_cmd = TpmCreateCommand {
-                parent_handle: parent_phys_handle.0.into(),
                 in_sensitive: Tpm2bSensitiveCreate {
                     inner: TpmsSensitiveCreate {
                         user_auth,
@@ -196,6 +195,7 @@ impl Create {
                 },
                 outside_info: Tpm2bData::default(),
                 creation_pcr: TpmlPcrSelection::default(),
+                handles: [parent_phys_handle.0.into()],
             };
 
             let handles = [parent_phys_handle.0];
@@ -229,7 +229,7 @@ impl Create {
                 let mut policy: Vec<Box<dyn TpmKeyCommand>> = Vec::new();
                 for (cmd, _) in commands {
                     let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
-                        let (_, name) = device.read_public(inner.auth_handle)?;
+                        let (_, name) = device.read_public(inner.handles[0])?;
                         name
                     } else {
                         Tpm2bName::default()

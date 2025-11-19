@@ -174,9 +174,9 @@ impl Load {
         auths: &[TaskAuth],
     ) -> Result<(TpmHandle, Tpm2bName, Tpm2bPublic), CommandError> {
         let cmd = TpmLoadCommand {
-            parent_handle,
             in_private: *in_private,
             in_public: in_public.clone(),
+            handles: [parent_handle],
         };
         let handles = [parent_handle.0];
 
@@ -186,7 +186,7 @@ impl Load {
             .Load()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Load))?;
 
-        task_state.track_handle(resp.object_handle)?;
-        Ok((resp.object_handle, resp.name, in_public.clone()))
+        task_state.track_handle(resp.handles[0])?;
+        Ok((resp.handles[0], resp.name, in_public.clone()))
     }
 }

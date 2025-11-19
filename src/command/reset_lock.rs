@@ -29,7 +29,9 @@ impl Task for ResetLock {
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
             let lock_handle = (TpmRh::Lockout as u32).into();
-            let command = TpmDictionaryAttackLockResetCommand { lock_handle };
+            let command = TpmDictionaryAttackLockResetCommand {
+                handles: [lock_handle],
+            };
             let handles = [TpmRh::Lockout as u32];
 
             let (resp, _) =

@@ -57,7 +57,7 @@ impl TaskSession {
         Ok(Self {
             context: TpmsContext {
                 sequence: 0,
-                saved_handle: resp.session_handle.0.into(),
+                saved_handle: resp.handles[0],
                 hierarchy: TpmRh::Null,
                 context_blob: TpmBuffer::default(),
             },
@@ -456,12 +456,11 @@ impl<'a> TaskState<'a> {
 
                 let tpm_cmd =
                     TpmCommand::PolicySecret(tpm2_protocol::frame::TpmPolicySecretCommand {
-                        auth_handle: live_handle,
-                        policy_session: TpmHandle(0),
                         nonce_tpm: Tpm2bNonce::default(),
                         cp_hash_a: Tpm2bDigest::default(),
                         policy_ref,
                         expiration: 0,
+                        handles: [live_handle, TpmHandle(0)],
                     });
 
                 let auth = match policy_auths
@@ -539,20 +538,20 @@ impl<'a> TaskState<'a> {
 
         let temp_session = TaskSession::new(key_name_alg, &resp)?;
         let vhandle = self.add_session(temp_session);
-        let policy_phandle = resp.session_handle;
+        let policy_phandle = resp.handles[0];
 
         let execution_result: Result<(), TaskError> = (|| {
             for (command_body, auth_sessions) in commands {
                 let mut command_body = command_body.clone();
 
                 match &mut command_body {
-                    TpmCommand::PolicyPcr(cmd) => cmd.policy_session = policy_phandle.0.into(),
-                    TpmCommand::PolicyOr(cmd) => cmd.policy_session = policy_phandle.0.into(),
+                    TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
+                    TpmCommand::PolicyOr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
                     TpmCommand::PolicyRestart(cmd) => {
-                        cmd.session_handle = policy_phandle.0.into();
+                        cmd.handles[0] = policy_phandle.0.into();
                     }
                     TpmCommand::PolicySecret(cmd) => {
-                        cmd.policy_session = policy_phandle.0.into();
+                        cmd.handles[1] = policy_phandle.0.into();
                     }
                     _ => {
                         return Err(TaskError::MalformedData);
@@ -901,9 +900,8 @@ impl<'a> TaskState<'a> {
         };
 
         let cmd = TpmEvictControlCommand {
-            auth: auth_handle,
-            object_handle: object_to_evict.0.into(),
             persistent_handle,
+            handles: [auth_handle, object_to_evict],
         };
         let handles_for_session = [auth_handle.0];
 
@@ -937,13 +935,12 @@ impl<'a> TaskState<'a> {
             Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?;
 
         let cmd = TpmStartAuthSessionCommand {
-            tpm_key: (TpmRh::Null as u32).into(),
-            bind,
             nonce_caller,
             encrypted_salt: Tpm2bEncryptedSecret::default(),
             session_type,
             symmetric: TpmtSymDefObject::default(),
             auth_hash,
+            handles: [(TpmRh::Null as u32).into(), bind],
         };
         let sessions = vec![];
 

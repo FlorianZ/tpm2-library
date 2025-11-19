@@ -133,6 +133,7 @@ pub fn pcr_read(
 ) -> Result<(Vec<Pcr>, u32), PcrError> {
     let cmd = TpmPcrReadCommand {
         pcr_selection_in: *pcr_selection_in,
+        handles: [],
     };
     let (resp, _) = session.execute(device, &cmd, &[], &[])?;
     let pcr_read_resp = resp

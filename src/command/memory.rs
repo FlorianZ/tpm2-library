@@ -211,7 +211,7 @@ impl Memory {
         }
 
         let nv_read_public_cmd = TpmNvReadPublicCommand {
-            nv_index: handle.into(),
+            handles: [handle.into()],
         };
         let (resp, _) = session.execute(device, &nv_read_public_cmd, &[], &[])?;
         let read_public_resp = resp
@@ -246,10 +246,9 @@ impl Memory {
         while offset < data_size {
             let chunk_size = std::cmp::min(max_read_size, data_size - offset);
             let nv_read_cmd = TpmNvReadCommand {
-                auth_handle: auth_handle_val.into(),
-                nv_index: handle.into(),
                 size: u16::try_from(chunk_size)?,
                 offset: u16::try_from(offset)?,
+                handles: [auth_handle_val.into(), handle.into()],
             };
 
             let (resp, _) = session.execute(device, &nv_read_cmd, &handles, effective_auths)?;

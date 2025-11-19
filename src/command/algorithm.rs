@@ -25,6 +25,7 @@ impl Algorithm {
                     ..Default::default()
                 }),
             },
+            handles: [],
         };
         let sessions = vec![];
         device.transmit(&cmd, &sessions).map(|(_, _)| ())
