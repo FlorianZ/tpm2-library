@@ -19,7 +19,9 @@ use crate::{
     task::TaskState,
 };
 
-use std::{cell::RefCell, fs, io::IsTerminal, process, rc::Rc, sync::atomic::Ordering};
+use std::{
+    cell::RefCell, fs, io::IsTerminal, path::PathBuf, process, rc::Rc, sync::atomic::Ordering,
+};
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
@@ -68,12 +70,15 @@ fn main() {
         }
     };
 
-    let Some(project) = directories::ProjectDirs::from("", "", "tpm2sh") else {
-        eprintln!("Could not locate cache directory path.");
-        std::process::exit(1);
+    let cache_dir = if let Ok(path) = std::env::var("TPM2SH_CACHE_PATH") {
+        PathBuf::from(path)
+    } else {
+        let Some(project) = directories::ProjectDirs::from("", "", "tpm2sh") else {
+            eprintln!("Could not locate cache directory path.");
+            std::process::exit(1);
+        };
+        project.cache_dir().join("vtpm")
     };
-
-    let cache_dir = project.cache_dir().join("vtpm");
 
     if let Err(err) = fs::create_dir_all(&cache_dir) {
         eprintln!("{err}");
