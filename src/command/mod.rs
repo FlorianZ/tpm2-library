@@ -152,8 +152,8 @@ pub enum CommandError {
     SensitiveDataDenied,
     #[error("sensitive data missing")]
     SensitiveDataMissing,
-    #[error("task_state: {0}")]
-    Session(TaskError),
+    #[error("task: {0}")]
+    Task(TaskError),
     #[error("unknown handle: {0}")]
     UnknownHandle(String),
     #[error("unknown parent")]
@@ -181,7 +181,7 @@ impl From<TaskError> for CommandError {
             TaskError::Crypto(e) => Self::Crypto(e),
             TaskError::Io(e) => Self::Io(e),
             TaskError::IntDecode(e) => Self::IntDecode(e),
-            _ => Self::Session(err),
+            _ => Self::Task(err),
         }
     }
 }

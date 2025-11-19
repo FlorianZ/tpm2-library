@@ -107,13 +107,15 @@ impl Task for Load {
                         count.marshal(&mut writer).map_err(CommandError::Marshal)?;
 
                         for cmd in &policy.policy {
-                            cmd.code()
+                            cmd.cc()
                                 .marshal(&mut writer)
                                 .map_err(CommandError::Marshal)?;
-                            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body())
-                                .map_err(CommandError::Unmarshal)?
-                                .marshal(&mut writer)
-                                .map_err(CommandError::Marshal)?;
+                            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(
+                                cmd.body().as_slice(),
+                            )
+                            .map_err(CommandError::Unmarshal)?
+                            .marshal(&mut writer)
+                            .map_err(CommandError::Marshal)?;
                         }
                         writer.len()
                     };

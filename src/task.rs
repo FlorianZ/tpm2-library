@@ -34,7 +34,7 @@ use tpm2_protocol::{
     },
     TpmHandle, TpmSized, TpmUnmarshal,
 };
-use tpm2_tpmkey::TpmPolicyCommand;
+use tpm2_tpmkey::tpm_key_command_from_parts;
 use tpm2_vtpm::{VtpmCache, VtpmError};
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
@@ -431,14 +431,19 @@ impl<'a> TaskState<'a> {
             let (cc, rest) = TpmCc::unmarshal(remainder).map_err(TaskError::Unmarshal)?;
             remainder = rest;
 
+            let (body_blob, rest) =
+                TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)
+                    .map_err(TaskError::Unmarshal)?;
+            remainder = rest;
+
             let (cmd, auth) = if cc == TpmCc::PolicySecret {
+                let body_slice = body_blob.as_ref();
                 let (handle_hint, rest) =
-                    TpmHandle::unmarshal(remainder).map_err(TaskError::Unmarshal)?;
+                    TpmHandle::unmarshal(body_slice).map_err(TaskError::Unmarshal)?;
                 let (object_name, rest) =
                     Tpm2bName::unmarshal(rest).map_err(TaskError::Unmarshal)?;
-                let (policy_ref, rest) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
+                let (policy_ref, _) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
                     .map_err(TaskError::Unmarshal)?;
-                remainder = rest;
 
                 let live_handle = if object_name.is_empty() {
                     log::warn!(
@@ -460,7 +465,10 @@ impl<'a> TaskState<'a> {
                         expiration: 0,
                     });
 
-                let auth = match policy_auths.next().cloned().unwrap_or_default() {
+                let auth = match policy_auths
+                    .next()
+                    .unwrap_or(&TaskAuth::Password(Vec::new()))
+                {
                     TaskAuth::Password(val) => build_password_session(&val)?,
                     _ => return Err(TaskError::InvalidAuth),
                 };
@@ -469,16 +477,12 @@ impl<'a> TaskState<'a> {
                 auths.push(auth).map_err(|_| TaskError::OutOfMemory)?;
                 (tpm_cmd, auths)
             } else {
-                let (body_blob, rest) =
-                    TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)
-                        .map_err(TaskError::Unmarshal)?;
-                remainder = rest;
-
-                let policy_cmd = TpmPolicyCommand::from_raw(cc, body_blob.to_vec())
+                let policy_cmd = tpm_key_command_from_parts(cc, body_blob.to_vec())
                     .map_err(|e| TaskError::Key(AlgError::TpmKey(e)))?;
-                policy_cmd
+                let tpm_cmd = policy_cmd
                     .to_command()
-                    .map_err(|e| TaskError::Key(AlgError::TpmKey(e)))?
+                    .map_err(|e| TaskError::Key(AlgError::TpmKey(e)))?;
+                (tpm_cmd, TpmAuthCommands::new())
             };
             commands.push((cmd, auth));
         }

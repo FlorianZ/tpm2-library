@@ -18,7 +18,7 @@ pub enum AlgError {
     InvalidEccCurve(String),
     #[error("invalid RSA key bits: {0}")]
     InvalidRsaKeyBits(String),
-    #[error("tpm key: {0}")]
+    #[error("TpmKey: {0}")]
     TpmKey(#[from] TpmKeyError),
 }
 

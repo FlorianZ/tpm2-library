@@ -27,7 +27,7 @@ use tpm2_protocol::{
     frame::TpmImportCommand,
     TpmHandle, TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::TpmKey;
+use tpm2_tpmkey::{TpmKey, OID_LOADABLE_KEY};
 
 /// Convert external keys to TPM keys.
 #[derive(Args, Debug)]
@@ -312,6 +312,7 @@ impl Convert {
             auth_policy: None,
             secret: None,
             description: None,
+            oid: OID_LOADABLE_KEY,
         };
 
         Ok(tpm_key)

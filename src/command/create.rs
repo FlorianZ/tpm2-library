@@ -22,13 +22,15 @@ use tpm2_device::{with_device, TpmDevice};
 use tpm2_policy_language::{TpmHandleClass, TpmHandleRef, TpmPolicyExpression};
 use tpm2_protocol::{
     data::{
-        Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
-        TpmCc, TpmHt, TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bDigest, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData,
+        TpmAlgId, TpmCc, TpmHt, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
-use tpm2_tpmkey::TpmKey as TpmKeyFile;
-use tpm2_tpmkey::{TpmPolicy, TpmPolicyCommand};
+use tpm2_tpmkey::{
+    tpm_key_command_from_command, TpmKey as TpmKeyFile, TpmKeyCommand, TpmPolicy, OID_LOADABLE_KEY,
+    OID_SEALED_DATA,
+};
 
 /// A template for creating a new TPM key object.
 pub struct TpmKeyTemplate<'a> {
@@ -223,24 +225,26 @@ impl Create {
             let empty_auth = is_empty_auth(&create_resp.out_public.inner);
 
             let tpm_key_policy = if let Some(commands) = &policy_commands {
-                let mut policy = Vec::new();
-                for (cmd, auths) in commands {
-                    let step = match cmd {
-                        TpmCommand::PolicySecret(inner) => {
-                            let (_, name) = device.read_public(inner.auth_handle)?;
-                            TpmPolicyCommand::from_policy_secret(inner, &name)
-                                .map_err(CommandError::Key)?
-                        }
-                        _ => {
-                            TpmPolicyCommand::from_command(cmd, auths).map_err(CommandError::Key)?
-                        }
+                let mut policy: Vec<Box<dyn TpmKeyCommand>> = Vec::new();
+                for (cmd, _) in commands {
+                    let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
+                        let (_, name) = device.read_public(inner.auth_handle)?;
+                        name
+                    } else {
+                        Tpm2bName::default()
                     };
-                    policy.push(step);
+                    policy.push(tpm_key_command_from_command(cmd, &object_name)?);
                 }
 
                 Some(TpmPolicy { name: None, policy })
             } else {
                 None
+            };
+
+            let oid = if matches!(self.algorithm.params, AlgInfo::KeyedHash) {
+                OID_SEALED_DATA
+            } else {
+                OID_LOADABLE_KEY
             };
 
             TpmKeyFile {
@@ -253,6 +257,7 @@ impl Create {
                 auth_policy: None,
                 secret: None,
                 description: None,
+                oid,
             }
         };
 
