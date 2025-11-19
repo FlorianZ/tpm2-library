@@ -26,12 +26,15 @@ use tpm2_protocol::{
         TpmAlgId, TpmCc, TpmHt, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
+    TpmHandle,
 };
 use tpm2_tpmkey::{
     tpm_key_command_from_command, TpmKey as TpmKeyFile, TpmKeyCommand, TpmPolicy, OID_LOADABLE_KEY,
     OID_SEALED_DATA,
 };
 use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
+
+type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
 /// A template for creating a new TPM key object.
 pub struct TpmKeyTemplate<'a> {
@@ -106,7 +109,7 @@ impl Create {
         &self,
         task_state: &mut TaskState,
         device: &mut TpmDevice,
-    ) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
+    ) -> Result<(Tpm2bDigest, Option<PolicyCommands>), CommandError> {
         if let Some(expression) = &self.creation_args.policy_expression {
             let banks = pcr_get_bank_list(device)?;
             let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
@@ -149,7 +152,44 @@ impl Create {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    /// Builds the TPM2_Create command by parsing arguments and resolving policies.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] if parsing arguments, handling sensitive data,
+    /// or resolving the policy fails.
+    fn build_create_command(
+        &self,
+        task_state: &mut TaskState,
+        device: &mut TpmDevice,
+        parent_handle: TpmHandle,
+    ) -> Result<(TpmCreateCommand, Option<PolicyCommands>), CommandError> {
+        let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
+        let sensitive_data = self.get_sensitive_data()?;
+
+        let (auth_policy_digest, policy_commands) = self.resolve_policy(task_state, device)?;
+
+        let public_template =
+            template::build_public(&self.algorithm, auth_policy_digest, object_attributes);
+
+        let create_cmd = TpmCreateCommand {
+            in_sensitive: Tpm2bSensitiveCreate {
+                inner: TpmsSensitiveCreate {
+                    user_auth,
+                    data: sensitive_data,
+                },
+            },
+            in_public: Tpm2bPublic {
+                inner: public_template,
+            },
+            outside_info: Tpm2bData::default(),
+            creation_pcr: TpmlPcrSelection::default(),
+            handles: [parent_handle.0.into()],
+        };
+
+        Ok((create_cmd, policy_commands))
+    }
+
     fn create_object(
         &self,
         task_state: &mut TaskState,
@@ -169,97 +209,70 @@ impl Create {
             &self.auth_args,
         )?;
 
-        let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
-        let sensitive_data = self.get_sensitive_data()?;
+        let (create_cmd, policy_commands) =
+            self.build_create_command(task_state, device, parent_phys_handle)?;
 
-        let template = TpmKeyTemplate {
-            alg_desc: &self.algorithm,
-            sensitive_data,
+        let handles = [parent_phys_handle.0];
+        let execution_result = task_state.execute(device, &create_cmd, &handles, &auths);
+
+        if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
+            if let Err(e) = task_state.remove_session(device, vhandle) {
+                log::error!("vtpm:{vhandle:08x}: {e}");
+            }
+        }
+
+        let (resp, _) = execution_result.map_err(|err| {
+            if let TaskError::Device(device_err) = err {
+                return CommandError::from(device_err);
+            }
+            err.into()
+        })?;
+
+        let create_resp = resp
+            .Create()
+            .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
+
+        let (parent_public_data, _) = device.read_public(parent_phys_handle)?;
+        let parent_public_2b = Tpm2bPublic {
+            inner: parent_public_data,
         };
 
-        let (auth_policy_digest, policy_commands) = self.resolve_policy(task_state, device)?;
+        let empty_auth = is_empty_auth(&create_resp.out_public.inner);
 
-        let tpm_key = {
-            let public_template =
-                template::build_public(template.alg_desc, auth_policy_digest, object_attributes);
-
-            let create_cmd = TpmCreateCommand {
-                in_sensitive: Tpm2bSensitiveCreate {
-                    inner: TpmsSensitiveCreate {
-                        user_auth,
-                        data: template.sensitive_data,
-                    },
-                },
-                in_public: Tpm2bPublic {
-                    inner: public_template,
-                },
-                outside_info: Tpm2bData::default(),
-                creation_pcr: TpmlPcrSelection::default(),
-                handles: [parent_phys_handle.0.into()],
-            };
-
-            let handles = [parent_phys_handle.0];
-            let execution_result = task_state.execute(device, &create_cmd, &handles, &auths);
-
-            if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                if let Err(e) = task_state.remove_session(device, vhandle) {
-                    log::error!("vtpm:{vhandle:08x}: {e}");
-                }
+        let tpm_key_policy = if let Some(commands) = &policy_commands {
+            let mut policy: Vec<Box<dyn TpmKeyCommand>> = Vec::new();
+            for (cmd, _) in commands {
+                let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
+                    let (_, name) = device.read_public(inner.handles[0])?;
+                    name
+                } else {
+                    Tpm2bName::default()
+                };
+                policy.push(tpm_key_command_from_command(cmd, &object_name)?);
             }
 
-            let (resp, _) = execution_result.map_err(|err| {
-                if let TaskError::Device(device_err) = err {
-                    return CommandError::from(device_err);
-                }
-                err.into()
-            })?;
+            Some(TpmPolicy { name: None, policy })
+        } else {
+            None
+        };
 
-            let create_resp = resp
-                .Create()
-                .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
+        let oid = if matches!(self.algorithm.params, AlgInfo::KeyedHash) {
+            OID_SEALED_DATA
+        } else {
+            OID_LOADABLE_KEY
+        };
 
-            let (parent_public_data, _) = device.read_public(parent_phys_handle)?;
-            let parent_public_2b = Tpm2bPublic {
-                inner: parent_public_data,
-            };
-
-            let empty_auth = is_empty_auth(&create_resp.out_public.inner);
-
-            let tpm_key_policy = if let Some(commands) = &policy_commands {
-                let mut policy: Vec<Box<dyn TpmKeyCommand>> = Vec::new();
-                for (cmd, _) in commands {
-                    let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
-                        let (_, name) = device.read_public(inner.handles[0])?;
-                        name
-                    } else {
-                        Tpm2bName::default()
-                    };
-                    policy.push(tpm_key_command_from_command(cmd, &object_name)?);
-                }
-
-                Some(TpmPolicy { name: None, policy })
-            } else {
-                None
-            };
-
-            let oid = if matches!(self.algorithm.params, AlgInfo::KeyedHash) {
-                OID_SEALED_DATA
-            } else {
-                OID_LOADABLE_KEY
-            };
-
-            TpmKeyFile {
-                public: create_resp.out_public,
-                private: create_resp.out_private,
-                parent_handle: parent_phys_handle,
-                parent_public: Some(parent_public_2b),
-                empty_auth: if empty_auth { Some(true) } else { None },
-                policy: tpm_key_policy,
-                auth_policy: None,
-                secret: None,
-                description: None,
-                oid,
-            }
+        let tpm_key = TpmKeyFile {
+            public: create_resp.out_public,
+            private: create_resp.out_private,
+            parent_handle: parent_phys_handle,
+            parent_public: Some(parent_public_2b),
+            empty_auth: if empty_auth { Some(true) } else { None },
+            policy: tpm_key_policy,
+            auth_policy: None,
+            secret: None,
+            description: None,
+            oid,
         };
 
         write_key_data(
