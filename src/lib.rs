@@ -90,28 +90,38 @@ impl core::fmt::UpperHex for TpmHandle {
 /// for all the possible error conditions.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TpmProtocolError {
-    /// Buffer contains more data than allowed by the TCG specifications.
-    BufferTooLarge,
     /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
     /// magic value.
     InvalidAttestMagic,
+
     /// Boolean value was expected but the value is neither `0` nor `1`.
     InvalidBoolean,
+
     /// Non-existent command code encountered.
     InvalidCc,
+
     /// Tag is neither [`Sessions`](crate::data::TpmSt::Sessions) nor
     /// [`NoSessions`](crate::data::TpmSt::NoSessions).
     InvalidTag,
+
     /// A cryptographic operation failed.
     OperationFailed,
+
     /// Writer's buffer is full.
     OutOfMemory,
+
+    /// Buffer contains more bytes than allowed by the TCG specifications.
+    TooManyBytes,
+
     /// List contains more items than allowed by the TCG specifications.
     TooManyItems,
+
     /// Trailing data left after unmarshaling.
     TrailingData,
+
     /// Run out of bytes while unmarshaling.
     UnexpectedEnd,
+
     /// The requested variant is missing.
     VariantMissing,
 }
@@ -119,14 +129,14 @@ pub enum TpmProtocolError {
 impl core::fmt::Display for TpmProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::BufferTooLarge => write!(f, "buffer is too large"),
             Self::InvalidAttestMagic => write!(f, "invalid attestation magic"),
             Self::InvalidBoolean => write!(f, "invalid boolean value"),
             Self::InvalidCc => write!(f, "invalid command code"),
             Self::InvalidTag => write!(f, "invalid tag"),
             Self::OperationFailed => write!(f, "operation failed"),
             Self::OutOfMemory => write!(f, "out of memory"),
-            Self::TooManyItems => write!(f, "list has too many items"),
+            Self::TooManyBytes => write!(f, "bytes surpass buffer capacity"),
+            Self::TooManyItems => write!(f, "items surpass list capacity"),
             Self::TrailingData => write!(f, "trailing data"),
             Self::UnexpectedEnd => write!(f, "unexpected end"),
             Self::VariantMissing => write!(f, "variant missing"),
