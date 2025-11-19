@@ -187,7 +187,7 @@ impl TpmKey {
     /// marshalled into the underlying TPM buffer.
     pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
         let asn1 = self.to_asn1()?;
-        rasn::der::encode(&asn1).map_err(TpmKeyError::DerEncodingFailed)
+        rasn::der::encode(&asn1).map_err(TpmKeyError::Asn1EncodingFailed)
     }
 
     /// Parse a key from DER bytes.
@@ -208,7 +208,7 @@ impl TpmKey {
     /// an *Importable Key* but `secret` is absent.
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let asn1: TpmKeyAsn1 =
-            rasn::der::decode(der_bytes).map_err(TpmKeyError::DerDecodingFailed)?;
+            rasn::der::decode(der_bytes).map_err(TpmKeyError::Asn1DecodingFailed)?;
         Self::from_asn1(asn1)
     }
 

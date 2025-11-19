@@ -24,13 +24,13 @@ pub enum TpmKeyError {
     #[error("invalid sealed key algorithm: {0:?}")]
     InvalidSealed(tpm2_protocol::data::TpmAlgId),
 
-    /// Decoding DER encoded ASN.1 data failed.
-    #[error("DER decoding failed: {0}")]
-    DerDecodingFailed(rasn::der::de::DecodeError),
+    /// Decoding ASN.1 DER encoded data failed.
+    #[error("ASN.1 DER decoding failed: {0}")]
+    Asn1DecodingFailed(#[source] rasn::der::de::DecodeError),
 
-    /// Encoding DER encoded ASN.1 data failed.
-    #[error("DER encoding failed: {0}")]
-    DerEncodingFailed(rasn::der::enc::EncodeError),
+    /// Encoding ASN.1 DER encoded data failed.
+    #[error("ASN.1 DER encoding failed: {0}")]
+    Asn1EncodingFailed(#[source] rasn::der::enc::EncodeError),
 
     /// PEM tag is not 'TSS2 PRIVATE KEY'.
     #[error("invalid PEM tag: {0}")]
@@ -48,9 +48,9 @@ pub enum TpmKeyError {
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmProtocolError),
 
-    /// Decoding PEM encoded DER data failed.
-    #[error("PEM encoding failed: {0}")]
-    PemDecodingFailed(pem::PemError),
+    /// Decoding PEM encoded data failed.
+    #[error("PEM decoding failed: {0}")]
+    PemDecodingFailed(#[source] pem::PemError),
 
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
