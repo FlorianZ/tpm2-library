@@ -791,8 +791,10 @@ tpm_struct! {
     kind: Command,
     name: TpmFlushContextCommand,
     cc: TpmCc::FlushContext,
-    handles: 1,
-    parameters: {}
+    handles: 0,
+    parameters: {
+        pub flush_handle: TpmHandle,
+    }
 }
 
 tpm_struct! {
