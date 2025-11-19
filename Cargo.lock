@@ -1068,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2sh"
-version = "0.15.13"
+version = "0.15.14"
 dependencies = [
  "clap",
  "ctrlc",
