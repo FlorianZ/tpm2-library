@@ -63,12 +63,22 @@ mod error;
 pub use command::*;
 pub use error::*;
 
-use crate::asn1::{
-    tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1, OID_IMPORTABLE_KEY,
-    OID_LOADABLE_KEY, OID_SEALED_DATA,
-};
+use crate::asn1::{tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1};
 use pem::{EncodeConfig, LineEnding, Pem};
 use rasn::types::{OctetString, Utf8String};
+
+pub const OID_LOADABLE_KEY: rasn::prelude::ObjectIdentifier =
+    rasn::prelude::ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[
+        2, 23, 133, 10, 1, 3,
+    ]));
+pub const OID_IMPORTABLE_KEY: rasn::prelude::ObjectIdentifier =
+    rasn::prelude::ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[
+        2, 23, 133, 10, 1, 4,
+    ]));
+pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
+    rasn::prelude::ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[
+        2, 23, 133, 10, 1, 5,
+    ]));
 
 use std::convert::TryFrom;
 use tpm2_protocol::{

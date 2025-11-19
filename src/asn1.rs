@@ -10,13 +10,6 @@ use rasn::{
 };
 use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmMarshal, TpmWriter};
 
-pub const OID_LOADABLE_KEY: ObjectIdentifier =
-    ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 3]));
-pub const OID_IMPORTABLE_KEY: ObjectIdentifier =
-    ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 4]));
-pub const OID_SEALED_DATA: ObjectIdentifier =
-    ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[2, 23, 133, 10, 1, 5]));
-
 pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmKeyError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let len = {
