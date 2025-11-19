@@ -9,12 +9,12 @@
 
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
-    fs, io,
+    fmt, fs, io,
     path::Path,
+    str::FromStr,
 };
 use thiserror::Error;
 use tpm2_crypto::tpm_make_name;
-use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
@@ -38,6 +38,165 @@ fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmProtocolErr
     };
     buf.truncate(len);
     Ok(buf)
+}
+
+/// Handle classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VtpmHandleClass {
+    Tpm,
+    Vtpm,
+}
+
+/// TPM and vTPM handles, with support for pattern matching.
+///
+/// A [`VtpmHandle`] can represent either a single, specific handle value (e.g.,
+/// `tpm:81000001`) or a pattern for matching multiple handles (e.g., `tpm:81*`,
+/// `vtpm:????????`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VtpmHandle {
+    class: VtpmHandleClass,
+    mask: u32,
+    value: u32,
+}
+
+impl VtpmHandle {
+    /// Creates a new handle that represents a single, specific handle value.
+    #[must_use]
+    pub fn new(class: VtpmHandleClass, value: u32) -> Self {
+        Self {
+            class,
+            mask: 0xFFFF_FFFF,
+            value,
+        }
+    }
+
+    /// Returns the class of the handle (`Tpm` or `Vtpm`).
+    #[must_use]
+    pub fn class(&self) -> VtpmHandleClass {
+        self.class
+    }
+
+    /// Returns the value of the handle if it represents a single handle.
+    ///
+    /// Returns `Some(value)` when the handle was created without wildcards.
+    /// Returns `None` when the handle is a pattern.
+    #[must_use]
+    pub fn value(&self) -> Option<u32> {
+        if self.mask == 0xFFFF_FFFF {
+            Some(self.value)
+        } else {
+            None
+        }
+    }
+
+    /// Checks if a given handle value matches the handle's pattern.
+    #[must_use]
+    pub fn matches(&self, handle: u32) -> bool {
+        (handle & self.mask) == self.value
+    }
+}
+
+impl fmt::Display for VtpmHandle {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let scheme = match self.class {
+            VtpmHandleClass::Tpm => "tpm",
+            VtpmHandleClass::Vtpm => "vtpm",
+        };
+        write!(f, "{scheme}:")?;
+        if self.mask == 0 {
+            write!(f, "*")
+        } else if self.mask == 0xFFFF_FFFF {
+            write!(f, "{:08x}", self.value)
+        } else {
+            let mut out = [b'?'; 8];
+            for (pos, item) in out.iter_mut().enumerate() {
+                let i = 7usize.saturating_sub(pos);
+                let nibble_mask = (self.mask >> (i * 4)) & 0xF;
+                if nibble_mask == 0xF {
+                    let nibble_val = (self.value >> (i * 4)) & 0xF;
+                    *item = b"0123456789abcdef"[nibble_val as usize];
+                }
+            }
+            let s = std::str::from_utf8(&out).map_err(|_| fmt::Error)?;
+            write!(f, "{s}")
+        }
+    }
+}
+
+impl FromStr for VtpmHandle {
+    type Err = VtpmError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (scheme_str, value_str) = s.split_once(':').ok_or(VtpmError::HandlePrefixMissing)?;
+
+        let class = match scheme_str {
+            "tpm" => VtpmHandleClass::Tpm,
+            "vtpm" => VtpmHandleClass::Vtpm,
+            _ => return Err(VtpmError::InvalidHandlePrefix),
+        };
+
+        if value_str == "*" {
+            return Ok(Self {
+                class,
+                mask: 0,
+                value: 0,
+            });
+        }
+
+        let mut normalized_str = String::with_capacity(8);
+        if let Some((prefix, suffix)) = value_str.split_once('*') {
+            if suffix.contains('*') {
+                return Err(VtpmError::HandleHasTooManyAsterisks);
+            }
+            if prefix.len() + suffix.len() > 8 {
+                return Err(VtpmError::HandleTooLong);
+            }
+            normalized_str.push_str(prefix);
+            normalized_str.extend(
+                std::iter::repeat('?').take(8_usize.saturating_sub(prefix.len() + suffix.len())),
+            );
+            normalized_str.push_str(suffix);
+        } else {
+            if value_str.len() < 8 {
+                return Err(VtpmError::HandleTooShort);
+            }
+            if value_str.len() > 8 {
+                return Err(VtpmError::HandleTooLong);
+            }
+            normalized_str.push_str(value_str);
+        }
+
+        let mut mask: u32 = 0;
+        let mut value: u32 = 0;
+
+        for (i, c) in normalized_str.chars().enumerate() {
+            #[allow(clippy::cast_possible_truncation)]
+            let shift = ((7 - i) * 4) as u32;
+            match c.to_digit(16) {
+                Some(v) => {
+                    mask |= 0xF << shift;
+                    value |= v << shift;
+                }
+                None if c == '?' => {}
+                None => {
+                    let c = if c.is_alphanumeric() { c } else { '?' };
+                    return Err(VtpmError::InvalidHandleCharacter(c));
+                }
+            }
+        }
+
+        Ok(Self { class, mask, value })
+    }
+}
+
+impl TryFrom<VtpmHandle> for TpmHt {
+    type Error = VtpmError;
+
+    fn try_from(handle: VtpmHandle) -> Result<Self, Self::Error> {
+        let raw_handle = handle.value().ok_or(VtpmError::HandlePatternNotAllowed)?;
+        let ht_byte = (raw_handle >> 24) as u8;
+        TpmHt::try_from(ht_byte).map_err(|_| VtpmError::InvalidHandleType(ht_byte))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -146,8 +305,24 @@ impl TpmUnmarshal for VtpmKey {
 /// Error type for VTPM cache operations and TPM serialization.
 #[derive(Debug, Error)]
 pub enum VtpmError {
+    #[error("handle has more than one asterisk")]
+    HandleHasTooManyAsterisks,
     #[error("handle not found: vtpm:{0:08x}")]
     HandleNotFound(TpmHandle),
+    #[error("handle pattern is not allowed")]
+    HandlePatternNotAllowed,
+    #[error("handle prefix is missing")]
+    HandlePrefixMissing,
+    #[error("handle is less than eight characters")]
+    HandleTooShort,
+    #[error("handle has more than eight characters")]
+    HandleTooLong,
+    #[error("invalid handle character: {0}")]
+    InvalidHandleCharacter(char),
+    #[error("invalid handle prefix")]
+    InvalidHandlePrefix,
+    #[error("invalid handle type: 0x{0:02x}")]
+    InvalidHandleType(u8),
     #[error("no handles")]
     NoHandles,
     #[error("I/O: {0}")]
@@ -267,7 +442,7 @@ impl<'a> VtpmCache<'a> {
     /// root can be a persistent physical handle or a non-persistent primary key
     /// stored in the VTPM cache.
     ///
-    /// Returns a list of `TpmHandleRef`s representing the path from the
+    /// Returns a list of [`VtpmHandle`]s representing the path from the
     /// root *down* to the target, ready for loading.
     ///
     /// # Errors
@@ -283,10 +458,10 @@ impl<'a> VtpmCache<'a> {
         &self,
         target_vhandle: u32,
         persistent_keys: &HashMap<Vec<u8>, TpmHandle>,
-    ) -> Result<Vec<TpmHandleRef>, VtpmError> {
+    ) -> Result<Vec<VtpmHandle>, VtpmError> {
         let mut current_vhandle = target_vhandle;
-        let mut vtp_chain: VecDeque<TpmHandleRef> = VecDeque::new();
-        let mut physical_primary: Option<TpmHandleRef> = None;
+        let mut vtp_chain: VecDeque<VtpmHandle> = VecDeque::new();
+        let mut physical_primary: Option<VtpmHandle> = None;
 
         loop {
             let key = self.find_by_vhandle(current_vhandle)?;
@@ -297,14 +472,14 @@ impl<'a> VtpmCache<'a> {
 
             if let Some(parent_key) = self.find_by_public(&key.parent) {
                 let parent_vhandle = parent_key.handle.0;
-                vtp_chain.push_front(TpmHandleRef::new(TpmHandleClass::Vtpm, current_vhandle));
+                vtp_chain.push_front(VtpmHandle::new(VtpmHandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
                 let parent_key_bytes =
                     tpm_marshal_array(&[&key.parent]).map_err(VtpmError::Marshal)?;
                 match persistent_keys.get(&parent_key_bytes) {
                     Some(phandle) => {
-                        physical_primary = Some(TpmHandleRef::new(TpmHandleClass::Tpm, phandle.0));
+                        physical_primary = Some(VtpmHandle::new(VtpmHandleClass::Tpm, phandle.0));
                         break;
                     }
                     None => {
@@ -314,9 +489,9 @@ impl<'a> VtpmCache<'a> {
             }
         }
 
-        vtp_chain.push_front(TpmHandleRef::new(TpmHandleClass::Vtpm, current_vhandle));
+        vtp_chain.push_front(VtpmHandle::new(VtpmHandleClass::Vtpm, current_vhandle));
 
-        let mut final_chain: Vec<TpmHandleRef> = vtp_chain.into();
+        let mut final_chain: Vec<VtpmHandle> = vtp_chain.into();
 
         if let Some(root_handle) = physical_primary {
             final_chain.insert(0, root_handle);
