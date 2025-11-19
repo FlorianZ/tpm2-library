@@ -180,7 +180,8 @@ impl TpmDeviceBuilder {
             name_cache: HashMap::new(),
             interrupted: self.interrupted,
             timeout: self.timeout,
-            resp_buf: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
+            command: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
+            response: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
         })
     }
 }
@@ -190,7 +191,8 @@ pub struct TpmDevice {
     name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
     interrupted: Box<dyn Fn() -> bool>,
     timeout: Duration,
-    resp_buf: Vec<u8>,
+    command: Vec<u8>,
+    response: Vec<u8>,
 }
 
 impl std::fmt::Debug for TpmDevice {
@@ -270,14 +272,14 @@ impl TpmDevice {
         command: &C,
         sessions: &[TpmsAuthCommand],
     ) -> Result<(TpmResponse, TpmAuthResponses), TpmDeviceError> {
-        let command_vec = TpmDevice::build_command_buffer(command, sessions)?;
+        self.prepare_command(command, sessions)?;
         let cc = command.cc();
 
-        self.file.write_all(&command_vec)?;
+        self.file.write_all(&self.command)?;
         self.file.flush()?;
 
         let start_time = Instant::now();
-        self.resp_buf.clear();
+        self.response.clear();
         let mut total_size: Option<usize> = None;
         let mut temp_buf = [0u8; 1024];
 
@@ -291,11 +293,11 @@ impl TpmDevice {
 
             let n = self.receive(&mut temp_buf)?;
             if n > 0 {
-                self.resp_buf.extend_from_slice(&temp_buf[..n]);
+                self.response.extend_from_slice(&temp_buf[..n]);
             }
 
-            if total_size.is_none() && self.resp_buf.len() >= 10 {
-                let Ok(size_bytes): Result<[u8; 4], _> = self.resp_buf[2..6].try_into() else {
+            if total_size.is_none() && self.response.len() >= 10 {
+                let Ok(size_bytes): Result<[u8; 4], _> = self.response[2..6].try_into() else {
                     return Err(TpmDeviceError::InvalidResponse);
                 };
                 let size = u32::from_be_bytes(size_bytes) as usize;
@@ -306,41 +308,44 @@ impl TpmDevice {
             }
 
             if let Some(size) = total_size {
-                if self.resp_buf.len() == size {
+                if self.response.len() == size {
                     break;
                 }
-                if self.resp_buf.len() > size {
+                if self.response.len() > size {
                     return Err(TpmDeviceError::InvalidResponse);
                 }
             }
         }
 
-        let result = tpm_unmarshal_response(cc, &self.resp_buf).map_err(TpmDeviceError::Unmarshal);
-        trace!("{} R: {}", cc, hex::encode(&self.resp_buf));
+        let result = tpm_unmarshal_response(cc, &self.response).map_err(TpmDeviceError::Unmarshal);
+        trace!("{} R: {}", cc, hex::encode(&self.response));
         Ok(result??)
     }
 
-    fn build_command_buffer<C: TpmCommandObject>(
+    fn prepare_command<C: TpmCommandObject>(
+        &mut self,
         command: &C,
         sessions: &[TpmsAuthCommand],
-    ) -> Result<Vec<u8>, TpmDeviceError> {
+    ) -> Result<(), TpmDeviceError> {
         let cc = command.cc();
         let tag = if sessions.is_empty() {
             TpmSt::NoSessions
         } else {
             TpmSt::Sessions
         };
-        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+
+        self.command.resize(TPM_MAX_COMMAND_SIZE as usize, 0);
+
         let len = {
-            let mut writer = TpmWriter::new(&mut buf);
+            let mut writer = TpmWriter::new(&mut self.command);
             tpm_marshal_command(command, tag, sessions, &mut writer)
                 .map_err(TpmDeviceError::Marshal)?;
             writer.len()
         };
-        buf.truncate(len);
+        self.command.truncate(len);
 
-        trace!("{} C: {}", cc, hex::encode(&buf));
-        Ok(buf)
+        trace!("{} C: {}", cc, hex::encode(&self.command));
+        Ok(())
     }
 
     /// Fetches a complete list of capabilities from the TPM, handling pagination.
