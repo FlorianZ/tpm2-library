@@ -8,15 +8,15 @@ use crate::{
 };
 use clap::Args;
 use tpm2_device::with_device;
-use tpm2_policy_language::TpmHandleRef;
 use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand};
+use tpm2_vtpm::VtpmHandle;
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
 #[command(about = "Retrieves data from a sealed data object.")]
 pub struct Unseal {
     /// Input: 'tpm:<persistent handle>' or 'vtpm:<transient handle>'
-    pub input: TpmHandleRef,
+    pub input: VtpmHandle,
 
     /// Force hex output when redirecting to a file or pipe
     #[arg(long)]

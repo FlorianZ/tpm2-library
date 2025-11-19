@@ -11,7 +11,6 @@ use crate::{
 };
 use clap::Args;
 use tpm2_device::{with_device, TpmDevice};
-use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
@@ -20,6 +19,7 @@ use tpm2_protocol::{
     TpmHandle, TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKey;
+use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
 
 /// Loads a PEM or DER TPMKey file to cache.
 #[derive(Args, Debug)]
@@ -63,9 +63,9 @@ impl Task for Load {
                     .map(|(vhandle, _)| *vhandle);
 
                 let parent_handle_ref = if let Some(vhandle) = parent_vhandle_opt {
-                    TpmHandleRef::new(TpmHandleClass::Vtpm, vhandle)
+                    VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle)
                 } else {
-                    TpmHandleRef::new(TpmHandleClass::Tpm, parent_handle.0)
+                    VtpmHandle::new(VtpmHandleClass::Tpm, parent_handle.0)
                 };
 
                 let (policy_blob, name_alg, parent_empty_auth) =
@@ -159,7 +159,7 @@ impl Load {
 
         if let Some(vhandle) = vhandle_opt {
             return Ok(task_state
-                .load_context(device, &TpmHandleRef::new(TpmHandleClass::Vtpm, vhandle))?);
+                .load_context(device, &VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle))?);
         }
 
         Err(CommandError::UnknownParent)

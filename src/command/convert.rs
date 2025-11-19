@@ -16,7 +16,6 @@ use tpm2_crypto::{
     KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_device::{with_device, TpmDevice};
-use tpm2_policy_language::TpmHandleRef;
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -28,12 +27,13 @@ use tpm2_protocol::{
     TpmHandle, TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::{TpmKey, OID_LOADABLE_KEY};
+use tpm2_vtpm::VtpmHandle;
 
 /// Convert external keys to TPM keys.
 #[derive(Args, Debug)]
 pub struct Convert {
     /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
-    pub parent: TpmHandleRef,
+    pub parent: VtpmHandle,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,

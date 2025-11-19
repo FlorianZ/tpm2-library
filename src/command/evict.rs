@@ -9,17 +9,17 @@ use crate::{
 };
 use clap::Args;
 use tpm2_device::with_device;
-use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::TpmHandle;
+use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
 
 /// Create persistent object from transient object.
 #[derive(Args, Debug)]
 pub struct Evict {
     /// Input key: 'vtpm:<vhandle>'
-    pub input: TpmHandleRef,
+    pub input: VtpmHandle,
 
     /// Persistent handle: 'tpm:<handle>'
-    pub output: TpmHandleRef,
+    pub output: VtpmHandle,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -43,7 +43,7 @@ impl Task for Evict {
         with_device(
             task_state.device.clone(),
             |dev| -> Result<(), CommandError> {
-                if self.output.class() != TpmHandleClass::Tpm {
+                if self.output.class() != VtpmHandleClass::Tpm {
                     return Err(CommandError::InvalidHandle);
                 }
                 let persistent_handle = TpmHandle(persistent_handle_val);

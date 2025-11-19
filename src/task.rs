@@ -19,7 +19,6 @@ use rand::{thread_rng, RngCore};
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
 use tpm2_device::{TpmCommandObject, TpmDevice, TpmDeviceError};
-use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
@@ -35,7 +34,7 @@ use tpm2_protocol::{
     TpmHandle, TpmSized, TpmUnmarshal,
 };
 use tpm2_tpmkey::tpm_key_command_from_parts;
-use tpm2_vtpm::{VtpmCache, VtpmError};
+use tpm2_vtpm::{VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass};
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
@@ -366,7 +365,7 @@ impl<'a> TaskState<'a> {
     /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
     /// the name cannot be found.
     /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when the
-    /// `TpmHandleRef` is invalid.
+    /// `VtpmHandle` is invalid.
     /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
     /// handle is not in the cache.
     /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
@@ -384,7 +383,7 @@ impl<'a> TaskState<'a> {
 
         if let Some(key) = self.cache.find_by_name(name)? {
             let vhandle = key.handle.0;
-            return self.load_context(device, &TpmHandleRef::new(TpmHandleClass::Vtpm, vhandle));
+            return self.load_context(device, &VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle));
         }
 
         Err(TaskError::HandleNameNotFound(*name))
@@ -408,7 +407,7 @@ impl<'a> TaskState<'a> {
     /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
     /// a policy secret handle cannot be found.
     /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a
-    /// `TpmHandleRef` is invalid.
+    /// `VtpmHandle` is invalid.
     /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
     /// handle is not in the cache.
     /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
@@ -656,16 +655,16 @@ impl<'a> TaskState<'a> {
     /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when a
     /// loaded key's parent does not match the expected parent in the chain.
     /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when the target
-    /// `TpmHandleRef` is invalid.
+    /// `VtpmHandle` is invalid.
     /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
     pub fn load_context(
         &mut self,
         device: &mut TpmDevice,
-        target: &TpmHandleRef,
+        target: &VtpmHandle,
     ) -> Result<TpmHandle, TaskError> {
         let target_vhandle = target.value().ok_or(TaskError::InvalidAuth)?;
 
-        if target.class() == TpmHandleClass::Tpm {
+        if target.class() == VtpmHandleClass::Tpm {
             return Ok(TpmHandle(target_vhandle));
         }
 
@@ -695,10 +694,10 @@ impl<'a> TaskState<'a> {
                 .value()
                 .ok_or(TaskError::InvalidParent("vtpm:", 0))?;
             match first_handle.class() {
-                TpmHandleClass::Tpm => {
+                VtpmHandleClass::Tpm => {
                     phandle = Some(TpmHandle(first_handle_val));
                 }
-                TpmHandleClass::Vtpm => {
+                VtpmHandleClass::Vtpm => {
                     let key = self.cache.find_by_vhandle(first_handle_val)?;
                     let loaded_phandle = device.load_context(key.context.clone())?;
                     self.track_handle(loaded_phandle)?;
@@ -742,10 +741,10 @@ impl<'a> TaskState<'a> {
     pub fn resolve_policy(
         &self,
         device: &mut TpmDevice,
-        handle: &TpmHandleRef,
+        handle: &VtpmHandle,
         phys_handle: TpmHandle,
     ) -> Result<(Vec<u8>, TpmAlgId, bool), TaskError> {
-        if handle.class() == TpmHandleClass::Vtpm {
+        if handle.class() == VtpmHandleClass::Vtpm {
             let vhandle = handle.value().ok_or(TaskError::InvalidAuth)?;
             self.cache.fetch_policy(vhandle).map_err(TaskError::Vtpm)
         } else {

@@ -15,12 +15,12 @@ use strum::Display;
 use tabled::Tabled;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
-use tpm2_policy_language::TpmHandleRef;
 use tpm2_protocol::{
     data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
     frame::{TpmNvReadCommand, TpmNvReadPublicCommand},
     TpmHandle,
 };
+use tpm2_vtpm::VtpmHandle;
 
 const EK_CERT_RANGE: std::ops::RangeInclusive<u32> = 0x01C0_0000..=0x01C0_FFFF;
 
@@ -48,7 +48,7 @@ struct MemoryRow {
 #[command(about = "Lists objects inside TPM memory or inspects a single handle.")]
 pub struct Memory {
     /// Optional handle to inspect: 'tpm:<handle>'
-    pub handle: Option<TpmHandleRef>,
+    pub handle: Option<VtpmHandle>,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,

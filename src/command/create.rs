@@ -19,7 +19,7 @@ use std::hash::BuildHasher;
 
 use clap::Args;
 use tpm2_device::{with_device, TpmDevice};
-use tpm2_policy_language::{TpmHandleClass, TpmHandleRef, TpmPolicyExpression};
+use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData,
@@ -31,6 +31,7 @@ use tpm2_tpmkey::{
     tpm_key_command_from_command, TpmKey as TpmKeyFile, TpmKeyCommand, TpmPolicy, OID_LOADABLE_KEY,
     OID_SEALED_DATA,
 };
+use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
 
 /// A template for creating a new TPM key object.
 pub struct TpmKeyTemplate<'a> {
@@ -43,7 +44,7 @@ pub struct TpmKeyTemplate<'a> {
 #[command(about = "Creates a secondary key or a sealed data object.")]
 pub struct Create {
     /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
-    pub parent: TpmHandleRef,
+    pub parent: VtpmHandle,
 
     /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256'.
     #[arg(value_parser = clap::value_parser!(Alg))]
@@ -287,7 +288,7 @@ fn visit_secret_handles<S: BuildHasher>(
                     return Err(CommandError::PatternNotAllowed(auth_handle.to_string()));
                 };
 
-                if handle.class() != TpmHandleClass::Tpm
+                if handle.class() != VtpmHandleClass::Tpm
                     || (val >> 24) as u8 != TpmHt::Persistent as u8
                 {
                     return Err(CommandError::InvalidHandle);
