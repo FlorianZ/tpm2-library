@@ -13,8 +13,9 @@ use tpm2_protocol::{
         Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmCc, TpmlDigest, TpmlPcrSelection, TpmtSignature,
     },
     frame::{
-        TpmCommand, TpmFrame, TpmMarshalBody, TpmPolicyOrCommand, TpmPolicyPcrCommand,
-        TpmPolicySecretCommand,
+        TpmCommand, TpmFrame, TpmMarshalBody, TpmPolicyAuthValueCommand, TpmPolicyGetDigestCommand,
+        TpmPolicyOrCommand, TpmPolicyPasswordCommand, TpmPolicyPcrCommand,
+        TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
     TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
@@ -182,6 +183,36 @@ impl TpmKeyCommand for TpmKeyDefaultCommand {
 
     fn to_command(&self) -> Result<TpmCommand, TpmKeyError> {
         match self.cc {
+            TpmCc::PolicyAuthValue => {
+                let inner = TpmPolicyAuthValueCommand {
+                    policy_session: ZERO_HANDLE,
+                };
+                Ok(TpmCommand::PolicyAuthValue(inner))
+            }
+            TpmCc::PolicyGetDigest => {
+                let inner = TpmPolicyGetDigestCommand {
+                    policy_session: ZERO_HANDLE,
+                };
+                Ok(TpmCommand::PolicyGetDigest(inner))
+            }
+            TpmCc::PolicyPassword => {
+                let inner = TpmPolicyPasswordCommand {
+                    policy_session: ZERO_HANDLE,
+                };
+                Ok(TpmCommand::PolicyPassword(inner))
+            }
+            TpmCc::PolicyRestart => {
+                let inner = TpmPolicyRestartCommand {
+                    session_handle: ZERO_HANDLE,
+                };
+                Ok(TpmCommand::PolicyRestart(inner))
+            }
+            TpmCc::PolicyPhysicalPresence => {
+                let inner = TpmPolicyPhysicalPresenceCommand {
+                    policy_session: ZERO_HANDLE,
+                };
+                Ok(TpmCommand::PolicyPhysicalPresence(inner))
+            }
             TpmCc::PolicyPcr => {
                 let (pcr_digest, rest) =
                     Tpm2bDigest::unmarshal(self.body.as_slice()).map_err(TpmKeyError::Unmarshal)?;
