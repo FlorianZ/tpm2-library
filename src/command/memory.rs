@@ -198,6 +198,20 @@ impl Memory {
         })
     }
 
+    /// Determines the correct handle to use for authorization based on NV
+    /// attributes.
+    fn resolve_nv_auth(attributes: TpmaNv, handle: u32) -> u32 {
+        if attributes.contains(TpmaNv::AUTHREAD) {
+            handle
+        } else if attributes.contains(TpmaNv::PPREAD) {
+            TpmRh::Platform as u32
+        } else if attributes.contains(TpmaNv::OWNERREAD) {
+            TpmRh::Owner as u32
+        } else {
+            handle
+        }
+    }
+
     fn read_nv_index(
         session: &mut TaskState,
         device: &mut TpmDevice,
@@ -224,15 +238,7 @@ impl Memory {
             return Ok(Vec::new());
         }
 
-        let auth_handle_val = if nv_public.attributes.contains(TpmaNv::AUTHREAD) {
-            handle
-        } else if nv_public.attributes.contains(TpmaNv::PPREAD) {
-            TpmRh::Platform as u32
-        } else if nv_public.attributes.contains(TpmaNv::OWNERREAD) {
-            TpmRh::Owner as u32
-        } else {
-            handle
-        };
+        let auth_handle_val = Self::resolve_nv_auth(nv_public.attributes, handle);
 
         let mut cert_bytes = Vec::with_capacity(data_size);
         let mut offset = 0;
