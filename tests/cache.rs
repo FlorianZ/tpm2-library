@@ -20,6 +20,7 @@ mod tests {
         },
         TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
     };
+    use tpm2_tpmkey::TpmPolicy;
     use tpm2_vtpm::{VtpmCache, VtpmError, VtpmKey};
 
     #[fixture]
@@ -109,7 +110,11 @@ mod tests {
     ) {
         let (parent_public, child_public, child_context, null_parent) = test_data;
         let cache_path = cache_dir.path();
-        let child_policy = vec![0xCA, 0xFE, 0xBA, 0xBE];
+
+        let child_policy = TpmPolicy {
+            name: None,
+            policy: Vec::new(),
+        };
 
         let mut cache = VtpmCache::new(cache_path).expect("Failed to create cache");
 
@@ -171,8 +176,16 @@ mod tests {
             .expect("Failed to find child by name");
         assert_eq!(child_key_name.handle.0, child_vhandle);
 
-        let (policy, alg, empty_auth) = cache.fetch_policy(child_vhandle).unwrap();
-        assert_eq!(policy, child_policy);
+        let (policy_bytes, alg, empty_auth) = cache.fetch_policy(child_vhandle).unwrap();
+
+        let (count, remainder) =
+            u32::unmarshal(&policy_bytes).expect("Failed to unmarshal policy header");
+        assert_eq!(count, 0, "Expected empty policy list");
+        assert!(
+            remainder.is_empty(),
+            "Policy encoding has unexpected trailing bytes"
+        );
+
         assert_eq!(alg, child_public.name_alg);
         assert!(!empty_auth);
 

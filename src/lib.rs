@@ -338,6 +338,8 @@ pub enum VtpmError {
     ParentNotFound,
     #[error("stale handle")]
     StaleHandle,
+    #[error("TpmKey: {0}")]
+    TpmKey(#[from] tpm2_tpmkey::TpmKeyError),
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
 }
@@ -563,8 +565,30 @@ impl<'a> VtpmCache<'a> {
         public: &TpmtPublic,
         parent_public: &TpmtPublic,
         empty_auth: bool,
-        policy: &Option<Vec<u8>>,
+        policy: &Option<tpm2_tpmkey::TpmPolicy>,
     ) -> Result<u32, VtpmError> {
+        let policy = if let Some(policy) = &policy {
+            let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+            let len = {
+                let mut writer = TpmWriter::new(&mut buf);
+                let count =
+                    u32::try_from(policy.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
+                count.marshal(&mut writer).map_err(VtpmError::Marshal)?;
+                for cmd in &policy.policy {
+                    cmd.cc().marshal(&mut writer).map_err(VtpmError::Marshal)?;
+                    TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body().as_slice())
+                        .map_err(VtpmError::Unmarshal)?
+                        .marshal(&mut writer)
+                        .map_err(VtpmError::Marshal)?;
+                }
+                writer.len()
+            };
+            buf.truncate(len);
+            Some(buf)
+        } else {
+            None
+        };
+
         for i in 0..TRANSIENT_COUNT {
             let vhandle = self.next_vhandle.wrapping_add(i);
 
