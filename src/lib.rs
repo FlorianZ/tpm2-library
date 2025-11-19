@@ -356,9 +356,19 @@ pub enum VtpmError {
 
 #[derive(Debug)]
 pub struct VtpmCache<'a> {
+    /// Map from virtual handles to cached keys.
     contexts: HashMap<u32, VtpmKey>,
+
+    /// Map from `TpmtPublic` to live handles.
+    handles: HashMap<Vec<u8>, TpmHandle>,
+
+    /// Set of virtual handles, which must be persisted.
     dirty: HashSet<u32>,
+
+    /// Cache root directory.
     cache_dir: &'a Path,
+
+    /// Next available virtual handle.
     next_vhandle: u32,
 }
 
@@ -371,10 +381,14 @@ impl<'a> VtpmCache<'a> {
     /// or cache files fails.
     /// Returns [`Marshal`](crate::VtpmError::Marshal) when cleaning up a stale
     /// context fails.
-    pub fn new(cache_dir: &'a Path) -> Result<Self, VtpmError> {
+    pub fn new(
+        cache_dir: &'a Path,
+        persistent: HashMap<Vec<u8>, TpmHandle>,
+    ) -> Result<Self, VtpmError> {
         fs::create_dir_all(cache_dir)?;
         let mut cache = Self {
             contexts: HashMap::new(),
+            handles: persistent,
             dirty: HashSet::new(),
             cache_dir,
             next_vhandle: TRANSIENT_START,
@@ -469,11 +483,7 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`ParentNotFound`](crate::VtpmError::ParentNotFound) when an
     /// intermediate parent cannot be found in the cache or as a persistent
     /// handle.
-    pub fn fetch_ancestor_chain(
-        &self,
-        target_vhandle: u32,
-        persistent_keys: &HashMap<Vec<u8>, TpmHandle>,
-    ) -> Result<Vec<VtpmHandle>, VtpmError> {
+    pub fn fetch_ancestor_chain(&self, target_vhandle: u32) -> Result<Vec<VtpmHandle>, VtpmError> {
         let mut current_vhandle = target_vhandle;
         let mut vtp_chain: VecDeque<VtpmHandle> = VecDeque::new();
         let mut physical_primary: Option<VtpmHandle> = None;
@@ -492,7 +502,7 @@ impl<'a> VtpmCache<'a> {
             } else {
                 let parent_key_bytes =
                     tpm_marshal_array(&[&key.parent]).map_err(VtpmError::Marshal)?;
-                match persistent_keys.get(&parent_key_bytes) {
+                match self.handles.get(&parent_key_bytes) {
                     Some(phandle) => {
                         physical_primary = Some(VtpmHandle::new(VtpmHandleClass::Tpm, phandle.0));
                         break;
