@@ -52,7 +52,7 @@ impl TaskSession {
     ///
     /// # Errors
     ///
-    /// Returns a [`TaskError`] if the hash algorithm is unsupported or if `KDFa` fails.
+    /// Returns [`TaskError`] if the hash algorithm is unsupported or if `KDFa` fails.
     pub fn new(auth_hash: TpmAlgId, resp: &TpmStartAuthSessionResponse) -> Result<Self, TaskError> {
         Ok(Self {
             context: TpmsContext {
@@ -639,23 +639,85 @@ impl<'a> TaskState<'a> {
         Ok((auths, policy_session_auth))
     }
 
+    /// Fetches persistent handles and maps their public key binaries to the
+    /// handle value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Device`](crate::task::TaskError::Device) when the TPM command
+    /// fails.
+    /// Returns [`Marshal`](crate::task::TaskError::Marshal) when marshaling
+    /// the public key fails.
+    fn fetch_persistent_key_map(
+        device: &mut TpmDevice,
+    ) -> Result<HashMap<Vec<u8>, TpmHandle>, TaskError> {
+        let handles = device.fetch_handles(TpmHt::Persistent)?;
+        let mut persistent_keys = HashMap::new();
+        for handle_val in handles {
+            let phandle = handle_val;
+            if let Ok((public, _)) = device.read_public(phandle) {
+                let key_bytes = write_object(&public).map_err(TaskError::Marshal)?;
+                persistent_keys.insert(key_bytes, phandle);
+            }
+        }
+        Ok(persistent_keys)
+    }
+
+    /// Loads the root of a key chain.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidParent`](crate::task::TaskError::InvalidParent) when
+    /// the handle value is missing.
+    /// Returns [`Vtpm`](crate::task::TaskError::Vtpm) when the handle is not
+    /// found in the cache.
+    /// Returns [`Device`](crate::task::TaskError::Device) when loading the
+    /// context fails.
+    /// Returns
+    /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
+    /// if the handle is already tracked.
+    fn load_chain_root(
+        &mut self,
+        device: &mut TpmDevice,
+        handle: &VtpmHandle,
+    ) -> Result<TpmHandle, TaskError> {
+        let handle_val = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
+
+        match handle.class() {
+            VtpmHandleClass::Tpm => Ok(TpmHandle(handle_val)),
+            VtpmHandleClass::Vtpm => {
+                let key = self.cache.find_by_vhandle(handle_val)?;
+                let loaded_phandle = device.load_context(key.context.clone())?;
+                self.track_handle(loaded_phandle)?;
+                Ok(loaded_phandle)
+            }
+        }
+    }
+
     /// Loads a TPM context from a handle, recursively loading its ancestors
     /// first.
     ///
     /// # Errors
     ///
-    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
-    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when the
-    /// target handle or a parent handle cannot be found.
-    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
-    /// necessary parent handle isn't found in cache or persistent storage.
-    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when tracking the loaded
+    /// Returns [`Device`](crate::task::TaskError::Device) when a TPM command
+    /// fails.
+    /// Returns [`HandleNotFound`](crate::task::TaskError::HandleNotFound) when
+    /// the target handle or a parent handle cannot be found.
+    /// Returns [`ParentNotFound`](crate::task::TaskError::ParentNotFound) when
+    /// a necessary parent handle isn't found in cache or persistent storage.
+    /// Returns [`Vtpm`](crate::task::TaskError::Vtpm) when tracking the loaded
     /// handle fails.
-    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when a
+    /// Returns [`InvalidParent`](crate::task::TaskError::InvalidParent) when a
     /// loaded key's parent does not match the expected parent in the chain.
-    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when the target
-    /// `VtpmHandle` is invalid.
-    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
+    /// Returns [`InvalidAuth`](crate::task::TaskError::InvalidAuth) when the
+    /// target `VtpmHandle` is invalid.
+    /// Returns [`Crypto`](crate::task::TaskError::Crypto) when name calculation
+    /// fails.
+    /// Returns [`Marshal`](crate::task::TaskError::Marshal) when marshaling
+    /// fails during persistent key lookup.
+    /// Returns
+    /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
+    /// if a loaded handle is already being tracked.
     pub fn load_context(
         &mut self,
         device: &mut TpmDevice,
@@ -667,15 +729,7 @@ impl<'a> TaskState<'a> {
             return Ok(TpmHandle(target_vhandle));
         }
 
-        let handles = device.fetch_handles(TpmHt::Persistent)?;
-        let mut persistent_keys = HashMap::new();
-        for handle_val in handles {
-            let phandle = handle_val;
-            if let Ok((public, _)) = device.read_public(phandle) {
-                let key_bytes = write_object(&public).map_err(TaskError::Marshal)?;
-                persistent_keys.insert(key_bytes, phandle);
-            }
-        }
+        let persistent_keys = Self::fetch_persistent_key_map(device)?;
 
         let chain = self
             .cache
@@ -685,44 +739,30 @@ impl<'a> TaskState<'a> {
             return Err(TaskError::HandleNotFound("vtpm:", target_vhandle));
         }
 
-        let mut phandle: Option<TpmHandle> = None;
         let mut chain_iter = chain.into_iter();
 
-        if let Some(first_handle) = chain_iter.next() {
-            let first_handle_val = first_handle
-                .value()
-                .ok_or(TaskError::InvalidParent("vtpm:", 0))?;
-            match first_handle.class() {
-                VtpmHandleClass::Tpm => {
-                    phandle = Some(TpmHandle(first_handle_val));
-                }
-                VtpmHandleClass::Vtpm => {
-                    let key = self.cache.find_by_vhandle(first_handle_val)?;
-                    let loaded_phandle = device.load_context(key.context.clone())?;
-                    self.track_handle(loaded_phandle)?;
-                    phandle = Some(loaded_phandle);
-                }
-            }
-        }
+        let first_handle = chain_iter
+            .next()
+            .ok_or(TaskError::HandleNotFound("vtpm:", target_vhandle))?;
+        let mut phandle = self.load_chain_root(device, &first_handle)?;
 
         for handle in chain_iter {
             let vhandle = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
             let key = self.cache.find_by_vhandle(vhandle)?;
 
-            let parent_phandle = phandle.ok_or(TaskError::ParentNotFound)?;
             let loaded_phandle = device.load_context(key.context.clone())?;
 
-            if device.read_public(parent_phandle)?.1 != tpm_make_name(&key.parent)? {
+            if device.read_public(phandle)?.1 != tpm_make_name(&key.parent)? {
                 self.untrack_handle(loaded_phandle.0);
                 device.flush_context(loaded_phandle)?;
                 return Err(TaskError::InvalidParent("vtpm:", vhandle));
             }
 
             self.track_handle(loaded_phandle)?;
-            phandle = Some(loaded_phandle);
+            phandle = loaded_phandle;
         }
 
-        phandle.ok_or(TaskError::HandleNotFound("vtpm:", target_vhandle))
+        Ok(phandle)
     }
 
     /// Resolves policy details (policy blob, name algorithm, and empty auth
