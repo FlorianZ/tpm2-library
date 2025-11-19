@@ -19,13 +19,6 @@ use tpm2_protocol::{
 
 const ZERO_HANDLE: TpmHandle = TpmHandle(0);
 
-/// A policy branch.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VtpmPolicy {
-    pub name: Option<String>,
-    pub policy: Vec<Box<dyn VtpmPolicyCommand>>,
-}
-
 /// A trait representing a single TPM policy command step.
 pub trait VtpmPolicyCommand: Debug + Send + Sync {
     /// Returns the TPM command code.
@@ -33,6 +26,17 @@ pub trait VtpmPolicyCommand: Debug + Send + Sync {
 
     /// Returns marshaled body.
     fn body(&self) -> Vec<u8>;
+
+    /// Returns the length of the marshaled command (CC + size + body) in bytes.
+    fn len(&self) -> usize;
+
+    /// Returns `true` if the command is empty.
+    ///
+    /// Always returns `false` for policy commands as they contain at least the
+    /// command code.
+    fn is_empty(&self) -> bool {
+        false
+    }
 
     /// Converts this policy step into a typed TPM command using a fixed policy
     /// session handle.
@@ -63,72 +67,6 @@ impl PartialEq for Box<dyn VtpmPolicyCommand> {
 
 impl Eq for Box<dyn VtpmPolicyCommand> {}
 
-/// Creates a `VtpmPolicyCommand` from a command code and raw body.
-///
-/// # Errors
-///
-/// Returns [`InvalidCc`](crate::VtpmError::InvalidCc) when `cc` is not valid.
-/// Returns [`InvalidPolicy`](crate::VtpmError::InvalidPolicy) when `body`
-/// violates command-specific constraints.
-pub fn vtpm_policy_command_from_parts(
-    cc: TpmCc,
-    body: Vec<u8>,
-) -> Result<Box<dyn VtpmPolicyCommand>, VtpmError> {
-    match cc {
-        TpmCc::PolicyAuthValue
-        | TpmCc::PolicyPassword
-        | TpmCc::PolicyGetDigest
-        | TpmCc::PolicyRestart
-        | TpmCc::PolicyPhysicalPresence => {
-            if !body.is_empty() {
-                return Err(VtpmError::InvalidPolicy);
-            }
-
-            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
-        }
-        TpmCc::PolicyAuthorize => {
-            let (command, remainder) =
-                VtpmPolicyAuthorizeCommand::unmarshal(&body).map_err(VtpmError::Unmarshal)?;
-
-            if !remainder.is_empty() {
-                return Err(VtpmError::InvalidPolicy);
-            }
-
-            Ok(Box::new(command))
-        }
-        TpmCc::PolicySecret => {
-            let (command, remainder) =
-                VtpmPolicySecretCommand::unmarshal(&body).map_err(VtpmError::Unmarshal)?;
-
-            if !remainder.is_empty() {
-                return Err(VtpmError::InvalidPolicy);
-            }
-
-            Ok(Box::new(command))
-        }
-        TpmCc::PolicyPcr => {
-            let (pcr_digest, rest) =
-                Tpm2bDigest::unmarshal(body.as_slice()).map_err(VtpmError::Unmarshal)?;
-            let (pcrs, rest) = TpmlPcrSelection::unmarshal(rest).map_err(VtpmError::Unmarshal)?;
-            if !rest.is_empty() {
-                return Err(VtpmError::InvalidPolicy);
-            }
-            let _ = (pcr_digest, pcrs);
-            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
-        }
-        TpmCc::PolicyOr => {
-            let (p_hash_list, rest) =
-                TpmlDigest::unmarshal(body.as_slice()).map_err(VtpmError::Unmarshal)?;
-            if !rest.is_empty() {
-                return Err(VtpmError::InvalidPolicy);
-            }
-            let _ = p_hash_list;
-            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
-        }
-        _ => Err(VtpmError::InvalidCc(cc)),
-    }
-}
-
 /// Constructs a `VtpmPolicyCommand` from a typed TPM policy command.
 ///
 /// # Errors
@@ -137,7 +75,7 @@ pub fn vtpm_policy_command_from_parts(
 /// is not representable as a `CommandPolicy` step without additional context.
 /// Returns [`InvalidCc`](crate::VtpmError::InvalidCc) when the command code is
 /// not supported.
-pub fn vtpm_policy_command_from_command(
+pub fn vtpm_policy_command_from(
     cmd: &TpmCommand,
     object_name: &Tpm2bName,
 ) -> Result<Box<dyn VtpmPolicyCommand>, VtpmError> {
@@ -196,6 +134,10 @@ impl VtpmPolicyCommand for VtpmPolicyDefaultCommand {
 
     fn body(&self) -> Vec<u8> {
         self.body.clone()
+    }
+
+    fn len(&self) -> usize {
+        TpmCc::SIZE + u32::SIZE + self.body.len()
     }
 
     fn to_command(&self) -> Result<TpmCommand, VtpmError> {
@@ -287,6 +229,14 @@ impl VtpmPolicyCommand for VtpmPolicyAuthorizeCommand {
         tpm_marshal_array(&[self]).unwrap_or_default()
     }
 
+    fn len(&self) -> usize {
+        TpmCc::SIZE
+            + u32::SIZE
+            + self.key_sign.len()
+            + self.policy_ref.len()
+            + self.policy_signature.len()
+    }
+
     fn to_command(&self) -> Result<TpmCommand, VtpmError> {
         Err(VtpmError::InvalidPolicy)
     }
@@ -346,6 +296,14 @@ impl VtpmPolicyCommand for VtpmPolicySecretCommand {
 
     fn body(&self) -> Vec<u8> {
         tpm_marshal_array(&[self]).unwrap_or_default()
+    }
+
+    fn len(&self) -> usize {
+        TpmCc::SIZE
+            + u32::SIZE
+            + self.object_handle_hint.len()
+            + self.object_name.len()
+            + self.policy_ref.len()
     }
 
     fn to_command(&self) -> Result<TpmCommand, VtpmError> {

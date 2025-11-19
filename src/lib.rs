@@ -20,10 +20,12 @@ use std::{
 use thiserror::Error;
 use tpm2_crypto::tpm_make_name;
 use tpm2_protocol::{
-    basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, TpmAlgId, TpmHt, TpmsContext, TpmtPublic},
-    TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
+    data::{
+        Tpm2bDigest, Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmlDigest, TpmlPcrSelection, TpmsContext,
+        TpmtPublic,
+    },
+    TpmHandle, TpmMarshal, TpmUnmarshal, TpmWriter,
 };
 
 const VERSION: u32 = 0x0000_0001;
@@ -31,12 +33,12 @@ const TRANSIENT_START: u32 = 0x8000_0000;
 const TRANSIENT_END: u32 = 0x80FF_FFFF;
 const TRANSIENT_COUNT: u32 = 0x0100_0000;
 
-pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmProtocolError> {
+pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, VtpmError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
         for obj in objs {
-            obj.marshal(&mut writer)?;
+            obj.marshal(&mut writer).map_err(VtpmError::Marshal)?;
         }
         writer.len()
     };
@@ -214,26 +216,100 @@ pub struct VtpmKey {
     pub parent: TpmtPublic,
     pub context: TpmsContext,
     pub empty_auth: u32,
-    pub policy: TpmBuffer<{ TPM_MAX_COMMAND_SIZE as usize }>,
+    pub policy: Vec<Box<dyn VtpmPolicyCommand>>,
 }
 
 impl VtpmKey {
-    fn load_from_path(path: &Path) -> Result<Self, VtpmError> {
+    /// Fetches the policy blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Marshal`](crate::VtpmError::Marshal) when marshaling TPM
+    /// encoded data fails.
+    /// Returns [`OperationFailed`](crate::VtpmError::OperationFailed) when the
+    /// policy commands cannot be serialized because of an internal failure.
+    pub fn policy_into_bytes(&self) -> Result<Vec<u8>, VtpmError> {
+        let mut buf = vec![];
+
+        let count = u32::try_from(self.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
+        buf.extend_from_slice(&tpm_marshal_array(&[&count])?);
+
+        for command in &self.policy {
+            let cc = command.cc();
+            buf.extend_from_slice(&tpm_marshal_array(&[&cc])?);
+
+            let body_len =
+                u32::try_from(command.body().len()).map_err(|_| VtpmError::OperationFailed)?;
+            buf.extend_from_slice(&tpm_marshal_array(&[&body_len])?);
+            buf.extend_from_slice(&command.body());
+        }
+
+        Ok(buf)
+    }
+
+    fn load(path: &Path) -> Result<Self, VtpmError> {
         let buffer = fs::read(path)?;
-        let (version, _) = u32::unmarshal(&buffer).map_err(|_| VtpmError::StaleHandle)?;
+        let (version, tail) = u32::unmarshal(&buffer).map_err(|_| VtpmError::StaleHandle)?;
+
         if version != VERSION {
             return Err(VtpmError::StaleHandle);
         }
-        let (key, remainder) = Self::unmarshal(&buffer).map_err(VtpmError::Unmarshal)?;
-        if !remainder.is_empty() {
+
+        let (handle, tail) = TpmHandle::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+        let (public, tail) = TpmtPublic::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+        let (parent, tail) = TpmtPublic::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+        let (context, tail) = TpmsContext::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+        let (empty_auth, tail) = u32::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+        let (count, mut tail) = u32::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+
+        let mut policy = Vec::new();
+
+        for _ in 0..count {
+            let (cc, tail_next) = TpmCc::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+            let (len_u32, tail_next) = u32::unmarshal(tail_next).map_err(VtpmError::Unmarshal)?;
+            let len = len_u32 as usize;
+
+            if tail_next.len() < len {
+                return Err(VtpmError::UnexpectedEnd);
+            }
+
+            let (body, tail_next) = tail_next.split_at(len);
+            tail = tail_next;
+
+            policy.push(VtpmKey::policy_command_from_parts(cc, body.to_vec())?);
+        }
+
+        if !tail.is_empty() {
             log::warn!("trailing data");
         }
-        Ok(key)
+
+        Ok(Self {
+            version,
+            handle,
+            public,
+            parent,
+            context,
+            empty_auth,
+            policy,
+        })
     }
 
-    fn save_to_path(&self, path: &Path) -> Result<(), VtpmError> {
-        let bytes = tpm_marshal_array(&[self]).map_err(VtpmError::Marshal)?;
-        fs::write(path, bytes)?;
+    fn save(&self, path: &Path) -> Result<(), VtpmError> {
+        let mut buf = vec![];
+
+        let key_bytes = tpm_marshal_array(&[
+            &self.version,
+            &self.handle,
+            &self.public,
+            &self.parent,
+            &self.context,
+            &self.empty_auth,
+        ])?;
+
+        buf.extend_from_slice(&key_bytes);
+        buf.extend_from_slice(&self.policy_into_bytes()?);
+
+        fs::write(path, buf)?;
         Ok(())
     }
 
@@ -247,111 +323,153 @@ impl VtpmKey {
         }
         Ok(())
     }
-}
 
-impl TpmSized for VtpmKey {
-    const SIZE: usize = u32::SIZE
-        + TpmHandle::SIZE
-        + TpmtPublic::SIZE
-        + TpmtPublic::SIZE
-        + TpmsContext::SIZE
-        + u32::SIZE
-        + TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::SIZE;
+    /// Creates a `VtpmPolicyCommand` from a command code and raw body.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidCc`](crate::VtpmError::InvalidCc) when `cc` is not valid.
+    /// Returns [`InvalidPolicy`](crate::VtpmError::InvalidPolicy) when `body`
+    /// violates command-specific constraints.
+    fn policy_command_from_parts(
+        cc: TpmCc,
+        body: Vec<u8>,
+    ) -> Result<Box<dyn VtpmPolicyCommand>, VtpmError> {
+        match cc {
+            TpmCc::PolicyAuthValue
+            | TpmCc::PolicyPassword
+            | TpmCc::PolicyGetDigest
+            | TpmCc::PolicyRestart
+            | TpmCc::PolicyPhysicalPresence => {
+                if !body.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
 
-    fn len(&self) -> usize {
-        u32::SIZE
-            + self.handle.len()
-            + self.public.len()
-            + self.parent.len()
-            + self.context.len()
-            + u32::SIZE
-            + self.policy.len()
-    }
-}
+                Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+            }
+            TpmCc::PolicyAuthorize => {
+                let (command, remainder) =
+                    VtpmPolicyAuthorizeCommand::unmarshal(&body).map_err(VtpmError::Unmarshal)?;
 
-impl TpmMarshal for VtpmKey {
-    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmProtocolError> {
-        self.version.marshal(writer)?;
-        self.handle.marshal(writer)?;
-        self.public.marshal(writer)?;
-        self.parent.marshal(writer)?;
-        self.context.marshal(writer)?;
-        self.empty_auth.marshal(writer)?;
-        self.policy.marshal(writer)?;
+                if !remainder.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
 
-        Ok(())
-    }
-}
+                Ok(Box::new(command))
+            }
+            TpmCc::PolicySecret => {
+                let (command, remainder) =
+                    VtpmPolicySecretCommand::unmarshal(&body).map_err(VtpmError::Unmarshal)?;
 
-impl TpmUnmarshal for VtpmKey {
-    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmProtocolError> {
-        let (version, remainder) = u32::unmarshal(buffer)?;
-        let (handle, remainder) = TpmHandle::unmarshal(remainder)?;
-        let (public, remainder) = TpmtPublic::unmarshal(remainder)?;
-        let (parent, remainder) = TpmtPublic::unmarshal(remainder)?;
-        let (context, remainder) = TpmsContext::unmarshal(remainder)?;
-        let (empty_auth, remainder) = u32::unmarshal(remainder)?;
-        let (policy, remainder) =
-            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)?;
+                if !remainder.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
 
-        Ok((
-            Self {
-                version,
-                handle,
-                public,
-                parent,
-                context,
-                empty_auth,
-                policy,
-            },
-            remainder,
-        ))
+                Ok(Box::new(command))
+            }
+            TpmCc::PolicyPcr => {
+                let (pcr_digest, rest) =
+                    Tpm2bDigest::unmarshal(body.as_slice()).map_err(VtpmError::Unmarshal)?;
+                let (pcrs, rest) =
+                    TpmlPcrSelection::unmarshal(rest).map_err(VtpmError::Unmarshal)?;
+                if !rest.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
+                let _ = (pcr_digest, pcrs);
+                Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+            }
+            TpmCc::PolicyOr => {
+                let (p_hash_list, rest) =
+                    TpmlDigest::unmarshal(body.as_slice()).map_err(VtpmError::Unmarshal)?;
+                if !rest.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
+                let _ = p_hash_list;
+                Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+            }
+            _ => Err(VtpmError::InvalidCc(cc)),
+        }
     }
 }
 
 /// Error type for VTPM cache operations and TPM serialization.
 #[derive(Debug, Error)]
 pub enum VtpmError {
+    /// Handle has more than one asterisk (`*`).
     #[error("handle has more than one asterisk")]
     HandleHasTooManyAsterisks,
+
+    /// Handle not found in the cache.
     #[error("handle not found: vtpm:{0:08x}")]
     HandleNotFound(TpmHandle),
+
+    /// Handle contains a pattern (e.g., `*` or `?`).
     #[error("handle pattern is not allowed")]
     HandlePatternNotAllowed,
+
+    /// Handle prefix (e.g., `tpm:` or `vtpm:`) is missing.
     #[error("handle prefix is missing")]
     HandlePrefixMissing,
+
+    /// Handle is less than eight characters.
     #[error("handle is less than eight characters")]
     HandleTooShort,
+
+    /// Handle is more than eight characters.
     #[error("handle has more than eight characters")]
     HandleTooLong,
+
+    /// Handle contains an invalid character.
     #[error("invalid handle character: {0}")]
     InvalidHandleCharacter(char),
+
+    /// Handle prefix is not valid.
     #[error("invalid handle prefix")]
     InvalidHandlePrefix,
+
+    /// Handle type byte is not valid.
     #[error("invalid handle type: 0x{0:02x}")]
     InvalidHandleType(u8),
+
+    /// No free VTPM handle slots are available.
     #[error("no handles")]
     NoHandles,
-    #[error("I/O: {0}")]
-    Io(#[from] io::Error),
-    #[error("marshal: {0}")]
-    Marshal(tpm2_protocol::TpmProtocolError),
-    #[error("operation failed")]
-    OperationFailed,
-    #[error("parent not found")]
-    ParentNotFound,
-    #[error("stale handle")]
-    StaleHandle,
-    #[error("TpmKey: {0}")]
-    TpmKey(#[from] tpm2_tpmkey::TpmKeyError),
-    #[error("unmarshal: {0}")]
-    Unmarshal(tpm2_protocol::TpmProtocolError),
+
     /// Command code in a policy command is not a valid `TPM_CC`.
     #[error("invalid CC: {0}")]
     InvalidCc(tpm2_protocol::data::TpmCc),
+
     /// A policy command body is malformed or invalid for that command.
     #[error("invalid policy")]
     InvalidPolicy,
+
+    /// An I/O operation failed.
+    #[error("I/O: {0}")]
+    Io(#[from] io::Error),
+
+    /// Marshaling a TPM protocol encoded object failed.
+    #[error("marshal: {0}")]
+    Marshal(tpm2_protocol::TpmProtocolError),
+
+    /// An operation failed because of an internal error.
+    #[error("operation failed")]
+    OperationFailed,
+
+    /// A parent key could not be found in the cache or persistent handles.
+    #[error("parent not found")]
+    ParentNotFound,
+
+    /// A cached handle is stale or incompatible.
+    #[error("stale handle")]
+    StaleHandle,
+
+    /// Unmarshaling a TPM protocol encoded object failed.
+    #[error("unmarshal: {0}")]
+    Unmarshal(tpm2_protocol::TpmProtocolError),
+
+    /// While unmarshaling, the end of data was reached unexpectedly.
+    #[error("unexpected end of data")]
+    UnexpectedEnd,
 }
 
 #[derive(Debug)]
@@ -449,21 +567,6 @@ impl<'a> VtpmCache<'a> {
             .ok_or(VtpmError::HandleNotFound(TpmHandle(vhandle)))
     }
 
-    /// Fetches the policy blob, name algorithm, and `empty_auth` status for a cached key.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) if the
-    /// `vhandle` does not exist.
-    pub fn fetch_policy(&self, vhandle: u32) -> Result<(Vec<u8>, TpmAlgId, bool), VtpmError> {
-        let key = self.find_by_vhandle(vhandle)?;
-        Ok((
-            key.policy.to_vec(),
-            key.public.name_alg,
-            key.empty_auth != 0,
-        ))
-    }
-
     /// Finds the ancestor chain for a given VTPM handle.
     ///
     /// Traverses up the parent hierarchy from the target `vhandle`, checking
@@ -500,8 +603,7 @@ impl<'a> VtpmCache<'a> {
                 vtp_chain.push_front(VtpmHandle::new(VtpmHandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
-                let parent_key_bytes =
-                    tpm_marshal_array(&[&key.parent]).map_err(VtpmError::Marshal)?;
+                let parent_key_bytes = tpm_marshal_array(&[&key.parent])?;
                 match self.handles.get(&parent_key_bytes) {
                     Some(phandle) => {
                         physical_primary = Some(VtpmHandle::new(VtpmHandleClass::Tpm, phandle.0));
@@ -585,30 +687,8 @@ impl<'a> VtpmCache<'a> {
         public: &TpmtPublic,
         parent_public: &TpmtPublic,
         empty_auth: bool,
-        policy: &Option<VtpmPolicy>,
+        policy: &Option<Vec<Box<dyn VtpmPolicyCommand>>>,
     ) -> Result<u32, VtpmError> {
-        let policy = if let Some(policy) = &policy {
-            let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-            let len = {
-                let mut writer = TpmWriter::new(&mut buf);
-                let count =
-                    u32::try_from(policy.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
-                count.marshal(&mut writer).map_err(VtpmError::Marshal)?;
-                for cmd in &policy.policy {
-                    cmd.cc().marshal(&mut writer).map_err(VtpmError::Marshal)?;
-                    TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(cmd.body().as_slice())
-                        .map_err(VtpmError::Unmarshal)?
-                        .marshal(&mut writer)
-                        .map_err(VtpmError::Marshal)?;
-                }
-                writer.len()
-            };
-            buf.truncate(len);
-            Some(buf)
-        } else {
-            None
-        };
-
         for i in 0..TRANSIENT_COUNT {
             let vhandle = self.next_vhandle.wrapping_add(i);
 
@@ -619,9 +699,6 @@ impl<'a> VtpmCache<'a> {
             };
 
             if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
-                let policy_vec = policy.as_deref().unwrap_or_default();
-                let policy_buf = TpmBuffer::try_from(policy_vec).map_err(VtpmError::Marshal)?;
-
                 let key = VtpmKey {
                     version: VERSION,
                     handle: TpmHandle(vhandle),
@@ -629,7 +706,7 @@ impl<'a> VtpmCache<'a> {
                     parent: parent_public.clone(),
                     context,
                     empty_auth: u32::from(empty_auth),
-                    policy: policy_buf,
+                    policy: policy.clone().unwrap_or_default(),
                 };
                 e.insert(key);
                 self.dirty.insert(vhandle);
@@ -679,7 +756,7 @@ impl<'a> VtpmCache<'a> {
 
             let ht = (vhandle >> 24) as u8;
             if ht == TpmHt::Transient as u8 {
-                match VtpmKey::load_from_path(&path) {
+                match VtpmKey::load(&path) {
                     Ok(key) => {
                         self.contexts.insert(vhandle, key);
                     }
@@ -716,7 +793,7 @@ impl<'a> VtpmCache<'a> {
             match self.contexts.get(&vhandle) {
                 Some(context) => {
                     let path = self.cache_dir().join(format!("{vhandle:08x}.bin"));
-                    context.save_to_path(&path)?;
+                    context.save(&path)?;
                     self.dirty.remove(&vhandle);
                 }
                 None => {
@@ -731,7 +808,7 @@ impl<'a> VtpmCache<'a> {
     fn remove_subtree(&mut self, first_public: &TpmtPublic) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
         for (vhandle, key) in self.key_iter() {
-            let parent_key_bytes = tpm_marshal_array(&[&key.parent]).map_err(VtpmError::Marshal)?;
+            let parent_key_bytes = tpm_marshal_array(&[&key.parent])?;
             parent_to_children
                 .entry(parent_key_bytes)
                 .or_default()
@@ -743,8 +820,7 @@ impl<'a> VtpmCache<'a> {
         let mut deleted_children = Vec::new();
 
         while let Some(parent_public) = ancestor_list.pop_front() {
-            let parent_key_bytes =
-                tpm_marshal_array(&[&parent_public]).map_err(VtpmError::Marshal)?;
+            let parent_key_bytes = tpm_marshal_array(&[&parent_public])?;
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_vhandle, child_public) in children_to_process.clone() {
                     if let Some(context) = self.contexts.remove(&child_vhandle) {

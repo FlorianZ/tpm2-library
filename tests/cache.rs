@@ -15,12 +15,14 @@ mod tests {
         basic::TpmBuffer,
         constant::TPM_MAX_COMMAND_SIZE,
         data::{
-            Tpm2bPublicKeyRsa, TpmAlgId, TpmHt, TpmRh, TpmaObject, TpmsContext, TpmsRsaParms,
-            TpmtPublic, TpmuPublicId, TpmuPublicParms,
+            Tpm2bDigest, Tpm2bPublicKeyRsa, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaObject, TpmsContext,
+            TpmsRsaParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
         },
         TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
     };
-    use tpm2_vtpm::{VtpmCache, VtpmError, VtpmKey, VtpmPolicy};
+    use tpm2_vtpm::{
+        VtpmCache, VtpmError, VtpmPolicyCommand, VtpmPolicyDefaultCommand, VtpmPolicySecretCommand,
+    };
 
     #[fixture]
     fn cache_dir() -> TempDir {
@@ -68,40 +70,7 @@ mod tests {
         (parent_public, child_public, child_context, null_parent)
     }
 
-    /// Test 1: `key_roundtrip`
-    #[rstest]
-    fn key_roundtrip(test_data: (TpmtPublic, TpmtPublic, TpmsContext, TpmtPublic)) {
-        let (parent_public, child_public, child_context, _) = test_data;
-        let policy_buf = TpmBuffer::try_from(b"\xDE\xAD\xBE\xEF" as &[u8]).unwrap();
-
-        let key = VtpmKey {
-            version: 0x0000_0001,
-            handle: TpmHandle(0x8000_0001),
-            public: child_public.clone(),
-            parent: parent_public.clone(),
-            context: child_context.clone(),
-            empty_auth: 1,
-            policy: policy_buf,
-        };
-
-        let mut buffer = vec![0u8; key.len()];
-        let mut writer = TpmWriter::new(&mut buffer);
-        key.marshal(&mut writer).expect("Marshal failed");
-        assert_eq!(writer.len(), key.len());
-
-        let (unmarshaled_key, remainder) = VtpmKey::unmarshal(&buffer).expect("Unmarshal failed");
-        assert!(remainder.is_empty(), "Unmarshal left trailing data");
-
-        assert_eq!(key.version, unmarshaled_key.version);
-        assert_eq!(key.handle, unmarshaled_key.handle);
-        assert_eq!(key.public, unmarshaled_key.public);
-        assert_eq!(key.parent, unmarshaled_key.parent);
-        assert_eq!(key.context, unmarshaled_key.context);
-        assert_eq!(key.empty_auth, unmarshaled_key.empty_auth);
-        assert_eq!(key.policy.as_ref(), unmarshaled_key.policy.as_ref());
-    }
-
-    /// Test 2: `cache_lifecycle`
+    /// Test 1: `cache_lifecycle`
     #[rstest]
     fn cache_lifecycle(
         cache_dir: TempDir,
@@ -110,10 +79,7 @@ mod tests {
         let (parent_public, child_public, child_context, null_parent) = test_data;
         let cache_path = cache_dir.path();
 
-        let child_policy = VtpmPolicy {
-            name: None,
-            policy: Vec::new(),
-        };
+        let child_policy = Vec::new();
 
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
 
@@ -138,7 +104,7 @@ mod tests {
                 &child_public,
                 &parent_public,
                 false,
-                &Some(child_policy.clone()),
+                &Some(child_policy),
             )
             .expect("Failed to save child");
 
@@ -175,7 +141,8 @@ mod tests {
             .expect("Failed to find child by name");
         assert_eq!(child_key_name.handle.0, child_vhandle);
 
-        let (policy_bytes, alg, empty_auth) = cache.fetch_policy(child_vhandle).unwrap();
+        let key = cache.find_by_vhandle(child_vhandle).unwrap();
+        let policy_bytes = key.policy_into_bytes().unwrap();
 
         let (count, remainder) =
             u32::unmarshal(&policy_bytes).expect("Failed to unmarshal policy header");
@@ -184,9 +151,6 @@ mod tests {
             remainder.is_empty(),
             "Policy encoding has unexpected trailing bytes"
         );
-
-        assert_eq!(alg, child_public.name_alg);
-        assert!(!empty_auth);
 
         let chain = cache
             .fetch_ancestor_chain(child_vhandle)
@@ -229,7 +193,7 @@ mod tests {
         );
     }
 
-    /// Test 3: `cache_allocation`
+    /// Test 2: `cache_allocation`
     #[rstest]
     fn cache_allocation(
         cache_dir: TempDir,
@@ -304,7 +268,7 @@ mod tests {
         );
     }
 
-    /// Test 4: `load` handling of stale transient entries
+    /// Test 3: `load` handling of stale transient entries
     #[rstest]
     fn load_removes_stale_transient_entries(cache_dir: TempDir) {
         let cache_path = cache_dir.path();
@@ -334,7 +298,7 @@ mod tests {
         );
     }
 
-    /// Test 5: `load` handling of session files (data-driven for HMAC and Policy)
+    /// Test 4: `load` handling of session files (data-driven for HMAC and Policy)
     #[rstest]
     #[case(TpmHt::HmacSession)]
     #[case(TpmHt::PolicySession)]
@@ -357,7 +321,7 @@ mod tests {
         );
     }
 
-    /// Test 6: `load` keeps non-transient, non-session files for diagnosis
+    /// Test 5: `load` keeps non-transient, non-session files for diagnosis
     #[rstest]
     fn load_keeps_non_transient_non_session_files(cache_dir: TempDir) {
         let cache_path = cache_dir.path();
@@ -379,7 +343,7 @@ mod tests {
         );
     }
 
-    /// Test 7: `fetch_ancestor_chain` with persistent root and missing parent (data-driven)
+    /// Test 6: `fetch_ancestor_chain` with persistent root and missing parent (data-driven)
     #[rstest]
     #[case(true)]
     #[case(false)]
@@ -438,7 +402,7 @@ mod tests {
         }
     }
 
-    /// Test 8: `remove` on a missing handle returns an empty list
+    /// Test 7: `remove` on a missing handle returns an empty list
     #[rstest]
     fn remove_nonexistent_handle(cache_dir: TempDir) {
         let cache_path = cache_dir.path();
@@ -454,6 +418,61 @@ mod tests {
         assert!(
             cache.key_iter().next().is_none(),
             "Cache should remain empty"
+        );
+    }
+
+    /// Test 8: policies with bodies round-trip via disk
+    #[rstest]
+    fn policy_roundtrip(
+        cache_dir: TempDir,
+        test_data: (TpmtPublic, TpmtPublic, TpmsContext, TpmtPublic),
+    ) {
+        let (_parent_public, child_public, child_context, null_parent) = test_data;
+        let cache_path = cache_dir.path();
+
+        let object_name =
+            tpm_make_name(&child_public).expect("Failed to compute object name for policy");
+        let policy_ref = Tpm2bDigest::default();
+
+        let policy_secret = VtpmPolicySecretCommand {
+            object_handle_hint: TpmHandle(0x8100_0000),
+            object_name,
+            policy_ref,
+        };
+
+        let policy_auth = VtpmPolicyDefaultCommand {
+            cc: TpmCc::PolicyAuthValue,
+            body: Vec::new(),
+        };
+
+        let policy: Vec<Box<dyn VtpmPolicyCommand>> = vec![
+            Box::new(policy_auth.clone()),
+            Box::new(policy_secret.clone()),
+        ];
+
+        let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
+
+        let child_vhandle = cache
+            .save_context(
+                child_context,
+                &child_public,
+                &null_parent,
+                false,
+                &Some(policy.clone()),
+            )
+            .expect("Failed to save child context with policy");
+
+        cache.flush().expect("Failed to flush cache with policy");
+        drop(cache);
+
+        let cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to reload cache");
+        let key = cache
+            .find_by_vhandle(child_vhandle)
+            .expect("Failed to find child by vhandle after reload");
+
+        assert_eq!(
+            key.policy, policy,
+            "Policy commands did not round-trip via disk"
         );
     }
 }
