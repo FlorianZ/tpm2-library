@@ -24,6 +24,42 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
             data: [0; CAPACITY],
         }
     }
+
+    /// Appends a byte to the buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfMemory`](crate::TpmProtocolError::OutOfMemory) when the
+    /// buffer is full or the size exceeds `u16::MAX`.
+    pub fn try_push(&mut self, byte: u8) -> TpmResult<()> {
+        if (self.size as usize) >= CAPACITY || self.size == u16::MAX {
+            return Err(TpmProtocolError::OutOfMemory);
+        }
+        self.data[self.size as usize] = byte;
+        self.size += 1;
+        Ok(())
+    }
+
+    /// Appends a slice of bytes to the buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfMemory`](crate::TpmProtocolError::OutOfMemory) when the
+    /// resulting size exceeds the buffer capacity or `u16::MAX`.
+    pub fn try_extend_from_slice(&mut self, slice: &[u8]) -> TpmResult<()> {
+        let current_len = self.size as usize;
+        let new_len = current_len
+            .checked_add(slice.len())
+            .ok_or(TpmProtocolError::OutOfMemory)?;
+
+        if new_len > CAPACITY {
+            return Err(TpmProtocolError::OutOfMemory);
+        }
+
+        self.size = u16::try_from(new_len).map_err(|_| TpmProtocolError::OutOfMemory)?;
+        self.data[current_len..new_len].copy_from_slice(slice);
+        Ok(())
+    }
 }
 
 impl<const CAPACITY: usize> Deref for TpmBuffer<CAPACITY> {
