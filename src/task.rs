@@ -469,7 +469,7 @@ impl<'a> TaskState<'a> {
                     .next()
                     .unwrap_or(&TaskAuth::Password(Vec::new()))
                 {
-                    TaskAuth::Password(val) => build_password_session(&val)?,
+                    TaskAuth::Password(val) => build_password_session(val)?,
                     _ => return Err(TaskError::InvalidAuth),
                 };
 
