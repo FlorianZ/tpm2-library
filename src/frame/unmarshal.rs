@@ -79,7 +79,7 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
         let (mut auth_area, param_area) = buf_after_auth_size.split_at(auth_area_size);
         while !auth_area.is_empty() {
             let (session, rest) = TpmsAuthCommand::unmarshal(auth_area)?;
-            sessions.push(session)?;
+            sessions.try_push(session)?;
             auth_area = rest;
         }
         if !auth_area.is_empty() {
@@ -100,7 +100,7 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
     let mut temp_handle_cursor = handle_area;
     while !temp_handle_cursor.is_empty() {
         let (handle, rest) = u32::unmarshal(temp_handle_cursor)?;
-        handles.push(handle.into())?;
+        handles.try_push(handle.into())?;
         temp_handle_cursor = rest;
     }
 
@@ -150,7 +150,7 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
     if tag == TpmSt::Sessions {
         while !session_area.is_empty() {
             let (session, rest) = TpmsAuthResponse::unmarshal(session_area)?;
-            auth_responses.push(session)?;
+            auth_responses.try_push(session)?;
             session_area = rest;
         }
     }

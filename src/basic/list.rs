@@ -38,14 +38,37 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     ///
     /// # Errors
     ///
-    ///
+    /// Returns [`TooManyItems`](crate::TpmProtocolError::TooManyItems) if the list is at
     /// full capacity.
-    pub fn push(&mut self, item: T) -> Result<(), TpmProtocolError> {
+    pub fn try_push(&mut self, item: T) -> Result<(), TpmProtocolError> {
         if self.len >= CAPACITY {
             return Err(TpmProtocolError::TooManyItems);
         }
         self.items[self.len].write(item);
         self.len += 1;
+        Ok(())
+    }
+
+    /// Appends a slice of elements to the back of the list.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TooManyItems`](crate::TpmProtocolError::TooManyItems) if the list cannot
+    /// fit all elements from the slice.
+    pub fn try_extend_from_slice(&mut self, slice: &[T]) -> Result<(), TpmProtocolError> {
+        let new_len = self
+            .len
+            .checked_add(slice.len())
+            .ok_or(TpmProtocolError::TooManyItems)?;
+
+        if new_len > CAPACITY {
+            return Err(TpmProtocolError::TooManyItems);
+        }
+
+        for (dest, src) in self.items[self.len..new_len].iter_mut().zip(slice) {
+            dest.write(*src);
+        }
+        self.len = new_len;
         Ok(())
     }
 }
@@ -114,7 +137,7 @@ impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, 
         let mut list = Self::new();
         for _ in 0..count {
             let (item, rest) = T::unmarshal(buf)?;
-            list.push(item)?;
+            list.try_push(item)?;
             buf = rest;
         }
 
