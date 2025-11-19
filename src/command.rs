@@ -147,7 +147,7 @@ pub fn tpm_key_command_from_command(
         }
         TpmCommand::PolicySecret(inner) => {
             let command = TpmKeySecretCommand {
-                object_handle_hint: inner.auth_handle,
+                object_handle_hint: inner.handles[0],
                 object_name: *object_name,
                 policy_ref: inner.policy_ref,
             };
@@ -185,31 +185,31 @@ impl TpmKeyCommand for TpmKeyDefaultCommand {
         match self.cc {
             TpmCc::PolicyAuthValue => {
                 let inner = TpmPolicyAuthValueCommand {
-                    policy_session: ZERO_HANDLE,
+                    handles: [ZERO_HANDLE],
                 };
                 Ok(TpmCommand::PolicyAuthValue(inner))
             }
             TpmCc::PolicyGetDigest => {
                 let inner = TpmPolicyGetDigestCommand {
-                    policy_session: ZERO_HANDLE,
+                    handles: [ZERO_HANDLE],
                 };
                 Ok(TpmCommand::PolicyGetDigest(inner))
             }
             TpmCc::PolicyPassword => {
                 let inner = TpmPolicyPasswordCommand {
-                    policy_session: ZERO_HANDLE,
+                    handles: [ZERO_HANDLE],
                 };
                 Ok(TpmCommand::PolicyPassword(inner))
             }
             TpmCc::PolicyRestart => {
                 let inner = TpmPolicyRestartCommand {
-                    session_handle: ZERO_HANDLE,
+                    handles: [ZERO_HANDLE],
                 };
                 Ok(TpmCommand::PolicyRestart(inner))
             }
             TpmCc::PolicyPhysicalPresence => {
                 let inner = TpmPolicyPhysicalPresenceCommand {
-                    policy_session: ZERO_HANDLE,
+                    handles: [ZERO_HANDLE],
                 };
                 Ok(TpmCommand::PolicyPhysicalPresence(inner))
             }
@@ -223,9 +223,9 @@ impl TpmKeyCommand for TpmKeyDefaultCommand {
                 }
 
                 let inner = TpmPolicyPcrCommand {
-                    policy_session: ZERO_HANDLE,
                     pcr_digest,
                     pcrs,
+                    handles: [ZERO_HANDLE],
                 };
 
                 Ok(TpmCommand::PolicyPcr(inner))
@@ -238,7 +238,7 @@ impl TpmKeyCommand for TpmKeyDefaultCommand {
                 }
 
                 let inner = TpmPolicyOrCommand {
-                    policy_session: ZERO_HANDLE,
+                    handles: [ZERO_HANDLE],
                     p_hash_list,
                 };
 
@@ -333,12 +333,11 @@ impl TpmKeyCommand for TpmKeySecretCommand {
 
     fn to_command(&self) -> Result<TpmCommand, TpmKeyError> {
         let inner = TpmPolicySecretCommand {
-            auth_handle: self.object_handle_hint,
-            policy_session: ZERO_HANDLE,
             nonce_tpm: Tpm2bDigest::default(),
             cp_hash_a: Tpm2bDigest::default(),
             policy_ref: self.policy_ref,
             expiration: 0,
+            handles: [self.object_handle_hint, ZERO_HANDLE],
         };
         Ok(TpmCommand::PolicySecret(inner))
     }
@@ -480,7 +479,7 @@ mod tests {
 
         match cmd {
             TpmCommand::PolicyPcr(inner) => {
-                assert_eq!(inner.policy_session, ZERO_HANDLE);
+                assert_eq!(inner.handles[0], ZERO_HANDLE);
                 let back = tpm_key_command_from_command(&cmd, &Tpm2bName::default()).unwrap();
                 assert_eq!(&back, &step);
             }
@@ -503,7 +502,7 @@ mod tests {
 
         match cmd {
             TpmCommand::PolicyOr(inner) => {
-                assert_eq!(inner.policy_session, ZERO_HANDLE);
+                assert_eq!(inner.handles[0], ZERO_HANDLE);
                 let back = tpm_key_command_from_command(&cmd, &Tpm2bName::default()).unwrap();
                 assert_eq!(&back, &step);
             }
@@ -514,8 +513,7 @@ mod tests {
     #[test]
     fn policy_secret_from_command_requires_name() {
         let cmd = TpmPolicySecretCommand {
-            auth_handle: TpmHandle(0x8100_0000),
-            policy_session: ZERO_HANDLE,
+            handles: [TpmHandle(0x8100_0000), ZERO_HANDLE],
             ..Default::default()
         };
         let name = Tpm2bName::default();
