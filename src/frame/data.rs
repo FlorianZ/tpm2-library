@@ -25,9 +25,7 @@ tpm_struct! {
     kind: Command,
     name: TpmAcGetCapabilityCommand,
     cc: TpmCc::AcGetCapability,
-    handles: {
-        ac
-    },
+    handles: 1,
     parameters: {
         pub capability: TpmAt,
         pub count: u32,
@@ -39,7 +37,7 @@ tpm_struct! {
     kind: Response,
     name: TpmAcGetCapabilityResponse,
     cc: TpmCc::AcGetCapability,
-    handles: {},
+    handles: 0,
     parameters: {
         pub more_data: TpmiYesNo,
         pub capabilities_data: TpmlAcCapabilities,
@@ -51,11 +49,7 @@ tpm_struct! {
     kind: Command,
     name: TpmAcSendCommand,
     cc: TpmCc::AcSend,
-    handles: {
-        send_object,
-        auth_handle,
-        ac
-    },
+    handles: 3,
     parameters: {
         pub ac_data_in: Tpm2bMaxBuffer,
     }
@@ -66,7 +60,7 @@ tpm_struct! {
     kind: Response,
     name: TpmAcSendResponse,
     cc: TpmCc::AcSend,
-    handles: {},
+    handles: 0,
     parameters: {
         pub ac_data_out: TpmsAcOutput,
     }
@@ -77,10 +71,7 @@ tpm_struct! {
     kind: Command,
     name: TpmActivateCredentialCommand,
     cc: TpmCc::ActivateCredential,
-    handles: {
-        activate_handle,
-        key_handle
-    },
+    handles: 2,
     parameters: {
         pub credential_blob: Tpm2bIdObject,
         pub secret: Tpm2bEncryptedSecret,
@@ -92,7 +83,7 @@ tpm_struct! {
     kind: Response,
     name: TpmActivateCredentialResponse,
     cc: TpmCc::ActivateCredential,
-    handles: {},
+    handles: 0,
     parameters: {
         pub cert_info: Tpm2bDigest,
     }
@@ -103,9 +94,7 @@ tpm_struct! {
     kind: Command,
     name: TpmActSetTimeoutCommand,
     cc: TpmCc::ActSetTimeout,
-    handles: {
-        act_handle
-    },
+    handles: 1,
     parameters: {
         pub start_timeout: u32,
     }
@@ -116,7 +105,7 @@ tpm_struct! {
     kind: Response,
     name: TpmActSetTimeoutResponse,
     cc: TpmCc::ActSetTimeout,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -125,9 +114,7 @@ tpm_struct! {
     kind: Command,
     name: TpmChangeEpsCommand,
     cc: TpmCc::ChangeEps,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -136,7 +123,7 @@ tpm_struct! {
     kind: Response,
     name: TpmChangeEpsResponse,
     cc: TpmCc::ChangeEps,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -145,9 +132,7 @@ tpm_struct! {
     kind: Command,
     name: TpmChangePpsCommand,
     cc: TpmCc::ChangePps,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -156,7 +141,7 @@ tpm_struct! {
     kind: Response,
     name: TpmChangePpsResponse,
     cc: TpmCc::ChangePps,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -165,10 +150,7 @@ tpm_struct! {
     kind: Command,
     name: TpmCertifyCommand,
     cc: TpmCc::Certify,
-    handles: {
-        object_handle,
-        sign_handle
-    },
+    handles: 2,
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub in_scheme: TpmtSignature,
@@ -180,7 +162,7 @@ tpm_struct! {
     kind: Response,
     name: TpmCertifyResponse,
     cc: TpmCc::Certify,
-    handles: {},
+    handles: 0,
     parameters: {
         pub certify_info: Tpm2bAttest,
         pub signature: TpmtSignature,
@@ -192,10 +174,7 @@ tpm_struct! {
     kind: Command,
     name: TpmCertifyCreationCommand,
     cc: TpmCc::CertifyCreation,
-    handles: {
-        sign_handle,
-        object_handle
-    },
+    handles: 2,
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub creation_hash: Tpm2bDigest,
@@ -209,7 +188,7 @@ tpm_struct! {
     kind: Response,
     name: TpmCertifyCreationResponse,
     cc: TpmCc::CertifyCreation,
-    handles: {},
+    handles: 0,
     parameters: {
         pub certify_info: Tpm2bAttest,
         pub signature: TpmtSignature,
@@ -221,9 +200,7 @@ tpm_struct! {
     kind: Command,
     name: TpmClearCommand,
     cc: TpmCc::Clear,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -232,7 +209,7 @@ tpm_struct! {
     kind: Response,
     name: TpmClearResponse,
     cc: TpmCc::Clear,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -241,9 +218,7 @@ tpm_struct! {
     kind: Command,
     name: TpmClearControlCommand,
     cc: TpmCc::ClearControl,
-    handles: {
-        auth
-    },
+    handles: 1,
     parameters: {
         pub disable: TpmiYesNo,
     }
@@ -254,7 +229,7 @@ tpm_struct! {
     kind: Response,
     name: TpmClearControlResponse,
     cc: TpmCc::ClearControl,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -263,9 +238,7 @@ tpm_struct! {
     kind: Command,
     name: TpmClockRateAdjustCommand,
     cc: TpmCc::ClockRateAdjust,
-    handles: {
-        auth
-    },
+    handles: 1,
     parameters: {
         pub rate_adjust: TpmClockAdjust,
     }
@@ -276,7 +249,7 @@ tpm_struct! {
     kind: Response,
     name: TpmClockRateAdjustResponse,
     cc: TpmCc::ClockRateAdjust,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -285,9 +258,7 @@ tpm_struct! {
     kind: Command,
     name: TpmClockSetCommand,
     cc: TpmCc::ClockSet,
-    handles: {
-        auth
-    },
+    handles: 1,
     parameters: {
         pub new_time: u64,
     }
@@ -298,7 +269,7 @@ tpm_struct! {
     kind: Response,
     name: TpmClockSetResponse,
     cc: TpmCc::ClockSet,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -307,9 +278,7 @@ tpm_struct! {
     kind: Command,
     name: TpmCommitCommand,
     cc: TpmCc::Commit,
-    handles: {
-        sign_handle
-    },
+    handles: 1,
     parameters: {
         pub p1: Tpm2bEccPoint,
         pub s2: Tpm2bSensitiveData,
@@ -322,7 +291,7 @@ tpm_struct! {
     kind: Response,
     name: TpmCommitResponse,
     cc: TpmCc::Commit,
-    handles: {},
+    handles: 0,
     parameters: {
         pub k: Tpm2bEccPoint,
         pub l: Tpm2bEccPoint,
@@ -336,7 +305,7 @@ tpm_struct! {
     kind: Command,
     name: TpmContextLoadCommand,
     cc: TpmCc::ContextLoad,
-    handles: {},
+    handles: 0,
     parameters: {
         pub context: TpmsContext,
     }
@@ -347,9 +316,7 @@ tpm_struct! {
     kind: Response,
     name: TpmContextLoadResponse,
     cc: TpmCc::ContextLoad,
-    handles: {
-        loaded_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -358,9 +325,7 @@ tpm_struct! {
     kind: Command,
     name: TpmContextSaveCommand,
     cc: TpmCc::ContextSave,
-    handles: {
-        save_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -369,7 +334,7 @@ tpm_struct! {
     kind: Response,
     name: TpmContextSaveResponse,
     cc: TpmCc::ContextSave,
-    handles: {},
+    handles: 0,
     parameters: {
         pub context: TpmsContext,
     }
@@ -380,9 +345,7 @@ tpm_struct! {
     kind: Command,
     name: TpmCreateCommand,
     cc: TpmCc::Create,
-    handles: {
-        parent_handle
-    },
+    handles: 1,
     parameters: {
         pub in_sensitive: Tpm2bSensitiveCreate,
         pub in_public: Tpm2bPublic,
@@ -396,7 +359,7 @@ tpm_struct! {
     kind: Response,
     name: TpmCreateResponse,
     cc: TpmCc::Create,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_private: Tpm2bPrivate,
         pub out_public: Tpm2bPublic,
@@ -411,9 +374,7 @@ tpm_struct! {
     kind: Command,
     name: TpmCreateLoadedCommand,
     cc: TpmCc::CreateLoaded,
-    handles: {
-        parent_handle
-    },
+    handles: 1,
     parameters: {
         pub in_sensitive: Tpm2bSensitiveCreate,
         pub in_public: Tpm2bTemplate,
@@ -425,9 +386,7 @@ tpm_struct! {
     kind: Response,
     name: TpmCreateLoadedResponse,
     cc: TpmCc::CreateLoaded,
-    handles: {
-        object_handle
-    },
+    handles: 1,
     parameters: {
         pub out_private: Tpm2bPrivate,
         pub out_public: Tpm2bPublic,
@@ -440,9 +399,7 @@ tpm_struct! {
     kind: Command,
     name: TpmCreatePrimaryCommand,
     cc: TpmCc::CreatePrimary,
-    handles: {
-        primary_handle
-    },
+    handles: 1,
     parameters: {
         pub in_sensitive: Tpm2bSensitiveCreate,
         pub in_public: Tpm2bPublic,
@@ -456,9 +413,7 @@ tpm_struct! {
     kind: Response,
     name: TpmCreatePrimaryResponse,
     cc: TpmCc::CreatePrimary,
-    handles: {
-        object_handle
-    },
+    handles: 1,
     parameters: {
         pub out_public: Tpm2bPublic,
         pub creation_data: Tpm2bCreationData,
@@ -473,9 +428,7 @@ tpm_struct! {
     kind: Command,
     name: TpmDictionaryAttackLockResetCommand,
     cc: TpmCc::DictionaryAttackLockReset,
-    handles: {
-        lock_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -484,7 +437,7 @@ tpm_struct! {
     kind: Response,
     name: TpmDictionaryAttackLockResetResponse,
     cc: TpmCc::DictionaryAttackLockReset,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -493,9 +446,7 @@ tpm_struct! {
     kind: Command,
     name: TpmDictionaryAttackParametersCommand,
     cc: TpmCc::DictionaryAttackParameters,
-    handles: {
-        lock_handle
-    },
+    handles: 1,
     parameters: {
         pub new_max_tries: u32,
         pub new_recovery_time: u32,
@@ -508,7 +459,7 @@ tpm_struct! {
     kind: Response,
     name: TpmDictionaryAttackParametersResponse,
     cc: TpmCc::DictionaryAttackParameters,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -517,10 +468,7 @@ tpm_struct! {
     kind: Command,
     name: TpmDuplicateCommand,
     cc: TpmCc::Duplicate,
-    handles: {
-        object_handle,
-        new_parent_handle
-    },
+    handles: 2,
     parameters: {
         pub encryption_key_in: Tpm2bData,
         pub symmetric_alg: TpmtSymDefObject,
@@ -532,7 +480,7 @@ tpm_struct! {
     kind: Response,
     name: TpmDuplicateResponse,
     cc: TpmCc::Duplicate,
-    handles: {},
+    handles: 0,
     parameters: {
         pub encryption_key_out: Tpm2bData,
         pub duplicate: Tpm2bPrivate,
@@ -545,9 +493,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEccDecryptCommand,
     cc: TpmCc::EccDecrypt,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub c1: Tpm2bEccPoint,
         pub c2: crate::data::Tpm2bMaxBuffer,
@@ -561,7 +507,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEccDecryptResponse,
     cc: TpmCc::EccDecrypt,
-    handles: {},
+    handles: 0,
     parameters: {
         pub plaintext: crate::data::Tpm2bMaxBuffer,
     }
@@ -572,7 +518,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEcEphemeralCommand,
     cc: TpmCc::EcEphemeral,
-    handles: {},
+    handles: 0,
     parameters: {
         pub curve_id: TpmEccCurve,
     }
@@ -583,7 +529,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEcEphemeralResponse,
     cc: TpmCc::EcEphemeral,
-    handles: {},
+    handles: 0,
     parameters: {
         pub q: Tpm2bEccPoint,
         pub counter: u16,
@@ -595,9 +541,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEccEncryptCommand,
     cc: TpmCc::EccEncrypt,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub plaintext: Tpm2bMaxBuffer,
         pub in_scheme: TpmtKdfScheme,
@@ -609,7 +553,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEccEncryptResponse,
     cc: TpmCc::EccEncrypt,
-    handles: {},
+    handles: 0,
     parameters: {
         pub c1: Tpm2bEccPoint,
         pub c2: crate::data::Tpm2bMaxBuffer,
@@ -622,7 +566,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEccParametersCommand,
     cc: TpmCc::EccParameters,
-    handles: {},
+    handles: 0,
     parameters: {
         pub curve_id: TpmEccCurve,
     }
@@ -633,7 +577,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEccParametersResponse,
     cc: TpmCc::EccParameters,
-    handles: {},
+    handles: 0,
     parameters: {
         pub parameters: TpmsAlgorithmDetailEcc,
     }
@@ -644,9 +588,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEcdhKeyGenCommand,
     cc: TpmCc::EcdhKeyGen,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -655,7 +597,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEcdhKeyGenResponse,
     cc: TpmCc::EcdhKeyGen,
-    handles: {},
+    handles: 0,
     parameters: {
         pub z_point: Tpm2bEccPoint,
         pub pub_point: Tpm2bEccPoint,
@@ -667,9 +609,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEcdhZGenCommand,
     cc: TpmCc::EcdhZGen,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub in_point: Tpm2bEccPoint,
     }
@@ -680,7 +620,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEcdhZGenResponse,
     cc: TpmCc::EcdhZGen,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_point: Tpm2bEccPoint,
     }
@@ -691,9 +631,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEncryptDecryptCommand,
     cc: TpmCc::EncryptDecrypt,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub decrypt: TpmiYesNo,
         pub mode: TpmiAlgCipherMode,
@@ -707,7 +645,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEncryptDecryptResponse,
     cc: TpmCc::EncryptDecrypt,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_data: Tpm2bMaxBuffer,
         pub iv_out: Tpm2bIv,
@@ -719,9 +657,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEncryptDecrypt2Command,
     cc: TpmCc::EncryptDecrypt2,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub in_data: Tpm2bMaxBuffer,
         pub decrypt: TpmiYesNo,
@@ -735,7 +671,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEncryptDecrypt2Response,
     cc: TpmCc::EncryptDecrypt2,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_data: Tpm2bMaxBuffer,
         pub iv_out: Tpm2bIv,
@@ -747,10 +683,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEventSequenceCompleteCommand,
     cc: TpmCc::EventSequenceComplete,
-    handles: {
-        pcr_handle,
-        sequence_handle
-    },
+    handles: 2,
     parameters: {
         pub buffer: Tpm2bMaxBuffer,
     }
@@ -761,7 +694,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEventSequenceCompleteResponse,
     cc: TpmCc::EventSequenceComplete,
-    handles: {},
+    handles: 0,
     parameters: {
         pub results: TpmlDigestValues,
     }
@@ -772,10 +705,7 @@ tpm_struct! {
     kind: Command,
     name: TpmEvictControlCommand,
     cc: TpmCc::EvictControl,
-    handles: {
-        auth,
-        object_handle
-    },
+    handles: 2,
     parameters: {
         pub persistent_handle: TpmHandle,
     }
@@ -786,7 +716,7 @@ tpm_struct! {
     kind: Response,
     name: TpmEvictControlResponse,
     cc: TpmCc::EvictControl,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -795,7 +725,7 @@ tpm_struct! {
     kind: Command,
     name: TpmFieldUpgradeDataCommand,
     cc: TpmCc::FieldUpgradeData,
-    handles: {},
+    handles: 0,
     parameters: {
         pub fu_data: crate::data::Tpm2bMaxBuffer,
     }
@@ -806,7 +736,7 @@ tpm_struct! {
     kind: Response,
     name: TpmFieldUpgradeDataResponse,
     cc: TpmCc::FieldUpgradeData,
-    handles: {},
+    handles: 0,
     parameters: {
         pub next_digest: TpmtHa,
         pub first_digest: TpmtHa,
@@ -818,10 +748,7 @@ tpm_struct! {
     kind: Command,
     name: TpmFieldUpgradeStartCommand,
     cc: TpmCc::FieldUpgradeStart,
-    handles: {
-        authorization,
-        key_handle
-    },
+    handles: 2,
     parameters: {
         pub fu_digest: Tpm2bDigest,
         pub manifest_signature: TpmtSignature,
@@ -833,7 +760,7 @@ tpm_struct! {
     kind: Response,
     name: TpmFieldUpgradeStartResponse,
     cc: TpmCc::FieldUpgradeStart,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -842,7 +769,7 @@ tpm_struct! {
     kind: Command,
     name: TpmFirmwareReadCommand,
     cc: TpmCc::FirmwareRead,
-    handles: {},
+    handles: 0,
     parameters: {
         pub sequence_number: u32,
     }
@@ -853,7 +780,7 @@ tpm_struct! {
     kind: Response,
     name: TpmFirmwareReadResponse,
     cc: TpmCc::FirmwareRead,
-    handles: {},
+    handles: 0,
     parameters: {
         pub fu_data: crate::data::Tpm2bMaxBuffer,
     }
@@ -864,9 +791,7 @@ tpm_struct! {
     kind: Command,
     name: TpmFlushContextCommand,
     cc: TpmCc::FlushContext,
-    handles: {
-        flush_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -875,7 +800,7 @@ tpm_struct! {
     kind: Response,
     name: TpmFlushContextResponse,
     cc: TpmCc::FlushContext,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -884,7 +809,7 @@ tpm_struct! {
     kind: Command,
     name: TpmGetCapabilityCommand,
     cc: TpmCc::GetCapability,
-    handles: {},
+    handles: 0,
     parameters: {
         pub cap: TpmCap,
         pub property: u32,
@@ -897,7 +822,7 @@ tpm_struct! {
     kind: Response,
     name: TpmGetCapabilityResponse,
     cc: TpmCc::GetCapability,
-    handles: {},
+    handles: 0,
     parameters: {
         pub more_data: TpmiYesNo,
         pub capability_data: TpmsCapabilityData,
@@ -909,10 +834,7 @@ tpm_struct! {
     kind: Command,
     name: TpmGetCommandAuditDigestCommand,
     cc: TpmCc::GetCommandAuditDigest,
-    handles: {
-        privacy_admin_handle,
-        sign_handle
-    },
+    handles: 2,
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub in_scheme: TpmtSignature,
@@ -924,7 +846,7 @@ tpm_struct! {
     kind: Response,
     name: TpmGetCommandAuditDigestResponse,
     cc: TpmCc::GetCommandAuditDigest,
-    handles: {},
+    handles: 0,
     parameters: {
         pub audit_info: Tpm2bAttest,
         pub signature: TpmtSignature,
@@ -936,7 +858,7 @@ tpm_struct! {
     kind: Command,
     name: TpmGetRandomCommand,
     cc: TpmCc::GetRandom,
-    handles: {},
+    handles: 0,
     parameters: {
         pub bytes_requested: u16,
     }
@@ -947,7 +869,7 @@ tpm_struct! {
     kind: Response,
     name: TpmGetRandomResponse,
     cc: TpmCc::GetRandom,
-    handles: {},
+    handles: 0,
     parameters: {
         pub random_bytes: Tpm2bDigest,
     }
@@ -958,11 +880,7 @@ tpm_struct! {
     kind: Command,
     name: TpmGetSessionAuditDigestCommand,
     cc: TpmCc::GetSessionAuditDigest,
-    handles: {
-        privacy_admin_handle,
-        sign_handle,
-        session_handle
-    },
+    handles: 3,
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub in_scheme: TpmtSignature,
@@ -974,7 +892,7 @@ tpm_struct! {
     kind: Response,
     name: TpmGetSessionAuditDigestResponse,
     cc: TpmCc::GetSessionAuditDigest,
-    handles: {},
+    handles: 0,
     parameters: {
         pub audit_info: Tpm2bAttest,
         pub signature: TpmtSignature,
@@ -986,7 +904,7 @@ tpm_struct! {
     kind: Command,
     name: TpmGetTestResultCommand,
     cc: TpmCc::GetTestResult,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -995,7 +913,7 @@ tpm_struct! {
     kind: Response,
     name: TpmGetTestResultResponse,
     cc: TpmCc::GetTestResult,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_data: Tpm2bMaxBuffer,
         pub test_result: crate::data::TpmRc,
@@ -1007,10 +925,7 @@ tpm_struct! {
     kind: Command,
     name: TpmGetTimeCommand,
     cc: TpmCc::GetTime,
-    handles: {
-        privacy_admin_handle,
-        sign_handle
-    },
+    handles: 2,
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub in_scheme: TpmtSignature,
@@ -1022,7 +937,7 @@ tpm_struct! {
     kind: Response,
     name: TpmGetTimeResponse,
     cc: TpmCc::GetTime,
-    handles: {},
+    handles: 0,
     parameters: {
         pub time_info: Tpm2bAttest,
         pub signature: TpmtSignature,
@@ -1034,7 +949,7 @@ tpm_struct! {
     kind: Command,
     name: TpmHashCommand,
     cc: TpmCc::Hash,
-    handles: {},
+    handles: 0,
     parameters: {
         pub data: Tpm2bMaxBuffer,
         pub hash_alg: TpmAlgId,
@@ -1047,7 +962,7 @@ tpm_struct! {
     kind: Response,
     name: TpmHashResponse,
     cc: TpmCc::Hash,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_hash: Tpm2bDigest,
         pub validation: TpmtTkHashcheck,
@@ -1059,7 +974,7 @@ tpm_struct! {
     kind: Command,
     name: TpmHashSequenceStartCommand,
     cc: TpmCc::HashSequenceStart,
-    handles: {},
+    handles: 0,
     parameters: {
         pub auth: Tpm2bAuth,
         pub hash_alg: TpmAlgId,
@@ -1071,9 +986,7 @@ tpm_struct! {
     kind: Response,
     name: TpmHashSequenceStartResponse,
     cc: TpmCc::HashSequenceStart,
-    handles: {
-        sequence_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -1082,9 +995,7 @@ tpm_struct! {
     kind: Command,
     name: TpmHierarchyChangeAuthCommand,
     cc: TpmCc::HierarchyChangeAuth,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub new_auth: Tpm2bAuth,
     }
@@ -1095,7 +1006,7 @@ tpm_struct! {
     kind: Response,
     name: TpmHierarchyChangeAuthResponse,
     cc: TpmCc::HierarchyChangeAuth,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1104,9 +1015,7 @@ tpm_struct! {
     kind: Command,
     name: TpmHierarchyControlCommand,
     cc: TpmCc::HierarchyControl,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub enable: TpmRh,
         pub state: TpmiYesNo,
@@ -1118,7 +1027,7 @@ tpm_struct! {
     kind: Response,
     name: TpmHierarchyControlResponse,
     cc: TpmCc::HierarchyControl,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1127,9 +1036,7 @@ tpm_struct! {
     kind: Command,
     name: TpmHmacCommand,
     cc: TpmCc::Hmac,
-    handles: {
-        handle
-    },
+    handles: 1,
     parameters: {
         pub buffer: Tpm2bMaxBuffer,
         pub hash_alg: TpmiAlgHash,
@@ -1141,7 +1048,7 @@ tpm_struct! {
     kind: Response,
     name: TpmHmacResponse,
     cc: TpmCc::Hmac,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_hmac: Tpm2bDigest,
     }
@@ -1152,9 +1059,7 @@ tpm_struct! {
     kind: Command,
     name: TpmHmacStartCommand,
     cc: TpmCc::HmacStart,
-    handles: {
-        handle
-    },
+    handles: 1,
     parameters: {
         pub auth: Tpm2bAuth,
         pub hash_alg: TpmAlgId,
@@ -1166,9 +1071,7 @@ tpm_struct! {
     kind: Response,
     name: TpmHmacStartResponse,
     cc: TpmCc::HmacStart,
-    handles: {
-        sequence_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -1177,9 +1080,7 @@ tpm_struct! {
     kind: Command,
     name: TpmImportCommand,
     cc: TpmCc::Import,
-    handles: {
-        parent_handle
-    },
+    handles: 1,
     parameters: {
         pub encryption_key: Tpm2bData,
         pub object_public: Tpm2bPublic,
@@ -1194,7 +1095,7 @@ tpm_struct! {
     kind: Response,
     name: TpmImportResponse,
     cc: TpmCc::Import,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_private: Tpm2bPrivate,
     }
@@ -1205,7 +1106,7 @@ tpm_struct! {
     kind: Command,
     name: TpmIncrementalSelfTestCommand,
     cc: TpmCc::IncrementalSelfTest,
-    handles: {},
+    handles: 0,
     parameters: {
         pub to_test: TpmlAlg,
     }
@@ -1216,7 +1117,7 @@ tpm_struct! {
     kind: Response,
     name: TpmIncrementalSelfTestResponse,
     cc: TpmCc::IncrementalSelfTest,
-    handles: {},
+    handles: 0,
     parameters: {
         pub to_do_list: TpmlAlg,
     }
@@ -1227,9 +1128,7 @@ tpm_struct! {
     kind: Command,
     name: TpmLoadCommand,
     cc: TpmCc::Load,
-    handles: {
-        parent_handle
-    },
+    handles: 1,
     parameters: {
         pub in_private: Tpm2bPrivate,
         pub in_public: Tpm2bPublic,
@@ -1241,9 +1140,7 @@ tpm_struct! {
     kind: Response,
     name: TpmLoadResponse,
     cc: TpmCc::Load,
-    handles: {
-        object_handle
-    },
+    handles: 1,
     parameters: {
         pub name: Tpm2bName,
     }
@@ -1254,7 +1151,7 @@ tpm_struct! {
     kind: Command,
     name: TpmLoadExternalCommand,
     cc: TpmCc::LoadExternal,
-    handles: {},
+    handles: 0,
     parameters: {
         pub in_private: Tpm2bSensitive,
         pub in_public: Tpm2bPublic,
@@ -1267,9 +1164,7 @@ tpm_struct! {
     kind: Response,
     name: TpmLoadExternalResponse,
     cc: TpmCc::LoadExternal,
-    handles: {
-        object_handle
-    },
+    handles: 1,
     parameters: {
         pub name: Tpm2bName,
     }
@@ -1280,9 +1175,7 @@ tpm_struct! {
     kind: Command,
     name: TpmMakeCredentialCommand,
     cc: TpmCc::MakeCredential,
-    handles: {
-        handle
-    },
+    handles: 1,
     parameters: {
         pub credential: Tpm2bDigest,
         pub object_name: Tpm2bName,
@@ -1294,7 +1187,7 @@ tpm_struct! {
     kind: Response,
     name: TpmMakeCredentialResponse,
     cc: TpmCc::MakeCredential,
-    handles: {},
+    handles: 0,
     parameters: {
         pub credential_blob: Tpm2bIdObject,
         pub secret: Tpm2bEncryptedSecret,
@@ -1306,11 +1199,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvCertifyCommand,
     cc: TpmCc::NvCertify,
-    handles: {
-        sign_handle,
-        auth_handle,
-        nv_index
-    },
+    handles: 3,
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub in_scheme: TpmtSignature,
@@ -1324,7 +1213,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvCertifyResponse,
     cc: TpmCc::NvCertify,
-    handles: {},
+    handles: 0,
     parameters: {
         pub certify_info: Tpm2bAttest,
         pub signature: TpmtSignature,
@@ -1336,9 +1225,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvChangeAuthCommand,
     cc: TpmCc::NvChangeAuth,
-    handles: {
-        nv_index
-    },
+    handles: 1,
     parameters: {
         pub new_auth: Tpm2bAuth,
     }
@@ -1349,7 +1236,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvChangeAuthResponse,
     cc: TpmCc::NvChangeAuth,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1358,9 +1245,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvDefineSpaceCommand,
     cc: TpmCc::NvDefineSpace,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub auth: Tpm2bAuth,
         pub public_info: Tpm2bNvPublic,
@@ -1372,7 +1257,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvDefineSpaceResponse,
     cc: TpmCc::NvDefineSpace,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1381,9 +1266,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvDefineSpace2Command,
     cc: TpmCc::NvDefineSpace2,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub auth: Tpm2bAuth,
         pub public_info: crate::data::Tpm2bNvPublic2,
@@ -1395,7 +1278,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvDefineSpace2Response,
     cc: TpmCc::NvDefineSpace2,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1404,10 +1287,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvExtendCommand,
     cc: TpmCc::NvExtend,
-    handles: {
-        auth_handle,
-        nv_index
-    },
+    handles: 2,
     parameters: {
         pub data: Tpm2bMaxNvBuffer,
     }
@@ -1418,7 +1298,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvExtendResponse,
     cc: TpmCc::NvExtend,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1427,9 +1307,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvGlobalWriteLockCommand,
     cc: TpmCc::NvGlobalWriteLock,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -1438,7 +1316,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvGlobalWriteLockResponse,
     cc: TpmCc::NvGlobalWriteLock,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1447,10 +1325,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvIncrementCommand,
     cc: TpmCc::NvIncrement,
-    handles: {
-        auth_handle,
-        nv_index
-    },
+    handles: 2,
     parameters: {}
 }
 
@@ -1459,7 +1334,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvIncrementResponse,
     cc: TpmCc::NvIncrement,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1468,10 +1343,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvReadCommand,
     cc: TpmCc::NvRead,
-    handles: {
-        auth_handle,
-        nv_index
-    },
+    handles: 2,
     parameters: {
         pub size: u16,
         pub offset: u16,
@@ -1483,7 +1355,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvReadResponse,
     cc: TpmCc::NvRead,
-    handles: {},
+    handles: 0,
     parameters: {
         pub data: Tpm2bMaxNvBuffer,
     }
@@ -1494,10 +1366,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvReadLockCommand,
     cc: TpmCc::NvReadLock,
-    handles: {
-        auth_handle,
-        nv_index
-    },
+    handles: 2,
     parameters: {}
 }
 
@@ -1506,7 +1375,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvReadLockResponse,
     cc: TpmCc::NvReadLock,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1515,9 +1384,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvReadPublicCommand,
     cc: TpmCc::NvReadPublic,
-    handles: {
-        nv_index
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -1526,7 +1393,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvReadPublicResponse,
     cc: TpmCc::NvReadPublic,
-    handles: {},
+    handles: 0,
     parameters: {
         pub nv_public: Tpm2bNvPublic,
         pub nv_name: Tpm2bName,
@@ -1538,9 +1405,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvReadPublic2Command,
     cc: TpmCc::NvReadPublic2,
-    handles: {
-        nv_index
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -1549,7 +1414,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvReadPublic2Response,
     cc: TpmCc::NvReadPublic2,
-    handles: {},
+    handles: 0,
     parameters: {
         pub nv_public: crate::data::Tpm2bNvPublic2,
         pub nv_name: Tpm2bName,
@@ -1561,10 +1426,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvSetBitsCommand,
     cc: TpmCc::NvSetBits,
-    handles: {
-        auth_handle,
-        nv_index
-    },
+    handles: 2,
     parameters: {
         pub bits: u64,
     }
@@ -1575,7 +1437,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvSetBitsResponse,
     cc: TpmCc::NvSetBits,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1584,10 +1446,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvUndefineSpaceCommand,
     cc: TpmCc::NvUndefineSpace,
-    handles: {
-        auth_handle,
-        nv_index
-    },
+    handles: 2,
     parameters: {}
 }
 
@@ -1596,7 +1455,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvUndefineSpaceResponse,
     cc: TpmCc::NvUndefineSpace,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1605,10 +1464,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvUndefineSpaceSpecialCommand,
     cc: TpmCc::NvUndefineSpaceSpecial,
-    handles: {
-        nv_index,
-        platform
-    },
+    handles: 2,
     parameters: {}
 }
 
@@ -1617,7 +1473,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvUndefineSpaceSpecialResponse,
     cc: TpmCc::NvUndefineSpaceSpecial,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1626,10 +1482,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvWriteCommand,
     cc: TpmCc::NvWrite,
-    handles: {
-        auth_handle,
-        nv_index
-    },
+    handles: 2,
     parameters: {
         pub data: Tpm2bMaxNvBuffer,
         pub offset: u16,
@@ -1641,7 +1494,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvWriteResponse,
     cc: TpmCc::NvWrite,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1650,10 +1503,7 @@ tpm_struct! {
     kind: Command,
     name: TpmNvWriteLockCommand,
     cc: TpmCc::NvWriteLock,
-    handles: {
-        auth_handle,
-        nv_index
-    },
+    handles: 2,
     parameters: {}
 }
 
@@ -1662,7 +1512,7 @@ tpm_struct! {
     kind: Response,
     name: TpmNvWriteLockResponse,
     cc: TpmCc::NvWriteLock,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1671,10 +1521,7 @@ tpm_struct! {
     kind: Command,
     name: TpmObjectChangeAuthCommand,
     cc: TpmCc::ObjectChangeAuth,
-    handles: {
-        object_handle,
-        parent_handle
-    },
+    handles: 2,
     parameters: {
         pub new_auth: Tpm2bAuth,
     }
@@ -1685,7 +1532,7 @@ tpm_struct! {
     kind: Response,
     name: TpmObjectChangeAuthResponse,
     cc: TpmCc::ObjectChangeAuth,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_private: Tpm2bPrivate,
     }
@@ -1696,9 +1543,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrAllocateCommand,
     cc: TpmCc::PcrAllocate,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub pcr_allocation: TpmlPcrSelection,
     }
@@ -1709,7 +1554,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrAllocateResponse,
     cc: TpmCc::PcrAllocate,
-    handles: {},
+    handles: 0,
     parameters: {
         pub allocation_success: TpmiYesNo,
         pub max_pcr: u32,
@@ -1723,9 +1568,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrEventCommand,
     cc: TpmCc::PcrEvent,
-    handles: {
-        pcr_handle
-    },
+    handles: 1,
     parameters: {
         pub event_data: Tpm2bEvent,
     }
@@ -1736,7 +1579,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrEventResponse,
     cc: TpmCc::PcrEvent,
-    handles: {},
+    handles: 0,
     parameters: {
         pub digests: TpmlDigestValues,
     }
@@ -1747,9 +1590,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrExtendCommand,
     cc: TpmCc::PcrExtend,
-    handles: {
-        pcr_handle
-    },
+    handles: 1,
     parameters: {
         pub digests: TpmlDigestValues,
     }
@@ -1760,7 +1601,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrExtendResponse,
     cc: TpmCc::PcrExtend,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1769,9 +1610,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrResetCommand,
     cc: TpmCc::PcrReset,
-    handles: {
-        pcr_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -1780,7 +1619,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrResetResponse,
     cc: TpmCc::PcrReset,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1789,7 +1628,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrReadCommand,
     cc: TpmCc::PcrRead,
-    handles: {},
+    handles: 0,
     parameters: {
         pub pcr_selection_in: TpmlPcrSelection,
     }
@@ -1800,7 +1639,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrReadResponse,
     cc: TpmCc::PcrRead,
-    handles: {},
+    handles: 0,
     parameters: {
         pub pcr_update_counter: u32,
         pub pcr_selection_out: TpmlPcrSelection,
@@ -1813,9 +1652,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrSetAuthPolicyCommand,
     cc: TpmCc::PcrSetAuthPolicy,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub auth_policy: Tpm2bDigest,
         pub hash_alg: TpmAlgId,
@@ -1828,7 +1665,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrSetAuthPolicyResponse,
     cc: TpmCc::PcrSetAuthPolicy,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1837,9 +1674,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPcrSetAuthValueCommand,
     cc: TpmCc::PcrSetAuthValue,
-    handles: {
-        pcr_handle
-    },
+    handles: 1,
     parameters: {
         pub auth: Tpm2bDigest,
     }
@@ -1850,7 +1685,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPcrSetAuthValueResponse,
     cc: TpmCc::PcrSetAuthValue,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1859,9 +1694,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAcSendSelectCommand,
     cc: TpmCc::PolicyAcSendSelect,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub object_name: Tpm2bName,
         pub auth_handle_name: Tpm2bName,
@@ -1875,7 +1708,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyAcSendSelectResponse,
     cc: TpmCc::PolicyAcSendSelect,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1884,9 +1717,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAuthorizeCommand,
     cc: TpmCc::PolicyAuthorize,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub approved_policy: Tpm2bDigest,
         pub policy_ref: Tpm2bNonce,
@@ -1900,7 +1731,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyAuthorizeResponse,
     cc: TpmCc::PolicyAuthorize,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1909,11 +1740,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAuthorizeNvCommand,
     cc: TpmCc::PolicyAuthorizeNv,
-    handles: {
-        auth_handle,
-        nv_index,
-        policy_session
-    },
+    handles: 3,
     parameters: {}
 }
 
@@ -1922,7 +1749,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyAuthorizeNvResponse,
     cc: TpmCc::PolicyAuthorizeNv,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1931,9 +1758,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAuthValueCommand,
     cc: TpmCc::PolicyAuthValue,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -1942,7 +1767,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyAuthValueResponse,
     cc: TpmCc::PolicyAuthValue,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1951,9 +1776,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyCapabilityCommand,
     cc: TpmCc::PolicyCapability,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub capability: TpmCap,
         pub property: u32,
@@ -1967,7 +1790,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyCapabilityResponse,
     cc: TpmCc::PolicyCapability,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1976,9 +1799,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyCommandCodeCommand,
     cc: TpmCc::PolicyCommandCode,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub code: TpmCc,
     }
@@ -1989,7 +1810,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyCommandCodeResponse,
     cc: TpmCc::PolicyCommandCode,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -1998,9 +1819,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyCounterTimerCommand,
     cc: TpmCc::PolicyCounterTimer,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub operand_b: Tpm2bMaxBuffer,
         pub offset: u16,
@@ -2013,7 +1832,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyCounterTimerResponse,
     cc: TpmCc::PolicyCounterTimer,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2022,9 +1841,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyCpHashCommand,
     cc: TpmCc::PolicyCpHash,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub cp_hash_a: Tpm2bDigest,
     }
@@ -2035,7 +1852,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyCpHashResponse,
     cc: TpmCc::PolicyCpHash,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2044,9 +1861,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyDuplicationSelectCommand,
     cc: TpmCc::PolicyDuplicationSelect,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub object_name: Tpm2bName,
         pub new_parent_name: Tpm2bName,
@@ -2059,7 +1874,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyDuplicationSelectResponse,
     cc: TpmCc::PolicyDuplicationSelect,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2068,9 +1883,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyGetDigestCommand,
     cc: TpmCc::PolicyGetDigest,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -2079,7 +1892,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyGetDigestResponse,
     cc: TpmCc::PolicyGetDigest,
-    handles: {},
+    handles: 0,
     parameters: {
         pub policy_digest: Tpm2bDigest,
     }
@@ -2090,9 +1903,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyLocalityCommand,
     cc: TpmCc::PolicyLocality,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub locality: TpmaLocality,
     }
@@ -2103,7 +1914,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyLocalityResponse,
     cc: TpmCc::PolicyLocality,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2112,9 +1923,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyNameHashCommand,
     cc: TpmCc::PolicyNameHash,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub name_hash: Tpm2bDigest,
     }
@@ -2125,7 +1934,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyNameHashResponse,
     cc: TpmCc::PolicyNameHash,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2134,11 +1943,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyNvCommand,
     cc: TpmCc::PolicyNv,
-    handles: {
-        auth_handle,
-        nv_index,
-        policy_session
-    },
+    handles: 3,
     parameters: {
         pub operand_b: Tpm2bMaxBuffer,
         pub offset: u16,
@@ -2151,7 +1956,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyNvResponse,
     cc: TpmCc::PolicyNv,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2160,9 +1965,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyNvWrittenCommand,
     cc: TpmCc::PolicyNvWritten,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub written_set: TpmiYesNo,
     }
@@ -2173,7 +1976,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyNvWrittenResponse,
     cc: TpmCc::PolicyNvWritten,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2182,9 +1985,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyOrCommand,
     cc: TpmCc::PolicyOr,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub p_hash_list: TpmlDigest,
     }
@@ -2195,7 +1996,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyOrResponse,
     cc: TpmCc::PolicyOr,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2204,9 +2005,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyParametersCommand,
     cc: TpmCc::PolicyParameters,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub p_hash: Tpm2bDigest,
     }
@@ -2217,7 +2016,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyParametersResponse,
     cc: TpmCc::PolicyParameters,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2226,9 +2025,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyPasswordCommand,
     cc: TpmCc::PolicyPassword,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -2237,7 +2034,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyPasswordResponse,
     cc: TpmCc::PolicyPassword,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2246,9 +2043,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyPhysicalPresenceCommand,
     cc: TpmCc::PolicyPhysicalPresence,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -2257,7 +2052,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyPhysicalPresenceResponse,
     cc: TpmCc::PolicyPhysicalPresence,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2266,9 +2061,7 @@ tpm_struct! (
     kind: Command,
     name: TpmPolicyPcrCommand,
     cc: TpmCc::PolicyPcr,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub pcr_digest: Tpm2bDigest,
         pub pcrs: TpmlPcrSelection,
@@ -2280,7 +2073,7 @@ tpm_struct! (
     kind: Response,
     name: TpmPolicyPcrResponse,
     cc: TpmCc::PolicyPcr,
-    handles: {},
+    handles: 0,
     parameters: {}
 );
 
@@ -2289,9 +2082,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyRestartCommand,
     cc: TpmCc::PolicyRestart,
-    handles: {
-        session_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -2300,7 +2091,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyRestartResponse,
     cc: TpmCc::PolicyRestart,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2309,10 +2100,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicySecretCommand,
     cc: TpmCc::PolicySecret,
-    handles: {
-        auth_handle,
-        policy_session
-    },
+    handles: 2,
     parameters: {
         pub nonce_tpm: Tpm2bNonce,
         pub cp_hash_a: Tpm2bDigest,
@@ -2326,7 +2114,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicySecretResponse,
     cc: TpmCc::PolicySecret,
-    handles: {},
+    handles: 0,
     parameters: {
         pub timeout: Tpm2bTimeout,
         pub policy_ticket: TpmtTkAuth,
@@ -2338,10 +2126,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicySignedCommand,
     cc: TpmCc::PolicySigned,
-    handles: {
-        auth_object,
-        policy_session
-    },
+    handles: 2,
     parameters: {
         pub nonce_tpm: Tpm2bNonce,
         pub cp_hash_a: Tpm2bDigest,
@@ -2356,7 +2141,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicySignedResponse,
     cc: TpmCc::PolicySigned,
-    handles: {},
+    handles: 0,
     parameters: {
         pub timeout: Tpm2bTimeout,
         pub policy_ticket: TpmtTkAuth,
@@ -2368,9 +2153,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyTemplateCommand,
     cc: TpmCc::PolicyTemplate,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub template_hash: Tpm2bDigest,
     }
@@ -2381,7 +2164,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyTemplateResponse,
     cc: TpmCc::PolicyTemplate,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2390,9 +2173,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyTicketCommand,
     cc: TpmCc::PolicyTicket,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub timeout: Tpm2bTimeout,
         pub cp_hash_a: Tpm2bDigest,
@@ -2407,7 +2188,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyTicketResponse,
     cc: TpmCc::PolicyTicket,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2416,9 +2197,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyTransportSpdmCommand,
     cc: TpmCc::PolicyTransportSpdm,
-    handles: {
-        policy_session
-    },
+    handles: 1,
     parameters: {
         pub req_key_name: Tpm2bName,
         pub tpm_key_name: Tpm2bName,
@@ -2430,7 +2209,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPolicyTransportSpdmResponse,
     cc: TpmCc::PolicyTransportSpdm,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2439,9 +2218,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPpCommandsCommand,
     cc: TpmCc::PpCommands,
-    handles: {
-        auth
-    },
+    handles: 1,
     parameters: {
         pub set_list: TpmlCc,
         pub clear_list: TpmlCc,
@@ -2453,7 +2230,7 @@ tpm_struct! {
     kind: Response,
     name: TpmPpCommandsResponse,
     cc: TpmCc::PpCommands,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2462,9 +2239,7 @@ tpm_struct! {
     kind: Command,
     name: TpmQuoteCommand,
     cc: TpmCc::Quote,
-    handles: {
-        sign_handle
-    },
+    handles: 1,
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub in_scheme: TpmtSignature,
@@ -2477,7 +2252,7 @@ tpm_struct! {
     kind: Response,
     name: TpmQuoteResponse,
     cc: TpmCc::Quote,
-    handles: {},
+    handles: 0,
     parameters: {
         pub quoted: Tpm2bAttest,
         pub signature: TpmtSignature,
@@ -2489,7 +2264,7 @@ tpm_struct! {
     kind: Command,
     name: TpmReadClockCommand,
     cc: TpmCc::ReadClock,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2498,7 +2273,7 @@ tpm_struct! {
     kind: Response,
     name: TpmReadClockResponse,
     cc: TpmCc::ReadClock,
-    handles: {},
+    handles: 0,
     parameters: {
         pub current_time: TpmsTimeInfo,
     }
@@ -2509,9 +2284,7 @@ tpm_struct! {
     kind: Command,
     name: TpmReadOnlyControlCommand,
     cc: TpmCc::ReadOnlyControl,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub state: TpmiYesNo,
     }
@@ -2522,7 +2295,7 @@ tpm_struct! {
     kind: Response,
     name: TpmReadOnlyControlResponse,
     cc: TpmCc::ReadOnlyControl,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2531,9 +2304,7 @@ tpm_struct! {
     kind: Command,
     name: TpmReadPublicCommand,
     cc: TpmCc::ReadPublic,
-    handles: {
-        object_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -2542,7 +2313,7 @@ tpm_struct! {
     kind: Response,
     name: TpmReadPublicResponse,
     cc: TpmCc::ReadPublic,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_public: Tpm2bPublic,
         pub name: Tpm2bName,
@@ -2555,10 +2326,7 @@ tpm_struct! {
     kind: Command,
     name: TpmRewrapCommand,
     cc: TpmCc::Rewrap,
-    handles: {
-        old_parent,
-        new_parent
-    },
+    handles: 2,
     parameters: {
         pub in_duplicate: Tpm2bPrivate,
         pub name: Tpm2bName,
@@ -2571,7 +2339,7 @@ tpm_struct! {
     kind: Response,
     name: TpmRewrapResponse,
     cc: TpmCc::Rewrap,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_duplicate: Tpm2bPrivate,
         pub out_sym_seed: Tpm2bEncryptedSecret,
@@ -2583,9 +2351,7 @@ tpm_struct! {
     kind: Command,
     name: TpmRsaDecryptCommand,
     cc: TpmCc::RsaDecrypt,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub cipher_text: Tpm2bPublicKeyRsa,
         pub in_scheme: TpmtRsaDecrypt,
@@ -2598,7 +2364,7 @@ tpm_struct! {
     kind: Response,
     name: TpmRsaDecryptResponse,
     cc: TpmCc::RsaDecrypt,
-    handles: {},
+    handles: 0,
     parameters: {
         pub message: Tpm2bPublicKeyRsa,
     }
@@ -2609,9 +2375,7 @@ tpm_struct! {
     kind: Command,
     name: TpmRsaEncryptCommand,
     cc: TpmCc::RsaEncrypt,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub message: Tpm2bPublicKeyRsa,
         pub in_scheme: TpmtRsaDecrypt,
@@ -2624,7 +2388,7 @@ tpm_struct! {
     kind: Response,
     name: TpmRsaEncryptResponse,
     cc: TpmCc::RsaEncrypt,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_data: Tpm2bPublicKeyRsa,
     }
@@ -2635,7 +2399,7 @@ tpm_struct! {
     kind: Command,
     name: TpmSelfTestCommand,
     cc: TpmCc::SelfTest,
-    handles: {},
+    handles: 0,
     parameters: {
         pub full_test: TpmiYesNo,
     }
@@ -2646,7 +2410,7 @@ tpm_struct! {
     kind: Response,
     name: TpmSelfTestResponse,
     cc: TpmCc::SelfTest,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2655,9 +2419,7 @@ tpm_struct! {
     kind: Command,
     name: TpmSequenceCompleteCommand,
     cc: TpmCc::SequenceComplete,
-    handles: {
-        sequence_handle
-    },
+    handles: 1,
     parameters: {
         pub buffer: Tpm2bMaxBuffer,
         pub hierarchy: TpmRh,
@@ -2669,7 +2431,7 @@ tpm_struct! {
     kind: Response,
     name: TpmSequenceCompleteResponse,
     cc: TpmCc::SequenceComplete,
-    handles: {},
+    handles: 0,
     parameters: {
         pub result: Tpm2bDigest,
         pub validation: TpmtTkHashcheck,
@@ -2681,9 +2443,7 @@ tpm_struct! {
     kind: Command,
     name: TpmSequenceUpdateCommand,
     cc: TpmCc::SequenceUpdate,
-    handles: {
-        sequence_handle
-    },
+    handles: 1,
     parameters: {
         pub buffer: Tpm2bMaxBuffer,
     }
@@ -2694,7 +2454,7 @@ tpm_struct! {
     kind: Response,
     name: TpmSequenceUpdateResponse,
     cc: TpmCc::SequenceUpdate,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2703,9 +2463,7 @@ tpm_struct! {
     kind: Command,
     name: TpmSetAlgorithmSetCommand,
     cc: TpmCc::SetAlgorithmSet,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub algorithm_set: u32,
     }
@@ -2716,7 +2474,7 @@ tpm_struct! {
     kind: Response,
     name: TpmSetAlgorithmSetResponse,
     cc: TpmCc::SetAlgorithmSet,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2725,9 +2483,7 @@ tpm_struct! {
     kind: Command,
     name: TpmSetCommandCodeAuditStatusCommand,
     cc: TpmCc::SetCommandCodeAuditStatus,
-    handles: {
-        auth
-    },
+    handles: 1,
     parameters: {
         pub audit_alg: TpmiAlgHash,
         pub set_list: TpmlCc,
@@ -2740,7 +2496,7 @@ tpm_struct! {
     kind: Response,
     name: TpmSetCommandCodeAuditStatusResponse,
     cc: TpmCc::SetCommandCodeAuditStatus,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2749,9 +2505,7 @@ tpm_struct! {
     kind: Command,
     name: TpmSetPrimaryPolicyCommand,
     cc: TpmCc::SetPrimaryPolicy,
-    handles: {
-        auth_handle
-    },
+    handles: 1,
     parameters: {
         pub auth_policy: Tpm2bDigest,
         pub hash_alg: TpmAlgId,
@@ -2763,7 +2517,7 @@ tpm_struct! {
     kind: Response,
     name: TpmSetPrimaryPolicyResponse,
     cc: TpmCc::SetPrimaryPolicy,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2772,7 +2526,7 @@ tpm_struct! {
     kind: Command,
     name: TpmShutdownCommand,
     cc: TpmCc::Shutdown,
-    handles: {},
+    handles: 0,
     parameters: {
         pub shutdown_type: TpmSu,
     }
@@ -2783,7 +2537,7 @@ tpm_struct! {
     kind: Response,
     name: TpmShutdownResponse,
     cc: TpmCc::Shutdown,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2792,9 +2546,7 @@ tpm_struct! {
     kind: Command,
     name: TpmSignCommand,
     cc: TpmCc::Sign,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub digest: Tpm2bDigest,
         pub in_scheme: TpmtSignature,
@@ -2807,7 +2559,7 @@ tpm_struct! {
     kind: Response,
     name: TpmSignResponse,
     cc: TpmCc::Sign,
-    handles: {},
+    handles: 0,
     parameters: {
         pub signature: TpmtSignature,
     }
@@ -2818,10 +2570,7 @@ tpm_struct! {
     kind: Command,
     name: TpmStartAuthSessionCommand,
     cc: TpmCc::StartAuthSession,
-    handles: {
-        tpm_key,
-        bind
-    },
+    handles: 2,
     parameters: {
         pub nonce_caller: Tpm2bNonce,
         pub encrypted_salt: Tpm2bEncryptedSecret,
@@ -2836,9 +2585,7 @@ tpm_struct! {
     kind: Response,
     name: TpmStartAuthSessionResponse,
     cc: TpmCc::StartAuthSession,
-    handles: {
-        session_handle
-    },
+    handles: 1,
     parameters: {
         pub nonce_tpm: Tpm2bNonce,
     }
@@ -2849,7 +2596,7 @@ tpm_struct! {
     kind: Command,
     name: TpmStartupCommand,
     cc: TpmCc::Startup,
-    handles: {},
+    handles: 0,
     parameters: {
         pub startup_type: TpmSu,
     }
@@ -2860,7 +2607,7 @@ tpm_struct! {
     kind: Response,
     name: TpmStartupResponse,
     cc: TpmCc::Startup,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2869,7 +2616,7 @@ tpm_struct! {
     kind: Command,
     name: TpmStirRandomCommand,
     cc: TpmCc::StirRandom,
-    handles: {},
+    handles: 0,
     parameters: {
         pub in_data: Tpm2bSensitiveData,
     }
@@ -2880,7 +2627,7 @@ tpm_struct! {
     kind: Response,
     name: TpmStirRandomResponse,
     cc: TpmCc::StirRandom,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2889,7 +2636,7 @@ tpm_struct! {
     kind: Command,
     name: TpmTestParmsCommand,
     cc: TpmCc::TestParms,
-    handles: {},
+    handles: 0,
     parameters: {
         pub parameters: TpmtPublicParms,
     }
@@ -2900,7 +2647,7 @@ tpm_struct! {
     kind: Response,
     name: TpmTestParmsResponse,
     cc: TpmCc::TestParms,
-    handles: {},
+    handles: 0,
     parameters: {}
 }
 
@@ -2909,9 +2656,7 @@ tpm_struct! {
     kind: Command,
     name: TpmUnsealCommand,
     cc: TpmCc::Unseal,
-    handles: {
-        item_handle
-    },
+    handles: 1,
     parameters: {}
 }
 
@@ -2920,7 +2665,7 @@ tpm_struct! {
     kind: Response,
     name: TpmUnsealResponse,
     cc: TpmCc::Unseal,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_data: Tpm2bSensitiveData,
     }
@@ -2931,7 +2676,7 @@ tpm_struct! {
     kind: Command,
     name: TpmVendorTcgTestCommand,
     cc: TpmCc::VendorTcgTest,
-    handles: {},
+    handles: 0,
     parameters: {
         pub input_data: Tpm2bData,
     }
@@ -2942,7 +2687,7 @@ tpm_struct! {
     kind: Response,
     name: TpmVendorTcgTestResponse,
     cc: TpmCc::VendorTcgTest,
-    handles: {},
+    handles: 0,
     parameters: {
         pub output_data: Tpm2bData,
     }
@@ -2953,9 +2698,7 @@ tpm_struct! {
     kind: Command,
     name: TpmVerifySignatureCommand,
     cc: TpmCc::VerifySignature,
-    handles: {
-        key_handle
-    },
+    handles: 1,
     parameters: {
         pub digest: Tpm2bDigest,
         pub signature: TpmtSignature,
@@ -2967,7 +2710,7 @@ tpm_struct! {
     kind: Response,
     name: TpmVerifySignatureResponse,
     cc: TpmCc::VerifySignature,
-    handles: {},
+    handles: 0,
     parameters: {
         pub validation: TpmtTkVerified,
     }
@@ -2978,9 +2721,7 @@ tpm_struct! {
     kind: Command,
     name: TpmZGen2PhaseCommand,
     cc: TpmCc::ZGen2Phase,
-    handles: {
-        key_a
-    },
+    handles: 1,
     parameters: {
         pub in_qsb: Tpm2bEccPoint,
         pub in_qeb: Tpm2bEccPoint,
@@ -2994,7 +2735,7 @@ tpm_struct! {
     kind: Response,
     name: TpmZGen2PhaseResponse,
     cc: TpmCc::ZGen2Phase,
-    handles: {},
+    handles: 0,
     parameters: {
         pub out_z1: Tpm2bEccPoint,
         pub out_z2: Tpm2bEccPoint,
