@@ -218,13 +218,20 @@ impl Convert {
         Ok((duplicate, in_sym_seed, Tpm2bData::default()))
     }
 
-    fn create_external_key(
-        task_state: &mut TaskState,
-        device: &mut TpmDevice,
-        parent_handle: TpmHandle,
+    /// Parses external key bytes (PEM or DER) into a TPM public structure and
+    /// private data.
+    ///
+    /// This attempts to interpret the input as RSA first, falling back to ECC
+    /// if RSA parsing fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Crypto`](crate::command::CommandError::Crypto) if the input
+    /// cannot be parsed as either RSA or ECC.
+    fn parse_external_key(
         input_bytes: &[u8],
-        auths: &[TaskAuth],
-    ) -> Result<TpmKey, CommandError> {
+        name_alg: TpmAlgId,
+    ) -> Result<(TpmtPublic, Vec<u8>), CommandError> {
         let der_bytes = pem::parse_many(input_bytes)
             .ok()
             .and_then(|pems| {
@@ -241,31 +248,38 @@ impl Convert {
             })
             .unwrap_or_else(|| input_bytes.to_vec());
 
-        let mut rng = rand::thread_rng();
+        let symmetric = TpmtSymDefObject::default();
 
+        match TpmRsaPublicKey::from_der(&der_bytes) {
+            Ok((public_key, sensitive)) => {
+                let public = public_key.to_public(name_alg, symmetric);
+                Ok((public, sensitive))
+            }
+            Err(TpmCryptoError::InvalidRsaParameters) => {
+                let (public_key, sensitive) =
+                    TpmEccPublicKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
+                let public = public_key.to_public(name_alg, symmetric);
+                Ok((public, sensitive))
+            }
+            Err(e) => Err(CommandError::Crypto(e)),
+        }
+    }
+
+    fn create_external_key(
+        task_state: &mut TaskState,
+        device: &mut TpmDevice,
+        parent_handle: TpmHandle,
+        input_bytes: &[u8],
+        auths: &[TaskAuth],
+    ) -> Result<TpmKey, CommandError> {
         let (parent_public, _) = device
             .read_public(parent_handle)
             .map_err(CommandError::from)?;
 
-        let (public, sensitive_blob) = {
-            let symmetric = TpmtSymDefObject::default();
-            let name_alg = parent_public.name_alg;
+        let (public, sensitive_blob) =
+            Self::parse_external_key(input_bytes, parent_public.name_alg)?;
 
-            match TpmRsaPublicKey::from_der(&der_bytes) {
-                Ok((public_key, sensitive)) => {
-                    let public = public_key.to_public(name_alg, symmetric);
-                    Ok((public, sensitive))
-                }
-                Err(TpmCryptoError::InvalidRsaParameters) => TpmEccPublicKey::from_der(&der_bytes)
-                    .map_err(CommandError::Crypto)
-                    .map(|(public_key, sensitive)| {
-                        let public = public_key.to_public(name_alg, symmetric);
-                        (public, sensitive)
-                    }),
-                Err(e) => Err(CommandError::Crypto(e)),
-            }
-        }?;
-
+        let mut rng = rand::thread_rng();
         let object_name = tpm_make_name(&public).map_err(CommandError::Crypto)?;
 
         let (duplicate, in_sym_seed, encryption_key) = Self::create_import_blob(
