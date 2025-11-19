@@ -45,7 +45,9 @@ fn with_device_errors(#[case] scenario: WithDeviceCase) {
             ));
         }
         WithDeviceCase::AlreadyBorrowed => {
-            let device = TpmDevice::open(Path::new("/dev/null"), Box::new(|| false))
+            let device = TpmDevice::builder()
+                .with_path(Path::new("/dev/null"))
+                .build()
                 .expect("failed to open /dev/null for TpmDevice");
             let device = Rc::new(RefCell::new(device));
             let _guard = device.borrow_mut();

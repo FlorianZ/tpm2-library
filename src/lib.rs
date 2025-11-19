@@ -16,9 +16,9 @@ use std::{
     io::{Read, Write},
     num::TryFromIntError,
     os::fd::{AsFd, AsRawFd},
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use thiserror::Error;
@@ -114,39 +114,59 @@ where
     f(&mut device_guard)
 }
 
-pub struct TpmDevice {
-    file: File,
-    name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
-    interrupt_check: Box<dyn Fn() -> bool>,
-    resp_buf: Vec<u8>,
+/// A builder for constructing a `TpmDevice`.
+pub struct TpmDeviceBuilder {
+    path: PathBuf,
+    timeout: Duration,
+    interrupted: Box<dyn Fn() -> bool>,
 }
 
-impl std::fmt::Debug for TpmDevice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Device")
-            .field("file", &self.file)
-            .field("name_cache", &self.name_cache)
-            .finish_non_exhaustive()
+impl Default for TpmDeviceBuilder {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::from("/dev/tpmrm0"),
+            timeout: Duration::from_secs(120),
+            interrupted: Box::new(|| false),
+        }
     }
 }
 
-impl TpmDevice {
-    const NO_SESSIONS: &'static [TpmsAuthCommand] = &[];
+impl TpmDeviceBuilder {
+    /// Sets the device file path.
+    #[must_use]
+    pub fn with_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.path = path.as_ref().to_path_buf();
+        self
+    }
 
-    /// Opens the TPM device file and sets it to non-blocking mode.
+    /// Sets the operation timeout.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Sets the interruption check callback.
+    #[must_use]
+    pub fn with_interrupted<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> bool + 'static,
+    {
+        self.interrupted = Box::new(handler);
+        self
+    }
+
+    /// Opens the TPM device file and constructs the `TpmDevice`.
     ///
     /// # Errors
     ///
     /// Returns [`TpmDeviceError::Io`] if the device file cannot be opened and
     /// [`TpmDeviceError::Nix`] if configuring the file descriptor flags fails.
-    pub fn open(
-        path: &Path,
-        interrupt_check: Box<dyn Fn() -> bool>,
-    ) -> Result<Self, TpmDeviceError> {
+    pub fn build(self) -> Result<TpmDevice, TpmDeviceError> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(path)
+            .open(&self.path)
             .map_err(TpmDeviceError::Io)?;
 
         let fd = file.as_raw_fd();
@@ -155,12 +175,41 @@ impl TpmDevice {
         oflags.insert(fcntl::OFlag::O_NONBLOCK);
         fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFL(oflags))?;
 
-        Ok(Self {
+        Ok(TpmDevice {
             file,
             name_cache: HashMap::new(),
-            interrupt_check,
+            interrupted: self.interrupted,
+            timeout: self.timeout,
             resp_buf: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
         })
+    }
+}
+
+pub struct TpmDevice {
+    file: File,
+    name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
+    interrupted: Box<dyn Fn() -> bool>,
+    timeout: Duration,
+    resp_buf: Vec<u8>,
+}
+
+impl std::fmt::Debug for TpmDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Device")
+            .field("file", &self.file)
+            .field("name_cache", &self.name_cache)
+            .field("timeout", &self.timeout)
+            .finish_non_exhaustive()
+    }
+}
+
+impl TpmDevice {
+    const NO_SESSIONS: &'static [TpmsAuthCommand] = &[];
+
+    /// Creates a new builder for `TpmDevice`.
+    #[must_use]
+    pub fn builder() -> TpmDeviceBuilder {
+        TpmDeviceBuilder::default()
     }
 
     fn receive(&mut self, buf: &mut [u8]) -> Result<usize, TpmDeviceError> {
@@ -233,10 +282,10 @@ impl TpmDevice {
         let mut temp_buf = [0u8; 1024];
 
         loop {
-            if (self.interrupt_check)() {
+            if (self.interrupted)() {
                 return Err(TpmDeviceError::Interrupted);
             }
-            if start_time.elapsed() > std::time::Duration::from_secs(120) {
+            if start_time.elapsed() > self.timeout {
                 return Err(TpmDeviceError::Timeout);
             }
 
