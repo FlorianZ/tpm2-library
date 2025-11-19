@@ -505,12 +505,14 @@ impl TpmDevice {
             cap,
             property,
             property_count: count,
+            handles: [],
         };
 
         let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
         let TpmGetCapabilityResponse {
             more_data,
             capability_data,
+            handles: [],
         } = resp
             .GetCapability()
             .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::GetCapability))?;
@@ -556,9 +558,7 @@ impl TpmDevice {
             return Ok(cached.clone());
         }
 
-        let cmd = TpmReadPublicCommand {
-            object_handle: handle,
-        };
+        let cmd = TpmReadPublicCommand { handles: [handle] };
         let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
 
         let read_public_resp = resp
@@ -657,7 +657,9 @@ impl TpmDevice {
     /// [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) when the
     /// TPM response does not contain `TPM2_ContextSave` data.
     pub fn save_context(&mut self, save_handle: TpmHandle) -> Result<TpmsContext, TpmDeviceError> {
-        let cmd = TpmContextSaveCommand { save_handle };
+        let cmd = TpmContextSaveCommand {
+            handles: [save_handle],
+        };
         let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
         let save_resp = resp
             .ContextSave()
@@ -674,12 +676,15 @@ impl TpmDevice {
     /// [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) when the
     /// TPM response does not contain `TPM2_ContextLoad` data.
     pub fn load_context(&mut self, context: TpmsContext) -> Result<TpmHandle, TpmDeviceError> {
-        let cmd = TpmContextLoadCommand { context };
+        let cmd = TpmContextLoadCommand {
+            context,
+            handles: [],
+        };
         let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
         let resp_inner = resp
             .ContextLoad()
             .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ContextLoad))?;
-        Ok(resp_inner.loaded_handle)
+        Ok(resp_inner.handles[0])
     }
 
     /// Flushes a transient object or session from the TPM and removes it from
@@ -693,6 +698,7 @@ impl TpmDevice {
         self.name_cache.remove(&handle.0);
         let cmd = TpmFlushContextCommand {
             flush_handle: handle,
+            handles: [],
         };
         self.transmit(&cmd, Self::NO_SESSIONS)?;
         Ok(())
@@ -740,14 +746,15 @@ impl TpmDevice {
         sessions: &[TpmsAuthCommand],
     ) -> Result<(), TpmDeviceError> {
         let cmd = TpmEvictControlCommand {
-            auth,
-            object_handle: object_handle.0.into(),
+            handles: [auth, object_handle],
             persistent_handle,
         };
+
         let (resp, _) = self.transmit(&cmd, sessions)?;
 
         resp.EvictControl()
             .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::EvictControl))?;
+
         Ok(())
     }
 
