@@ -103,22 +103,21 @@ impl fmt::Display for VtpmHandle {
             VtpmHandleClass::Vtpm => "vtpm",
         };
         write!(f, "{scheme}:")?;
+
         if self.mask == 0 {
             write!(f, "*")
-        } else if self.mask == 0xFFFF_FFFF {
-            write!(f, "{:08x}", self.value)
         } else {
-            let mut out = [b'?'; 8];
-            for (pos, item) in out.iter_mut().enumerate() {
-                let i = 7usize.saturating_sub(pos);
-                let nibble_mask = (self.mask >> (i * 4)) & 0xF;
+            for i in (0..8).rev() {
+                let shift = i * 4;
+                let nibble_mask = (self.mask >> shift) & 0xF;
                 if nibble_mask == 0xF {
-                    let nibble_val = (self.value >> (i * 4)) & 0xF;
-                    *item = b"0123456789abcdef"[nibble_val as usize];
+                    let val = (self.value >> shift) & 0xF;
+                    write!(f, "{val:x}")?;
+                } else {
+                    write!(f, "?")?;
                 }
             }
-            let s = std::str::from_utf8(&out).map_err(|_| fmt::Error)?;
-            write!(f, "{s}")
+            Ok(())
         }
     }
 }
@@ -143,35 +142,38 @@ impl FromStr for VtpmHandle {
             });
         }
 
-        let mut normalized_str = String::with_capacity(8);
-        if let Some((prefix, suffix)) = value_str.split_once('*') {
-            if suffix.contains('*') {
-                return Err(VtpmError::HandleHasTooManyAsterisks);
-            }
-            if prefix.len() + suffix.len() > 8 {
-                return Err(VtpmError::HandleTooLong);
-            }
-            normalized_str.push_str(prefix);
-            normalized_str.extend(
-                std::iter::repeat('?').take(8_usize.saturating_sub(prefix.len() + suffix.len())),
-            );
-            normalized_str.push_str(suffix);
-        } else {
-            if value_str.len() < 8 {
-                return Err(VtpmError::HandleTooShort);
-            }
-            if value_str.len() > 8 {
-                return Err(VtpmError::HandleTooLong);
-            }
-            normalized_str.push_str(value_str);
+        let asterisk_count = value_str.chars().filter(|&c| c == '*').count();
+        if asterisk_count > 1 {
+            return Err(VtpmError::HandleHasTooManyAsterisks);
         }
 
+        let explicit_len = value_str.len() - asterisk_count;
+
+        if asterisk_count == 0 {
+            if explicit_len < 8 {
+                return Err(VtpmError::HandleTooShort);
+            }
+            if explicit_len > 8 {
+                return Err(VtpmError::HandleTooLong);
+            }
+        } else if explicit_len > 8 {
+            return Err(VtpmError::HandleTooLong);
+        }
+
+        let padding = 8 - explicit_len;
         let mut mask: u32 = 0;
         let mut value: u32 = 0;
+        let mut nibble_idx = 7_i32;
 
-        for (i, c) in normalized_str.chars().enumerate() {
-            #[allow(clippy::cast_possible_truncation)]
-            let shift = ((7 - i) * 4) as u32;
+        for c in value_str.chars() {
+            if c == '*' {
+                nibble_idx -= i32::try_from(padding).unwrap();
+                continue;
+            }
+
+            #[allow(clippy::cast_sign_loss)]
+            let shift = (nibble_idx * 4) as u32;
+
             match c.to_digit(16) {
                 Some(v) => {
                     mask |= 0xF << shift;
@@ -183,6 +185,7 @@ impl FromStr for VtpmHandle {
                     return Err(VtpmError::InvalidHandleCharacter(c));
                 }
             }
+            nibble_idx -= 1;
         }
 
         Ok(Self { class, mask, value })
