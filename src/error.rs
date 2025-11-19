@@ -7,7 +7,7 @@ use thiserror::Error;
 use tpm2_protocol::data::TpmCc;
 
 /// Language interpretation and compilation errors.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error)]
 pub enum TpmPolicyError {
     #[error("authorization list is too long")]
     AuthListTooLong,
@@ -16,26 +16,14 @@ pub enum TpmPolicyError {
     #[error("crypto: {0}")]
     Crypto(#[from] tpm2_crypto::TpmCryptoError),
 
-    #[error("handle has more than one asterisk")]
-    HandleHasTooManyAsterisks,
-    #[error("handle pattern is not allowed")]
-    HandlePatternNotAllowed,
-    #[error("handle prefix is missing")]
-    HandlePrefixMissing,
-    #[error("handle is less than eight characters")]
-    HandleTooLong,
-    #[error("handle has more than eight characters")]
-    HandleTooShort,
+    /// A handle operation failed.
+    #[error("handle: {0}")]
+    Handle(#[from] tpm2_vtpm::VtpmError),
+
     #[error("invalid command code: {0:?}")]
     InvalidCc(TpmCc),
     #[error("invalid expression: {0}")]
     InvalidExpression(Box<TpmPolicyExpression>),
-    #[error("invalid handle character: {0}")]
-    InvalidHandleCharacter(char),
-    #[error("invalid handle prefix")]
-    InvalidHandlePrefix,
-    #[error("invalid handle type: 0x{0:02x}")]
-    InvalidHandleType(u8),
     #[error("invalid token: {0}")]
     InvalidToken(String),
     #[error("invalid PCR digest")]

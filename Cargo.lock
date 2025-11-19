@@ -213,6 +213,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
 
 [[package]]
+name = "log"
+version = "0.4.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
+
+[[package]]
 name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -601,6 +607,20 @@ dependencies = [
  "thiserror",
  "tpm2-crypto",
  "tpm2-protocol",
+ "tpm2-vtpm",
+]
+
+[[package]]
+name = "tpm2-policy-language"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "871aca6dfbf490c5981e035d0fabb0d45d429c00c6d00b359543a29af0ae1d47"
+dependencies = [
+ "hex",
+ "strum",
+ "thiserror",
+ "tpm2-crypto",
+ "tpm2-protocol",
 ]
 
 [[package]]
@@ -608,6 +628,19 @@ name = "tpm2-protocol"
 version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "464dee141246c1596df578393f6728db8fd6cb135adc872fc81859e3fb901fe8"
+
+[[package]]
+name = "tpm2-vtpm"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb90b33008a129b342e23e722de465a5c46442fe5be5d00a65d2f4cf606026d1"
+dependencies = [
+ "log",
+ "thiserror",
+ "tpm2-crypto",
+ "tpm2-policy-language 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tpm2-protocol",
+]
 
 [[package]]
 name = "unicode-ident"

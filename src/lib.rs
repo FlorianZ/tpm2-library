@@ -19,11 +19,10 @@
 
 pub mod error;
 pub mod expression;
-pub mod handle;
 
 pub use self::error::TpmPolicyError;
 pub use expression::*;
-pub use handle::*;
+pub use tpm2_vtpm::{VtpmError, VtpmHandle, VtpmHandleClass};
 
 use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
 use tpm2_crypto::TpmHash;
@@ -250,7 +249,7 @@ fn parse_primary<'a>(
 
 fn parse_literal(s: &str) -> Result<TpmPolicyExpression, TpmPolicyError> {
     use std::str::FromStr;
-    if let Ok(handle) = TpmHandleRef::from_str(s) {
+    if let Ok(handle) = VtpmHandle::from_str(s) {
         Ok(TpmPolicyExpression::Handle(handle))
     } else {
         Err(TpmPolicyError::InvalidToken(s.to_string()))

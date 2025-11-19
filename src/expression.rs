@@ -3,8 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    build_and_branch, TpmHandleClass, TpmHandleRef, TpmPolicyError, TpmPolicySession,
-    TpmPolicyState,
+    build_and_branch, TpmPolicyError, TpmPolicySession, TpmPolicyState, VtpmHandle, VtpmHandleClass,
 };
 use std::borrow::Cow;
 use std::fmt;
@@ -18,6 +17,7 @@ use tpm2_protocol::{
         TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
 };
+use tpm2_vtpm::VtpmError;
 
 /// The Abstract Syntax Tree (AST) for the unified policy language.
 #[derive(Debug, Eq, Clone)]
@@ -32,7 +32,7 @@ pub enum TpmPolicyExpression {
     },
     And(Vec<TpmPolicyExpression>),
     Or(Vec<TpmPolicyExpression>),
-    Handle(TpmHandleRef),
+    Handle(VtpmHandle),
 }
 
 impl PartialEq for TpmPolicyExpression {
@@ -175,8 +175,8 @@ impl TpmPolicyExpression {
                     current_branch.push(expr);
                 }
                 TpmCommand::PolicySecret(cmd) => {
-                    let auth_handle = Box::new(TpmPolicyExpression::Handle(TpmHandleRef::new(
-                        TpmHandleClass::Tpm,
+                    let auth_handle = Box::new(TpmPolicyExpression::Handle(VtpmHandle::new(
+                        VtpmHandleClass::Tpm,
                         cmd.auth_handle.into(),
                     )));
 
@@ -335,7 +335,8 @@ impl TpmPolicyExpression {
         let h_val = if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
             handle
                 .value()
-                .ok_or(TpmPolicyError::HandlePatternNotAllowed)?
+                .ok_or(VtpmError::HandlePatternNotAllowed)
+                .map_err(TpmPolicyError::Handle)?
         } else {
             return Err(TpmPolicyError::InvalidExpression(Box::new(
                 (**auth_handle).clone(),
@@ -343,8 +344,9 @@ impl TpmPolicyExpression {
         };
 
         let ht_byte = (h_val >> 24) as u8;
-        let ht =
-            TpmHt::try_from(ht_byte).map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))?;
+        let ht = TpmHt::try_from(ht_byte)
+            .map_err(|_| VtpmError::InvalidHandleType(ht_byte))
+            .map_err(TpmPolicyError::Handle)?;
 
         let name = match ht {
             TpmHt::Persistent => Cow::Borrowed(
@@ -355,18 +357,28 @@ impl TpmPolicyExpression {
             ),
             TpmHt::Permanent => {
                 let rh = TpmRh::try_from(h_val)
-                    .map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))?;
+                    .map_err(|_| VtpmError::InvalidHandleType(ht_byte))
+                    .map_err(TpmPolicyError::Handle)?;
                 match rh {
                     TpmRh::Owner | TpmRh::Endorsement | TpmRh::Platform | TpmRh::Lockout => {
                         let handle_bytes = (rh as u32).to_be_bytes();
                         let name = Tpm2bName::try_from(handle_bytes.as_slice())
-                            .map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))?;
+                            .map_err(|_| VtpmError::InvalidHandleType(ht_byte))
+                            .map_err(TpmPolicyError::Handle)?;
                         Cow::Owned(name)
                     }
-                    _ => return Err(TpmPolicyError::InvalidHandleType(ht_byte)),
+                    _ => {
+                        return Err(TpmPolicyError::Handle(VtpmError::InvalidHandleType(
+                            ht_byte,
+                        )))
+                    }
                 }
             }
-            _ => return Err(TpmPolicyError::InvalidHandleType(ht_byte)),
+            _ => {
+                return Err(TpmPolicyError::Handle(VtpmError::InvalidHandleType(
+                    ht_byte,
+                )))
+            }
         };
 
         let policy_ref = copy_ref.unwrap_or_default();
