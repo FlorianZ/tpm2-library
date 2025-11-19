@@ -7,6 +7,10 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
+mod policy;
+
+pub use policy::*;
+
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fmt, fs, io,
@@ -27,7 +31,7 @@ const TRANSIENT_START: u32 = 0x8000_0000;
 const TRANSIENT_END: u32 = 0x80FF_FFFF;
 const TRANSIENT_COUNT: u32 = 0x0100_0000;
 
-fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmProtocolError> {
+pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmProtocolError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
@@ -342,6 +346,12 @@ pub enum VtpmError {
     TpmKey(#[from] tpm2_tpmkey::TpmKeyError),
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
+    /// Command code in a policy command is not a valid `TPM_CC`.
+    #[error("invalid CC: {0}")]
+    InvalidCc(tpm2_protocol::data::TpmCc),
+    /// A policy command body is malformed or invalid for that command.
+    #[error("invalid policy")]
+    InvalidPolicy,
 }
 
 #[derive(Debug)]
@@ -565,7 +575,7 @@ impl<'a> VtpmCache<'a> {
         public: &TpmtPublic,
         parent_public: &TpmtPublic,
         empty_auth: bool,
-        policy: &Option<tpm2_tpmkey::TpmPolicy>,
+        policy: &Option<VtpmPolicy>,
     ) -> Result<u32, VtpmError> {
         let policy = if let Some(policy) = &policy {
             let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];

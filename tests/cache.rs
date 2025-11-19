@@ -20,8 +20,7 @@ mod tests {
         },
         TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
     };
-    use tpm2_tpmkey::TpmPolicy;
-    use tpm2_vtpm::{VtpmCache, VtpmError, VtpmKey};
+    use tpm2_vtpm::{VtpmCache, VtpmError, VtpmKey, VtpmPolicy};
 
     #[fixture]
     fn cache_dir() -> TempDir {
@@ -111,7 +110,7 @@ mod tests {
         let (parent_public, child_public, child_context, null_parent) = test_data;
         let cache_path = cache_dir.path();
 
-        let child_policy = TpmPolicy {
+        let child_policy = VtpmPolicy {
             name: None,
             policy: Vec::new(),
         };
