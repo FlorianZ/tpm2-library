@@ -12,10 +12,7 @@ use tpm2_crypto::{TpmCryptoError, TpmHash};
 use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
-    data::{
-        Tpm2bDigest, TpmAlgId, TpmCap, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection,
-        TpmuCapabilities,
-    },
+    data::{Tpm2bDigest, TpmAlgId, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection},
     frame::TpmPcrReadCommand,
     TpmProtocolError,
 };
@@ -60,15 +57,13 @@ pub struct PcrBank {
 /// Returns a `PcrError` if the TPM capability query fails or if the TPM reports
 /// no active PCR banks.
 pub fn pcr_get_bank_list(device: &mut TpmDevice) -> Result<Vec<PcrBank>, PcrError> {
-    let (_, cap_data) = device.get_capability_page(TpmCap::Pcrs, 0, 1)?;
+    let pcrs = device.fetch_pcr_banks()?;
     let mut banks = Vec::new();
-    if let TpmuCapabilities::Pcrs(pcrs) = cap_data.data {
-        for bank in pcrs.iter() {
-            banks.push(PcrBank {
-                alg: bank.hash,
-                count: bank.pcr_select.len() * 8,
-            });
-        }
+    for bank in pcrs {
+        banks.push(PcrBank {
+            alg: bank.hash,
+            count: bank.pcr_select.len() * 8,
+        });
     }
     if banks.is_empty() {
         return Err(PcrError::InvalidPcrSelection(

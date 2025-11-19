@@ -669,15 +669,13 @@ impl<'a> TaskState<'a> {
             return Ok(TpmHandle(target_vhandle));
         }
 
-        let handles = device.fetch_handles((TpmHt::Persistent as u32) << 24)?;
+        let handles = device.fetch_handles(TpmHt::Persistent)?;
         let mut persistent_keys = HashMap::new();
-        for handle_ref in handles {
-            if let Some(handle_val) = handle_ref.value() {
-                let phandle = TpmHandle(handle_val);
-                if let Ok((public, _)) = device.read_public(phandle) {
-                    let key_bytes = write_object(&public).map_err(TaskError::Marshal)?;
-                    persistent_keys.insert(key_bytes, phandle);
-                }
+        for handle_val in handles {
+            let phandle = handle_val;
+            if let Ok((public, _)) = device.read_public(phandle) {
+                let key_bytes = write_object(&public).map_err(TaskError::Marshal)?;
+                persistent_keys.insert(key_bytes, phandle);
             }
         }
 

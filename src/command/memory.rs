@@ -110,6 +110,7 @@ impl Memory {
     ) -> Result<(), CommandError> {
         with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
+
             Self::fetch_rows(
                 session,
                 device,
@@ -117,7 +118,7 @@ impl Memory {
                 TpmHt::Persistent,
                 MemoryHandleType::Persistent,
                 auth_args,
-                |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
+                |_, device, handle, _| Self::fetch_details(device, *handle).map(Some),
             )?;
             Self::fetch_rows(
                 session,
@@ -126,7 +127,7 @@ impl Memory {
                 TpmHt::Transient,
                 MemoryHandleType::Transient,
                 auth_args,
-                |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
+                |_, device, handle, _| Self::fetch_details(device, *handle).map(Some),
             )?;
             Self::fetch_rows(
                 session,
@@ -136,13 +137,15 @@ impl Memory {
                 MemoryHandleType::Session,
                 auth_args,
                 |_, _, handle, _| {
-                    let ht = TpmHt::try_from(*handle)
-                        .map_err(|_| CommandError::InvalidInput(handle.to_string()))?;
-                    let detail = if ht == TpmHt::HmacSession {
+                    let TpmHandle(handle) = handle;
+                    let ht = (handle >> 24) as u8;
+
+                    let detail = if ht == TpmHt::HmacSession as u8 {
                         "hmac"
                     } else {
                         "policy"
                     };
+
                     Ok(Some(detail.to_string()))
                 },
             )?;
@@ -165,29 +168,27 @@ impl Memory {
                 MemoryHandleType::Certificate,
                 auth_args,
                 |session, device, handle, auth_args| {
-                    if let Some(handle_val) = handle.value() {
-                        if !EK_CERT_RANGE.contains(&handle_val) {
-                            return Ok(None);
-                        }
-
-                        let cert_bytes =
-                            match Self::read_nv_index(session, device, handle_val, auth_args) {
-                                Ok(bytes) => bytes,
-                                Err(CommandError::Device(TpmDeviceError::TpmRc(_))) => {
-                                    return Ok(None);
-                                }
-                                Err(e) => return Err(e),
-                            };
-
-                        if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
-                            return Ok(None);
-                        }
-                        return Ok(Some(format!(
-                            "endorsement:{}",
-                            Memory::fetch_alg_name(&cert_bytes)?
-                        )));
+                    let TpmHandle(handle) = handle;
+                    if !EK_CERT_RANGE.contains(handle) {
+                        return Ok(None);
                     }
-                    Ok(None)
+
+                    let cert_bytes = match Self::read_nv_index(session, device, *handle, auth_args)
+                    {
+                        Ok(bytes) => bytes,
+                        Err(CommandError::Device(TpmDeviceError::TpmRc(_))) => {
+                            return Ok(None);
+                        }
+                        Err(e) => return Err(e),
+                    };
+
+                    if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
+                        return Ok(None);
+                    }
+                    Ok(Some(format!(
+                        "endorsement:{}",
+                        Memory::fetch_alg_name(&cert_bytes)?
+                    )))
                 },
             )?;
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
@@ -295,49 +296,43 @@ impl Memory {
         F: FnMut(
             &mut TaskState,
             &mut TpmDevice,
-            &TpmHandleRef,
+            &TpmHandle,
             &AuthArgs,
         ) -> Result<Option<String>, CommandError>,
     {
-        for handle in device.fetch_handles((class as u32) << 24)? {
-            if let Some(handle_val) = handle.value() {
-                match get_details(session, device, &handle, auth_args) {
-                    Ok(Some(details)) => {
-                        rows.push(MemoryRow {
-                            handle: format!("{handle_val:08x}"),
-                            class: display_type.to_string(),
-                            details,
-                        });
-                    }
-                    Ok(None) => {}
-                    Err(e) => log::debug!("{handle_val:08x}: {e}"),
+        for handle in device.fetch_handles(class)? {
+            let TpmHandle(handle_val) = handle;
+
+            match get_details(session, device, &handle, auth_args) {
+                Ok(Some(details)) => {
+                    rows.push(MemoryRow {
+                        handle: format!("{handle_val:08x}"),
+                        class: display_type.to_string(),
+                        details,
+                    });
                 }
+                Ok(None) => {}
+                Err(e) => log::debug!("{handle_val:08x}: {e}"),
             }
         }
         Ok(())
     }
 
-    fn fetch_details(
-        device: &mut TpmDevice,
-        handle: &TpmHandleRef,
-    ) -> Result<String, CommandError> {
-        if let Some(handle_val) = handle.value() {
-            let tpm_handle = TpmHandle(handle_val);
-            let (public, _) = device.read_public(tpm_handle)?;
-            let details = crate::alg::alg_details(&public);
+    fn fetch_details(device: &mut TpmDevice, handle: TpmHandle) -> Result<String, CommandError> {
+        let (public, _) = device.read_public(handle)?;
+        let TpmHandle(handle) = handle;
 
-            if (handle_val & 0xFF00_0000) == (TpmHt::Persistent as u32) << 24 {
-                let hierarchy = if handle_val >= 0x8180_0000 {
-                    "platform"
-                } else {
-                    "owner"
-                };
-                Ok(format!("{hierarchy}:{details}"))
+        let details = crate::alg::alg_details(&public);
+
+        if (handle & 0xFF00_0000) == (TpmHt::Persistent as u32) << 24 {
+            let hierarchy = if handle >= 0x8180_0000 {
+                "platform"
             } else {
-                Ok(details)
-            }
+                "owner"
+            };
+            Ok(format!("{hierarchy}:{details}"))
         } else {
-            Err(CommandError::PatternNotAllowed(handle.to_string()))
+            Ok(details)
         }
     }
 

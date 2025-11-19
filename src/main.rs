@@ -96,7 +96,10 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
     let shared_device = if cli.command.is_local() {
         None
     } else {
-        let device = TpmDevice::open(&cli.device, Box::new(|| TEARDOWN.load(Ordering::Relaxed)))?;
+        let device = TpmDevice::builder()
+            .with_path(&cli.device)
+            .with_interrupted(|| TEARDOWN.load(Ordering::Relaxed))
+            .build()?;
         Some(Rc::new(RefCell::new(device)))
     };
 

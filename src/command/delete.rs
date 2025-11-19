@@ -51,33 +51,34 @@ fn delete_tpm_handles(
             TpmHt::Transient,
             TpmHt::Persistent,
         ] {
-            let handles = dev.fetch_handles((class as u32) << 24)?;
-            for handle in handles {
-                if let Some(handle_val) = handle.value() {
-                    if !pattern.matches(handle_val) {
-                        continue;
-                    }
+            let handles = dev.fetch_handles(class)?;
 
-                    match class {
-                        TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
-                            dev.flush_context(TpmHandle(handle_val))?;
-                            if class == TpmHt::Transient {
-                                task_state.untrack_handle(handle_val);
-                            }
-                        }
-                        TpmHt::Persistent => {
-                            let persistent_handle = TpmHandle(handle_val);
-                            task_state.evict_control(
-                                dev,
-                                persistent_handle,
-                                persistent_handle,
-                                auth_args.auths(false).as_ref(),
-                            )?;
-                        }
-                        _ => {}
-                    }
-                    writeln!(writer, "{handle}")?;
+            for handle in handles {
+                let handle = handle.into();
+                if !pattern.matches(handle) {
+                    continue;
                 }
+
+                match class {
+                    TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
+                        dev.flush_context(TpmHandle(handle))?;
+                        if class == TpmHt::Transient {
+                            task_state.untrack_handle(handle);
+                        }
+                    }
+                    TpmHt::Persistent => {
+                        let persistent_handle = TpmHandle(handle);
+                        task_state.evict_control(
+                            dev,
+                            persistent_handle,
+                            persistent_handle,
+                            auth_args.auths(false).as_ref(),
+                        )?;
+                    }
+                    _ => {}
+                }
+
+                writeln!(writer, "{handle}")?;
             }
         }
         Ok(())

@@ -6,11 +6,7 @@ use clap::Args;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
-    constant::MAX_HANDLES,
-    data::{
-        TpmAlgId, TpmCap, TpmRcBase, TpmsRsaParms, TpmtPublicParms, TpmuCapabilities,
-        TpmuPublicParms,
-    },
+    data::{TpmAlgId, TpmRcBase, TpmsRsaParms, TpmtPublicParms, TpmuPublicParms},
     frame::TpmTestParmsCommand,
 };
 
@@ -64,16 +60,7 @@ impl Algorithm {
         }
 
         if all_algs.contains(&TpmAlgId::Ecc) {
-            let supported_curves = device.get_capability(
-                TpmCap::EccCurves,
-                0,
-                u32::try_from(MAX_HANDLES)?,
-                |caps| match caps {
-                    TpmuCapabilities::EccCurves(curves) => Ok(curves),
-                    _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::EccCurves)),
-                },
-                |last| *last as u32 + 1,
-            )?;
+            let supported_curves = device.fetch_ecc_curves()?;
             for curve_id in supported_curves {
                 for &name_alg in &name_algs {
                     results.push(format!(
