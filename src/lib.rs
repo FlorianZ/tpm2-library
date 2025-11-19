@@ -23,7 +23,6 @@ use std::{
 
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, TpmCryptoError};
-use tpm2_policy_language::{TpmHandleClass, TpmHandleRef};
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
@@ -365,7 +364,7 @@ impl TpmDevice {
     /// [`TpmDevice::get_capability`], including
     /// [`TpmDeviceError::CapabilityMissing`] when the TPM does not report
     /// handles of the requested class.
-    pub fn fetch_handles(&mut self, class: u32) -> Result<Vec<TpmHandleRef>, TpmDeviceError> {
+    pub fn fetch_handles(&mut self, class: u32) -> Result<Vec<TpmHandle>, TpmDeviceError> {
         self.get_capability(
             TpmCap::Handles,
             class,
@@ -376,12 +375,7 @@ impl TpmDevice {
             },
             |last| *last + 1,
         )
-        .map(|handles| {
-            handles
-                .into_iter()
-                .map(|h| TpmHandleRef::new(TpmHandleClass::Tpm, h))
-                .collect()
-        })
+        .map(|handles| handles.into_iter().map(TpmHandle).collect())
     }
 
     /// Fetches and returns one page of capabilities of a certain type from the
@@ -479,24 +473,21 @@ impl TpmDevice {
         &mut self,
         target: &TpmtPublic,
     ) -> Result<Option<(TpmHandle, Tpm2bName)>, TpmDeviceError> {
-        let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
-        for handle in handles {
-            if let Some(handle_val) = handle.value() {
-                match self.read_public(handle_val.into()) {
-                    Ok((public, name)) => {
-                        if public == *target {
-                            return Ok(Some((handle_val.into(), name)));
-                        }
+        for handle in self.fetch_handles((TpmHt::Persistent as u32) << 24)? {
+            match self.read_public(handle) {
+                Ok((public, name)) => {
+                    if public == *target {
+                        return Ok(Some((handle, name)));
                     }
-                    Err(TpmDeviceError::TpmRc(rc)) => {
-                        let base = rc.base();
-                        if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
-                            continue;
-                        }
-                        return Err(TpmDeviceError::TpmRc(rc));
-                    }
-                    Err(e) => return Err(e),
                 }
+                Err(TpmDeviceError::TpmRc(rc)) => {
+                    let base = rc.base();
+                    if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
+                        continue;
+                    }
+                    return Err(TpmDeviceError::TpmRc(rc));
+                }
+                Err(e) => return Err(e),
             }
         }
         Ok(None)
@@ -516,28 +507,25 @@ impl TpmDevice {
         &mut self,
         target_name: &Tpm2bName,
     ) -> Result<Option<TpmHandle>, TpmDeviceError> {
-        let handles = self.fetch_handles((TpmHt::Persistent as u32) << 24)?;
-        for handle in handles {
-            if let Some(handle_val) = handle.value() {
-                match self.read_public(handle_val.into()) {
-                    Ok((public, name)) => {
-                        if name == *target_name {
-                            return Ok(Some(handle_val.into()));
-                        }
-                        let calculated_name = tpm_make_name(&public)?;
-                        if calculated_name == *target_name {
-                            return Ok(Some(handle_val.into()));
-                        }
+        for handle in self.fetch_handles((TpmHt::Persistent as u32) << 24)? {
+            match self.read_public(handle) {
+                Ok((public, name)) => {
+                    if name == *target_name {
+                        return Ok(Some(handle));
                     }
-                    Err(TpmDeviceError::TpmRc(rc)) => {
-                        let base = rc.base();
-                        if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
-                            continue;
-                        }
-                        return Err(TpmDeviceError::TpmRc(rc));
+                    let calculated_name = tpm_make_name(&public)?;
+                    if calculated_name == *target_name {
+                        return Ok(Some(handle));
                     }
-                    Err(e) => return Err(e),
                 }
+                Err(TpmDeviceError::TpmRc(rc)) => {
+                    let base = rc.base();
+                    if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
+                        continue;
+                    }
+                    return Err(TpmDeviceError::TpmRc(rc));
+                }
+                Err(e) => return Err(e),
             }
         }
         Ok(None)
