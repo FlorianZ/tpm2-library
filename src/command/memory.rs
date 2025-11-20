@@ -167,29 +167,7 @@ impl Memory {
                 TpmHt::NvIndex,
                 MemoryHandleType::Certificate,
                 auth_args,
-                |session, device, handle, auth_args| {
-                    let TpmHandle(handle) = handle;
-                    if !EK_CERT_RANGE.contains(handle) {
-                        return Ok(None);
-                    }
-
-                    let cert_bytes = match Self::read_nv_index(session, device, *handle, auth_args)
-                    {
-                        Ok(bytes) => bytes,
-                        Err(CommandError::Device(TpmDeviceError::TpmRc(_))) => {
-                            return Ok(None);
-                        }
-                        Err(e) => return Err(e),
-                    };
-
-                    if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
-                        return Ok(None);
-                    }
-                    Ok(Some(format!(
-                        "endorsement:{}",
-                        Memory::fetch_alg_name(&cert_bytes)?
-                    )))
-                },
+                Self::fetch_certificate_details,
             )?;
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
@@ -321,6 +299,34 @@ impl Memory {
             }
         }
         Ok(())
+    }
+
+    fn fetch_certificate_details(
+        session: &mut TaskState,
+        device: &mut TpmDevice,
+        handle: &TpmHandle,
+        auth_args: &AuthArgs,
+    ) -> Result<Option<String>, CommandError> {
+        let TpmHandle(handle_val) = *handle;
+        if !EK_CERT_RANGE.contains(&handle_val) {
+            return Ok(None);
+        }
+
+        let cert_bytes = match Self::read_nv_index(session, device, handle_val, auth_args) {
+            Ok(bytes) => bytes,
+            Err(CommandError::Device(TpmDeviceError::TpmRc(_))) => {
+                return Ok(None);
+            }
+            Err(e) => return Err(e),
+        };
+
+        if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
+            return Ok(None);
+        }
+        Ok(Some(format!(
+            "endorsement:{}",
+            Memory::fetch_alg_name(&cert_bytes)?
+        )))
     }
 
     fn fetch_details(device: &mut TpmDevice, handle: TpmHandle) -> Result<String, CommandError> {
