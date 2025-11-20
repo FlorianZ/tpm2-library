@@ -20,7 +20,8 @@ use crate::{
 };
 
 use std::{
-    cell::RefCell, fs, io::IsTerminal, path::PathBuf, process, rc::Rc, sync::atomic::Ordering,
+    cell::RefCell, collections::HashMap, fs, io::IsTerminal, path::PathBuf, process, rc::Rc,
+    sync::atomic::Ordering,
 };
 
 use clap::error::ErrorKind;
@@ -96,8 +97,6 @@ fn main() {
 }
 
 fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), CommandError> {
-    let cache = VtpmCache::new(cache_dir)?;
-
     let shared_device = if cli.command.is_local() {
         None
     } else {
@@ -107,6 +106,15 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
             .build()?;
         Some(Rc::new(RefCell::new(device)))
     };
+
+    let persistent_handles = if let Some(device_rc) = &shared_device {
+        let mut device = device_rc.borrow_mut();
+        TaskState::fetch_persistent_key_map(&mut device).map_err(CommandError::Task)?
+    } else {
+        HashMap::new()
+    };
+
+    let cache = VtpmCache::new(cache_dir, persistent_handles)?;
 
     let mut stdout = std::io::stdout();
     let is_tty = stdout.is_terminal();

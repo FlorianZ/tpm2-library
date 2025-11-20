@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
     alg::AlgError,
@@ -120,13 +120,17 @@ impl Task for Load {
                         writer.len()
                     };
                     buf.truncate(len);
-                    Some(buf)
+                    let mut policy_vec = Vec::new();
+                    for cmd in &policy.policy {
+                        policy_vec.push(cmd.box_clone());
+                    }
+                    Some(policy_vec)
                 } else {
                     None
                 };
 
                 let object_context = device.save_context(object_handle)?;
-                let vhandle = task_state.cache.save_context(
+                let vhandle = task_state.cache.save_key(
                     object_context,
                     &loaded_public.inner,
                     &parent_public.inner,

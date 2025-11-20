@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
     cli::Task,
@@ -10,7 +10,7 @@ use crate::{
 use clap::Args;
 use tabled::Tabled;
 use tpm2_device::with_device;
-use tpm2_protocol::data::TpmRh;
+use tpm2_protocol::{data::TpmRh, TpmHandle};
 
 #[derive(Tabled)]
 struct CacheRow {
@@ -38,7 +38,7 @@ impl Cache {
             let mut handles_to_remove = Vec::new();
 
             for &vhandle in &vhandles {
-                if let Ok(key) = task_state.cache.find_by_vhandle(vhandle) {
+                if let Ok(key) = task_state.cache.find_by_virtual_handle(TpmHandle(vhandle)) {
                     match dev.refresh_key(key.context.clone()) {
                         Ok(true) => {
                             task_state.cache.mark_dirty(vhandle);

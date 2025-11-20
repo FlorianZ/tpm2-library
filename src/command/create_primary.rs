@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
     alg::Alg,
@@ -79,7 +79,7 @@ impl Task for CreatePrimary {
             let object_handle = resp.handles[0];
             task_state.track_handle(object_handle)?;
             let object_context = device.save_context(object_handle)?;
-            let vhandle = task_state.cache.save_context(
+            let vhandle = task_state.cache.save_key(
                 object_context,
                 &resp.out_public.inner,
                 &Tpm2bPublic::default().inner,

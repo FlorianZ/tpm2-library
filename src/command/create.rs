@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! Handles the `create` command, which creates secondary keys or sealed objects.
 
@@ -29,8 +29,8 @@ use tpm2_protocol::{
     TpmHandle,
 };
 use tpm2_tpmkey::{
-    tpm_key_command_from_command, TpmKey as TpmKeyFile, TpmKeyCommand, TpmPolicy, OID_LOADABLE_KEY,
-    OID_SEALED_DATA,
+    vtpm_policy_command_from, TpmKey as TpmKeyFile, TpmKeyPolicy, VtpmPolicyCommand,
+    OID_LOADABLE_KEY, OID_SEALED_DATA,
 };
 use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
 
@@ -240,7 +240,7 @@ impl Create {
         let empty_auth = is_empty_auth(&create_resp.out_public.inner);
 
         let tpm_key_policy = if let Some(commands) = &policy_commands {
-            let mut policy: Vec<Box<dyn TpmKeyCommand>> = Vec::new();
+            let mut policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
             for (cmd, _) in commands {
                 let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
                     let (_, name) = device.read_public(inner.handles[0])?;
@@ -248,10 +248,10 @@ impl Create {
                 } else {
                     Tpm2bName::default()
                 };
-                policy.push(tpm_key_command_from_command(cmd, &object_name)?);
+                policy.push(vtpm_policy_command_from(cmd, &object_name)?);
             }
 
-            Some(TpmPolicy { name: None, policy })
+            Some(TpmKeyPolicy { name: None, policy })
         } else {
             None
         };

@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
@@ -111,7 +111,7 @@ pub(crate) fn merge_pcr_selections(
 
     let mut list = TpmlPcrSelection::new();
     for (hash, pcr_select_bytes) in merged {
-        list.push(TpmsPcrSelection {
+        list.try_push(TpmsPcrSelection {
             hash,
             pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())?,
         })

@@ -1,8 +1,8 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{alg::AlgError, command::AuthArgs, io::write_object};
+use crate::{alg::AlgError, command::AuthArgs};
 
 use std::{
     cell::RefCell,
@@ -21,11 +21,10 @@ use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
 use tpm2_device::{TpmCommandObject, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     basic::TpmBuffer,
-    constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc,
-        TpmHt, TpmRcBase, TpmRh, TpmSe, TpmaObject, TpmaSession, TpmsAuthCommand, TpmsContext,
-        TpmtPublic, TpmtSymDefObject,
+        TpmRcBase, TpmRh, TpmSe, TpmaObject, TpmaSession, TpmsAuthCommand, TpmsContext, TpmtPublic,
+        TpmtSymDefObject,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmResponse,
@@ -33,8 +32,9 @@ use tpm2_protocol::{
     },
     TpmHandle, TpmSized, TpmUnmarshal,
 };
-use tpm2_tpmkey::tpm_key_command_from_parts;
-use tpm2_vtpm::{VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass};
+use tpm2_vtpm::{
+    vtpm_policy_command_from_parts, VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass,
+};
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
@@ -428,17 +428,18 @@ impl<'a> TaskState<'a> {
 
         for _ in 0..count {
             let (cc, rest) = TpmCc::unmarshal(remainder).map_err(TaskError::Unmarshal)?;
-            remainder = rest;
+            let (len, rest) = u32::unmarshal(rest).map_err(TaskError::Unmarshal)?;
+            let len = len as usize;
 
-            let (body_blob, rest) =
-                TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::unmarshal(remainder)
-                    .map_err(TaskError::Unmarshal)?;
+            if rest.len() < len {
+                return Err(TaskError::MalformedData);
+            }
+            let (body_blob, rest) = rest.split_at(len);
             remainder = rest;
 
             let (cmd, auth) = if cc == TpmCc::PolicySecret {
-                let body_slice = body_blob.as_ref();
                 let (handle_hint, rest) =
-                    TpmHandle::unmarshal(body_slice).map_err(TaskError::Unmarshal)?;
+                    TpmHandle::unmarshal(body_blob).map_err(TaskError::Unmarshal)?;
                 let (object_name, rest) =
                     Tpm2bName::unmarshal(rest).map_err(TaskError::Unmarshal)?;
                 let (policy_ref, _) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
@@ -472,14 +473,12 @@ impl<'a> TaskState<'a> {
                 };
 
                 let mut auths = TpmAuthCommands::new();
-                auths.push(auth).map_err(|_| TaskError::OutOfMemory)?;
+                auths.try_push(auth).map_err(|_| TaskError::OutOfMemory)?;
                 (tpm_cmd, auths)
             } else {
-                let policy_cmd = tpm_key_command_from_parts(cc, body_blob.to_vec())
-                    .map_err(|e| TaskError::Key(AlgError::TpmKey(e)))?;
-                let tpm_cmd = policy_cmd
-                    .to_command()
-                    .map_err(|e| TaskError::Key(AlgError::TpmKey(e)))?;
+                let policy_cmd = vtpm_policy_command_from_parts(cc, body_blob.to_vec())
+                    .map_err(TaskError::Vtpm)?;
+                let tpm_cmd = policy_cmd.to_command().map_err(TaskError::Vtpm)?;
                 (tpm_cmd, TpmAuthCommands::new())
             };
             commands.push((cmd, auth));
@@ -639,25 +638,21 @@ impl<'a> TaskState<'a> {
         Ok((auths, policy_session_auth))
     }
 
-    /// Fetches persistent handles and maps their public key binaries to the
-    /// handle value.
+    /// Fetches persistent handles and maps their names to the handle value.
     ///
     /// # Errors
     ///
     /// Returns [`Device`](crate::task::TaskError::Device) when the TPM command
     /// fails.
-    /// Returns [`Marshal`](crate::task::TaskError::Marshal) when marshaling
-    /// the public key fails.
-    fn fetch_persistent_key_map(
+    pub fn fetch_persistent_key_map(
         device: &mut TpmDevice,
-    ) -> Result<HashMap<Vec<u8>, TpmHandle>, TaskError> {
-        let handles = device.fetch_handles(TpmHt::Persistent)?;
+    ) -> Result<HashMap<Tpm2bName, TpmHandle>, TaskError> {
+        let handles = device.fetch_handles(tpm2_protocol::data::TpmHt::Persistent)?;
         let mut persistent_keys = HashMap::new();
         for handle_val in handles {
             let phandle = handle_val;
-            if let Ok((public, _)) = device.read_public(phandle) {
-                let key_bytes = write_object(&public).map_err(TaskError::Marshal)?;
-                persistent_keys.insert(key_bytes, phandle);
+            if let Ok((_, name)) = device.read_public(phandle) {
+                persistent_keys.insert(name, phandle);
             }
         }
         Ok(persistent_keys)
@@ -686,7 +681,7 @@ impl<'a> TaskState<'a> {
         match handle.class() {
             VtpmHandleClass::Tpm => Ok(TpmHandle(handle_val)),
             VtpmHandleClass::Vtpm => {
-                let key = self.cache.find_by_vhandle(handle_val)?;
+                let key = self.cache.find_by_virtual_handle(TpmHandle(handle_val))?;
                 let loaded_phandle = device.load_context(key.context.clone())?;
                 self.track_handle(loaded_phandle)?;
                 Ok(loaded_phandle)
@@ -729,11 +724,7 @@ impl<'a> TaskState<'a> {
             return Ok(TpmHandle(target_vhandle));
         }
 
-        let persistent_keys = Self::fetch_persistent_key_map(device)?;
-
-        let chain = self
-            .cache
-            .fetch_ancestor_chain(target_vhandle, &persistent_keys)?;
+        let chain = self.cache.fetch_ancestor_chain(TpmHandle(target_vhandle))?;
 
         if chain.is_empty() {
             return Err(TaskError::HandleNotFound("vtpm:", target_vhandle));
@@ -748,7 +739,7 @@ impl<'a> TaskState<'a> {
 
         for handle in chain_iter {
             let vhandle = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
-            let key = self.cache.find_by_vhandle(vhandle)?;
+            let key = self.cache.find_by_virtual_handle(TpmHandle(vhandle))?;
 
             let loaded_phandle = device.load_context(key.context.clone())?;
 
@@ -785,7 +776,12 @@ impl<'a> TaskState<'a> {
     ) -> Result<(Vec<u8>, TpmAlgId, bool), TaskError> {
         if handle.class() == VtpmHandleClass::Vtpm {
             let vhandle = handle.value().ok_or(TaskError::InvalidAuth)?;
-            self.cache.fetch_policy(vhandle).map_err(TaskError::Vtpm)
+            let key = self
+                .cache
+                .find_by_virtual_handle(TpmHandle(vhandle))
+                .map_err(TaskError::Vtpm)?;
+            let blob = Vec::<u8>::try_from(key).map_err(TaskError::Vtpm)?;
+            Ok((blob, key.public.name_alg, key.empty_auth != 0))
         } else {
             let (public, _) = device.read_public(phys_handle)?;
             let empty = is_empty_auth(&public);
