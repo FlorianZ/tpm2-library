@@ -40,9 +40,8 @@ pub trait TaskStateProgress {
 #[derive(Debug, Clone)]
 pub struct TaskSession {
     pub context: TpmsContext,
-    pub nonce_tpm: Tpm2bNonce,
     pub attributes: TpmaSession,
-    pub auth_hash: TpmAlgId,
+    pub hash_alg: TpmAlgId,
 }
 
 impl TaskSession {
@@ -51,7 +50,7 @@ impl TaskSession {
     /// # Errors
     ///
     /// Returns [`TaskError`] if the hash algorithm is unsupported or if `KDFa` fails.
-    pub fn new(auth_hash: TpmAlgId, resp: &TpmStartAuthSessionResponse) -> Result<Self, TaskError> {
+    pub fn new(hash_alg: TpmAlgId, resp: &TpmStartAuthSessionResponse) -> Result<Self, TaskError> {
         Ok(Self {
             context: TpmsContext {
                 sequence: 0,
@@ -59,9 +58,8 @@ impl TaskSession {
                 hierarchy: TpmRh::Null,
                 context_blob: TpmBuffer::default(),
             },
-            nonce_tpm: resp.nonce_tpm,
             attributes: TpmaSession::CONTINUE_SESSION,
-            auth_hash,
+            hash_alg,
         })
     }
 
@@ -344,7 +342,6 @@ impl<'a> TaskState<'a> {
                             .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
                         session.context = new_context;
                         let auth = auth_responses[i];
-                        session.nonce_tpm = auth.nonce;
                         session.attributes = auth.session_attributes;
                     }
                     Err(e) => {
@@ -812,7 +809,7 @@ impl<'a> TaskState<'a> {
                     let session = self
                         .get_session(*vhandle)
                         .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
-                    let nonce_size = TpmHash::from(session.auth_hash).size();
+                    let nonce_size = TpmHash::from(session.hash_alg).size();
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
