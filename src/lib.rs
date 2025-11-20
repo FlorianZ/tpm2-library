@@ -637,17 +637,17 @@ impl<'a> VtpmCache<'a> {
     pub fn remove(&mut self, vhandle: u32) -> Result<Vec<u32>, VtpmError> {
         let mut deleted_handles = Vec::new();
 
-        let maybe_public = if let Some(key) = self.contexts.remove(&vhandle) {
-            deleted_handles.push(vhandle);
+        if let Some(key) = self.contexts.get(&vhandle) {
             key.delete(self.cache_dir())?;
-            self.dirty.remove(&vhandle);
-            Some(key.public)
         } else {
             return Ok(deleted_handles);
-        };
+        }
 
-        if let Some(public_key) = maybe_public {
-            let deleted_children = self.remove_subtree(&public_key)?;
+        if let Some(key) = self.contexts.remove(&vhandle) {
+            deleted_handles.push(vhandle);
+            self.dirty.remove(&vhandle);
+
+            let deleted_children = self.remove_subtree(&key.public)?;
             deleted_handles.extend(deleted_children);
         }
 
@@ -823,11 +823,14 @@ impl<'a> VtpmCache<'a> {
             let parent_key_bytes = tpm_marshal_array(&[&parent_public])?;
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_vhandle, child_public) in children_to_process.clone() {
-                    if let Some(context) = self.contexts.remove(&child_vhandle) {
+                    if let Some(context) = self.contexts.get(&child_vhandle) {
                         context.delete(self.cache_dir())?;
-                        self.dirty.remove(&child_vhandle);
-                        deleted_children.push(child_vhandle);
-                        ancestor_list.push_back(child_public);
+
+                        if self.contexts.remove(&child_vhandle).is_some() {
+                            self.dirty.remove(&child_vhandle);
+                            deleted_children.push(child_vhandle);
+                            ancestor_list.push_back(child_public);
+                        }
                     }
                 }
             }
