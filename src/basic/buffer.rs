@@ -3,13 +3,19 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal, TpmWriter};
-use core::{convert::TryFrom, fmt::Debug, mem::size_of, ops::Deref};
+use core::{
+    convert::TryFrom,
+    fmt::Debug,
+    hash::{Hash, Hasher},
+    mem::size_of,
+    ops::Deref,
+};
 
 /// A buffer in the TPM2B wire format.
 ///
 /// The `size` field is stored in native endian and converted to big-endian
 /// only during marshaling.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct TpmBuffer<const CAPACITY: usize> {
     size: u16,
     data: [u8; CAPACITY],
@@ -74,6 +80,20 @@ impl<const CAPACITY: usize> Deref for TpmBuffer<CAPACITY> {
 impl<const CAPACITY: usize> Default for TpmBuffer<CAPACITY> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<const CAPACITY: usize> PartialEq for TpmBuffer<CAPACITY> {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl<const CAPACITY: usize> Eq for TpmBuffer<CAPACITY> {}
+
+impl<const CAPACITY: usize> Hash for TpmBuffer<CAPACITY> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (**self).hash(state);
     }
 }
 
