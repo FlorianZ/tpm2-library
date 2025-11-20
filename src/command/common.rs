@@ -125,7 +125,7 @@ impl CreationArgs {
                 TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
         }
 
-        if !user_auth.is_empty() || self.policy_expression.is_none() {
+        if self.password.is_some() || self.policy_expression.is_none() {
             attributes |= TpmaObject::USER_WITH_AUTH;
         }
         if self.policy_expression.is_some() {
