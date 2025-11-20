@@ -104,14 +104,6 @@ fn delete_vtpm_handles(
     }
 
     for vhandle in matched_handles {
-        if task_state
-            .cache
-            .find_by_virtual_handle(TpmHandle(vhandle))
-            .is_err()
-        {
-            continue;
-        }
-
         let all_deleted_handles = task_state.cache.remove(vhandle)?;
         for deleted_vhandle in all_deleted_handles {
             writeln!(writer, "vtpm:{deleted_vhandle:08x}")?;
