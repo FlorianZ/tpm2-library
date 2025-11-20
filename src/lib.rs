@@ -531,11 +531,19 @@ impl<'a> VtpmCache<'a> {
 
     /// Finds a VTPM key by its `Tpm2bName`.
     ///
+    /// Live handles are consulted first, then the cache is scanned.
+    ///
     /// # Errors
     ///
     /// Returns [`OperationFailed`](crate::VtpmError::OperationFailed) if name
     /// calculation fails.
     pub fn find_by_name(&self, target_name: &Tpm2bName) -> Result<Option<&VtpmKey>, VtpmError> {
+        if let Some(handle) = self.handles.get(target_name) {
+            if let Some(key) = self.contexts.get(&handle.0) {
+                return Ok(Some(key));
+            }
+        }
+
         for (_, key) in self.key_iter() {
             let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
             if name == *target_name {
