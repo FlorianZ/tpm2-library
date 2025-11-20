@@ -43,7 +43,7 @@ impl Alg {
     /// # Errors
     ///
     /// Returns an `KeyError` if the provided hash algorithm string is invalid.
-    pub fn new_keyedhash(hash_alg: &str) -> Result<Self, AlgError> {
+    pub fn parse_keyedhash(hash_alg: &str) -> Result<Self, AlgError> {
         let name_alg = TpmHash::from_str(hash_alg)
             .map_err(|_| AlgError::InvalidAlgorithm(hash_alg.to_string()))?
             .into();
@@ -52,6 +52,42 @@ impl Alg {
             object_type: TpmAlgId::KeyedHash,
             name_alg,
             params: AlgInfo::KeyedHash,
+        })
+    }
+
+    fn parse_rsa(original: &str, suffix: &str) -> Result<Self, AlgError> {
+        let (bits_str, name_alg_str) = suffix
+            .split_once(':')
+            .ok_or_else(|| AlgError::InvalidAlgorithmFormat(original.to_string()))?;
+        let key_bits: u16 = bits_str
+            .parse()
+            .map_err(|_| AlgError::InvalidRsaKeyBits(bits_str.to_string()))?;
+        let name_alg = TpmHash::from_str(name_alg_str)
+            .map_err(|_| AlgError::InvalidAlgorithm(name_alg_str.to_string()))?
+            .into();
+        Ok(Self {
+            name: original.to_string(),
+            object_type: TpmAlgId::Rsa,
+            name_alg,
+            params: AlgInfo::Rsa { key_bits },
+        })
+    }
+
+    fn parse_ecc(original: &str, suffix: &str) -> Result<Self, AlgError> {
+        let (curve_str, name_alg_str) = suffix
+            .split_once(':')
+            .ok_or_else(|| AlgError::InvalidAlgorithmFormat(original.to_string()))?;
+        let curve_id: TpmEccCurve = TpmEllipticCurve::from_str(curve_str)
+            .map_err(|_| AlgError::InvalidEccCurve(curve_str.to_string()))?
+            .into();
+        let name_alg = TpmHash::from_str(name_alg_str)
+            .map_err(|_| AlgError::InvalidAlgorithm(name_alg_str.to_string()))?
+            .into();
+        Ok(Self {
+            name: original.to_string(),
+            object_type: TpmAlgId::Ecc,
+            name_alg,
+            params: AlgInfo::Ecc { curve_id },
         })
     }
 }
@@ -67,39 +103,11 @@ impl std::str::FromStr for Alg {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(rest) = s.strip_prefix("rsa-") {
-            let (bits_str, name_alg_str) = rest
-                .split_once(':')
-                .ok_or_else(|| AlgError::InvalidAlgorithmFormat(s.to_string()))?;
-            let key_bits: u16 = bits_str
-                .parse()
-                .map_err(|_| AlgError::InvalidRsaKeyBits(bits_str.to_string()))?;
-            let name_alg = TpmHash::from_str(name_alg_str)
-                .map_err(|_| AlgError::InvalidAlgorithm(name_alg_str.to_string()))?
-                .into();
-            Ok(Self {
-                name: s.to_string(),
-                object_type: TpmAlgId::Rsa,
-                name_alg,
-                params: AlgInfo::Rsa { key_bits },
-            })
+            Self::parse_rsa(s, rest)
         } else if let Some(rest) = s.strip_prefix("ecc-") {
-            let (curve_str, name_alg_str) = rest
-                .split_once(':')
-                .ok_or_else(|| AlgError::InvalidAlgorithmFormat(s.to_string()))?;
-            let curve_id: TpmEccCurve = TpmEllipticCurve::from_str(curve_str)
-                .map_err(|_| AlgError::InvalidEccCurve(curve_str.to_string()))?
-                .into();
-            let name_alg = TpmHash::from_str(name_alg_str)
-                .map_err(|_| AlgError::InvalidAlgorithm(name_alg_str.to_string()))?
-                .into();
-            Ok(Self {
-                name: s.to_string(),
-                object_type: TpmAlgId::Ecc,
-                name_alg,
-                params: AlgInfo::Ecc { curve_id },
-            })
+            Self::parse_ecc(s, rest)
         } else if let Some(name_alg_str) = s.strip_prefix("keyedhash:") {
-            Self::new_keyedhash(name_alg_str)
+            Self::parse_keyedhash(name_alg_str)
         } else {
             Err(AlgError::InvalidAlgorithmFormat(s.to_string()))
         }
