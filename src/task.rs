@@ -4,13 +4,7 @@
 
 use crate::{alg::AlgError, command::AuthArgs};
 
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    io,
-    num::TryFromIntError,
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, io, num::TryFromIntError, rc::Rc};
 
 use hex;
 use rand::{thread_rng, RngCore};
@@ -332,31 +326,33 @@ impl<'a> TaskState<'a> {
     pub fn teardown_sessions(
         &mut self,
         device: &mut TpmDevice,
-        session_vhandles: &HashSet<u32>,
+        auth_list: &[TaskAuth],
         auth_responses: &TpmAuthResponses,
     ) -> Result<(), TaskError> {
-        for (i, vhandle) in session_vhandles.iter().enumerate() {
-            let session_handle = self
-                .get_session(*vhandle)
-                .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?
-                .context
-                .saved_handle;
+        for (i, auth) in auth_list.iter().enumerate() {
+            if let TaskAuth::Session(vhandle) = auth {
+                let session_handle = self
+                    .get_session(*vhandle)
+                    .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?
+                    .context
+                    .saved_handle;
 
-            match device.save_context(session_handle) {
-                Ok(new_context) => {
-                    let session = self
-                        .get_mut_session(*vhandle)
-                        .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
-                    session.context = new_context;
-                    let auth = auth_responses[i];
-                    session.nonce_tpm = auth.nonce;
-                    session.attributes = auth.session_attributes;
-                }
-                Err(e) => {
-                    if let Err(e) = device.flush_context(session_handle) {
-                        log::warn!("{session_handle}: {e}");
+                match device.save_context(session_handle) {
+                    Ok(new_context) => {
+                        let session = self
+                            .get_mut_session(*vhandle)
+                            .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
+                        session.context = new_context;
+                        let auth = auth_responses[i];
+                        session.nonce_tpm = auth.nonce;
+                        session.attributes = auth.session_attributes;
                     }
-                    return Err(e.into());
+                    Err(e) => {
+                        if let Err(e) = device.flush_context(session_handle) {
+                            log::warn!("{session_handle}: {e}");
+                        }
+                        return Err(e.into());
+                    }
                 }
             }
         }
@@ -896,14 +892,7 @@ impl<'a> TaskState<'a> {
             }
         };
 
-        let mut used_auth_list = HashSet::new();
-        for auth in &effective_auth_list {
-            if let TaskAuth::Session(handle) = auth {
-                used_auth_list.insert(*handle);
-            }
-        }
-
-        self.teardown_sessions(device, &used_auth_list, &auth_responses)?;
+        self.teardown_sessions(device, &effective_auth_list, &auth_responses)?;
 
         for handle in activated_handles {
             self.untrack_handle(handle.0);
