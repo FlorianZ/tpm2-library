@@ -199,7 +199,6 @@ pub enum TaskError {
 pub struct TaskState<'a> {
     pub device: Option<Rc<RefCell<TpmDevice>>>,
     pub cache: VtpmCache<'a>,
-    pub is_tty: bool,
     /// Holds all temporary sessions, indexed by their vhandle.
     pub sessions: HashMap<u32, TaskSession>,
     /// Holds all temporary physical handles (loaded keys + sessions) to be
@@ -210,11 +209,10 @@ pub struct TaskState<'a> {
 impl<'a> TaskState<'a> {
     /// Creates a new `Session`.
     #[must_use]
-    pub fn new(device: Option<Rc<RefCell<TpmDevice>>>, cache: VtpmCache<'a>, is_tty: bool) -> Self {
+    pub fn new(device: Option<Rc<RefCell<TpmDevice>>>, cache: VtpmCache<'a>) -> Self {
         Self {
             device,
             cache,
-            is_tty,
             sessions: HashMap::new(),
             physical_handles_to_flush: HashMap::new(),
         }

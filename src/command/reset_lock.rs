@@ -26,6 +26,7 @@ impl Task for ResetLock {
         &self,
         task_state: &mut TaskState,
         _writer: &mut dyn std::io::Write,
+        _is_tty: bool,
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
             let lock_handle = (TpmRh::Lockout as u32).into();

@@ -59,6 +59,7 @@ impl Task for Memory {
         &self,
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
+        is_tty: bool,
     ) -> Result<(), CommandError> {
         if let Some(handle) = self.handle {
             let handle_val = handle
@@ -72,7 +73,7 @@ impl Task for Memory {
                 &self.auth_args,
             )
         } else {
-            Self::list_all_memory(session, writer, &self.auth_args)
+            Self::list_all_memory(session, writer, &self.auth_args, is_tty)
         }
     }
 }
@@ -107,6 +108,7 @@ impl Memory {
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
         auth_args: &AuthArgs,
+        is_tty: bool,
     ) -> Result<(), CommandError> {
         with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
@@ -171,7 +173,7 @@ impl Memory {
             )?;
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
-            print_table(&rows, writer, session.is_tty)?;
+            print_table(&rows, writer, is_tty)?;
             Ok(())
         })
     }

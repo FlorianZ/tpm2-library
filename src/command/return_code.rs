@@ -24,6 +24,7 @@ impl Task for ReturnCode {
         &self,
         _task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
+        _is_tty: bool,
     ) -> Result<(), CommandError> {
         writeln!(writer, "{}", self.rc)?;
         Ok(())

@@ -32,7 +32,12 @@ pub trait Task {
     /// # Errors
     ///
     /// Returns an error if the execution fails.
-    fn run(&self, job: &mut TaskState, writer: &mut dyn Write) -> Result<(), CommandError>;
+    fn run(
+        &self,
+        job: &mut TaskState,
+        writer: &mut dyn Write,
+        is_tty: bool,
+    ) -> Result<(), CommandError>;
 
     /// Returns `true` if the command can be run without a TPM device.
     #[must_use]
@@ -95,8 +100,9 @@ impl Task for Command {
         &self,
         job: &mut TaskState,
         writer: &mut dyn std::io::Write,
+        is_tty: bool,
     ) -> Result<(), CommandError> {
-        self.as_task().run(job, writer)
+        self.as_task().run(job, writer, is_tty)
     }
 
     fn is_local(&self) -> bool {

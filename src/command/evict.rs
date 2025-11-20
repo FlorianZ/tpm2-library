@@ -30,6 +30,7 @@ impl Task for Evict {
         &self,
         task_state: &mut TaskState,
         _writer: &mut dyn std::io::Write,
+        _is_tty: bool,
     ) -> Result<(), CommandError> {
         let vhandle = self
             .input

@@ -31,6 +31,7 @@ impl Task for Unseal {
         &self,
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
+        is_tty: bool,
     ) -> Result<(), CommandError> {
         if self.input.value().is_none() {
             return Err(CommandError::PatternNotAllowed(self.input.to_string()));
@@ -70,7 +71,7 @@ impl Task for Unseal {
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
                 .out_data;
 
-            if self.hex || task_state.is_tty {
+            if self.hex || is_tty {
                 writeln!(writer, "{}", hex::encode(out_data.as_ref()))?;
             } else {
                 writer.write_all(out_data.as_ref())?;

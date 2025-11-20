@@ -74,6 +74,7 @@ impl Task for Cache {
         &self,
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
+        is_tty: bool,
     ) -> Result<(), CommandError> {
         Self::refresh_cache(task_state, writer)?;
 
@@ -97,7 +98,7 @@ impl Task for Cache {
             .collect();
         rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
-        print_table(&rows, writer, task_state.is_tty)?;
+        print_table(&rows, writer, is_tty)?;
         Ok(())
     }
 }

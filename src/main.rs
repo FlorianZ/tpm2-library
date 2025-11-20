@@ -119,6 +119,6 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
     let mut stdout = std::io::stdout();
     let is_tty = stdout.is_terminal();
 
-    let mut job = TaskState::new(shared_device, cache, is_tty);
-    cli.command.run(&mut job, &mut stdout)
+    let mut job = TaskState::new(shared_device, cache);
+    cli.command.run(&mut job, &mut stdout, is_tty)
 }

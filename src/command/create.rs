@@ -75,6 +75,7 @@ impl Task for Create {
         &self,
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
+        _is_tty: bool,
     ) -> Result<(), CommandError> {
         self.parent
             .value()

@@ -41,6 +41,7 @@ impl Task for CreatePrimary {
         &self,
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
+        _is_tty: bool,
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
             deny_keyedhash(&self.algorithm)?;
