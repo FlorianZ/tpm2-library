@@ -136,7 +136,7 @@ mod tests {
         assert_eq!(child_key_name.handle.0, child_vhandle);
 
         let key = cache.find_by_vhandle(child_vhandle).unwrap();
-        let policy_bytes = key.policy_into_bytes().unwrap();
+        let policy_bytes = &Vec::<u8>::try_from(key).unwrap();
 
         let (count, remainder) =
             u32::unmarshal(&policy_bytes).expect("Failed to unmarshal policy header");

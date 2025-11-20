@@ -220,33 +220,6 @@ pub struct VtpmKey {
 }
 
 impl VtpmKey {
-    /// Fetches the policy blob.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Marshal`](crate::VtpmError::Marshal) when marshaling TPM
-    /// encoded data fails.
-    /// Returns [`OperationFailed`](crate::VtpmError::OperationFailed) when the
-    /// policy commands cannot be serialized because of an internal failure.
-    pub fn policy_into_bytes(&self) -> Result<Vec<u8>, VtpmError> {
-        let mut buf = vec![];
-
-        let count = u32::try_from(self.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
-        buf.extend_from_slice(&tpm_marshal_array(&[&count])?);
-
-        for command in &self.policy {
-            let cc = command.cc();
-            buf.extend_from_slice(&tpm_marshal_array(&[&cc])?);
-
-            let body_len =
-                u32::try_from(command.body().len()).map_err(|_| VtpmError::OperationFailed)?;
-            buf.extend_from_slice(&tpm_marshal_array(&[&body_len])?);
-            buf.extend_from_slice(&command.body());
-        }
-
-        Ok(buf)
-    }
-
     fn load(path: &Path) -> Result<Self, VtpmError> {
         let buffer = fs::read(path)?;
         let (version, tail) = u32::unmarshal(&buffer).map_err(|_| VtpmError::StaleHandle)?;
@@ -307,7 +280,7 @@ impl VtpmKey {
         ])?;
 
         buf.extend_from_slice(&key_bytes);
-        buf.extend_from_slice(&self.policy_into_bytes()?);
+        buf.extend_from_slice(&Vec::<u8>::try_from(self)?);
 
         fs::write(path, buf)?;
         Ok(())
@@ -389,6 +362,29 @@ impl VtpmKey {
             }
             _ => Err(VtpmError::InvalidCc(cc)),
         }
+    }
+}
+
+impl TryFrom<&VtpmKey> for Vec<u8> {
+    type Error = VtpmError;
+
+    fn try_from(key: &VtpmKey) -> Result<Self, Self::Error> {
+        let mut buf = Vec::new();
+
+        let count = u32::try_from(key.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
+        buf.extend_from_slice(&tpm_marshal_array(&[&count])?);
+
+        for command in &key.policy {
+            let cc = command.cc();
+            buf.extend_from_slice(&tpm_marshal_array(&[&cc])?);
+
+            let body = command.body();
+            let body_len = u32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
+            buf.extend_from_slice(&tpm_marshal_array(&[&body_len])?);
+            buf.extend_from_slice(&body);
+        }
+
+        Ok(buf)
     }
 }
 
