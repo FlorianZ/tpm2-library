@@ -15,7 +15,6 @@ log = "0.4"
 thiserror = "1.0"
 tpm2-crypto = "0.7.3"
 tpm2-protocol = "0.15.8"
-tpm2-tpmkey = "0.8.5"
 
 [dev-dependencies]
 rstest = "0.18"
