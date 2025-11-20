@@ -39,14 +39,14 @@
 //! The command body for `TPM2_PolicySecret` has `TPM_HANDLE`, `TPM2B_NAME` and
 //! `TPM2B_DIGEST` serialized in sequence.
 //!
-//! [`TpmKeyCommand::to_command`] is implemented for `TPM2_PolicySecret` as
+//! [`VtpmPolicyCommand::to_command`](tpm2_vtpm::VtpmPolicyCommand::to_command) is implemented for `TPM2_PolicySecret` as
 //! folllows:
 //!
 //! * `objectHandleHint`: copied to command's `authHandle`.
 //! * `objectName`: discarded.
 //! * `policyRef`: copied to command's `policyRef`.
 //!
-//! [`tpm_key_command_from_command`] does a similar "lossy" conversion:
+//! [`tpm_key_command_from_command`](crate::vtpm_policy_command_from) does a similar "lossy" conversion:
 //!
 //! * `objectHandleHint`: copied from command's `authHandle`.
 //! * `objectName`: set to empty `TPM2B_NAME`.
@@ -60,8 +60,8 @@ mod asn1;
 mod command;
 mod error;
 
-pub use command::*;
 pub use error::*;
+pub use tpm2_vtpm::{vtpm_policy_command_from, VtpmPolicyCommand};
 
 use crate::asn1::{tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1};
 use pem::{EncodeConfig, LineEnding, Pem};
@@ -88,13 +88,10 @@ use tpm2_protocol::{
 
 /// A policy branch (used for `auth_policy` list).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TpmPolicy {
+pub struct TpmKeyPolicy {
     pub name: Option<String>,
-    pub policy: Vec<Box<dyn TpmKeyCommand>>,
+    pub policy: Vec<Box<dyn VtpmPolicyCommand>>,
 }
-
-/// List of typed TPM commands corresponding to a policy sequence.
-pub type TpmCommandList = Vec<tpm2_protocol::frame::TpmCommand>;
 
 /// High-level runtime representation of a TPM key.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,8 +101,8 @@ pub struct TpmKey {
     pub parent_handle: TpmHandle,
     pub parent_public: Option<Tpm2bPublic>,
     pub empty_auth: Option<bool>,
-    pub policy: Option<TpmPolicy>,
-    pub auth_policy: Option<Vec<TpmPolicy>>,
+    pub policy: Option<TpmKeyPolicy>,
+    pub auth_policy: Option<Vec<TpmKeyPolicy>>,
     pub secret: Option<Vec<u8>>,
     pub description: Option<String>,
     pub oid: rasn::prelude::ObjectIdentifier,
@@ -286,14 +283,14 @@ impl TpmKey {
             return Err(TpmKeyError::MissingSecret);
         }
 
-        let policy = asn1.policy.map(TpmPolicy::try_from).transpose()?;
+        let policy = asn1.policy.map(TpmKeyPolicy::try_from).transpose()?;
 
         let auth_policy = asn1
             .auth_policy
             .map(|branches| {
                 branches
                     .into_iter()
-                    .map(TpmPolicy::try_from)
+                    .map(TpmKeyPolicy::try_from)
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
@@ -313,14 +310,14 @@ impl TpmKey {
     }
 }
 
-impl TryFrom<TpmAuthPolicyAsn1> for TpmPolicy {
+impl TryFrom<TpmAuthPolicyAsn1> for TpmKeyPolicy {
     type Error = TpmKeyError;
 
     fn try_from(val: TpmAuthPolicyAsn1) -> Result<Self, Self::Error> {
         let cmds = val
             .policy
             .into_iter()
-            .map(Box::<dyn TpmKeyCommand>::try_from)
+            .map(Box::<dyn VtpmPolicyCommand>::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
@@ -330,13 +327,13 @@ impl TryFrom<TpmAuthPolicyAsn1> for TpmPolicy {
     }
 }
 
-impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmPolicy {
+impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmKeyPolicy {
     type Error = TpmKeyError;
 
     fn try_from(cmds: Vec<TpmKeyCommandAsn1>) -> Result<Self, Self::Error> {
         let cmds = cmds
             .into_iter()
-            .map(Box::<dyn TpmKeyCommand>::try_from)
+            .map(Box::<dyn VtpmPolicyCommand>::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
@@ -346,8 +343,8 @@ impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmPolicy {
     }
 }
 
-impl From<&TpmPolicy> for TpmAuthPolicyAsn1 {
-    fn from(p: &TpmPolicy) -> Self {
+impl From<&TpmKeyPolicy> for TpmAuthPolicyAsn1 {
+    fn from(p: &TpmKeyPolicy) -> Self {
         Self {
             name: p.name.as_deref().map(Utf8String::from),
             policy: p
@@ -359,8 +356,8 @@ impl From<&TpmPolicy> for TpmAuthPolicyAsn1 {
     }
 }
 
-impl From<&TpmPolicy> for Vec<TpmKeyCommandAsn1> {
-    fn from(p: &TpmPolicy) -> Self {
+impl From<&TpmKeyPolicy> for Vec<TpmKeyCommandAsn1> {
+    fn from(p: &TpmKeyPolicy) -> Self {
         p.policy
             .iter()
             .map(|cmd| TpmKeyCommandAsn1::from(cmd.as_ref()))
@@ -436,7 +433,7 @@ mod tests {
         let der = rasn::der::encode(&asn1).unwrap();
         let res = TpmKey::from_der(&der);
         match res {
-            Err(TpmKeyError::InvalidCc(TpmCc::SelfTest)) => {}
+            Err(TpmKeyError::Vtpm(tpm2_vtpm::VtpmError::InvalidCc(TpmCc::SelfTest))) => {}
             other => panic!("expected InvalidCc, got: {other:?}"),
         }
     }

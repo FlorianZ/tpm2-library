@@ -55,4 +55,8 @@ pub enum TpmKeyError {
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
+
+    /// VTPM error.
+    #[error("vtpm: {0}")]
+    Vtpm(#[from] tpm2_vtpm::VtpmError),
 }
