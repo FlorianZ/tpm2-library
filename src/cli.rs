@@ -117,6 +117,7 @@ pub enum Hierarchy {
     Owner,
     Platform,
     Endorsement,
+    Null,
 }
 
 impl From<Hierarchy> for TpmRh {
@@ -125,6 +126,7 @@ impl From<Hierarchy> for TpmRh {
             Hierarchy::Owner => TpmRh::Owner,
             Hierarchy::Platform => TpmRh::Platform,
             Hierarchy::Endorsement => TpmRh::Endorsement,
+            Hierarchy::Null => TpmRh::Null,
         }
     }
 }
