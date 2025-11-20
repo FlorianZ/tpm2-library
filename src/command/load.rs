@@ -12,7 +12,6 @@ use crate::{
 use clap::Args;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
-    basic::TpmBuffer,
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bName, Tpm2bPublic, TpmCc},
     frame::TpmLoadCommand,
@@ -111,12 +110,14 @@ impl Task for Load {
                             cmd.cc()
                                 .marshal(&mut writer)
                                 .map_err(CommandError::Marshal)?;
-                            TpmBuffer::<{ TPM_MAX_COMMAND_SIZE as usize }>::try_from(
-                                cmd.body().as_slice(),
-                            )
-                            .map_err(CommandError::Unmarshal)?
-                            .marshal(&mut writer)
-                            .map_err(CommandError::Marshal)?;
+
+                            let body = cmd.body();
+                            let body_len = u32::try_from(body.len())?;
+
+                            body_len
+                                .marshal(&mut writer)
+                                .map_err(CommandError::Marshal)?;
+                            writer.write_bytes(&body).map_err(CommandError::Marshal)?;
                         }
                         writer.len()
                     };
