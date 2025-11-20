@@ -477,8 +477,8 @@ pub struct VtpmCache<'a> {
     /// Map from virtual handles to cached keys.
     contexts: HashMap<u32, VtpmKey>,
 
-    /// Map from `TpmtPublic` to live handles.
-    handles: HashMap<Vec<u8>, TpmHandle>,
+    /// Map from `Tpm2bName` to live handles.
+    handles: HashMap<Tpm2bName, TpmHandle>,
 
     /// Set of virtual handles, which must be persisted.
     dirty: HashSet<u32>,
@@ -493,6 +493,8 @@ pub struct VtpmCache<'a> {
 impl<'a> VtpmCache<'a> {
     /// Creates a new cache and loads existing contexts from disk.
     ///
+    /// The `handles` map contains live TPM handles indexed by their `Tpm2bName`.
+    ///
     /// # Errors
     ///
     /// Returns [`Io`](crate::VtpmError::Io) when reading the cache directory
@@ -501,12 +503,12 @@ impl<'a> VtpmCache<'a> {
     /// context fails.
     pub fn new(
         cache_dir: &'a Path,
-        persistent: HashMap<Vec<u8>, TpmHandle>,
+        handles: HashMap<Tpm2bName, TpmHandle>,
     ) -> Result<Self, VtpmError> {
         fs::create_dir_all(cache_dir)?;
         let mut cache = Self {
             contexts: HashMap::new(),
-            handles: persistent,
+            handles,
             dirty: HashSet::new(),
             cache_dir,
             next_vhandle: TRANSIENT_START,
@@ -529,14 +531,6 @@ impl<'a> VtpmCache<'a> {
 
     fn cache_dir(&self) -> &Path {
         self.cache_dir
-    }
-
-    /// Finds a VTPM key corresponding to a `TpmtPublic`.
-    #[must_use]
-    pub fn find_by_public(&self, public: &TpmtPublic) -> Option<&VtpmKey> {
-        self.key_iter()
-            .find(|(_, key)| key.public == *public)
-            .map(|(_, key)| key)
     }
 
     /// Finds a VTPM key by its `Tpm2bName`.
@@ -598,13 +592,17 @@ impl<'a> VtpmCache<'a> {
                 break;
             }
 
-            if let Some(parent_key) = self.find_by_public(&key.parent) {
-                let parent_vhandle = parent_key.handle.0;
+            if let Some((&parent_vhandle, _)) = self
+                .contexts
+                .iter()
+                .find(|(_, parent_key)| parent_key.public == key.parent)
+            {
                 vtp_chain.push_front(VtpmHandle::new(VtpmHandleClass::Vtpm, current_vhandle));
                 current_vhandle = parent_vhandle;
             } else {
-                let parent_key_bytes = tpm_marshal_array(&[&key.parent])?;
-                match self.handles.get(&parent_key_bytes) {
+                let parent_name =
+                    tpm_make_name(&key.parent).map_err(|_| VtpmError::OperationFailed)?;
+                match self.handles.get(&parent_name) {
                     Some(phandle) => {
                         physical_primary = Some(VtpmHandle::new(VtpmHandleClass::Tpm, phandle.0));
                         break;

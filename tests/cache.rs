@@ -13,7 +13,6 @@ mod tests {
     use tpm2_crypto::tpm_make_name;
     use tpm2_protocol::{
         basic::TpmBuffer,
-        constant::TPM_MAX_COMMAND_SIZE,
         data::{
             Tpm2bDigest, Tpm2bPublicKeyRsa, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaObject, TpmsContext,
             TpmsRsaParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
@@ -128,11 +127,6 @@ mod tests {
             .expect("Failed to find child by vhandle");
         assert_eq!(child_key.public, child_public);
         assert_eq!(child_key.context, child_context);
-
-        let child_key_pub = cache
-            .find_by_public(&child_public)
-            .expect("Failed to find child by public");
-        assert_eq!(child_key_pub.handle.0, child_vhandle);
 
         let child_name = tpm_make_name(&child_public).unwrap();
         let child_key_name = cache
@@ -358,18 +352,10 @@ mod tests {
         let mut persistent_keys = HashMap::new();
 
         if has_persistent_parent {
-            let mut buffer = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
-            let len = {
-                let mut writer = TpmWriter::new(&mut buffer);
-                parent_public
-                    .marshal(&mut writer)
-                    .expect("Failed to marshal parent_public");
-                writer.len()
-            };
-            buffer.truncate(len);
+            let parent_name = tpm_make_name(&parent_public).expect("Failed to compute parent name");
 
             let persistent_handle = TpmHandle(0x8100_0000);
-            persistent_keys.insert(buffer, persistent_handle);
+            persistent_keys.insert(parent_name, persistent_handle);
         }
 
         let mut cache =
