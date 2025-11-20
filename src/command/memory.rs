@@ -120,7 +120,7 @@ impl Memory {
                 TpmHt::Persistent,
                 MemoryHandleType::Persistent,
                 auth_args,
-                |_, device, handle, _| Self::fetch_details(device, *handle).map(Some),
+                |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
             )?;
             Self::fetch_rows(
                 session,
@@ -129,7 +129,7 @@ impl Memory {
                 TpmHt::Transient,
                 MemoryHandleType::Transient,
                 auth_args,
-                |_, device, handle, _| Self::fetch_details(device, *handle).map(Some),
+                |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
             )?;
             Self::fetch_rows(
                 session,
@@ -281,14 +281,14 @@ impl Memory {
         F: FnMut(
             &mut TaskState,
             &mut TpmDevice,
-            &TpmHandle,
+            TpmHandle,
             &AuthArgs,
         ) -> Result<Option<String>, CommandError>,
     {
         for handle in device.fetch_handles(class)? {
             let TpmHandle(handle_val) = handle;
 
-            match get_details(session, device, &handle, auth_args) {
+            match get_details(session, device, handle, auth_args) {
                 Ok(Some(details)) => {
                     rows.push(MemoryRow {
                         handle: format!("{handle_val:08x}"),
@@ -306,10 +306,10 @@ impl Memory {
     fn fetch_certificate_details(
         session: &mut TaskState,
         device: &mut TpmDevice,
-        handle: &TpmHandle,
+        handle: TpmHandle,
         auth_args: &AuthArgs,
     ) -> Result<Option<String>, CommandError> {
-        let TpmHandle(handle_val) = *handle;
+        let TpmHandle(handle_val) = handle;
         if !EK_CERT_RANGE.contains(&handle_val) {
             return Ok(None);
         }
