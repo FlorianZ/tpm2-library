@@ -89,7 +89,7 @@ fn parse_tpml_pcr_selection_str(
             pcr_select_bytes[pcr_index / 8] |= 1 << (pcr_index % 8);
         }
 
-        list.push(TpmsPcrSelection {
+        list.try_push(TpmsPcrSelection {
             hash: alg.into(),
             pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())
                 .map_err(|_| TpmPolicyError::PcrDigestTooLarge)?,

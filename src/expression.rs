@@ -420,7 +420,7 @@ impl TpmPolicyExpression {
             let digest = branch.to_command_list_walk(command_list, software_session, context)?;
 
             digest_list
-                .push(digest)
+                .try_push(digest)
                 .map_err(|_| TpmPolicyError::TooManyBranches(Box::new(self.clone())))?;
         }
 
