@@ -67,6 +67,72 @@ impl PartialEq for Box<dyn VtpmPolicyCommand> {
 
 impl Eq for Box<dyn VtpmPolicyCommand> {}
 
+/// Creates a `VtpmPolicyCommand` from a command code and raw body.
+///
+/// # Errors
+///
+/// Returns [`InvalidCc`](crate::VtpmError::InvalidCc) when `cc` is not valid.
+/// Returns [`InvalidPolicy`](crate::VtpmError::InvalidPolicy) when `body`
+/// violates command-specific constraints.
+pub fn vtpm_policy_command_from_parts(
+    cc: TpmCc,
+    body: Vec<u8>,
+) -> Result<Box<dyn VtpmPolicyCommand>, VtpmError> {
+    match cc {
+        TpmCc::PolicyAuthValue
+        | TpmCc::PolicyPassword
+        | TpmCc::PolicyGetDigest
+        | TpmCc::PolicyRestart
+        | TpmCc::PolicyPhysicalPresence => {
+            if !body.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+
+            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+        }
+        TpmCc::PolicyAuthorize => {
+            let (command, remainder) =
+                VtpmPolicyAuthorizeCommand::unmarshal(&body).map_err(VtpmError::Unmarshal)?;
+
+            if !remainder.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+
+            Ok(Box::new(command))
+        }
+        TpmCc::PolicySecret => {
+            let (command, remainder) =
+                VtpmPolicySecretCommand::unmarshal(&body).map_err(VtpmError::Unmarshal)?;
+
+            if !remainder.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+
+            Ok(Box::new(command))
+        }
+        TpmCc::PolicyPcr => {
+            let (pcr_digest, rest) =
+                Tpm2bDigest::unmarshal(body.as_slice()).map_err(VtpmError::Unmarshal)?;
+            let (pcrs, rest) = TpmlPcrSelection::unmarshal(rest).map_err(VtpmError::Unmarshal)?;
+            if !rest.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+            let _ = (pcr_digest, pcrs);
+            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+        }
+        TpmCc::PolicyOr => {
+            let (p_hash_list, rest) =
+                TpmlDigest::unmarshal(body.as_slice()).map_err(VtpmError::Unmarshal)?;
+            if !rest.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+            let _ = p_hash_list;
+            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+        }
+        _ => Err(VtpmError::InvalidCc(cc)),
+    }
+}
+
 /// Constructs a `VtpmPolicyCommand` from a typed TPM policy command.
 ///
 /// # Errors
