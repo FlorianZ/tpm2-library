@@ -122,9 +122,10 @@ impl Create {
                 names: HashMap::new(),
             };
 
-            let tmp_ast = TpmPolicyExpression::new(expression, &tmp_policy_context)?;
+            let mut ast = TpmPolicyExpression::new(expression, &tmp_policy_context)?;
+
             let mut handles = HashSet::new();
-            visit_secret_handles(&tmp_ast, &mut handles)?;
+            visit_secret_handles(&ast, &mut handles)?;
 
             let mut names = HashMap::new();
             for &handle in &handles {
@@ -138,7 +139,6 @@ impl Create {
                 names,
             };
 
-            let mut ast = TpmPolicyExpression::new(expression, &policy_context)?;
             let session_hash_alg = self.algorithm.name_alg;
 
             resolve_pcr_digests(task_state, device, &mut ast, session_hash_alg, &banks)?;
