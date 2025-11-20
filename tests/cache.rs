@@ -83,7 +83,7 @@ mod tests {
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
 
         let parent_vhandle = cache
-            .save_context(
+            .save_key(
                 TpmsContext {
                     sequence: 0,
                     saved_handle: TpmHandle::default(),
@@ -98,7 +98,7 @@ mod tests {
             .expect("Failed to save parent");
 
         let child_vhandle = cache
-            .save_context(
+            .save_key(
                 child_context.clone(),
                 &child_public,
                 &parent_public,
@@ -204,7 +204,7 @@ mod tests {
         assert!(matches!(err, VtpmError::HandleNotFound(_)));
 
         let h1 = cache
-            .save_context(
+            .save_key(
                 TpmsContext {
                     sequence: 0,
                     saved_handle: TpmHandle::default(),
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(h1, 0x8000_0000, "First handle was not 0x8000_0000");
 
         let h2 = cache
-            .save_context(
+            .save_key(
                 TpmsContext {
                     sequence: 0,
                     saved_handle: TpmHandle::default(),
@@ -242,7 +242,7 @@ mod tests {
         );
 
         let h3 = cache
-            .save_context(
+            .save_key(
                 TpmsContext {
                     sequence: 0,
                     saved_handle: TpmHandle::default(),
@@ -362,7 +362,7 @@ mod tests {
             VtpmCache::new(cache_path, persistent_keys).expect("Failed to create cache");
 
         let child_vhandle = cache
-            .save_context(child_context, &child_public, &parent_public, false, &None)
+            .save_key(child_context, &child_public, &parent_public, false, &None)
             .expect("Failed to save child context");
 
         if has_persistent_parent {
@@ -439,7 +439,7 @@ mod tests {
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
 
         let child_vhandle = cache
-            .save_context(
+            .save_key(
                 child_context,
                 &child_public,
                 &null_parent,

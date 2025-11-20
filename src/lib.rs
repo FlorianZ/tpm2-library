@@ -672,14 +672,14 @@ impl<'a> VtpmCache<'a> {
         }
     }
 
-    /// Saves a new key context.
+    /// Creates a new [`VtpmKey`](crate::VtpmKey) instance and saves the given
+    /// context to the cache together with its associated metadata.
     ///
     /// # Errors
     ///
     /// Returns [`NoHandles`](crate::VtpmError::NoHandles) when no free VTPM
     /// handle slot is found.
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn save_context(
+    pub fn save_key(
         &mut self,
         context: TpmsContext,
         public: &TpmtPublic,
