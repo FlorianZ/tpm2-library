@@ -287,8 +287,8 @@ impl VtpmKey {
     }
 
     fn delete(&self, cache_dir: &Path) -> Result<(), VtpmError> {
-        let vhandle = self.handle.0;
-        let path = cache_dir.join(format!("{vhandle:08x}.bin"));
+        let virtual_handle = self.handle.0;
+        let path = cache_dir.join(format!("{virtual_handle:08x}.bin"));
         if let Err(e) = fs::remove_file(path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 return Err(e.into());
@@ -483,7 +483,7 @@ pub struct VtpmCache<'a> {
     cache_dir: &'a Path,
 
     /// Next available virtual handle.
-    next_vhandle: u32,
+    next_virtual_handle: u32,
 }
 
 impl<'a> VtpmCache<'a> {
@@ -507,14 +507,14 @@ impl<'a> VtpmCache<'a> {
             handles,
             dirty: HashSet::new(),
             cache_dir,
-            next_vhandle: TRANSIENT_START,
+            next_virtual_handle: TRANSIENT_START,
         };
         cache.load()?;
 
         if let Some(max_handle) = cache.contexts.keys().max() {
-            if *max_handle >= cache.next_vhandle {
+            if *max_handle >= cache.next_virtual_handle {
                 let next = max_handle.wrapping_add(1);
-                cache.next_vhandle = if next > TRANSIENT_END {
+                cache.next_virtual_handle = if next > TRANSIENT_END {
                     TRANSIENT_START
                 } else {
                     next
@@ -558,16 +558,16 @@ impl<'a> VtpmCache<'a> {
     /// # Errors
     ///
     /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) when
-    /// no context with the given `vhandle` exists.
-    pub fn find_by_vhandle(&self, vhandle: u32) -> Result<&VtpmKey, VtpmError> {
+    /// no context with the given `virtual_handle` exists.
+    pub fn find_by_virtual_handle(&self, virtual_handle: TpmHandle) -> Result<&VtpmKey, VtpmError> {
         self.contexts
-            .get(&vhandle)
-            .ok_or(VtpmError::HandleNotFound(TpmHandle(vhandle)))
+            .get(&virtual_handle.0)
+            .ok_or(VtpmError::HandleNotFound(virtual_handle))
     }
 
     /// Finds the ancestor chain for a given VTPM handle.
     ///
-    /// Traverses up the parent hierarchy from the target `vhandle`, checking
+    /// Traverses up the parent hierarchy from the target `virtual_handle`, checking
     /// both the cache and persistent TPM handles, until it finds the root. The
     /// root can be a persistent physical handle or a non-persistent primary key
     /// stored in the VTPM cache.
@@ -580,29 +580,35 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`Marshal`](crate::VtpmError::Marshal) when serializing a
     /// public key fails.
     /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) when the
-    /// `target_vhandle` does not exist in the cache.
+    /// `target_virtual_handle` does not exist in the cache.
     /// Returns [`ParentNotFound`](crate::VtpmError::ParentNotFound) when an
     /// intermediate parent cannot be found in the cache or as a persistent
     /// handle.
-    pub fn fetch_ancestor_chain(&self, target_vhandle: u32) -> Result<Vec<VtpmHandle>, VtpmError> {
-        let mut current_vhandle = target_vhandle;
-        let mut vtp_chain: VecDeque<VtpmHandle> = VecDeque::new();
+    pub fn fetch_ancestor_chain(
+        &self,
+        target_virtual_handle: TpmHandle,
+    ) -> Result<Vec<VtpmHandle>, VtpmError> {
+        let mut current_virtual_handle = target_virtual_handle;
+        let mut chain: VecDeque<VtpmHandle> = VecDeque::new();
         let mut physical_primary: Option<VtpmHandle> = None;
 
         loop {
-            let key = self.find_by_vhandle(current_vhandle)?;
+            let key = self.find_by_virtual_handle(current_virtual_handle)?;
 
             if key.parent.object_type == TpmAlgId::Null {
                 break;
             }
 
-            if let Some((&parent_vhandle, _)) = self
+            if let Some((&parent_virtual_handle, _)) = self
                 .contexts
                 .iter()
                 .find(|(_, parent_key)| parent_key.public == key.parent)
             {
-                vtp_chain.push_front(VtpmHandle::new(VtpmHandleClass::Vtpm, current_vhandle));
-                current_vhandle = parent_vhandle;
+                chain.push_front(VtpmHandle::new(
+                    VtpmHandleClass::Vtpm,
+                    current_virtual_handle.0,
+                ));
+                current_virtual_handle = TpmHandle(parent_virtual_handle);
             } else {
                 let parent_name =
                     tpm_make_name(&key.parent).map_err(|_| VtpmError::OperationFailed)?;
@@ -618,9 +624,12 @@ impl<'a> VtpmCache<'a> {
             }
         }
 
-        vtp_chain.push_front(VtpmHandle::new(VtpmHandleClass::Vtpm, current_vhandle));
+        chain.push_front(VtpmHandle::new(
+            VtpmHandleClass::Vtpm,
+            current_virtual_handle.0,
+        ));
 
-        let mut final_chain: Vec<VtpmHandle> = vtp_chain.into();
+        let mut final_chain: Vec<VtpmHandle> = chain.into();
 
         if let Some(root_handle) = physical_primary {
             final_chain.insert(0, root_handle);
@@ -636,18 +645,18 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`Io`](crate::VtpmError::Io) when removing a cache file fails.
     /// Returns [`Marshal`](crate::VtpmError::Marshal) when serializing parent
     /// keys during subtree removal fails.
-    pub fn remove(&mut self, vhandle: u32) -> Result<Vec<u32>, VtpmError> {
+    pub fn remove(&mut self, virtual_handle: u32) -> Result<Vec<u32>, VtpmError> {
         let mut deleted_handles = Vec::new();
 
-        if let Some(key) = self.contexts.get(&vhandle) {
+        if let Some(key) = self.contexts.get(&virtual_handle) {
             key.delete(self.cache_dir())?;
         } else {
             return Ok(deleted_handles);
         }
 
-        if let Some(key) = self.contexts.remove(&vhandle) {
-            deleted_handles.push(vhandle);
-            self.dirty.remove(&vhandle);
+        if let Some(key) = self.contexts.remove(&virtual_handle) {
+            deleted_handles.push(virtual_handle);
+            self.dirty.remove(&virtual_handle);
 
             let deleted_children = self.remove_subtree(&key.public)?;
             deleted_handles.extend(deleted_children);
@@ -692,18 +701,18 @@ impl<'a> VtpmCache<'a> {
         policy: &Option<Vec<Box<dyn VtpmPolicyCommand>>>,
     ) -> Result<u32, VtpmError> {
         for i in 0..TRANSIENT_COUNT {
-            let vhandle = self.next_vhandle.wrapping_add(i);
+            let virtual_handle = self.next_virtual_handle.wrapping_add(i);
 
-            let vhandle = if vhandle > TRANSIENT_END {
-                TRANSIENT_START + (vhandle - TRANSIENT_END - 1)
+            let virtual_handle = if virtual_handle > TRANSIENT_END {
+                TRANSIENT_START + (virtual_handle - TRANSIENT_END - 1)
             } else {
-                vhandle
+                virtual_handle
             };
 
-            if let Entry::Vacant(e) = self.contexts.entry(vhandle) {
+            if let Entry::Vacant(e) = self.contexts.entry(virtual_handle) {
                 let key = VtpmKey {
                     version: VERSION,
-                    handle: TpmHandle(vhandle),
+                    handle: TpmHandle(virtual_handle),
                     public: public.clone(),
                     parent: parent_public.clone(),
                     context,
@@ -711,24 +720,24 @@ impl<'a> VtpmCache<'a> {
                     policy: policy.clone().unwrap_or_default(),
                 };
                 e.insert(key);
-                self.dirty.insert(vhandle);
+                self.dirty.insert(virtual_handle);
 
-                let next = vhandle.wrapping_add(1);
-                self.next_vhandle = if next > TRANSIENT_END {
+                let next = virtual_handle.wrapping_add(1);
+                self.next_virtual_handle = if next > TRANSIENT_END {
                     TRANSIENT_START
                 } else {
                     next
                 };
 
-                return Ok(vhandle);
+                return Ok(virtual_handle);
             }
         }
         Err(VtpmError::NoHandles)
     }
 
     /// Marks a context as dirty.
-    pub fn mark_dirty(&mut self, vhandle: u32) {
-        self.dirty.insert(vhandle);
+    pub fn mark_dirty(&mut self, virtual_handle: u32) {
+        self.dirty.insert(virtual_handle);
     }
 
     /// Returns an iterator over the key contexts.
@@ -751,16 +760,16 @@ impl<'a> VtpmCache<'a> {
             let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
                 continue;
             };
-            let Ok(vhandle) = u32::from_str_radix(stem, 16) else {
+            let Ok(virtual_handle) = u32::from_str_radix(stem, 16) else {
                 log::warn!("invalid vtpm handle: {}", path.display());
                 continue;
             };
 
-            let ht = (vhandle >> 24) as u8;
+            let ht = (virtual_handle >> 24) as u8;
             if ht == TpmHt::Transient as u8 {
                 match VtpmKey::load(&path) {
                     Ok(key) => {
-                        self.contexts.insert(vhandle, key);
+                        self.contexts.insert(virtual_handle, key);
                     }
                     Err(VtpmError::StaleHandle) => {
                         log::debug!("removing stale vtpm file: {}", path.display());
@@ -789,17 +798,17 @@ impl<'a> VtpmCache<'a> {
     }
 
     fn save(&mut self) -> Result<(), VtpmError> {
-        let vhandles_to_save: Vec<u32> = self.dirty.iter().copied().collect();
+        let virtual_handles_to_save: Vec<u32> = self.dirty.iter().copied().collect();
 
-        for vhandle in vhandles_to_save {
-            match self.contexts.get(&vhandle) {
+        for virtual_handle in virtual_handles_to_save {
+            match self.contexts.get(&virtual_handle) {
                 Some(context) => {
-                    let path = self.cache_dir().join(format!("{vhandle:08x}.bin"));
+                    let path = self.cache_dir().join(format!("{virtual_handle:08x}.bin"));
                     context.save(&path)?;
-                    self.dirty.remove(&vhandle);
+                    self.dirty.remove(&virtual_handle);
                 }
                 None => {
-                    self.dirty.remove(&vhandle);
+                    self.dirty.remove(&virtual_handle);
                 }
             }
         }
@@ -809,12 +818,12 @@ impl<'a> VtpmCache<'a> {
 
     fn remove_subtree(&mut self, first_public: &TpmtPublic) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
-        for (vhandle, key) in self.key_iter() {
+        for (virtual_handle, key) in self.key_iter() {
             let parent_key_bytes = tpm_marshal_array(&[&key.parent])?;
             parent_to_children
                 .entry(parent_key_bytes)
                 .or_default()
-                .push((*vhandle, key.public.clone()));
+                .push((*virtual_handle, key.public.clone()));
         }
 
         let mut ancestor_list = VecDeque::new();
@@ -824,13 +833,13 @@ impl<'a> VtpmCache<'a> {
         while let Some(parent_public) = ancestor_list.pop_front() {
             let parent_key_bytes = tpm_marshal_array(&[&parent_public])?;
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
-                for (child_vhandle, child_public) in children_to_process.clone() {
-                    if let Some(context) = self.contexts.get(&child_vhandle) {
+                for (child_virtual_handle, child_public) in children_to_process.clone() {
+                    if let Some(context) = self.contexts.get(&child_virtual_handle) {
                         context.delete(self.cache_dir())?;
 
-                        if self.contexts.remove(&child_vhandle).is_some() {
-                            self.dirty.remove(&child_vhandle);
-                            deleted_children.push(child_vhandle);
+                        if self.contexts.remove(&child_virtual_handle).is_some() {
+                            self.dirty.remove(&child_virtual_handle);
+                            deleted_children.push(child_virtual_handle);
                             ancestor_list.push_back(child_public);
                         }
                     }

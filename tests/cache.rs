@@ -118,12 +118,12 @@ mod tests {
         );
 
         let parent_key = cache
-            .find_by_vhandle(parent_vhandle)
+            .find_by_virtual_handle(TpmHandle(parent_vhandle))
             .expect("Failed to find parent by vhandle");
         assert_eq!(parent_key.public, parent_public);
 
         let child_key = cache
-            .find_by_vhandle(child_vhandle)
+            .find_by_virtual_handle(TpmHandle(child_vhandle))
             .expect("Failed to find child by vhandle");
         assert_eq!(child_key.public, child_public);
         assert_eq!(child_key.context, child_context);
@@ -135,11 +135,13 @@ mod tests {
             .expect("Failed to find child by name");
         assert_eq!(child_key_name.handle.0, child_vhandle);
 
-        let key = cache.find_by_vhandle(child_vhandle).unwrap();
+        let key = cache
+            .find_by_virtual_handle(TpmHandle(child_vhandle))
+            .unwrap();
         let policy_bytes = &Vec::<u8>::try_from(key).unwrap();
 
         let (count, remainder) =
-            u32::unmarshal(&policy_bytes).expect("Failed to unmarshal policy header");
+            u32::unmarshal(policy_bytes).expect("Failed to unmarshal policy header");
         assert_eq!(count, 0, "Expected empty policy list");
         assert!(
             remainder.is_empty(),
@@ -147,7 +149,7 @@ mod tests {
         );
 
         let chain = cache
-            .fetch_ancestor_chain(child_vhandle)
+            .fetch_ancestor_chain(TpmHandle(child_vhandle))
             .expect("Failed to fetch ancestor chain");
         assert_eq!(chain.len(), 2);
         assert_eq!(
@@ -197,10 +199,16 @@ mod tests {
         let cache_path = cache_dir.path();
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
 
-        let err = cache.find_by_vhandle(0x8000_0000).err().unwrap();
+        let err = cache
+            .find_by_virtual_handle(TpmHandle(0x8000_0000))
+            .err()
+            .unwrap();
         assert!(matches!(err, VtpmError::HandleNotFound(_)));
 
-        let err = cache.fetch_ancestor_chain(0x8000_0000).err().unwrap();
+        let err = cache
+            .fetch_ancestor_chain(TpmHandle(0x8000_0000))
+            .err()
+            .unwrap();
         assert!(matches!(err, VtpmError::HandleNotFound(_)));
 
         let h1 = cache
@@ -237,7 +245,7 @@ mod tests {
 
         cache.remove(h1).expect("Failed to remove h1");
         assert!(
-            cache.find_by_vhandle(h1).is_err(),
+            cache.find_by_virtual_handle(TpmHandle(h1)).is_err(),
             "h1 was not removed from map"
         );
 
@@ -367,7 +375,7 @@ mod tests {
 
         if has_persistent_parent {
             let chain = cache
-                .fetch_ancestor_chain(child_vhandle)
+                .fetch_ancestor_chain(TpmHandle(child_vhandle))
                 .expect("Failed to fetch ancestor chain with persistent root");
             assert_eq!(chain.len(), 2);
             assert_eq!(
@@ -382,7 +390,7 @@ mod tests {
             );
         } else {
             let err = cache
-                .fetch_ancestor_chain(child_vhandle)
+                .fetch_ancestor_chain(TpmHandle(child_vhandle))
                 .expect_err("Expected fetch_ancestor_chain to fail");
             assert!(matches!(err, VtpmError::ParentNotFound));
         }
@@ -453,7 +461,7 @@ mod tests {
 
         let cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to reload cache");
         let key = cache
-            .find_by_vhandle(child_vhandle)
+            .find_by_virtual_handle(TpmHandle(child_vhandle))
             .expect("Failed to find child by vhandle after reload");
 
         assert_eq!(
