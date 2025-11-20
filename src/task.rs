@@ -10,11 +10,9 @@ use std::{
     io,
     num::TryFromIntError,
     rc::Rc,
-    time::Duration,
 };
 
 use hex;
-use indicatif::ProgressBar;
 use rand::{thread_rng, RngCore};
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
@@ -37,6 +35,12 @@ use tpm2_vtpm::{
 };
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
+
+/// Interface for reporting progress of long-running TPM operations.
+pub trait TaskStateProgress {
+    fn start(&self);
+    fn stop(&self);
+}
 
 /// Manages the state of an active authorization session.
 #[derive(Debug, Clone)]
@@ -199,6 +203,7 @@ pub enum TaskError {
 pub struct TaskState<'a> {
     pub device: Option<Rc<RefCell<TpmDevice>>>,
     pub cache: VtpmCache<'a>,
+    pub progress: Option<Box<dyn TaskStateProgress>>,
     /// Holds all temporary sessions, indexed by their vhandle.
     pub sessions: HashMap<u32, TaskSession>,
     /// Holds all temporary physical handles (loaded keys + sessions) to be
@@ -209,10 +214,15 @@ pub struct TaskState<'a> {
 impl<'a> TaskState<'a> {
     /// Creates a new `Session`.
     #[must_use]
-    pub fn new(device: Option<Rc<RefCell<TpmDevice>>>, cache: VtpmCache<'a>) -> Self {
+    pub fn new(
+        device: Option<Rc<RefCell<TpmDevice>>>,
+        cache: VtpmCache<'a>,
+        progress: Option<Box<dyn TaskStateProgress>>,
+    ) -> Self {
         Self {
             device,
             cache,
+            progress,
             sessions: HashMap::new(),
             physical_handles_to_flush: HashMap::new(),
         }
@@ -864,23 +874,24 @@ impl<'a> TaskState<'a> {
             self.track_handle(handle)?;
         }
 
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_message("Waiting for TPM...");
-        spinner.enable_steady_tick(Duration::from_millis(100));
+        if let Some(p) = &self.progress {
+            p.start();
+        }
 
         let sessions = self.build_auth_area(&effective_auth_list)?;
 
-        let (resp, auth_responses) = match device.transmit(command, &sessions) {
-            Ok((resp, auth_responses)) => {
-                spinner.finish_and_clear();
-                (resp, auth_responses)
-            }
+        let result = device.transmit(command, &sessions);
+
+        if let Some(p) = &self.progress {
+            p.stop();
+        }
+
+        let (resp, auth_responses) = match result {
+            Ok((resp, auth_responses)) => (resp, auth_responses),
             Err(TpmDeviceError::TpmRc(rc)) => {
-                spinner.finish_and_clear();
                 return Err(TaskError::Device(TpmDeviceError::TpmRc(rc)));
             }
             Err(err) => {
-                spinner.finish_and_clear();
                 return Err(TaskError::Device(err));
             }
         };

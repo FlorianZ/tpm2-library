@@ -16,16 +16,17 @@ pub mod template;
 use crate::{
     cli::{Task, TopLevel},
     command::CommandError,
-    task::TaskState,
+    task::{TaskState, TaskStateProgress},
 };
 
 use std::{
     cell::RefCell, collections::HashMap, fs, io::IsTerminal, path::PathBuf, process, rc::Rc,
-    sync::atomic::Ordering,
+    sync::atomic::Ordering, time::Duration,
 };
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
+use indicatif::ProgressBar;
 use tpm2_device::TpmDevice;
 use tpm2_vtpm::VtpmCache;
 use tracing_subscriber::EnvFilter;
@@ -36,6 +37,19 @@ use tracing_subscriber::EnvFilter;
 /// operation and perform necessary teardown (e.g., flushing TPM contexts)
 /// before exiting.
 pub static TEARDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+struct CliProgress(ProgressBar);
+
+impl TaskStateProgress for CliProgress {
+    fn start(&self) {
+        self.0.set_message("Waiting for TPM...");
+        self.0.enable_steady_tick(Duration::from_millis(100));
+    }
+
+    fn stop(&self) {
+        self.0.finish_and_clear();
+    }
+}
 
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
 /// external signal indexed by the signal number.
@@ -119,6 +133,12 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
     let mut stdout = std::io::stdout();
     let is_tty = stdout.is_terminal();
 
-    let mut job = TaskState::new(shared_device, cache);
+    let progress: Option<Box<dyn TaskStateProgress>> = if is_tty {
+        Some(Box::new(CliProgress(ProgressBar::new_spinner())))
+    } else {
+        None
+    };
+
+    let mut job = TaskState::new(shared_device, cache, progress);
     cli.command.run(&mut job, &mut stdout, is_tty)
 }
