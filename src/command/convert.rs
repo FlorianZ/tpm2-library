@@ -21,7 +21,7 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
-        TpmCc, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
+        TpmCc, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     frame::TpmImportCommand,
     TpmHandle, TpmMarshal, TpmWriter,
@@ -253,13 +253,21 @@ impl Convert {
 
         match TpmRsaPublicKey::from_der(&der_bytes) {
             Ok((public_key, sensitive)) => {
-                let public = public_key.to_public(name_alg, symmetric);
+                let public = public_key.to_public(
+                    name_alg,
+                    TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
+                    symmetric,
+                );
                 Ok((public, sensitive))
             }
             Err(TpmCryptoError::InvalidRsaParameters) => {
                 let (public_key, sensitive) =
                     TpmEccPublicKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
-                let public = public_key.to_public(name_alg, symmetric);
+                let public = public_key.to_public(
+                    name_alg,
+                    TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
+                    symmetric,
+                );
                 Ok((public, sensitive))
             }
             Err(e) => Err(CommandError::Crypto(e)),
