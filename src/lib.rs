@@ -567,41 +567,6 @@ impl TpmDevice {
         Ok((public, name))
     }
 
-    /// Finds a persistent handle by its public area.
-    ///
-    /// # Errors
-    ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`fetch_handles`](TpmDevice::fetch_handles) and
-    /// [`read_public`](TpmDevice::read_public), except for TPM reference and
-    /// handle errors with base
-    /// [`ReferenceH0`](tpm2_protocol::data::TpmRcBase::ReferenceH0) or
-    /// [`Handle`](tpm2_protocol::data::TpmRcBase::Handle), which are treated as
-    /// invalid handles and skipped.
-    pub fn find_persistent(
-        &mut self,
-        target: &TpmtPublic,
-    ) -> Result<Option<(TpmHandle, Tpm2bName)>, TpmDeviceError> {
-        for handle in self.fetch_handles(TpmHt::Persistent)? {
-            match self.read_public(handle) {
-                Ok((public, name)) => {
-                    if public == *target {
-                        return Ok(Some((handle, name)));
-                    }
-                }
-                Err(TpmDeviceError::TpmRc(rc)) => {
-                    let base = rc.base();
-                    if base == TpmRcBase::ReferenceH0 || base == TpmRcBase::Handle {
-                        continue;
-                    }
-                    return Err(TpmDeviceError::TpmRc(rc));
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(None)
-    }
-
     /// Finds a persistent handle by its `Tpm2bName`.
     ///
     /// # Errors
@@ -615,7 +580,7 @@ impl TpmDevice {
     /// invalid handles and skipped. Returns
     /// [`InvalidCrypto`](crate::TpmDeviceError::Crypto) when computing the
     /// calculated name with [`tpm_make_name`](tpm_make_name) fails.
-    pub fn find_persistent_by_name(
+    pub fn find_persistent(
         &mut self,
         target_name: &Tpm2bName,
     ) -> Result<Option<TpmHandle>, TpmDeviceError> {
