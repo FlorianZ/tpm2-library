@@ -183,8 +183,8 @@ impl TpmHash {
         context_b: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
-        let mut key_stream = Vec::new();
         let key_bytes = (key_bits as usize).div_ceil(8);
+        let mut key_stream = Vec::with_capacity(key_bytes);
 
         let mut counter: u32 = 1;
         let key_bits_bytes = u32::from(key_bits).to_be_bytes();
@@ -228,8 +228,8 @@ impl TpmHash {
         context_v: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
-        let mut key_stream = Vec::new();
         let key_bytes = (key_bits as usize).div_ceil(8);
+        let mut key_stream = Vec::with_capacity(key_bytes);
 
         let (label_data, terminator) = if label.as_bytes().last() == Some(&0) {
             (label.as_bytes(), &[][..])
