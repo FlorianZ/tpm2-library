@@ -28,11 +28,8 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
     TpmHandle,
 };
-use tpm2_tpmkey::{
-    vtpm_policy_command_from, TpmKey as TpmKeyFile, TpmKeyPolicy, VtpmPolicyCommand,
-    OID_LOADABLE_KEY, OID_SEALED_DATA,
-};
-use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
+use tpm2_tpmkey::{TpmKey as TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
+use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand};
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
@@ -241,7 +238,7 @@ impl Create {
         let empty_auth = is_empty_auth(&create_resp.out_public.inner);
 
         let tpm_key_policy = if let Some(commands) = &policy_commands {
-            let mut policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
+            let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
             for (cmd, _) in commands {
                 let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
                     let (_, name) = device.read_public(inner.handles[0])?;
@@ -249,7 +246,15 @@ impl Create {
                 } else {
                     Tpm2bName::default()
                 };
-                policy.push(vtpm_policy_command_from(cmd, &object_name)?);
+                vtpm_policy.push(vtpm_policy_command_from(cmd, &object_name)?);
+            }
+
+            let mut policy: Vec<TpmKeyPolicyCommand> = Vec::new();
+            for cmd in vtpm_policy {
+                policy.push(TpmKeyPolicyCommand {
+                    cc: cmd.cc(),
+                    body: cmd.body(),
+                });
             }
 
             Some(TpmKeyPolicy { name: None, policy })
@@ -257,10 +262,10 @@ impl Create {
             None
         };
 
-        let oid = if matches!(self.algorithm.params, AlgInfo::KeyedHash) {
-            OID_SEALED_DATA
+        let kind = if matches!(self.algorithm.params, AlgInfo::KeyedHash) {
+            TpmKeyType::SealedData
         } else {
-            OID_LOADABLE_KEY
+            TpmKeyType::Loadable
         };
 
         let tpm_key = TpmKeyFile {
@@ -273,7 +278,7 @@ impl Create {
             auth_policy: None,
             secret: None,
             description: None,
-            oid,
+            kind,
         };
 
         write_key_data(

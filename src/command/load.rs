@@ -18,7 +18,7 @@ use tpm2_protocol::{
     TpmHandle, TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKey;
-use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
+use tpm2_vtpm::{vtpm_policy_command_from_parts, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand};
 
 /// Loads a PEM or DER TPMKey file to cache.
 #[derive(Args, Debug)]
@@ -107,11 +107,9 @@ impl Task for Load {
                         count.marshal(&mut writer).map_err(CommandError::Marshal)?;
 
                         for cmd in &policy.policy {
-                            cmd.cc()
-                                .marshal(&mut writer)
-                                .map_err(CommandError::Marshal)?;
+                            cmd.cc.marshal(&mut writer).map_err(CommandError::Marshal)?;
 
-                            let body = cmd.body();
+                            let body = cmd.body.clone();
                             let body_len = u32::try_from(body.len())?;
 
                             body_len
@@ -122,9 +120,9 @@ impl Task for Load {
                         writer.len()
                     };
                     buf.truncate(len);
-                    let mut policy_vec = Vec::new();
+                    let mut policy_vec: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
                     for cmd in &policy.policy {
-                        policy_vec.push(cmd.box_clone());
+                        policy_vec.push(vtpm_policy_command_from_parts(cmd.cc, &cmd.body)?);
                     }
                     Some(policy_vec)
                 } else {

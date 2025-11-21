@@ -477,8 +477,8 @@ impl<'a> TaskState<'a> {
                 auths.try_push(auth).map_err(|_| TaskError::OutOfMemory)?;
                 (tpm_cmd, auths)
             } else {
-                let policy_cmd = vtpm_policy_command_from_parts(cc, body_blob.to_vec())
-                    .map_err(TaskError::Vtpm)?;
+                let policy_cmd =
+                    vtpm_policy_command_from_parts(cc, body_blob).map_err(TaskError::Vtpm)?;
                 let tpm_cmd = policy_cmd.to_command().map_err(TaskError::Vtpm)?;
                 (tpm_cmd, TpmAuthCommands::new())
             };
