@@ -173,7 +173,7 @@ impl TpmDeviceBuilder {
             interrupted: self.interrupted,
             timeout: self.timeout,
             command: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
-            response: vec![0; TPM_MAX_COMMAND_SIZE as usize],
+            response: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
         })
     }
 }
@@ -206,8 +206,8 @@ impl TpmDevice {
         TpmDeviceBuilder::default()
     }
 
-    fn receive(file: &mut File, buf: &mut [u8]) -> Result<usize, TpmDeviceError> {
-        let fd = file.as_fd();
+    fn receive(&mut self, buf: &mut [u8]) -> Result<usize, TpmDeviceError> {
+        let fd = self.file.as_fd();
         let mut fds = [PollFd::new(fd, PollFlags::POLLIN)];
 
         let num_events = match poll(&mut fds, 100u16) {
@@ -227,7 +227,7 @@ impl TpmDevice {
         }
 
         if revents.contains(PollFlags::POLLIN) {
-            match file.read(buf) {
+            match self.file.read(buf) {
                 Ok(0) => Err(TpmDeviceError::UnexpectedEof),
                 Ok(n) => Ok(n),
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
@@ -273,8 +273,9 @@ impl TpmDevice {
         self.file.flush()?;
 
         let start_time = Instant::now();
-        let mut read_offset = 0;
+        self.response.clear();
         let mut total_size: Option<usize> = None;
+        let mut temp_buf = [0u8; 1024];
 
         loop {
             if (self.interrupted)() {
@@ -284,12 +285,12 @@ impl TpmDevice {
                 return Err(TpmDeviceError::Timeout);
             }
 
-            let n = Self::receive(&mut self.file, &mut self.response[read_offset..])?;
+            let n = self.receive(&mut temp_buf)?;
             if n > 0 {
-                read_offset += n;
+                self.response.extend_from_slice(&temp_buf[..n]);
             }
 
-            if total_size.is_none() && read_offset >= 10 {
+            if total_size.is_none() && self.response.len() >= 10 {
                 let Ok(size_bytes): Result<[u8; 4], _> = self.response[2..6].try_into() else {
                     return Err(TpmDeviceError::InvalidResponse);
                 };
@@ -301,18 +302,17 @@ impl TpmDevice {
             }
 
             if let Some(size) = total_size {
-                if read_offset == size {
+                if self.response.len() == size {
                     break;
                 }
-                if read_offset > size {
+                if self.response.len() > size {
                     return Err(TpmDeviceError::InvalidResponse);
                 }
             }
         }
 
-        let response_data = &self.response[..read_offset];
-        let result = tpm_unmarshal_response(cc, response_data).map_err(TpmDeviceError::Unmarshal);
-        trace!("{} R: {}", cc, hex::encode(response_data));
+        let result = tpm_unmarshal_response(cc, &self.response).map_err(TpmDeviceError::Unmarshal);
+        trace!("{} R: {}", cc, hex::encode(&self.response));
         Ok(result??)
     }
 
@@ -328,10 +328,15 @@ impl TpmDevice {
             TpmSt::Sessions
         };
 
-        self.command.clear();
-        let mut writer = TpmWriter::new(&mut self.command);
-        tpm_marshal_command(command, tag, sessions, &mut writer)
-            .map_err(TpmDeviceError::Marshal)?;
+        self.command.resize(TPM_MAX_COMMAND_SIZE as usize, 0);
+
+        let len = {
+            let mut writer = TpmWriter::new(&mut self.command);
+            tpm_marshal_command(command, tag, sessions, &mut writer)
+                .map_err(TpmDeviceError::Marshal)?;
+            writer.len()
+        };
+        self.command.truncate(len);
 
         trace!("{} C: {}", cc, hex::encode(&self.command));
         Ok(())
