@@ -87,12 +87,15 @@ pub fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError>
     Ok(buf)
 }
 
-/// Parses a hexadecimal string with an optional "0x" prefix into a `u32`.
+/// Parses a string as a u32, supporting decimal (default) or hexadecimal ("0x" prefix).
 ///
 /// # Errors
 ///
-/// Returns an error if the string is not a valid hexadecimal number.
-pub fn parse_hex_u32(hex_str: &str) -> Result<u32, std::num::ParseIntError> {
-    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    u32::from_str_radix(hex_str, 16)
+/// Returns an error if the string is not a valid number.
+pub fn parse_u32(s: &str) -> Result<u32, std::num::ParseIntError> {
+    if let Some(stripped) = s.strip_prefix("0x") {
+        u32::from_str_radix(stripped, 16)
+    } else {
+        s.parse::<u32>()
+    }
 }

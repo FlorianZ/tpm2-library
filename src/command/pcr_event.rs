@@ -4,7 +4,7 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
-    io::{parse_hex_u32, read_file_input},
+    io::{parse_u32, read_file_input},
     pcr::pcr_get_bank_list,
     task::TaskState,
 };
@@ -18,7 +18,7 @@ use tpm2_protocol::{
 };
 
 fn parse_pcr_index(handle_str: &str) -> Result<TpmHandle, String> {
-    parse_hex_u32(handle_str)
+    parse_u32(handle_str)
         .map(TpmHandle)
         .map_err(|_| "malformed value".to_string())
 }
