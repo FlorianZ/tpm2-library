@@ -26,7 +26,7 @@ use tpm2_protocol::{
         Tpm2bData, Tpm2bDigest, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData,
         TpmAlgId, TpmCc, TpmHt, TpmlPcrSelection, TpmsSensitiveCreate,
     },
-    frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
+    frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand, TpmCreateResponse},
     TpmHandle,
 };
 use tpm2_tpmkey::{TpmKey as TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
@@ -202,6 +202,70 @@ impl Create {
         Ok((create_cmd, policy_commands))
     }
 
+    fn construct_tpm_key(
+        &self,
+        task_state: &TaskState,
+        device: &mut TpmDevice,
+        create_resp: TpmCreateResponse,
+        parent_phys_handle: TpmHandle,
+        policy_commands: Option<&PolicyCommands>,
+    ) -> Result<TpmKeyFile, CommandError> {
+        let (parent_public_data, _) = device.read_public(parent_phys_handle)?;
+        let parent_public_2b = Tpm2bPublic {
+            inner: parent_public_data,
+        };
+
+        let empty_auth = is_empty_auth(&create_resp.out_public.inner);
+
+        let tpm_key_policy = if let Some(commands) = policy_commands {
+            let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
+            for (cmd, _) in commands {
+                let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
+                    if let Ok(key) = task_state.cache.find_by_virtual_handle(inner.handles[0]) {
+                        tpm_make_name(&key.public)?
+                    } else {
+                        let (_, name) = device.read_public(inner.handles[0])?;
+                        name
+                    }
+                } else {
+                    Tpm2bName::default()
+                };
+                vtpm_policy.push(vtpm_policy_command_from(cmd, &object_name)?);
+            }
+
+            let mut policy: Vec<TpmKeyPolicyCommand> = Vec::new();
+            for cmd in vtpm_policy {
+                policy.push(TpmKeyPolicyCommand {
+                    cc: cmd.cc(),
+                    body: cmd.body(),
+                });
+            }
+
+            Some(TpmKeyPolicy { name: None, policy })
+        } else {
+            None
+        };
+
+        let kind = if matches!(self.algorithm.params, AlgInfo::KeyedHash) {
+            TpmKeyType::SealedData
+        } else {
+            TpmKeyType::Loadable
+        };
+
+        Ok(TpmKeyFile {
+            public: create_resp.out_public,
+            private: create_resp.out_private,
+            parent_handle: parent_phys_handle,
+            parent_public: Some(parent_public_2b),
+            empty_auth: if empty_auth { Some(true) } else { None },
+            policy: tpm_key_policy,
+            auth_policy: None,
+            secret: None,
+            description: None,
+            kind,
+        })
+    }
+
     fn create_object(
         &self,
         task_state: &mut TaskState,
@@ -241,60 +305,13 @@ impl Create {
             .Create()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
 
-        let (parent_public_data, _) = device.read_public(parent_phys_handle)?;
-        let parent_public_2b = Tpm2bPublic {
-            inner: parent_public_data,
-        };
-
-        let empty_auth = is_empty_auth(&create_resp.out_public.inner);
-
-        let tpm_key_policy = if let Some(commands) = &policy_commands {
-            let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
-            for (cmd, _) in commands {
-                let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
-                    if let Ok(key) = task_state.cache.find_by_virtual_handle(inner.handles[0]) {
-                        tpm_make_name(&key.public)?
-                    } else {
-                        let (_, name) = device.read_public(inner.handles[0])?;
-                        name
-                    }
-                } else {
-                    Tpm2bName::default()
-                };
-                vtpm_policy.push(vtpm_policy_command_from(cmd, &object_name)?);
-            }
-
-            let mut policy: Vec<TpmKeyPolicyCommand> = Vec::new();
-            for cmd in vtpm_policy {
-                policy.push(TpmKeyPolicyCommand {
-                    cc: cmd.cc(),
-                    body: cmd.body(),
-                });
-            }
-
-            Some(TpmKeyPolicy { name: None, policy })
-        } else {
-            None
-        };
-
-        let kind = if matches!(self.algorithm.params, AlgInfo::KeyedHash) {
-            TpmKeyType::SealedData
-        } else {
-            TpmKeyType::Loadable
-        };
-
-        let tpm_key = TpmKeyFile {
-            public: create_resp.out_public,
-            private: create_resp.out_private,
-            parent_handle: parent_phys_handle,
-            parent_public: Some(parent_public_2b),
-            empty_auth: if empty_auth { Some(true) } else { None },
-            policy: tpm_key_policy,
-            auth_policy: None,
-            secret: None,
-            description: None,
-            kind,
-        };
+        let tpm_key = self.construct_tpm_key(
+            task_state,
+            device,
+            create_resp,
+            parent_phys_handle,
+            policy_commands.as_ref(),
+        )?;
 
         write_key_data(
             writer,
