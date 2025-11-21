@@ -105,7 +105,6 @@ pub struct TpmKey {
     pub auth_policy: Option<Vec<TpmKeyPolicy>>,
     pub secret: Option<Vec<u8>>,
     pub description: Option<String>,
-    pub oid: rasn::prelude::ObjectIdentifier,
 }
 
 impl TpmKey {
@@ -230,8 +229,14 @@ impl TpmKey {
             .as_ref()
             .map(|list| list.iter().map(TpmAuthPolicyAsn1::from).collect::<Vec<_>>());
 
+        let oid = if self.secret.is_none() {
+            OID_LOADABLE_KEY.clone()
+        } else {
+            OID_IMPORTABLE_KEY.clone()
+        };
+
         Ok(TpmKeyAsn1 {
-            key_type: self.oid.clone(),
+            key_type: oid,
             empty_auth: self.empty_auth,
             policy: policy_asn1,
             secret: self
@@ -305,7 +310,6 @@ impl TpmKey {
             auth_policy,
             secret: asn1.secret.as_ref().map(|o| o.as_ref().to_vec()),
             description: asn1.description,
-            oid: asn1.key_type,
         })
     }
 }
@@ -476,7 +480,6 @@ mod tests {
             auth_policy: None,
             secret: None,
             description: None,
-            oid: OID_LOADABLE_KEY.clone(),
         }
     }
 
