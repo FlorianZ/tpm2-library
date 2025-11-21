@@ -116,7 +116,7 @@ impl TpmPublicKey for TpmRsaPublicKey {
                     details: TpmuAsymScheme::Hash(TpmsSchemeHash { hash_alg }),
                 },
                 key_bits: self.key_bits,
-                exponent: 0,
+                exponent: if self.e == 65537 { 0 } else { self.e },
             }),
             unique: TpmuPublicId::Rsa(self.n),
         }
