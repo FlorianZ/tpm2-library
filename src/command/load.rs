@@ -54,22 +54,10 @@ impl Task for Load {
                     .cloned()
                     .ok_or(CommandError::InvalidInput("parent missing".to_string()))?;
 
-                let parent_handle = Self::fetch_parent(task_state, device, &parent_public)?;
+                let parent_handle_ref = Self::fetch_parent(task_state, device, &parent_public)?;
 
-                let parent_vhandle_opt = task_state
-                    .cache
-                    .key_iter()
-                    .find(|(_, key)| key.public == parent_public.inner)
-                    .map(|(vhandle, _)| *vhandle);
-
-                let parent_handle_ref = if let Some(vhandle) = parent_vhandle_opt {
-                    VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle)
-                } else {
-                    VtpmHandle::new(VtpmHandleClass::Tpm, parent_handle.0)
-                };
-
-                let (policy_blob, name_alg, parent_empty_auth) =
-                    task_state.resolve_policy(device, &parent_handle_ref, parent_handle)?;
+                let (parent_handle, policy_blob, name_alg, parent_empty_auth) =
+                    task_state.resolve_policy(device, &parent_handle_ref)?;
 
                 let (auths, policy_session_auth) = task_state.build_auth(
                     device,
@@ -150,9 +138,9 @@ impl Load {
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_public: &Tpm2bPublic,
-    ) -> Result<TpmHandle, CommandError> {
+    ) -> Result<VtpmHandle, CommandError> {
         if let Some((phandle, _)) = device.find_persistent(&parent_public.inner)? {
-            return Ok(phandle);
+            return Ok(VtpmHandle::new(VtpmHandleClass::Tpm, phandle.0));
         }
 
         let vhandle_opt = task_state
@@ -162,8 +150,7 @@ impl Load {
             .map(|(vhandle, _)| *vhandle);
 
         if let Some(vhandle) = vhandle_opt {
-            return Ok(task_state
-                .load_context(device, &VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle))?);
+            return Ok(VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle));
         }
 
         Err(CommandError::UnknownParent)

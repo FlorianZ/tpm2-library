@@ -38,10 +38,8 @@ impl Task for Unseal {
         }
 
         with_device(task_state.device.clone(), |device| {
-            let item_handle = task_state.load_context(device, &self.input)?;
-
-            let (policy_blob, name_alg, empty_auth) =
-                task_state.resolve_policy(device, &self.input, item_handle)?;
+            let (item_handle, policy_blob, name_alg, empty_auth) =
+                task_state.resolve_policy(device, &self.input)?;
 
             let (auths, policy_session_auth) = task_state.build_auth(
                 device,

@@ -760,6 +760,8 @@ impl<'a> TaskState<'a> {
     /// Resolves policy details (policy blob, name algorithm, and empty auth
     /// status) for a handle.
     ///
+    /// This loads the context associated with the handle first.
+    ///
     /// If the handle is a vTPM handle, details are fetched from the cache.
     /// If it is a physical TPM handle, details are read from the device.
     ///
@@ -769,12 +771,17 @@ impl<'a> TaskState<'a> {
     /// fails.
     /// Returns [`Device`](crate::task::TaskError::Device) when reading the
     /// public area fails.
+    /// Returns [`InvalidAuth`](crate::task::TaskError::InvalidAuth) when the
+    /// handle is invalid.
+    /// Returns [`HandleNotFound`](crate::task::TaskError::HandleNotFound) when
+    /// the handle cannot be loaded.
     pub fn resolve_policy(
-        &self,
+        &mut self,
         device: &mut TpmDevice,
         handle: &VtpmHandle,
-        phys_handle: TpmHandle,
-    ) -> Result<(Vec<u8>, TpmAlgId, bool), TaskError> {
+    ) -> Result<(TpmHandle, Vec<u8>, TpmAlgId, bool), TaskError> {
+        let phys_handle = self.load_context(device, handle)?;
+
         if handle.class() == VtpmHandleClass::Vtpm {
             let vhandle = handle.value().ok_or(TaskError::InvalidAuth)?;
             let key = self
@@ -782,11 +789,11 @@ impl<'a> TaskState<'a> {
                 .find_by_virtual_handle(TpmHandle(vhandle))
                 .map_err(TaskError::Vtpm)?;
             let blob = Vec::<u8>::try_from(key).map_err(TaskError::Vtpm)?;
-            Ok((blob, key.public.name_alg, key.empty_auth != 0))
+            Ok((phys_handle, blob, key.public.name_alg, key.empty_auth != 0))
         } else {
             let (public, _) = device.read_public(phys_handle)?;
             let empty = is_empty_auth(&public);
-            Ok((Vec::new(), public.name_alg, empty))
+            Ok((phys_handle, Vec::new(), public.name_alg, empty))
         }
     }
 

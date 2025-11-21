@@ -60,10 +60,8 @@ impl Task for Convert {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            let parent_handle = task_state.load_context(device, &self.parent)?;
-
-            let (policy_blob, name_alg, parent_empty_auth) =
-                task_state.resolve_policy(device, &self.parent, parent_handle)?;
+            let (parent_handle, policy_blob, name_alg, parent_empty_auth) =
+                task_state.resolve_policy(device, &self.parent)?;
 
             let (auths, policy_session_auth) = task_state.build_auth(
                 device,

@@ -208,10 +208,8 @@ impl Create {
         writer: &mut dyn std::io::Write,
         device: &mut TpmDevice,
     ) -> Result<(), CommandError> {
-        let parent_phys_handle = task_state.load_context(device, &self.parent)?;
-
-        let (policy_blob, name_alg, parent_empty_auth) =
-            task_state.resolve_policy(device, &self.parent, parent_phys_handle)?;
+        let (parent_phys_handle, policy_blob, name_alg, parent_empty_auth) =
+            task_state.resolve_policy(device, &self.parent)?;
 
         let (auths, policy_session_auth) = task_state.build_auth(
             device,
