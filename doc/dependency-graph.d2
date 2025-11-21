@@ -1,11 +1,11 @@
-tpm2sh -> tpm2-policy-language -> tpm2-protocol
-tpm2sh -> tpm2-tpmkey -> tpm2-protocol
-tpm2sh -> tpm2-crypto -> tpm2-protocol
-tpm2sh -> tpm2-vtpm -> tpm2-protocol
-tpm2sh -> tpm2-device -> tpm2-protocol
-tpm2sh -> tpm2-protocol
+tpm2sh -> tpm2-crypto
+tpm2sh -> tpm2-device
+tpm2sh -> tpm2-policy-language
+tpm2sh -> tpm2-tpmkey
+tpm2sh -> tpm2-vtpm
 
 tpm2-policy-language -> tpm2-vtpm
 tpm2-policy-language -> tpm2-crypto
 
 tpm2-device -> tpm2-crypto
+tpm2-vtpm -> tpm2-crypto
