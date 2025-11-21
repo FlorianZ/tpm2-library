@@ -18,9 +18,7 @@ const TPM2SH_PATH: &str = env!("CARGO_BIN_EXE_tpm2sh");
 const SEALED_DATA: &str = "deadbeef";
 
 fn tpm2sh(cache_dir: &Path, args: &[&str]) -> duct::Expression {
-    duct::cmd(TPM2SH_PATH, args)
-        .env("TPM2SH_CACHE_PATH", cache_dir)
-        .stderr_to_stdout()
+    duct::cmd(TPM2SH_PATH, args).env("TPM2SH_CACHE_PATH", cache_dir)
 }
 
 #[test]
@@ -41,6 +39,8 @@ fn integration() {
     assert!(primary_handle.starts_with("vtpm:"),);
     eprintln!("Primary handle: {primary_handle}");
 
+    let policy_str = format!("secret({primary_handle})");
+
     let create_args = [
         "create",
         primary_handle,
@@ -48,7 +48,7 @@ fn integration() {
         "--data",
         SEALED_DATA,
         "--policy",
-        "secret(tpm:81000001)",
+        &policy_str,
     ];
 
     let sealed_handle = tpm2sh(cache_path, &create_args)

@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 use clap::Args;
+use tpm2_crypto::tpm_make_name;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
@@ -122,13 +123,26 @@ impl Create {
 
             let mut ast = TpmPolicyExpression::new(expression, &tmp_policy_context)?;
 
-            let mut handles = HashSet::new();
+            let mut handles: HashSet<VtpmHandle> = HashSet::new();
             visit_secret_handles(&ast, &mut handles)?;
 
             let mut names = HashMap::new();
-            for &handle in &handles {
-                let (_, name) = device.read_public(handle.into())?;
-                names.insert(VtpmHandle::new(VtpmHandleClass::Tpm, handle), name);
+            for handle in handles {
+                let name = match handle.class() {
+                    VtpmHandleClass::Tpm => {
+                        let (_, name) =
+                            device.read_public(handle.value().unwrap_or_default().into())?;
+                        name
+                    }
+                    VtpmHandleClass::Vtpm => {
+                        let vhandle = handle.value().unwrap_or_default();
+                        let key = task_state
+                            .cache
+                            .find_by_virtual_handle(TpmHandle(vhandle))?;
+                        tpm_make_name(&key.public)?
+                    }
+                };
+                names.insert(handle, name);
             }
 
             let policy_context = tpm2_policy_language::TpmPolicyState {
@@ -240,8 +254,12 @@ impl Create {
             let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
             for (cmd, _) in commands {
                 let object_name = if let TpmCommand::PolicySecret(inner) = cmd {
-                    let (_, name) = device.read_public(inner.handles[0])?;
-                    name
+                    if let Ok(key) = task_state.cache.find_by_virtual_handle(inner.handles[0]) {
+                        tpm_make_name(&key.public)?
+                    } else {
+                        let (_, name) = device.read_public(inner.handles[0])?;
+                        name
+                    }
                 } else {
                     Tpm2bName::default()
                 };
@@ -291,7 +309,7 @@ impl Create {
 
 fn visit_secret_handles<S: BuildHasher>(
     ast: &TpmPolicyExpression,
-    handles: &mut HashSet<u32, S>,
+    handles: &mut HashSet<VtpmHandle, S>,
 ) -> Result<(), CommandError> {
     match ast {
         TpmPolicyExpression::Pcr { .. } | TpmPolicyExpression::Handle(_) => {}
@@ -306,12 +324,12 @@ fn visit_secret_handles<S: BuildHasher>(
                     return Err(CommandError::PatternNotAllowed(auth_handle.to_string()));
                 };
 
-                if handle.class() != VtpmHandleClass::Tpm
-                    || (val >> 24) as u8 != TpmHt::Persistent as u8
+                if handle.class() == VtpmHandleClass::Tpm
+                    && (val >> 24) as u8 != TpmHt::Persistent as u8
                 {
                     return Err(CommandError::InvalidHandle);
                 }
-                handles.insert(val);
+                handles.insert(*handle);
             } else {
                 return Err(CommandError::InvalidPolicyExpression(
                     "secret() first argument must be a handle".to_string(),

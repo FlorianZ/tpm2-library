@@ -30,7 +30,7 @@ tabled = { version = "0.15", default-features = false, features = ["std", "deriv
 thiserror = "1.0"
 tpm2-crypto = "0.7.3"
 tpm2-device = "0.2.1"
-tpm2-policy-language = "0.9.5"
+tpm2-policy-language = "0.9.6"
 tpm2-protocol = "0.15.8"
 tpm2-tpmkey = "0.9.1"
 tpm2-vtpm = "0.3.4"
