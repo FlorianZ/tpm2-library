@@ -145,7 +145,7 @@ impl TpmPolicyExpression {
                 }
                 TpmCommand::PolicySecret(cmd) => {
                     let auth_handle = Box::new(TpmPolicyExpression::Handle(VtpmHandle::new(
-                        VtpmHandleClass::Tpm,
+                        VtpmHandleClass::Vtpm,
                         cmd.handles[0].into(),
                     )));
 
@@ -301,15 +301,15 @@ impl TpmPolicyExpression {
             expr => return Err(TpmPolicyError::InvalidExpression(Box::new(expr.clone()))),
         };
 
-        let h_val = if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
-            handle
-                .value()
-                .ok_or(TpmPolicyError::HandlePatternNotAllowed)?
-        } else {
+        let TpmPolicyExpression::Handle(handle) = &**auth_handle else {
             return Err(TpmPolicyError::InvalidExpression(Box::new(
                 (**auth_handle).clone(),
             )));
         };
+
+        let h_val = handle
+            .value()
+            .ok_or(TpmPolicyError::HandlePatternNotAllowed)?;
 
         let ht_byte = (h_val >> 24) as u8;
         let ht =
@@ -319,7 +319,7 @@ impl TpmPolicyExpression {
             TpmHt::Persistent => Cow::Borrowed(
                 context
                     .names
-                    .get(&h_val)
+                    .get(handle)
                     .ok_or_else(|| TpmPolicyError::InvalidExpression(Box::new(self.clone())))?,
             ),
             TpmHt::Permanent => {

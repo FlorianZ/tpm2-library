@@ -10,7 +10,7 @@
 use rstest::rstest;
 use std::collections::HashMap;
 use tpm2_crypto::TpmHash;
-use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
+use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState, VtpmHandle, VtpmHandleClass};
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmCc},
     frame::TpmCommand,
@@ -18,21 +18,21 @@ use tpm2_protocol::{
 
 #[rstest]
 #[case(
-    "pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(tpm:81000001, copy_ref:))"
+    "pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(vtpm:81000001, copy_ref:))"
 )]
 #[case(
     "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or pcr(sha256:15:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)"
 )]
 #[case("pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)")]
 #[case(
-    "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(tpm:81000001, copy_ref:010203))"
+    "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(vtpm:81000001, copy_ref:010203))"
 )]
 /// Verifies that parsing a policy string, converting it to a command list, and
 /// parsing that command list back results in a correctly sanitized policy AST.
 fn command_list_roundtrip(#[case] input: &str) {
     let mut names = HashMap::new();
     names.insert(
-        0x8100_0001,
+        VtpmHandle::new(VtpmHandleClass::Vtpm, 0x8100_0001),
         Tpm2bName::try_from(
             hex::decode("000b0000000000000000000000000000000000000000000000000000000000000000")
                 .unwrap()
@@ -60,13 +60,13 @@ fn command_list_roundtrip(#[case] input: &str) {
 }
 
 #[rstest]
-#[case("secret(tpm:81000001, copy_ref:)")]
-#[case("secret(tpm:81000001)")]
-#[case("secret(tpm:81000001, copy_ref:010203)")]
+#[case("secret(vtpm:81000001, copy_ref:)")]
+#[case("secret(vtpm:81000001)")]
+#[case("secret(vtpm:81000001, copy_ref:010203)")]
 fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let mut names = HashMap::new();
     names.insert(
-        0x8100_0001,
+        VtpmHandle::new(VtpmHandleClass::Vtpm, 0x8100_0001),
         Tpm2bName::try_from(
             hex::decode("000b0000000000000000000000000000000000000000000000000000000000000000")
                 .unwrap()
@@ -97,7 +97,10 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let digest_size = hash.size();
     let zero_digest = Tpm2bDigest::try_from(vec![0u8; digest_size].as_slice()).unwrap();
 
-    let name = policy_state.names.get(&0x8100_0001).unwrap();
+    let name = policy_state
+        .names
+        .get(&VtpmHandle::new(VtpmHandleClass::Vtpm, 0x8100_0001))
+        .unwrap();
     let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
 
     let first_chunks: Vec<&[u8]> = vec![zero_digest.as_ref(), &cc_bytes, name.as_ref()];

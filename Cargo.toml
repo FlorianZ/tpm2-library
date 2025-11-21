@@ -16,7 +16,7 @@ strum = { version = "0.26", features = ["derive"] }
 thiserror = "1.0"
 tpm2-crypto = "0.7.3"
 tpm2-protocol = "0.15.8"
-tpm2-vtpm = "0.3.3"
+tpm2-vtpm = "0.3.4"
 
 [dev-dependencies]
 rstest = "0.21"

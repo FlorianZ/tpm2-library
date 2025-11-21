@@ -47,7 +47,7 @@ pub struct TpmPolicyState {
     /// List of available PCR banks.
     pub pcr_banks: Vec<TpmAlgId>,
     /// Map of persistent handle values to their TPM names.
-    pub names: HashMap<u32, Tpm2bName>,
+    pub names: HashMap<tpm2_vtpm::VtpmHandle, Tpm2bName>,
 }
 
 /// Parses a PCR selection string (e.g., "sha1:0,1+sha256:7") into a
