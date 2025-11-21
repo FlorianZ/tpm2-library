@@ -316,7 +316,7 @@ impl TpmPolicyExpression {
             TpmHt::try_from(ht_byte).map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))?;
 
         let name = match ht {
-            TpmHt::Persistent => Cow::Borrowed(
+            TpmHt::Persistent | TpmHt::Transient => Cow::Borrowed(
                 context
                     .names
                     .get(handle)
