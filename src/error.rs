@@ -6,7 +6,7 @@
 pub enum TpmKeyError {
     /// Command code in a policy command is not a valid `TPM_CC`.
     #[error("invalid CC: {0}")]
-    InvalidCc(tpm2_protocol::data::TpmCc),
+    InvalidCc(u32),
 
     /// ASN.1 object identifier is not one of the supported TPM key OIDs.
     #[error("invalid OID: {0}")]
@@ -55,8 +55,4 @@ pub enum TpmKeyError {
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
-
-    /// VTPM error.
-    #[error("vtpm: {0}")]
-    Vtpm(#[from] tpm2_vtpm::VtpmError),
 }

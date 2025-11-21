@@ -31,26 +31,13 @@
 //! The command body for `TPM2_PolicyAuthorize` has `TPM2B_PUBLIC`,
 //! `TPM2B_DIGEST` and `TPMT_SIGNATURE` serialized in sequence.
 //!
-//! For the time being, onversion is not supported in either direction and will
+//! For the time being, conversion is not supported in either direction and will
 //! return [`InvalidPolicy`](crate::TpmKeyError::InvalidPolicy).
 //!
 //! ## `TPM2_PolicySecret`
 //!
 //! The command body for `TPM2_PolicySecret` has `TPM_HANDLE`, `TPM2B_NAME` and
 //! `TPM2B_DIGEST` serialized in sequence.
-//!
-//! [`VtpmPolicyCommand::to_command`](tpm2_vtpm::VtpmPolicyCommand::to_command) is implemented for `TPM2_PolicySecret` as
-//! folllows:
-//!
-//! * `objectHandleHint`: copied to command's `authHandle`.
-//! * `objectName`: discarded.
-//! * `policyRef`: copied to command's `policyRef`.
-//!
-//! [`tpm_key_command_from_command`](crate::vtpm_policy_command_from) does a similar "lossy" conversion:
-//!
-//! * `objectHandleHint`: copied from command's `authHandle`.
-//! * `objectName`: set to empty `TPM2B_NAME`.
-//! * `policyRef`: copied from command's `policyRef`.
 
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
@@ -61,7 +48,6 @@ mod command;
 mod error;
 
 pub use error::*;
-pub use tpm2_vtpm::{vtpm_policy_command_from, VtpmPolicyCommand};
 
 use crate::asn1::{tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1};
 use pem::{EncodeConfig, LineEnding, Pem};
@@ -82,15 +68,22 @@ pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
-    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
+    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc},
     TpmHandle, TpmUnmarshal,
 };
+
+/// A single policy command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TpmKeyPolicyCommand {
+    pub cc: TpmCc,
+    pub body: Vec<u8>,
+}
 
 /// A policy branch (used for `auth_policy` list).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmKeyPolicy {
     pub name: Option<String>,
-    pub policy: Vec<Box<dyn VtpmPolicyCommand>>,
+    pub policy: Vec<TpmKeyPolicyCommand>,
 }
 
 /// High-level runtime representation of a TPM key.
@@ -135,7 +128,7 @@ impl TpmKey {
     /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 encoding fails.
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
     /// is not `Rsa`, `Ecc`, or `KeyedHash`.
-    /// Returns [`Marshal`](crate::VtpmError::Marshal) when the value cannot be
+    /// Returns [`Marshal`](crate::TpmKeyError::Marshal) when the value cannot be
     /// marshalled into the underlying TPM buffer.
     pub fn to_pem(&self) -> Result<String, TpmKeyError> {
         let der = self.to_der()?;
@@ -179,7 +172,7 @@ impl TpmKey {
     /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 encoding fails.
     /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
     /// is not `Rsa`, `Ecc`, or `KeyedHash`.
-    /// Returns [`Marshal`](crate::VtpmError::Marshal) when the value cannot be
+    /// Returns [`Marshal`](crate::TpmKeyError::Marshal) when the value cannot be
     /// marshalled into the underlying TPM buffer.
     pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
         let asn1 = self.to_asn1()?;
@@ -321,7 +314,7 @@ impl TryFrom<TpmAuthPolicyAsn1> for TpmKeyPolicy {
         let cmds = val
             .policy
             .into_iter()
-            .map(Box::<dyn VtpmPolicyCommand>::try_from)
+            .map(TpmKeyPolicyCommand::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
@@ -337,7 +330,7 @@ impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmKeyPolicy {
     fn try_from(cmds: Vec<TpmKeyCommandAsn1>) -> Result<Self, Self::Error> {
         let cmds = cmds
             .into_iter()
-            .map(Box::<dyn VtpmPolicyCommand>::try_from)
+            .map(TpmKeyPolicyCommand::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
@@ -351,21 +344,14 @@ impl From<&TpmKeyPolicy> for TpmAuthPolicyAsn1 {
     fn from(p: &TpmKeyPolicy) -> Self {
         Self {
             name: p.name.as_deref().map(Utf8String::from),
-            policy: p
-                .policy
-                .iter()
-                .map(|cmd| TpmKeyCommandAsn1::from(cmd.as_ref()))
-                .collect(),
+            policy: p.policy.iter().map(TpmKeyCommandAsn1::from).collect(),
         }
     }
 }
 
 impl From<&TpmKeyPolicy> for Vec<TpmKeyCommandAsn1> {
     fn from(p: &TpmKeyPolicy) -> Self {
-        p.policy
-            .iter()
-            .map(|cmd| TpmKeyCommandAsn1::from(cmd.as_ref()))
-            .collect()
+        p.policy.iter().map(TpmKeyCommandAsn1::from).collect()
     }
 }
 
@@ -410,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_cc_is_rejected_on_load() {
+    fn invalid_cc_is_accepted_on_load() {
         let (public, private) = minimal_rsa_key_components();
         let pub_bytes = crate::asn1::tpm_marshal_array(&[&public]).unwrap();
         let priv_bytes = crate::asn1::tpm_marshal_array(&[&private]).unwrap();
@@ -436,8 +422,41 @@ mod tests {
 
         let der = rasn::der::encode(&asn1).unwrap();
         let res = TpmKey::from_der(&der);
+
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn unknown_cc_is_rejected() {
+        let (public, private) = minimal_rsa_key_components();
+        let pub_bytes = crate::asn1::tpm_marshal_array(&[&public]).unwrap();
+        let priv_bytes = crate::asn1::tpm_marshal_array(&[&private]).unwrap();
+
+        let invalid_cc_val = 0xFFFF_FFFFu32;
+        let bad_cmd = TpmKeyCommandAsn1 {
+            command_code: invalid_cc_val,
+            command_policy: OctetString::copy_from_slice(&[]),
+        };
+
+        let asn1 = TpmKeyAsn1 {
+            key_type: OID_LOADABLE_KEY.clone(),
+            empty_auth: Some(false),
+            policy: Some(vec![bad_cmd]),
+            secret: None,
+            auth_policy: None,
+            description: None,
+            rsa_parent: None,
+            parent_pubkey: None,
+            parent: 0,
+            pubkey: OctetString::copy_from_slice(&pub_bytes),
+            privkey: OctetString::copy_from_slice(&priv_bytes),
+        };
+
+        let der = rasn::der::encode(&asn1).unwrap();
+        let res = TpmKey::from_der(&der);
+
         match res {
-            Err(TpmKeyError::Vtpm(tpm2_vtpm::VtpmError::InvalidCc(TpmCc::SelfTest))) => {}
+            Err(TpmKeyError::InvalidCc(val)) => assert_eq!(val, invalid_cc_val),
             other => panic!("expected InvalidCc, got: {other:?}"),
         }
     }

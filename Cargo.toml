@@ -16,7 +16,6 @@ pem = "3.0"
 rasn = "0.26"
 thiserror = "1.0"
 tpm2-protocol = "0.15.8"
-tpm2-vtpm = "0.3.2"
 
 [dev-dependencies]
 rstest = "0.21"
