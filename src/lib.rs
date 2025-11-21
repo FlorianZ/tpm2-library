@@ -86,9 +86,21 @@ pub struct TpmKeyPolicy {
     pub policy: Vec<TpmKeyPolicyCommand>,
 }
 
+/// The type of the TPM key as defined by the OID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TpmKeyType {
+    /// `id-loadablekey`: Key to be loaded with `TPM2_Load`.
+    Loadable,
+    /// `id-importablekey`: Key to be loaded with `TPM2_Import`.
+    Importable,
+    /// `id-sealedkey`: Data to be extracted with `TPM2_Unseal`.
+    SealedData,
+}
+
 /// High-level runtime representation of a TPM key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmKey {
+    pub kind: TpmKeyType,
     pub public: Tpm2bPublic,
     pub private: Tpm2bPrivate,
     pub parent_handle: TpmHandle,
@@ -225,10 +237,10 @@ impl TpmKey {
             .as_ref()
             .map(|list| list.iter().map(TpmAuthPolicyAsn1::from).collect::<Vec<_>>());
 
-        let oid = if self.secret.is_none() {
-            OID_LOADABLE_KEY.clone()
-        } else {
-            OID_IMPORTABLE_KEY.clone()
+        let oid = match self.kind {
+            TpmKeyType::Loadable => OID_LOADABLE_KEY.clone(),
+            TpmKeyType::Importable => OID_IMPORTABLE_KEY.clone(),
+            TpmKeyType::SealedData => OID_SEALED_DATA.clone(),
         };
 
         let empty_auth = self
@@ -267,24 +279,26 @@ impl TpmKey {
 
         let key_type = public.inner.object_type;
 
-        if asn1.key_type == OID_LOADABLE_KEY {
+        let kind = if asn1.key_type == OID_LOADABLE_KEY {
             if !(key_type == TpmAlgId::Rsa || key_type == TpmAlgId::Ecc) {
                 return Err(TpmKeyError::InvalidLoadable(key_type));
             }
+            TpmKeyType::Loadable
         } else if asn1.key_type == OID_IMPORTABLE_KEY {
             if !(key_type == TpmAlgId::Rsa || key_type == TpmAlgId::Ecc) {
                 return Err(TpmKeyError::InvalidImportable(key_type));
             }
+            TpmKeyType::Importable
         } else if asn1.key_type == OID_SEALED_DATA {
             if key_type != TpmAlgId::KeyedHash {
                 return Err(TpmKeyError::InvalidSealed(key_type));
             }
+            TpmKeyType::SealedData
         } else {
             return Err(TpmKeyError::InvalidOid(asn1.key_type));
-        }
+        };
 
-        let is_importable_oid = asn1.key_type == OID_IMPORTABLE_KEY;
-        if is_importable_oid && asn1.secret.is_none() {
+        if kind == TpmKeyType::Importable && asn1.secret.is_none() {
             return Err(TpmKeyError::MissingSecret);
         }
 
@@ -301,6 +315,7 @@ impl TpmKey {
             .transpose()?;
 
         Ok(Self {
+            kind,
             public,
             private,
             parent_handle: TpmHandle(asn1.parent),
@@ -501,6 +516,7 @@ mod tests {
         let (public, private) = minimal_rsa_key_components();
 
         TpmKey {
+            kind: TpmKeyType::Loadable,
             public,
             private,
             parent_handle: TpmHandle(0),
@@ -545,11 +561,14 @@ mod tests {
 
     #[test]
     fn test_rsa_parent_encoding() {
+        use tpm2_protocol::data::{TpmtPublic, TpmuPublicId, TpmuPublicParms};
+
         let (public, private) = minimal_rsa_key_components();
         let mut key = TpmKey {
+            kind: TpmKeyType::Loadable,
             public: public.clone(),
             private,
-            parent_handle: TpmHandle(0x40000001),
+            parent_handle: TpmHandle(0x4000_0001),
             parent_public: None,
             empty_auth: None,
             policy: None,
@@ -566,7 +585,6 @@ mod tests {
         let asn1_rsa = key.to_asn1().unwrap();
         assert_eq!(asn1_rsa.rsa_parent, Some(true));
 
-        use tpm2_protocol::data::{TpmtPublic, TpmuPublicId, TpmuPublicParms};
         let ecc_tpm_pub = TpmtPublic {
             object_type: TpmAlgId::Ecc,
             name_alg: TpmAlgId::Sha256,
@@ -597,5 +615,55 @@ mod tests {
         key.empty_auth = None;
         let asn1_none = key.to_asn1().unwrap();
         assert!(asn1_none.empty_auth.is_none());
+    }
+
+    #[test]
+    fn sealed_data_roundtrip() {
+        use tpm2_protocol::data::{
+            Tpm2bDigest, Tpm2bSensitiveData, TpmsKeyedhashParms, TpmuPublicId, TpmuPublicParms,
+            TpmuSensitiveComposite,
+        };
+
+        let tpm_public = TpmtPublic {
+            object_type: TpmAlgId::KeyedHash,
+            name_alg: TpmAlgId::Sha256,
+            parameters: TpmuPublicParms::KeyedHash(TpmsKeyedhashParms::default()),
+            unique: TpmuPublicId::KeyedHash(Tpm2bDigest::default()),
+            ..Default::default()
+        };
+        let public = Tpm2bPublic::from(tpm_public);
+
+        let tpm_sensitive = TpmtSensitive {
+            sensitive_type: TpmAlgId::KeyedHash,
+            sensitive: TpmuSensitiveComposite::Bits(Tpm2bSensitiveData::default()),
+            ..Default::default()
+        };
+
+        let mut sensitive_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let len = {
+            let mut writer = TpmWriter::new(&mut sensitive_bytes);
+            tpm_sensitive.marshal(&mut writer).unwrap();
+            writer.len()
+        };
+        let private = Tpm2bPrivate::try_from(&sensitive_bytes[..len]).unwrap();
+
+        let key = TpmKey {
+            kind: TpmKeyType::SealedData,
+            public,
+            private,
+            parent_handle: TpmHandle(0),
+            parent_public: None,
+            empty_auth: None,
+            policy: None,
+            auth_policy: None,
+            secret: None,
+            description: None,
+        };
+
+        let der = key.to_der().unwrap();
+        let restored = TpmKey::from_der(&der).unwrap();
+
+        assert_eq!(restored.kind, TpmKeyType::SealedData);
+        assert_eq!(restored.public, key.public);
     }
 }
