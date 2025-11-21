@@ -112,7 +112,7 @@ pub enum CommandError {
     DictionaryAttackLocked,
     #[error("handle not found: {0}:{1:08x}")]
     HandleNotFound(&'static str, u32),
-    #[error("ECDH private key generation failed")]
+    #[error("hex decode: {0}")]
     HexDecode(#[from] hex::FromHexError),
     #[error("int decode: {0}")]
     IntDecode(#[from] TryFromIntError),

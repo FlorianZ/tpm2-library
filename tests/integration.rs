@@ -161,3 +161,156 @@ fn test_convert_openssl(#[case] openssl_args: &str) {
     let loaded_handle = load_output.trim();
     assert!(loaded_handle.starts_with("vtpm:"));
 }
+
+#[test]
+fn test_password_auth() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let cache_path = temp_dir.path();
+
+    let auth_primary = hex::encode("primary");
+    let auth_native = hex::encode("native");
+    let auth_external = hex::encode("external");
+    let auth_bad = hex::encode("bad");
+
+    let primary_handle = tpm2sh(
+        cache_path,
+        &[
+            "create-primary",
+            "-H",
+            "owner",
+            "ecc-nist-p256:sha256",
+            "--password",
+            &auth_primary,
+        ],
+    )
+    .read()
+    .expect("Failed to create primary");
+    let primary_handle = primary_handle.trim();
+
+    tpm2sh(
+        cache_path,
+        &[
+            "create",
+            primary_handle,
+            "keyedhash:sha256",
+            "--data",
+            SEALED_DATA,
+            "--auth",
+            &auth_bad,
+            "--password",
+            &auth_native,
+        ],
+    )
+    .run()
+    .expect_err("Should fail with bad parent auth");
+
+    let native_child = tpm2sh(
+        cache_path,
+        &[
+            "create",
+            primary_handle,
+            "keyedhash:sha256",
+            "--data",
+            SEALED_DATA,
+            "--auth",
+            &auth_primary,
+            "--password",
+            &auth_native,
+        ],
+    )
+    .pipe(tpm2sh(cache_path, &["load"]))
+    .read()
+    .expect("Failed to create native child");
+    let native_child = native_child.trim();
+
+    tpm2sh(cache_path, &["unseal", native_child, "--auth", &auth_bad])
+        .run()
+        .expect_err("Should fail unseal with bad auth");
+
+    tpm2sh(
+        cache_path,
+        &["unseal", native_child, "--auth", &auth_native],
+    )
+    .run()
+    .expect("Failed to unseal with correct auth");
+
+    let rsa = Rsa::generate(2048).unwrap();
+    let rsa_pem = rsa.private_key_to_pem().unwrap();
+
+    tpm2sh(
+        cache_path,
+        &[
+            "convert",
+            primary_handle,
+            "--auth",
+            &auth_bad,
+            "--password",
+            &auth_external,
+        ],
+    )
+    .stdin_bytes(rsa_pem.clone())
+    .run()
+    .expect_err("Should fail import with bad parent auth");
+
+    let ext_handle = tpm2sh(
+        cache_path,
+        &[
+            "convert",
+            primary_handle,
+            "--auth",
+            &auth_primary,
+            "--password",
+            &auth_external,
+        ],
+    )
+    .stdin_bytes(rsa_pem)
+    .pipe(tpm2sh(cache_path, &["load"]))
+    .read()
+    .expect("Failed to import external key");
+    let ext_handle = ext_handle.trim();
+
+    println!("Imported external key handle: {ext_handle}");
+}
+
+#[test]
+fn test_deep_hierarchy_recursion() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let cache_path = temp_dir.path();
+
+    let l1_handle = tpm2sh(
+        cache_path,
+        &["create-primary", "-H", "owner", "ecc-nist-p256:sha256"],
+    )
+    .read()
+    .unwrap();
+    let l1_handle = l1_handle.trim();
+
+    let l2_handle = tpm2sh(cache_path, &["create", l1_handle, "rsa-2048:sha256"])
+        .pipe(tpm2sh(cache_path, &["load"]))
+        .read()
+        .unwrap();
+    let l2_handle = l2_handle.trim();
+
+    let deep_data = hex::encode("deep-secret");
+
+    let l3_handle = tpm2sh(
+        cache_path,
+        &[
+            "create",
+            l2_handle,
+            "keyedhash:sha256",
+            "--data",
+            &deep_data,
+        ],
+    )
+    .pipe(tpm2sh(cache_path, &["load"]))
+    .read()
+    .unwrap();
+    let l3_handle = l3_handle.trim();
+
+    let output = tpm2sh(cache_path, &["unseal", "--hex", l3_handle])
+        .read()
+        .expect("Failed to unseal deep object");
+
+    assert_eq!(output.trim(), deep_data);
+}
