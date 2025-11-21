@@ -44,7 +44,7 @@ pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, Vtp
 }
 
 /// Handle classes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VtpmHandleClass {
     Tpm,
     Vtpm,
@@ -55,7 +55,7 @@ pub enum VtpmHandleClass {
 /// A [`VtpmHandle`] can represent either a single, specific handle value (e.g.,
 /// `tpm:81000001`) or a pattern for matching multiple handles (e.g., `tpm:81*`,
 /// `vtpm:????????`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VtpmHandle {
     class: VtpmHandleClass,
     mask: u32,
