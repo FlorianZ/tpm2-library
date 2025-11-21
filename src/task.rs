@@ -10,7 +10,7 @@ use hex;
 use rand::{thread_rng, RngCore};
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
-use tpm2_device::{TpmCommandObject, TpmDevice, TpmDeviceError};
+use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     basic::TpmBuffer,
     data::{
@@ -19,8 +19,8 @@ use tpm2_protocol::{
         TpmtSymDefObject,
     },
     frame::{
-        TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmResponse,
-        TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
+        TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
+        TpmResponse, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
     TpmHandle, TpmSized, TpmUnmarshal,
 };
@@ -325,7 +325,7 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         name: &Tpm2bName,
     ) -> Result<TpmHandle, TaskError> {
-        if let Some(handle) = device.find_persistent_by_name(name)? {
+        if let Some(handle) = device.find_persistent(name)? {
             return Ok(handle);
         }
 
@@ -794,7 +794,7 @@ impl<'a> TaskState<'a> {
     /// auth class is encountered.
     /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when
     /// an auth struct is too large.
-    pub fn execute<C: TpmCommandObject>(
+    pub fn execute<C: TpmFrame>(
         &mut self,
         device: &mut TpmDevice,
         command: &C,

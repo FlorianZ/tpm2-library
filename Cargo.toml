@@ -29,7 +29,7 @@ strum = { version = "0.26", features = ["derive"] }
 tabled = { version = "0.15", default-features = false, features = ["std", "derive", "ansi"] }
 thiserror = "1.0"
 tpm2-crypto = "0.8.0"
-tpm2-device = "0.2.1"
+tpm2-device = "0.3.1"
 tpm2-policy-language = "0.9.6"
 tpm2-protocol = "0.15.8"
 tpm2-tpmkey = "0.9.1"

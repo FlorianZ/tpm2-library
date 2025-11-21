@@ -10,6 +10,7 @@ use crate::{
     task::{TaskAuth, TaskState},
 };
 use clap::Args;
+use tpm2_crypto::tpm_make_name;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
@@ -139,7 +140,8 @@ impl Load {
         device: &mut TpmDevice,
         parent_public: &Tpm2bPublic,
     ) -> Result<VtpmHandle, CommandError> {
-        if let Some((phandle, _)) = device.find_persistent(&parent_public.inner)? {
+        let name = tpm_make_name(&parent_public.inner)?;
+        if let Some(phandle) = device.find_persistent(&name)? {
             return Ok(VtpmHandle::new(VtpmHandleClass::Tpm, phandle.0));
         }
 
