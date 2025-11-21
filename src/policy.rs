@@ -76,7 +76,7 @@ impl Eq for Box<dyn VtpmPolicyCommand> {}
 /// violates command-specific constraints.
 pub fn vtpm_policy_command_from_parts(
     cc: TpmCc,
-    body: Vec<u8>,
+    body: &[u8],
 ) -> Result<Box<dyn VtpmPolicyCommand>, VtpmError> {
     match cc {
         TpmCc::PolicyAuthValue
@@ -88,11 +88,14 @@ pub fn vtpm_policy_command_from_parts(
                 return Err(VtpmError::InvalidPolicy);
             }
 
-            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+            Ok(Box::new(VtpmPolicyDefaultCommand {
+                cc,
+                body: body.into(),
+            }))
         }
         TpmCc::PolicyAuthorize => {
             let (command, remainder) =
-                VtpmPolicyAuthorizeCommand::unmarshal(&body).map_err(VtpmError::Unmarshal)?;
+                VtpmPolicyAuthorizeCommand::unmarshal(body).map_err(VtpmError::Unmarshal)?;
 
             if !remainder.is_empty() {
                 return Err(VtpmError::InvalidPolicy);
@@ -102,7 +105,7 @@ pub fn vtpm_policy_command_from_parts(
         }
         TpmCc::PolicySecret => {
             let (command, remainder) =
-                VtpmPolicySecretCommand::unmarshal(&body).map_err(VtpmError::Unmarshal)?;
+                VtpmPolicySecretCommand::unmarshal(body).map_err(VtpmError::Unmarshal)?;
 
             if !remainder.is_empty() {
                 return Err(VtpmError::InvalidPolicy);
@@ -111,23 +114,27 @@ pub fn vtpm_policy_command_from_parts(
             Ok(Box::new(command))
         }
         TpmCc::PolicyPcr => {
-            let (pcr_digest, rest) =
-                Tpm2bDigest::unmarshal(body.as_slice()).map_err(VtpmError::Unmarshal)?;
+            let (pcr_digest, rest) = Tpm2bDigest::unmarshal(body).map_err(VtpmError::Unmarshal)?;
             let (pcrs, rest) = TpmlPcrSelection::unmarshal(rest).map_err(VtpmError::Unmarshal)?;
             if !rest.is_empty() {
                 return Err(VtpmError::InvalidPolicy);
             }
             let _ = (pcr_digest, pcrs);
-            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+            Ok(Box::new(VtpmPolicyDefaultCommand {
+                cc,
+                body: body.into(),
+            }))
         }
         TpmCc::PolicyOr => {
-            let (p_hash_list, rest) =
-                TpmlDigest::unmarshal(body.as_slice()).map_err(VtpmError::Unmarshal)?;
+            let (p_hash_list, rest) = TpmlDigest::unmarshal(body).map_err(VtpmError::Unmarshal)?;
             if !rest.is_empty() {
                 return Err(VtpmError::InvalidPolicy);
             }
             let _ = p_hash_list;
-            Ok(Box::new(VtpmPolicyDefaultCommand { cc, body }))
+            Ok(Box::new(VtpmPolicyDefaultCommand {
+                cc,
+                body: body.into(),
+            }))
         }
         _ => Err(VtpmError::InvalidCc(cc)),
     }

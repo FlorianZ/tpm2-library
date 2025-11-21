@@ -246,7 +246,7 @@ impl VtpmKey {
             let (body, tail_next) = tail_next.split_at(len);
             tail = tail_next;
 
-            policy.push(vtpm_policy_command_from_parts(cc, body.to_vec())?);
+            policy.push(vtpm_policy_command_from_parts(cc, body)?);
         }
 
         if !tail.is_empty() {
