@@ -202,10 +202,13 @@ impl TpmKey {
     }
 
     fn to_asn1(&self) -> Result<TpmKeyAsn1, TpmKeyError> {
-        let rsa_parent = self
-            .parent_public
-            .as_ref()
-            .map(|pp| pp.inner.object_type == TpmAlgId::Rsa);
+        let rsa_parent = self.parent_public.as_ref().and_then(|pp| {
+            if pp.inner.object_type == TpmAlgId::Rsa {
+                Some(true)
+            } else {
+                None
+            }
+        });
 
         let parent_pubkey_bytes = if let Some(parent_public) = &self.parent_public {
             Some(OctetString::copy_from_slice(&tpm_marshal_array(&[
@@ -228,9 +231,13 @@ impl TpmKey {
             OID_IMPORTABLE_KEY.clone()
         };
 
+        let empty_auth = self
+            .empty_auth
+            .and_then(|val| if val { Some(true) } else { None });
+
         Ok(TpmKeyAsn1 {
             key_type: oid,
-            empty_auth: self.empty_auth,
+            empty_auth,
             policy: policy_asn1,
             secret: self
                 .secret
@@ -530,5 +537,63 @@ mod tests {
         let bad_pem = "not pem data at all";
         let res = TpmKey::from_pem(bad_pem.as_bytes());
         assert!(matches!(res, Err(TpmKeyError::PemDecodingFailed(_))));
+    }
+
+    #[test]
+    fn test_rsa_parent_encoding() {
+        let (public, private) = minimal_rsa_key_components();
+        let mut key = TpmKey {
+            public: public.clone(),
+            private,
+            parent_handle: TpmHandle(0x40000001),
+            parent_public: None,
+            empty_auth: None,
+            policy: None,
+            auth_policy: None,
+            secret: None,
+            description: None,
+        };
+
+        let asn1_absent = key.to_asn1().unwrap();
+        assert!(asn1_absent.rsa_parent.is_none());
+
+        let rsa_parent_pub = public;
+        key.parent_public = Some(rsa_parent_pub);
+        let asn1_rsa = key.to_asn1().unwrap();
+        assert_eq!(asn1_rsa.rsa_parent, Some(true));
+
+        use tpm2_protocol::data::{
+            Tpm2bEccParameter, TpmsEccParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
+        };
+        let ecc_tpm_pub = TpmtPublic {
+            object_type: TpmAlgId::Ecc,
+            name_alg: TpmAlgId::Sha256,
+            parameters: TpmuPublicParms::Ecc(TpmsEccParms::default()),
+            unique: TpmuPublicId::Ecc(tpm2_protocol::data::TpmsEccPoint {
+                x: Tpm2bEccParameter::default(),
+                y: Tpm2bEccParameter::default(),
+            }),
+            ..Default::default()
+        };
+        key.parent_public = Some(Tpm2bPublic::from(ecc_tpm_pub));
+        let asn1_ecc = key.to_asn1().unwrap();
+        assert!(asn1_ecc.rsa_parent.is_none());
+    }
+
+    #[test]
+    fn test_empty_auth_encoding() {
+        let mut key = minimal_key();
+
+        key.empty_auth = Some(true);
+        let asn1_true = key.to_asn1().unwrap();
+        assert_eq!(asn1_true.empty_auth, Some(true));
+
+        key.empty_auth = Some(false);
+        let asn1_false = key.to_asn1().unwrap();
+        assert!(asn1_false.empty_auth.is_none());
+
+        key.empty_auth = None;
+        let asn1_none = key.to_asn1().unwrap();
+        assert!(asn1_none.empty_auth.is_none());
     }
 }
