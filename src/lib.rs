@@ -368,8 +368,9 @@ mod tests {
     use tpm2_protocol::{
         constant::TPM_MAX_COMMAND_SIZE,
         data::{
-            Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc, TpmsRsaParms, TpmtPublic, TpmtSensitive,
-            TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+            Tpm2bEccParameter, Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc, TpmsEccParms,
+            TpmsRsaParms, TpmtPublic, TpmtSensitive, TpmuPublicId, TpmuPublicParms,
+            TpmuSensitiveComposite,
         },
         TpmMarshal, TpmWriter,
     };
@@ -403,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_cc_is_accepted_on_load() {
+    fn invalid_cc_is_rejected_on_load() {
         let (public, private) = minimal_rsa_key_components();
         let pub_bytes = crate::asn1::tpm_marshal_array(&[&public]).unwrap();
         let priv_bytes = crate::asn1::tpm_marshal_array(&[&private]).unwrap();
@@ -430,7 +431,10 @@ mod tests {
         let der = rasn::der::encode(&asn1).unwrap();
         let res = TpmKey::from_der(&der);
 
-        assert!(res.is_ok());
+        match res {
+            Err(TpmKeyError::InvalidCc(val)) => assert_eq!(val, TpmCc::SelfTest as u32),
+            other => panic!("expected InvalidCc, got: {other:?}"),
+        }
     }
 
     #[test]
@@ -562,9 +566,7 @@ mod tests {
         let asn1_rsa = key.to_asn1().unwrap();
         assert_eq!(asn1_rsa.rsa_parent, Some(true));
 
-        use tpm2_protocol::data::{
-            Tpm2bEccParameter, TpmsEccParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
-        };
+        use tpm2_protocol::data::{TpmtPublic, TpmuPublicId, TpmuPublicParms};
         let ecc_tpm_pub = TpmtPublic {
             object_type: TpmAlgId::Ecc,
             name_alg: TpmAlgId::Sha256,

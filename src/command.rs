@@ -11,6 +11,40 @@ impl TryFrom<TpmKeyCommandAsn1> for TpmKeyPolicyCommand {
     fn try_from(val: TpmKeyCommandAsn1) -> Result<Self, Self::Error> {
         let cc = TpmCc::try_from(val.command_code)
             .map_err(|_| TpmKeyError::InvalidCc(val.command_code))?;
+
+        let is_policy = matches!(
+            cc,
+            TpmCc::PolicyNv
+                | TpmCc::PolicySecret
+                | TpmCc::PolicySigned
+                | TpmCc::PolicyAuthorize
+                | TpmCc::PolicyAuthValue
+                | TpmCc::PolicyCommandCode
+                | TpmCc::PolicyCounterTimer
+                | TpmCc::PolicyCpHash
+                | TpmCc::PolicyLocality
+                | TpmCc::PolicyNameHash
+                | TpmCc::PolicyOr
+                | TpmCc::PolicyTicket
+                | TpmCc::PolicyPcr
+                | TpmCc::PolicyRestart
+                | TpmCc::PolicyPhysicalPresence
+                | TpmCc::PolicyDuplicationSelect
+                | TpmCc::PolicyGetDigest
+                | TpmCc::PolicyPassword
+                | TpmCc::PolicyNvWritten
+                | TpmCc::PolicyTemplate
+                | TpmCc::PolicyAuthorizeNv
+                | TpmCc::PolicyAcSendSelect
+                | TpmCc::PolicyCapability
+                | TpmCc::PolicyParameters
+                | TpmCc::PolicyTransportSpdm
+        );
+
+        if !is_policy {
+            return Err(TpmKeyError::InvalidCc(val.command_code));
+        }
+
         Ok(Self {
             cc,
             body: val.command_policy.as_ref().to_vec(),
