@@ -29,7 +29,11 @@ fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
     };
     let symmetric = TpmtSymDefObject::default();
 
-    let public = rsa_key.to_public(hash_alg, symmetric);
+    let public = rsa_key.to_public(
+        hash_alg,
+        TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
+        symmetric,
+    );
     let default_attr = TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT;
 
     assert_eq!(public.object_type, TpmAlgId::Rsa);
@@ -72,8 +76,8 @@ fn test_ecc_to_public(
     let ecc_key = TpmEccPublicKey { curve, x, y };
     let symmetric = TpmtSymDefObject::default();
 
-    let public = ecc_key.to_public(hash_alg, symmetric);
     let default_attr = TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT;
+    let public = ecc_key.to_public(hash_alg, default_attr, symmetric);
 
     assert_eq!(public.object_type, TpmAlgId::Ecc);
     assert_eq!(public.name_alg, hash_alg);

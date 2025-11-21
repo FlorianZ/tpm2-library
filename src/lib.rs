@@ -20,7 +20,8 @@ use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     constant::MAX_DIGEST_SIZE,
     data::{
-        Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmtPublic, TpmtSymDefObject,
+        Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmaObject, TpmtPublic,
+        TpmtSymDefObject,
     },
     TpmMarshal, TpmSized, TpmWriter,
 };
@@ -52,7 +53,12 @@ where
     fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError>;
 
     /// Converts the public key to a `TpmtPublic` structure.
-    fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic;
+    fn to_public(
+        &self,
+        hash_alg: TpmAlgId,
+        object_attributes: TpmaObject,
+        symmetric: TpmtSymDefObject,
+    ) -> TpmtPublic;
 
     /// Creates a seed and an encrypted seed (inSymSeed) for `TPM2_Import`.
     ///

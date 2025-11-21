@@ -98,11 +98,16 @@ impl TpmPublicKey for TpmRsaPublicKey {
         Ok((public_key, sensitive))
     }
 
-    fn to_public(&self, hash_alg: TpmAlgId, symmetric: TpmtSymDefObject) -> TpmtPublic {
+    fn to_public(
+        &self,
+        hash_alg: TpmAlgId,
+        object_attributes: TpmaObject,
+        symmetric: TpmtSymDefObject,
+    ) -> TpmtPublic {
         TpmtPublic {
             object_type: TpmAlgId::Rsa,
             name_alg: hash_alg,
-            object_attributes: TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
+            object_attributes,
             auth_policy: Tpm2bDigest::default(),
             parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
                 symmetric,
