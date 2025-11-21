@@ -101,6 +101,10 @@ pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, TpmCryptoError> {
     let digest = name_alg.digest(&[&public_bytes])?;
     let digest_len = digest.len();
 
+    if digest_len > MAX_DIGEST_SIZE {
+        return Err(TpmCryptoError::OperationFailed);
+    }
+
     let mut final_buf = [0u8; MAX_DIGEST_SIZE + 2];
     final_buf[..2].copy_from_slice(&alg_bytes);
     final_buf[2..2 + digest_len].copy_from_slice(&digest);
