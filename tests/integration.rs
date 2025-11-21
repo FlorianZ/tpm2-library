@@ -167,10 +167,6 @@ fn test_password_auth() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let cache_path = temp_dir.path();
 
-    let auth_primary = hex::encode("primary");
-    let auth_native = hex::encode("native");
-    let auth_external = hex::encode("external");
-
     let primary_handle = tpm2sh(
         cache_path,
         &[
@@ -179,7 +175,7 @@ fn test_password_auth() {
             "owner",
             "ecc-nist-p256:sha256",
             "--password",
-            &auth_primary,
+            "deadbeef",
         ],
     )
     .read()
@@ -195,22 +191,19 @@ fn test_password_auth() {
             "--data",
             SEALED_DATA,
             "--auth",
-            &auth_primary,
+            "deadbeef",
             "--password",
-            &auth_native,
+            "deadbeef",
         ],
     )
-    .pipe(tpm2sh(cache_path, &["load", "--auth", &auth_primary]))
+    .pipe(tpm2sh(cache_path, &["load", "--auth", "deadbeef"]))
     .read()
     .expect("Failed to create native child");
     let native_child = native_child.trim();
 
-    tpm2sh(
-        cache_path,
-        &["unseal", native_child, "--auth", &auth_native],
-    )
-    .run()
-    .expect("Failed to unseal with correct auth");
+    tpm2sh(cache_path, &["unseal", native_child, "--auth", "deadbeef"])
+        .run()
+        .expect("Failed to unseal with correct auth");
 
     let rsa = Rsa::generate(2048).unwrap();
     let rsa_pem = rsa.private_key_to_pem().unwrap();
@@ -221,13 +214,13 @@ fn test_password_auth() {
             "convert",
             primary_handle,
             "--auth",
-            &auth_primary,
+            "deadbeef",
             "--password",
-            &auth_external,
+            "deadbeef",
         ],
     )
     .stdin_bytes(rsa_pem)
-    .pipe(tpm2sh(cache_path, &["load", "--auth", &auth_primary]))
+    .pipe(tpm2sh(cache_path, &["load", "--auth", "deadbeef"]))
     .read()
     .expect("Failed to import external key");
     let ext_handle = ext_handle.trim();
