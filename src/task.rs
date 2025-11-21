@@ -844,23 +844,14 @@ impl<'a> TaskState<'a> {
         command: &C,
         auth_list: &[TaskAuth],
     ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
-        let mut effective_auth_list: Vec<TaskAuth> = Vec::with_capacity(1);
-        let virtual_handles: Vec<u32> = Vec::new();
-        let physical_handles: Vec<TpmHandle> = Vec::new();
-
-        if let Some(auth) = auth_list.first() {
-            match auth {
-                TaskAuth::Password(_) | TaskAuth::Session(_) => {
-                    effective_auth_list.push(auth.clone());
-                }
-                TaskAuth::Policy(_) => {
-                    return Err(TaskError::InvalidAuth);
-                }
+        for auth in auth_list {
+            if let TaskAuth::Policy(_) = auth {
+                return Err(TaskError::InvalidAuth);
             }
         }
+        let effective_auth_list = auth_list.to_vec();
 
-        let mut activated_handles = self.prepare_sessions(device, auth_list)?;
-        activated_handles.extend(physical_handles);
+        let activated_handles = self.prepare_sessions(device, &effective_auth_list)?;
 
         for &handle in &activated_handles {
             self.track_handle(handle)?;
@@ -892,10 +883,6 @@ impl<'a> TaskState<'a> {
 
         for handle in activated_handles {
             self.untrack_handle(handle.0);
-        }
-
-        for vhandle in virtual_handles {
-            self.remove_session(device, vhandle)?;
         }
 
         Ok((resp, auth_responses))
