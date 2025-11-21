@@ -1440,9 +1440,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0cfafad6a37b645dccf06a9362f11bb96c96df8dd727ee1b828d126c42cbfd4"
+checksum = "8c4bf1fc332136b15c6a2d2013f1cbb851288f2c3273734d48c1a2acc7992c54"
 dependencies = [
  "hex",
  "strum",
@@ -1473,9 +1473,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-vtpm"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b4702d4f9e8e2174e90da9b859ab7612085730e98825191ba2dcb56dd86088"
+checksum = "1cfb83dea2b5931a778f58de098247447862c541602bd76560ccec220c5f968f"
 dependencies = [
  "log",
  "thiserror",

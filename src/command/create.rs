@@ -128,7 +128,7 @@ impl Create {
             let mut names = HashMap::new();
             for &handle in &handles {
                 let (_, name) = device.read_public(handle.into())?;
-                names.insert(handle, name);
+                names.insert(VtpmHandle::new(VtpmHandleClass::Tpm, handle), name);
             }
 
             let policy_context = tpm2_policy_language::TpmPolicyState {
