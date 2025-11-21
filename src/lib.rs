@@ -38,10 +38,6 @@ use tpm2_protocol::{
 };
 use tracing::trace;
 
-/// A type-erased object safe TPM command object.
-pub trait TpmCommandObject: TpmFrame {}
-impl<T> TpmCommandObject for T where T: TpmFrame {}
-
 /// Errors that can occur when talking to a TPM device.
 #[derive(Debug, Error)]
 pub enum TpmDeviceError {
@@ -265,7 +261,7 @@ impl TpmDevice {
     /// command or decoding the response fails.
     /// Returns [`TpmRc`](crate::TpmDeviceError::TpmRc) when the TPM returns an
     /// error code.
-    pub fn transmit<C: TpmCommandObject>(
+    pub fn transmit<C: TpmFrame>(
         &mut self,
         command: &C,
         sessions: &[TpmsAuthCommand],
@@ -320,7 +316,7 @@ impl TpmDevice {
         Ok(result??)
     }
 
-    fn prepare_command<C: TpmCommandObject>(
+    fn prepare_command<C: TpmFrame>(
         &mut self,
         command: &C,
         sessions: &[TpmsAuthCommand],
