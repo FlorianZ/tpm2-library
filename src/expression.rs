@@ -20,7 +20,7 @@ use tpm2_protocol::{
 use tpm2_vtpm::VtpmError;
 
 /// The Abstract Syntax Tree (AST) for the unified policy language.
-#[derive(Debug, Eq, Clone)]
+#[derive(Debug, Eq, Clone, PartialEq)]
 pub enum TpmPolicyExpression {
     Pcr {
         selections: TpmlPcrSelection,
@@ -33,36 +33,6 @@ pub enum TpmPolicyExpression {
     And(Vec<TpmPolicyExpression>),
     Or(Vec<TpmPolicyExpression>),
     Handle(VtpmHandle),
-}
-
-impl PartialEq for TpmPolicyExpression {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                Self::Secret {
-                    auth_handle: l_ah,
-                    copy_ref: l_cr,
-                },
-                Self::Secret {
-                    auth_handle: r_ah,
-                    copy_ref: r_cr,
-                },
-            ) => l_ah == r_ah && l_cr == r_cr,
-            (
-                Self::Pcr {
-                    selections: l_s,
-                    digest: l_d,
-                },
-                Self::Pcr {
-                    selections: r_s,
-                    digest: r_d,
-                },
-            ) => l_s == r_s && l_d == r_d,
-            (Self::And(l), Self::And(r)) | (Self::Or(l), Self::Or(r)) => l == r,
-            (Self::Handle(l), Self::Handle(r)) => l == r,
-            _ => false,
-        }
-    }
 }
 
 impl fmt::Display for TpmPolicyExpression {
