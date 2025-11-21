@@ -22,7 +22,6 @@ use std::{
 };
 
 use thiserror::Error;
-use tpm2_crypto::{tpm_make_name, TpmCryptoError};
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
@@ -50,11 +49,6 @@ pub enum TpmDeviceError {
     AlreadyBorrowed,
     #[error("capability not found: {0}")]
     CapabilityMissing(TpmCap),
-
-    /// A cryptographic operation failed.
-    #[error("crypto: {0}")]
-    Crypto(#[from] TpmCryptoError),
-
     #[error("operation interrupted by user")]
     Interrupted,
     #[error("invalid response")]
@@ -577,21 +571,15 @@ impl TpmDevice {
     /// handle errors with base
     /// [`ReferenceH0`](tpm2_protocol::data::TpmRcBase::ReferenceH0) or
     /// [`Handle`](tpm2_protocol::data::TpmRcBase::Handle), which are treated as
-    /// invalid handles and skipped. Returns
-    /// [`InvalidCrypto`](crate::TpmDeviceError::Crypto) when computing the
-    /// calculated name with [`tpm_make_name`](tpm_make_name) fails.
+    /// invalid handles and skipped.
     pub fn find_persistent(
         &mut self,
         target_name: &Tpm2bName,
     ) -> Result<Option<TpmHandle>, TpmDeviceError> {
         for handle in self.fetch_handles(TpmHt::Persistent)? {
             match self.read_public(handle) {
-                Ok((public, name)) => {
+                Ok((_, name)) => {
                     if name == *target_name {
-                        return Ok(Some(handle));
-                    }
-                    let calculated_name = tpm_make_name(&public)?;
-                    if calculated_name == *target_name {
                         return Ok(Some(handle));
                     }
                 }
