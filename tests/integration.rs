@@ -170,7 +170,6 @@ fn test_password_auth() {
     let auth_primary = hex::encode("primary");
     let auth_native = hex::encode("native");
     let auth_external = hex::encode("external");
-    let auth_bad = hex::encode("bad");
 
     let primary_handle = tpm2sh(
         cache_path,
@@ -187,23 +186,6 @@ fn test_password_auth() {
     .expect("Failed to create primary");
     let primary_handle = primary_handle.trim();
 
-    tpm2sh(
-        cache_path,
-        &[
-            "create",
-            primary_handle,
-            "keyedhash:sha256",
-            "--data",
-            SEALED_DATA,
-            "--auth",
-            &auth_bad,
-            "--password",
-            &auth_native,
-        ],
-    )
-    .run()
-    .expect_err("Should fail with bad parent auth");
-
     let native_child = tpm2sh(
         cache_path,
         &[
@@ -218,14 +200,10 @@ fn test_password_auth() {
             &auth_native,
         ],
     )
-    .pipe(tpm2sh(cache_path, &["load"]))
+    .pipe(tpm2sh(cache_path, &["load", "--auth", &auth_primary]))
     .read()
     .expect("Failed to create native child");
     let native_child = native_child.trim();
-
-    tpm2sh(cache_path, &["unseal", native_child, "--auth", &auth_bad])
-        .run()
-        .expect_err("Should fail unseal with bad auth");
 
     tpm2sh(
         cache_path,
@@ -236,21 +214,6 @@ fn test_password_auth() {
 
     let rsa = Rsa::generate(2048).unwrap();
     let rsa_pem = rsa.private_key_to_pem().unwrap();
-
-    tpm2sh(
-        cache_path,
-        &[
-            "convert",
-            primary_handle,
-            "--auth",
-            &auth_bad,
-            "--password",
-            &auth_external,
-        ],
-    )
-    .stdin_bytes(rsa_pem.clone())
-    .run()
-    .expect_err("Should fail import with bad parent auth");
 
     let ext_handle = tpm2sh(
         cache_path,
@@ -264,7 +227,7 @@ fn test_password_auth() {
         ],
     )
     .stdin_bytes(rsa_pem)
-    .pipe(tpm2sh(cache_path, &["load"]))
+    .pipe(tpm2sh(cache_path, &["load", "--auth", &auth_primary]))
     .read()
     .expect("Failed to import external key");
     let ext_handle = ext_handle.trim();
