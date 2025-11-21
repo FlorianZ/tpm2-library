@@ -4,7 +4,10 @@
 
 use crate::{
     cli::Task,
-    command::{AuthArgs, CommandError, InputArgs, OutputArgs, OutputEncodingArgs},
+    command::{
+        common::resolve_policy, AuthArgs, CommandError, CreationArgs, InputArgs, OutputArgs,
+        OutputEncodingArgs,
+    },
     io::{read_file_input, write_key_data, write_object},
     task::{TaskAuth, TaskState},
 };
@@ -23,11 +26,11 @@ use tpm2_protocol::{
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
         TpmCc, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
-    frame::TpmImportCommand,
+    frame::{TpmAuthCommands, TpmCommand, TpmImportCommand},
     TpmHandle, TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::{TpmKey, TpmKeyType};
-use tpm2_vtpm::VtpmHandle;
+use tpm2_tpmkey::{TpmKey, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
+use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmPolicyCommand};
 
 /// Convert external keys to TPM keys.
 #[derive(Args, Debug)]
@@ -46,6 +49,9 @@ pub struct Convert {
 
     #[clap(flatten)]
     pub output_encoding_args: OutputEncodingArgs,
+
+    #[clap(flatten)]
+    pub creation_args: CreationArgs,
 }
 
 impl Task for Convert {
@@ -76,8 +82,38 @@ impl Task for Convert {
                 return Ok(());
             }
 
-            let tpm_key_result =
-                Self::create_external_key(task_state, device, parent_handle, &input_bytes, &auths);
+            let user_auth = match &self.creation_args.password {
+                Some(hex_str) => Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())
+                    .map_err(|_| CommandError::CapacityExceeded)?,
+                None => Tpm2bAuth::default(),
+            };
+
+            let mut object_attributes = TpmaObject::DECRYPT;
+
+            if self.creation_args.password.is_some()
+                || self.creation_args.policy_expression.is_none()
+            {
+                object_attributes |= TpmaObject::USER_WITH_AUTH;
+            }
+
+            let (auth_policy, policy_commands) =
+                resolve_policy(&self.creation_args, task_state, device, name_alg)?;
+
+            if !auth_policy.is_empty() {
+                object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
+            }
+
+            let tpm_key_result = Self::create_external_key(
+                task_state,
+                device,
+                parent_handle,
+                &input_bytes,
+                &auths,
+                user_auth,
+                auth_policy,
+                object_attributes,
+                policy_commands,
+            );
 
             if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                 if let Err(e) = task_state.remove_session(device, vhandle) {
@@ -121,6 +157,7 @@ impl Convert {
         object_public: &TpmtPublic,
         private_bytes: &[u8],
         sym_key: &[u8],
+        auth_value: Tpm2bAuth,
     ) -> Result<Vec<u8>, CommandError> {
         let object_key_type = object_public.object_type;
         let sensitive_composite = match object_key_type {
@@ -147,7 +184,7 @@ impl Convert {
         };
         let sensitive = TpmtSensitive {
             sensitive_type: object_key_type,
-            auth_value: Tpm2bAuth::default(),
+            auth_value,
             seed_value: Tpm2bDigest::default(),
             sensitive: sensitive_composite,
         };
@@ -196,6 +233,7 @@ impl Convert {
         private_bytes: &[u8],
         object_name: &Tpm2bName,
         rng: &mut (impl rand::RngCore + rand::CryptoRng),
+        user_auth: Tpm2bAuth,
     ) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData), CommandError> {
         let name_alg = parent_public.name_alg;
         let (seed, in_sym_seed) = match parent_public.object_type {
@@ -212,7 +250,8 @@ impl Convert {
             _ => return Err(CommandError::InvalidParentType),
         };
         let (sym_key, hmac_key) = Self::create_import_keys(name_alg, &seed, object_name)?;
-        let sensitive = Self::encrypt_sensitive_data(object_public, private_bytes, &sym_key)?;
+        let sensitive =
+            Self::encrypt_sensitive_data(object_public, private_bytes, &sym_key, user_auth)?;
         let duplicate = Self::create_private_blob(name_alg, &hmac_key, &sensitive, object_name)?;
         Ok((duplicate, in_sym_seed, Tpm2bData::default()))
     }
@@ -230,6 +269,8 @@ impl Convert {
     fn parse_external_key(
         input_bytes: &[u8],
         name_alg: TpmAlgId,
+        auth_policy: Tpm2bDigest,
+        object_attributes: TpmaObject,
     ) -> Result<(TpmtPublic, Vec<u8>), CommandError> {
         let der_bytes = pem::parse_many(input_bytes)
             .ok()
@@ -251,40 +292,43 @@ impl Convert {
 
         match TpmRsaPublicKey::from_der(&der_bytes) {
             Ok((public_key, sensitive)) => {
-                let public = public_key.to_public(
-                    name_alg,
-                    TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
-                    symmetric,
-                );
+                let mut public = public_key.to_public(name_alg, object_attributes, symmetric);
+                public.auth_policy = auth_policy;
                 Ok((public, sensitive))
             }
             Err(TpmCryptoError::InvalidRsaParameters) => {
                 let (public_key, sensitive) =
                     TpmEccPublicKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
-                let public = public_key.to_public(
-                    name_alg,
-                    TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
-                    symmetric,
-                );
+                let mut public = public_key.to_public(name_alg, object_attributes, symmetric);
+                public.auth_policy = auth_policy;
                 Ok((public, sensitive))
             }
             Err(e) => Err(CommandError::Crypto(e)),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_external_key(
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
         auths: &[TaskAuth],
+        user_auth: Tpm2bAuth,
+        auth_policy: Tpm2bDigest,
+        object_attributes: TpmaObject,
+        policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
     ) -> Result<TpmKey, CommandError> {
         let (parent_public, _) = device
             .read_public(parent_handle)
             .map_err(CommandError::from)?;
 
-        let (public, sensitive_blob) =
-            Self::parse_external_key(input_bytes, parent_public.name_alg)?;
+        let (public, sensitive_blob) = Self::parse_external_key(
+            input_bytes,
+            parent_public.name_alg,
+            auth_policy,
+            object_attributes,
+        )?;
 
         let mut rng = rand::thread_rng();
         let object_name = tpm_make_name(&public).map_err(CommandError::Crypto)?;
@@ -295,6 +339,7 @@ impl Convert {
             &sensitive_blob,
             &object_name,
             &mut rng,
+            user_auth,
         )?;
 
         let import_cmd = TpmImportCommand {
@@ -319,6 +364,34 @@ impl Convert {
             inner: parent_public,
         };
 
+        let tpm_key_policy = if let Some(commands) = policy_commands {
+            let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
+            for (cmd, _) in commands {
+                let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
+                    if let Ok(key) = task_state.cache.find_by_virtual_handle(inner.handles[0]) {
+                        tpm_make_name(&key.public)?
+                    } else {
+                        let (_, name) = device.read_public(inner.handles[0])?;
+                        name
+                    }
+                } else {
+                    Tpm2bName::default()
+                };
+                vtpm_policy.push(vtpm_policy_command_from(&cmd, &object_name)?);
+            }
+
+            let mut policy = Vec::new();
+            for cmd in vtpm_policy {
+                policy.push(TpmKeyPolicyCommand {
+                    cc: cmd.cc(),
+                    body: cmd.body(),
+                });
+            }
+            Some(TpmKeyPolicy { name: None, policy })
+        } else {
+            None
+        };
+
         let tpm_key = TpmKey {
             public: Tpm2bPublic {
                 inner: public.clone(),
@@ -326,8 +399,14 @@ impl Convert {
             private: out_private,
             parent_handle,
             parent_public: Some(parent_public_2b),
-            empty_auth: None,
-            policy: None,
+            empty_auth: if object_attributes.contains(TpmaObject::USER_WITH_AUTH)
+                && user_auth.is_empty()
+            {
+                Some(true)
+            } else {
+                None
+            },
+            policy: tpm_key_policy,
             auth_policy: None,
             secret: None,
             description: None,

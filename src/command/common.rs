@@ -6,12 +6,25 @@ use crate::{
     alg::{Alg, AlgInfo},
     cli::Hierarchy,
     command::CommandError,
-    task::TaskAuth,
+    pcr::{pcr_get_bank_list, resolve_pcr_digests},
+    task::{TaskAuth, TaskState},
 };
 use clap::{Args, ValueEnum};
-use std::{borrow::Cow, path::PathBuf};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    hash::BuildHasher,
+    path::PathBuf,
+};
 use strum::{Display, EnumString};
-use tpm2_protocol::data::{Tpm2bAuth, TpmaObject};
+use tpm2_crypto::tpm_make_name;
+use tpm2_device::TpmDevice;
+use tpm2_policy_language::TpmPolicyExpression;
+use tpm2_protocol::{
+    data::{Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmHt, TpmaObject},
+    frame::{TpmAuthCommands, TpmCommand},
+};
+use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
 
 /// Parses an authentication string as 'empty' or a hex string.
 ///
@@ -134,4 +147,101 @@ impl CreationArgs {
 
         Ok((attributes, user_auth))
     }
+}
+
+/// Resolves the policy expression (if any) into a policy digest and a list of commands.
+///
+/// # Errors
+///
+/// Returns [`CommandError`] if policy parsing, name resolution, or PCR reading fails.
+#[allow(clippy::type_complexity)]
+pub fn resolve_policy(
+    creation_args: &CreationArgs,
+    task_state: &mut TaskState,
+    device: &mut TpmDevice,
+    name_alg: TpmAlgId,
+) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
+    if let Some(expression) = &creation_args.policy_expression {
+        let banks = pcr_get_bank_list(device)?;
+        let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
+
+        let static_pcr_banks: Vec<TpmAlgId> = banks.iter().map(|b| b.alg).collect();
+
+        let tmp_policy_context = tpm2_policy_language::TpmPolicyState {
+            pcr_count,
+            pcr_banks: static_pcr_banks.clone(),
+            names: HashMap::new(),
+        };
+
+        let mut ast = TpmPolicyExpression::new(expression, &tmp_policy_context)?;
+
+        let mut handles: HashSet<VtpmHandle> = HashSet::new();
+        visit_secret_handles(&ast, &mut handles)?;
+
+        let mut names = HashMap::new();
+        for handle in handles {
+            let name = match handle.class() {
+                VtpmHandleClass::Tpm => {
+                    let (_, name) =
+                        device.read_public(handle.value().unwrap_or_default().into())?;
+                    name
+                }
+                VtpmHandleClass::Vtpm => {
+                    let vhandle = handle.value().unwrap_or_default();
+                    let key = task_state
+                        .cache
+                        .find_by_virtual_handle(tpm2_protocol::TpmHandle(vhandle))?;
+                    tpm_make_name(&key.public)?
+                }
+            };
+            names.insert(handle, name);
+        }
+
+        let policy_context = tpm2_policy_language::TpmPolicyState {
+            pcr_count,
+            pcr_banks: static_pcr_banks,
+            names,
+        };
+
+        resolve_pcr_digests(task_state, device, &mut ast, name_alg, &banks)?;
+
+        let (commands, final_digest) = ast.to_command_list(name_alg, &policy_context)?;
+
+        Ok((final_digest, Some(commands)))
+    } else {
+        Ok((Tpm2bDigest::default(), None))
+    }
+}
+
+fn visit_secret_handles<S: BuildHasher>(
+    ast: &TpmPolicyExpression,
+    handles: &mut HashSet<VtpmHandle, S>,
+) -> Result<(), CommandError> {
+    match ast {
+        TpmPolicyExpression::Pcr { .. } | TpmPolicyExpression::Handle(_) => {}
+        TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
+            for branch in branches {
+                visit_secret_handles(branch, handles)?;
+            }
+        }
+        TpmPolicyExpression::Secret { auth_handle, .. } => {
+            if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
+                let Some(val) = handle.value() else {
+                    return Err(CommandError::PatternNotAllowed(auth_handle.to_string()));
+                };
+
+                if handle.class() == VtpmHandleClass::Tpm
+                    && (val >> 24) as u8 != TpmHt::Persistent as u8
+                {
+                    return Err(CommandError::InvalidHandle);
+                }
+                handles.insert(*handle);
+            } else {
+                return Err(CommandError::InvalidPolicyExpression(
+                    "secret() first argument must be a handle".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }

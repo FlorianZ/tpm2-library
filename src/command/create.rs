@@ -7,30 +7,28 @@
 use crate::{
     alg::{Alg, AlgInfo},
     cli::Task,
-    command::{AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs},
+    command::{
+        common::resolve_policy, AuthArgs, CommandError, CreationArgs, OutputArgs,
+        OutputEncodingArgs,
+    },
     io::write_key_data,
-    pcr::{pcr_get_bank_list, resolve_pcr_digests},
     task::{is_empty_auth, TaskAuth, TaskError, TaskState},
     template,
 };
 
-use std::collections::{HashMap, HashSet};
-use std::hash::BuildHasher;
-
 use clap::Args;
 use tpm2_crypto::tpm_make_name;
 use tpm2_device::{with_device, TpmDevice};
-use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     data::{
-        Tpm2bData, Tpm2bDigest, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData,
-        TpmAlgId, TpmCc, TpmHt, TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc,
+        TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand, TpmCreateResponse},
     TpmHandle,
 };
 use tpm2_tpmkey::{TpmKey as TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
-use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand};
+use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmPolicyCommand};
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
@@ -103,67 +101,6 @@ impl Create {
         }
     }
 
-    #[allow(clippy::type_complexity)]
-    fn resolve_policy(
-        &self,
-        task_state: &mut TaskState,
-        device: &mut TpmDevice,
-    ) -> Result<(Tpm2bDigest, Option<PolicyCommands>), CommandError> {
-        if let Some(expression) = &self.creation_args.policy_expression {
-            let banks = pcr_get_bank_list(device)?;
-            let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
-
-            let static_pcr_banks: Vec<TpmAlgId> = banks.iter().map(|b| b.alg).collect();
-
-            let tmp_policy_context = tpm2_policy_language::TpmPolicyState {
-                pcr_count,
-                pcr_banks: static_pcr_banks.clone(),
-                names: HashMap::new(),
-            };
-
-            let mut ast = TpmPolicyExpression::new(expression, &tmp_policy_context)?;
-
-            let mut handles: HashSet<VtpmHandle> = HashSet::new();
-            visit_secret_handles(&ast, &mut handles)?;
-
-            let mut names = HashMap::new();
-            for handle in handles {
-                let name = match handle.class() {
-                    VtpmHandleClass::Tpm => {
-                        let (_, name) =
-                            device.read_public(handle.value().unwrap_or_default().into())?;
-                        name
-                    }
-                    VtpmHandleClass::Vtpm => {
-                        let vhandle = handle.value().unwrap_or_default();
-                        let key = task_state
-                            .cache
-                            .find_by_virtual_handle(TpmHandle(vhandle))?;
-                        tpm_make_name(&key.public)?
-                    }
-                };
-                names.insert(handle, name);
-            }
-
-            let policy_context = tpm2_policy_language::TpmPolicyState {
-                pcr_count,
-                pcr_banks: static_pcr_banks,
-                names,
-            };
-
-            let session_hash_alg = self.algorithm.name_alg;
-
-            resolve_pcr_digests(task_state, device, &mut ast, session_hash_alg, &banks)?;
-
-            let (commands, final_digest) =
-                ast.to_command_list(session_hash_alg, &policy_context)?;
-
-            Ok((final_digest, Some(commands)))
-        } else {
-            Ok((Tpm2bDigest::default(), None))
-        }
-    }
-
     /// Builds the TPM2_Create command by parsing arguments and resolving policies.
     ///
     /// # Errors
@@ -179,7 +116,12 @@ impl Create {
         let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
         let sensitive_data = self.get_sensitive_data()?;
 
-        let (auth_policy_digest, policy_commands) = self.resolve_policy(task_state, device)?;
+        let (auth_policy_digest, policy_commands) = resolve_policy(
+            &self.creation_args,
+            task_state,
+            device,
+            self.algorithm.name_alg,
+        )?;
 
         let public_template =
             template::build_public(&self.algorithm, auth_policy_digest, object_attributes);
@@ -320,37 +262,4 @@ impl Create {
             self.output_encoding_args.output_encoding,
         )
     }
-}
-
-fn visit_secret_handles<S: BuildHasher>(
-    ast: &TpmPolicyExpression,
-    handles: &mut HashSet<VtpmHandle, S>,
-) -> Result<(), CommandError> {
-    match ast {
-        TpmPolicyExpression::Pcr { .. } | TpmPolicyExpression::Handle(_) => {}
-        TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
-            for branch in branches {
-                visit_secret_handles(branch, handles)?;
-            }
-        }
-        TpmPolicyExpression::Secret { auth_handle, .. } => {
-            if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
-                let Some(val) = handle.value() else {
-                    return Err(CommandError::PatternNotAllowed(auth_handle.to_string()));
-                };
-
-                if handle.class() == VtpmHandleClass::Tpm
-                    && (val >> 24) as u8 != TpmHt::Persistent as u8
-                {
-                    return Err(CommandError::InvalidHandle);
-                }
-                handles.insert(*handle);
-            } else {
-                return Err(CommandError::InvalidPolicyExpression(
-                    "secret() first argument must be a handle".to_string(),
-                ));
-            }
-        }
-    }
-    Ok(())
 }
