@@ -207,7 +207,7 @@ impl Memory {
         let nv_read_public_cmd = TpmNvReadPublicCommand {
             handles: [handle.into()],
         };
-        let (resp, _) = session.execute(device, &nv_read_public_cmd, &[], &[])?;
+        let (resp, _) = session.execute(device, &nv_read_public_cmd, &[])?;
         let read_public_resp = resp
             .NvReadPublic()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::NvReadPublic))?;
@@ -227,7 +227,6 @@ impl Memory {
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
         let auths_cow = auth_args.auths(false);
         let effective_auths: &[TaskAuth] = if needs_auth { auths_cow.as_ref() } else { &[] };
-        let handles = [auth_handle_val];
 
         while offset < data_size {
             let chunk_size = std::cmp::min(max_read_size, data_size - offset);
@@ -237,7 +236,7 @@ impl Memory {
                 handles: [auth_handle_val.into(), handle.into()],
             };
 
-            let (resp, _) = session.execute(device, &nv_read_cmd, &handles, effective_auths)?;
+            let (resp, _) = session.execute(device, &nv_read_cmd, effective_auths)?;
 
             let read_resp = resp
                 .NvRead()

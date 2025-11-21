@@ -210,8 +210,7 @@ impl Create {
         let (create_cmd, policy_commands) =
             self.build_create_command(task_state, device, parent_phys_handle)?;
 
-        let handles = [parent_phys_handle.0];
-        let execution_result = task_state.execute(device, &create_cmd, &handles, &auths);
+        let execution_result = task_state.execute(device, &create_cmd, &auths);
 
         if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
             if let Err(e) = task_state.remove_session(device, vhandle) {

@@ -54,9 +54,8 @@ impl Task for Unseal {
             let unseal_cmd = TpmUnsealCommand {
                 handles: [item_handle.0.into()],
             };
-            let unseal_handles = [item_handle.0];
 
-            let execution_result = task_state.execute(device, &unseal_cmd, &unseal_handles, &auths);
+            let execution_result = task_state.execute(device, &unseal_cmd, &auths);
 
             if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                 if let Err(e) = task_state.remove_session(device, vhandle) {

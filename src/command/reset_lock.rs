@@ -33,10 +33,8 @@ impl Task for ResetLock {
             let command = TpmDictionaryAttackLockResetCommand {
                 handles: [lock_handle],
             };
-            let handles = [TpmRh::Lockout as u32];
 
-            let (resp, _) =
-                task_state.execute(device, &command, &handles, &self.auth_args.auths(false))?;
+            let (resp, _) = task_state.execute(device, &command, &self.auth_args.auths(false))?;
 
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;

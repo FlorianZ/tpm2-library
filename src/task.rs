@@ -842,7 +842,6 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         command: &C,
-        _handles: &[u32],
         auth_list: &[TaskAuth],
     ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
         let mut effective_auth_list: Vec<TaskAuth> = Vec::with_capacity(1);
@@ -934,9 +933,8 @@ impl<'a> TaskState<'a> {
             persistent_handle,
             handles: [auth_handle, object_to_evict],
         };
-        let handles_for_session = [auth_handle.0];
 
-        let (resp, _) = self.execute(device, &cmd, &handles_for_session, auth_list)?;
+        let (resp, _) = self.execute(device, &cmd, auth_list)?;
 
         resp.EvictControl()
             .map_err(|_| TaskError::ResponseMismatch(TpmCc::EvictControl))?;

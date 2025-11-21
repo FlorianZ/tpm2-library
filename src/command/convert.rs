@@ -302,9 +302,7 @@ impl Convert {
             handles: [parent_handle.0.into()],
         };
 
-        let handles = [parent_handle.0];
-
-        let (resp, _) = task_state.execute(device, &import_cmd, &handles, auths)?;
+        let (resp, _) = task_state.execute(device, &import_cmd, auths)?;
 
         let import_resp = resp
             .Import()

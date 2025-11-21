@@ -135,7 +135,7 @@ pub fn pcr_read(
         pcr_selection_in: *pcr_selection_in,
         handles: [],
     };
-    let (resp, _) = session.execute(device, &cmd, &[], &[])?;
+    let (resp, _) = session.execute(device, &cmd, &[])?;
     let pcr_read_resp = resp
         .PcrRead()
         .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::PcrRead))?;

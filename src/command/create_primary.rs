@@ -47,7 +47,6 @@ impl Task for CreatePrimary {
             deny_keyedhash(&self.algorithm)?;
 
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
-            let handles = [primary_handle as u32];
 
             let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
             let public_template =
@@ -70,8 +69,7 @@ impl Task for CreatePrimary {
 
             let empty_auth = is_empty_auth(&cmd.in_public.inner);
 
-            let (resp, _) =
-                task_state.execute(device, &cmd, &handles, &self.auth_args.auths(empty_auth))?;
+            let (resp, _) = task_state.execute(device, &cmd, &self.auth_args.auths(empty_auth))?;
 
             let resp = resp
                 .CreatePrimary()

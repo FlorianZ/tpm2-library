@@ -182,9 +182,8 @@ impl Load {
             in_public: in_public.clone(),
             handles: [parent_handle],
         };
-        let handles = [parent_handle.0];
 
-        let (resp, _) = task_state.execute(device, &cmd, &handles, auths)?;
+        let (resp, _) = task_state.execute(device, &cmd, auths)?;
 
         let resp = resp
             .Load()
