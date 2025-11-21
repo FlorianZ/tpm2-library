@@ -116,6 +116,10 @@ pub struct CreationArgs {
     /// Policy expression: e.g., 'pcr(sha256:7)'
     #[arg(long = "policy")]
     pub policy_expression: Option<String>,
+
+    /// Sets the noDA attribute (exempt from dictionary attack protection)
+    #[arg(long = "no-lock")]
+    pub no_lock: bool,
 }
 
 impl CreationArgs {
@@ -132,6 +136,10 @@ impl CreationArgs {
         };
 
         let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
+
+        if self.no_lock {
+            attributes |= TpmaObject::NO_DA;
+        }
 
         if alg.params != AlgInfo::KeyedHash {
             attributes |=
