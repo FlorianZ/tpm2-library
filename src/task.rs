@@ -86,44 +86,6 @@ impl TaskSession {
         }
         Ok(())
     }
-
-    /// Refreshes a context.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::task::TaskError::Device) when the TPM
-    /// transmission fails.
-    pub fn refresh(&mut self, device: &mut TpmDevice) -> Result<bool, TaskError> {
-        let vhandle = self.handle();
-        match device.load_context(self.context.clone()) {
-            Ok(phandle) => match device.save_context(phandle) {
-                Ok(context) => {
-                    self.context = context;
-                    match device.flush_context(phandle) {
-                        Ok(()) => Ok(true),
-                        Err(e) => {
-                            log::warn!("vtpm:{vhandle:08x}: {e}");
-                            Ok(false)
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::warn!("vtpm:{vhandle:08x}: {e}");
-                    if let Err(e) = device.flush_context(phandle) {
-                        log::warn!("vtpm:{vhandle:08x}: {e}");
-                    }
-                    if matches!(&e, TpmDeviceError::TpmRc(rc) if rc.base() == TpmRcBase::ReferenceH0)
-                    {
-                        Ok(false)
-                    } else {
-                        Err(e.into())
-                    }
-                }
-            },
-            Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => Ok(false),
-            Err(e) => Err(e.into()),
-        }
-    }
 }
 
 /// Returns true if the object's attributes indicate policy-only authorization.
@@ -220,24 +182,6 @@ impl<'a> TaskState<'a> {
         }
     }
 
-    /// Adds a session to the task's temporary state.
-    pub fn add_session(&mut self, session: TaskSession) -> u32 {
-        let vhandle = session.handle();
-        self.sessions.insert(vhandle, session);
-        vhandle
-    }
-
-    /// Gets an immutable reference to a session.
-    #[must_use]
-    pub fn get_session(&self, vhandle: u32) -> Option<&TaskSession> {
-        self.sessions.get(&vhandle)
-    }
-
-    /// Gets a mutable reference to a session.
-    pub fn get_mut_session(&mut self, vhandle: u32) -> Option<&mut TaskSession> {
-        self.sessions.get_mut(&vhandle)
-    }
-
     /// Removes a session from the task's state and flushes it from the TPM.
     ///
     /// # Errors
@@ -307,7 +251,8 @@ impl<'a> TaskState<'a> {
         for auth in auth_list {
             if let TaskAuth::Session(vhandle) = auth {
                 let session = self
-                    .get_session(*vhandle)
+                    .sessions
+                    .get(vhandle)
                     .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
                 activated_handles.push(device.load_context(session.context.clone())?);
             }
@@ -330,7 +275,8 @@ impl<'a> TaskState<'a> {
         for (i, auth) in auth_list.iter().enumerate() {
             if let TaskAuth::Session(vhandle) = auth {
                 let session_handle = self
-                    .get_session(*vhandle)
+                    .sessions
+                    .get(vhandle)
                     .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?
                     .context
                     .saved_handle;
@@ -338,7 +284,8 @@ impl<'a> TaskState<'a> {
                 match device.save_context(session_handle) {
                     Ok(new_context) => {
                         let session = self
-                            .get_mut_session(*vhandle)
+                            .sessions
+                            .get_mut(vhandle)
                             .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
                         session.context = new_context;
                         let auth = auth_responses[i];
@@ -566,7 +513,8 @@ impl<'a> TaskState<'a> {
             Ok(()) => {
                 let new_context = device.save_context(policy_phandle)?;
                 let session = self
-                    .get_mut_session(vhandle)
+                    .sessions
+                    .get_mut(&vhandle)
                     .ok_or(TaskError::HandleNotFound("vtpm:", vhandle))?;
                 session.context = new_context;
                 Ok(Some(TaskAuth::Session(vhandle)))
@@ -814,7 +762,8 @@ impl<'a> TaskState<'a> {
             let auth_cmd = match auth {
                 TaskAuth::Session(vhandle) => {
                     let session = self
-                        .get_session(*vhandle)
+                        .sessions
+                        .get(vhandle)
                         .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
                     let nonce_size = TpmHash::from(session.hash_alg).size();
                     let mut nonce_bytes = vec![0; nonce_size];
@@ -974,6 +923,12 @@ impl<'a> TaskState<'a> {
             .map_err(|_| TaskError::ResponseMismatch(TpmCc::StartAuthSession))?;
 
         Ok((resp, nonce_caller))
+    }
+
+    fn add_session(&mut self, session: TaskSession) -> u32 {
+        let vhandle = session.handle();
+        self.sessions.insert(vhandle, session);
+        vhandle
     }
 }
 
