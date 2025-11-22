@@ -30,12 +30,6 @@ use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmPolicyCommand};
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
-/// A template for creating a new TPM key object.
-pub struct TpmKeyTemplate<'a> {
-    pub alg_desc: &'a TpmPublicTemplate,
-    pub sensitive_data: Tpm2bSensitiveData,
-}
-
 /// Creates secondary keys or sealed data objects.
 #[derive(Args, Debug, Clone)]
 #[command(about = "Creates a secondary key or a sealed data object.")]

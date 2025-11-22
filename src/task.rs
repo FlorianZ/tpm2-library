@@ -112,20 +112,14 @@ pub enum TaskError {
     HandleNameNotFound(Tpm2bName),
     #[error("invalid auth")]
     InvalidAuth,
-    #[error("invalid key bits: {0}")]
-    InvalidKeyBits(String),
     #[error("invalid parent: {0}{1:08x}")]
     InvalidParent(&'static str, u32),
     #[error("malformed data")]
     MalformedData,
     #[error("out of memory")]
     OutOfMemory,
-    #[error("parent not found")]
-    ParentNotFound,
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
-    #[error("trailing authorizations")]
-    TrailingAuthorizations,
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
     #[error("cache: {0}")]
@@ -222,8 +216,6 @@ impl<'a> TaskState<'a> {
     /// `VtpmHandle` is invalid.
     /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
     /// handle is not in the cache.
-    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
-    /// parent handle is not found.
     /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
     /// loaded key's parent is incorrect.
     pub fn fetch_handle_by_name(
@@ -264,8 +256,6 @@ impl<'a> TaskState<'a> {
     /// `VtpmHandle` is invalid.
     /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
     /// handle is not in the cache.
-    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
-    /// parent handle is not found.
     /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
     /// loaded key's parent is incorrect.
     pub fn to_policy_command_list(
@@ -362,8 +352,6 @@ impl<'a> TaskState<'a> {
     /// a policy secret handle cannot be found.
     /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
     /// loaded key's parent is incorrect.
-    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
-    /// parent handle is not found.
     pub fn build_policy_session(
         &mut self,
         device: &mut TpmDevice,
@@ -450,8 +438,6 @@ impl<'a> TaskState<'a> {
     /// a policy secret handle cannot be found.
     /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
     /// loaded key's parent is incorrect.
-    /// Returns [`ParentNotFound`](crate::TaskError::ParentNotFound) when a
-    /// parent handle is not found.
     pub fn build_auth(
         &mut self,
         device: &mut TpmDevice,
@@ -545,8 +531,6 @@ impl<'a> TaskState<'a> {
     /// fails.
     /// Returns [`HandleNotFound`](crate::task::TaskError::HandleNotFound) when
     /// the target handle or a parent handle cannot be found.
-    /// Returns [`ParentNotFound`](crate::task::TaskError::ParentNotFound) when
-    /// a necessary parent handle isn't found in cache or persistent storage.
     /// Returns [`Vtpm`](crate::task::TaskError::Vtpm) when tracking the loaded
     /// handle fails.
     /// Returns [`InvalidParent`](crate::task::TaskError::InvalidParent) when a
@@ -559,7 +543,8 @@ impl<'a> TaskState<'a> {
     /// fails during persistent key lookup.
     /// Returns
     /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
-    /// if a loaded handle is already being tracked.
+    /// if a loaded handle
+    /// is already being tracked.
     pub fn load_context(
         &mut self,
         device: &mut TpmDevice,

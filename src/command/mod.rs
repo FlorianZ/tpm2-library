@@ -114,8 +114,6 @@ pub enum CommandError {
     Key(#[from] tpm2_tpmkey::TpmKeyError),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[error("invalid key format")]
-    InvalidFormat,
     #[error("invalid handle")]
     InvalidHandle,
     #[error("invalid input: {0}")]
@@ -130,8 +128,6 @@ pub enum CommandError {
     Marshal(tpm2_protocol::TpmProtocolError),
     #[error("openssl: {0}")]
     Openssl(#[from] ErrorStack),
-    #[error("out of memory")]
-    OutOfMemory,
     #[error("handle pattern not allowed: {0}")]
     PatternNotAllowed(String),
     #[error("pcr: {0}")]
