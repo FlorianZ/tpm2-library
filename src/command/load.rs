@@ -29,6 +29,10 @@ pub struct Load {
 
     #[clap(flatten)]
     pub input_args: InputArgs,
+
+    /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
+    #[arg(short = 'P', long = "parent")]
+    pub parent: Option<VtpmHandle>,
 }
 
 impl Task for Load {
@@ -49,12 +53,19 @@ impl Task for Load {
                 let tpm_key = TpmKeyFile::from_pem(&input_bytes)
                     .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;
 
-                let parent_public = tpm_key
-                    .parent_public()
-                    .cloned()
-                    .ok_or(CommandError::InvalidInput("parent missing".to_string()))?;
-
-                let parent_handle_ref = Self::fetch_parent(task_state, device, &parent_public)?;
+                let (parent_public, parent_handle_ref) = if let Some(parent_public) =
+                    tpm_key.parent_public().cloned()
+                {
+                    let parent_handle_ref = Self::fetch_parent(task_state, device, &parent_public)?;
+                    (parent_public, parent_handle_ref)
+                } else if let Some(parent) = self.parent {
+                    if parent.value().is_none() {
+                        return Err(CommandError::PatternNotAllowed(parent.to_string()));
+                    }
+                    Self::parent_from_handle(task_state, device, parent)?
+                } else {
+                    return Err(CommandError::ParentMissing);
+                };
 
                 let (parent_handle, policy_blob, name_alg, parent_empty_auth) =
                     task_state.resolve_policy(device, &parent_handle_ref)?;
@@ -155,6 +166,30 @@ impl Load {
         }
 
         Err(CommandError::UnknownParent)
+    }
+
+    fn parent_from_handle(
+        task_state: &mut TaskState,
+        device: &mut TpmDevice,
+        parent: VtpmHandle,
+    ) -> Result<(Tpm2bPublic, VtpmHandle), CommandError> {
+        let value = parent.value().ok_or(CommandError::InvalidParentHandle)?;
+
+        match parent.class() {
+            VtpmHandleClass::Tpm => {
+                let (public, _) = device.read_public(TpmHandle(value))?;
+                Ok((Tpm2bPublic { inner: public }, parent))
+            }
+            VtpmHandleClass::Vtpm => {
+                let key = task_state.cache.find_by_virtual_handle(TpmHandle(value))?;
+                Ok((
+                    Tpm2bPublic {
+                        inner: key.public.clone(),
+                    },
+                    parent,
+                ))
+            }
+        }
     }
 
     fn run_load(

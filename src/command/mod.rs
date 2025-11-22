@@ -140,6 +140,8 @@ pub enum CommandError {
     Policy(#[from] tpm2_policy_language::TpmPolicyError),
     #[error("policy denied")]
     PolicyDenied,
+    #[error("parent missing")]
+    ParentMissing,
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
     #[error("sensitive data denied")]

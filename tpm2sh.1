@@ -74,7 +74,9 @@ Create persistent object from transient object.
 Print this message or the help of the given subcommand(s).
 .TP
 .B load
-Loads a PEM or DER TPMKey file to cache.
+Loads a PEM or DER TPMKey file to cache. If the TPMKey file does not include
+a parent public area, a parent handle must be supplied with
+.BR -P " or " --parent .
 .TP
 .B memory
 Lists objects inside TPM memory or inspects a single handle.
@@ -90,6 +92,11 @@ Prints a TPM return code in human-readable format.
 .TP
 .B unseal
 Retrieves data from a sealed data object.
+
+.SH LOAD OPTIONS
+.TP
+.B -P, --parent=\fI<tpm:HANDLE|vtpm:HANDLE>\fR
+Parent handle to use when the TPMKey file does not include the parent public area.
 
 .SH ENVIRONMENT
 .TP
