@@ -1,4 +1,4 @@
-.TH TPM2SH 1 "2025-10-29" "tpm2sh 0.13.0" "User Commands"
+.TH TPM2SH 1 "2025-11-22" "tpm2sh 0.15.23" "User Commands"
 .SH NAME
 tpm2sh \- a command-line tool for accessing TPM 2.0 devices
 .SH SYNOPSIS
@@ -27,19 +27,26 @@ provides 'convert' and 'load' subcommands for loading DER or PEM
 encoded internal and external keys. The tool uses the TPMKey ASN.1 format as
 the native output format when creating new TPM keys.
 It supports PKCS#1, PKCS#8, and SEC1 formats for external keys.
+.P
+Several commands, such as
+.BR create ,
+.BR create-primary ,
+and
+.BR convert ,
+accept a
+.BR --policy " option to specify an inline authorization policy expression."
+
 .SH OPTIONS
 .TP
 .B -d, --device=\fI<DEVICE>\fR
 Device file [default: /dev/tpmrm0].
-.TP
-.B --log-format=\fI<LOG_FORMAT>\fR
-Either 'plain' or 'pretty' [default: plain] [possible values: plain, pretty].
 .TP
 .B -h, --help
 Print help.
 .TP
 .B -V, --version
 Print version.
+
 .SH COMMANDS
 .TP
 .B algorithm
@@ -75,9 +82,6 @@ Lists objects inside TPM memory or inspects a single handle.
 .B pcr-event
 Extends a PCR with an event.
 .TP
-.B policy
-Builds an authorization policy.
-.TP
 .B reset-lock
 Resets the dictionary attack lockout counter.
 .TP
@@ -86,6 +90,13 @@ Prints a TPM return code in human-readable format.
 .TP
 .B unseal
 Retrieves data from a sealed data object.
+
+.SH ENVIRONMENT
+.TP
+.B TPM2SH_CACHE_PATH
+Overrides the default per-user cache directory used to store virtual TPM
+state. When unset, a system-appropriate per-user cache directory is used.
+
 .SH BUGS
 Please report bugs to the project's mailing list at tpm-protocol@lists.linux.dev.
 .SH LICENSE
