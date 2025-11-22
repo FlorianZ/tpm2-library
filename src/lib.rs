@@ -99,7 +99,7 @@ pub enum TpmKeyType {
 
 /// High-level runtime representation of a TPM key.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TpmKey {
+pub struct TpmKeyFile {
     pub kind: TpmKeyType,
     pub public: Tpm2bPublic,
     pub private: Tpm2bPrivate,
@@ -112,7 +112,7 @@ pub struct TpmKey {
     pub description: Option<String>,
 }
 
-impl TpmKey {
+impl TpmKeyFile {
     #[must_use]
     pub fn public(&self) -> &Tpm2bPublic {
         &self.public
@@ -444,7 +444,7 @@ mod tests {
         };
 
         let der = rasn::der::encode(&asn1).unwrap();
-        let res = TpmKey::from_der(&der);
+        let res = TpmKeyFile::from_der(&der);
 
         match res {
             Err(TpmKeyError::InvalidCc(val)) => assert_eq!(val, TpmCc::SelfTest as u32),
@@ -479,7 +479,7 @@ mod tests {
         };
 
         let der = rasn::der::encode(&asn1).unwrap();
-        let res = TpmKey::from_der(&der);
+        let res = TpmKeyFile::from_der(&der);
 
         match res {
             Err(TpmKeyError::InvalidCc(val)) => assert_eq!(val, invalid_cc_val),
@@ -508,14 +508,14 @@ mod tests {
         };
 
         let der = rasn::der::encode(&asn1).unwrap();
-        let res = TpmKey::from_der(&der);
+        let res = TpmKeyFile::from_der(&der);
         assert!(matches!(res, Err(TpmKeyError::MissingSecret)));
     }
 
-    fn minimal_key() -> TpmKey {
+    fn minimal_key() -> TpmKeyFile {
         let (public, private) = minimal_rsa_key_components();
 
-        TpmKey {
+        TpmKeyFile {
             kind: TpmKeyType::Loadable,
             public,
             private,
@@ -533,7 +533,7 @@ mod tests {
     fn pem_roundtrip_ok() {
         let key_a = minimal_key();
         let pem = key_a.to_pem().unwrap();
-        let key_b = TpmKey::from_pem(pem.as_bytes()).unwrap();
+        let key_b = TpmKeyFile::from_pem(pem.as_bytes()).unwrap();
         assert_eq!(key_a, key_b);
     }
 
@@ -548,14 +548,14 @@ mod tests {
     #[test]
     fn from_pem_invalid_tag_err() {
         let bad_pem = "-----BEGIN RSA PRIVATE KEY-----\nMQ==\n-----END RSA PRIVATE KEY-----\n";
-        let res = TpmKey::from_pem(bad_pem.as_bytes());
+        let res = TpmKeyFile::from_pem(bad_pem.as_bytes());
         assert!(matches!(res, Err(TpmKeyError::InvalidPemTag(tag)) if tag == "RSA PRIVATE KEY"));
     }
 
     #[test]
     fn from_pem_malformed_data_err() {
         let bad_pem = "not pem data at all";
-        let res = TpmKey::from_pem(bad_pem.as_bytes());
+        let res = TpmKeyFile::from_pem(bad_pem.as_bytes());
         assert!(matches!(res, Err(TpmKeyError::PemDecodingFailed(_))));
     }
 
@@ -564,7 +564,7 @@ mod tests {
         use tpm2_protocol::data::{TpmtPublic, TpmuPublicId, TpmuPublicParms};
 
         let (public, private) = minimal_rsa_key_components();
-        let mut key = TpmKey {
+        let mut key = TpmKeyFile {
             kind: TpmKeyType::Loadable,
             public: public.clone(),
             private,
@@ -647,7 +647,7 @@ mod tests {
         };
         let private = Tpm2bPrivate::try_from(&sensitive_bytes[..len]).unwrap();
 
-        let key = TpmKey {
+        let key = TpmKeyFile {
             kind: TpmKeyType::SealedData,
             public,
             private,
@@ -661,7 +661,7 @@ mod tests {
         };
 
         let der = key.to_der().unwrap();
-        let restored = TpmKey::from_der(&der).unwrap();
+        let restored = TpmKeyFile::from_der(&der).unwrap();
 
         assert_eq!(restored.kind, TpmKeyType::SealedData);
         assert_eq!(restored.public, key.public);
