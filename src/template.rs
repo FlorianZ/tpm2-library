@@ -18,7 +18,7 @@ use tpm2_protocol::{
 
 /// The specific kind of public key or object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TpmObjectType {
+pub enum TpmPublicTemplateType {
     Rsa { key_bits: u16 },
     Ecc { curve_id: TpmEccCurve },
     KeyedHash,
@@ -29,7 +29,7 @@ pub enum TpmObjectType {
 pub struct TpmPublicTemplate {
     pub name: String,
     pub hash: TpmAlgId,
-    pub kind: TpmObjectType,
+    pub kind: TpmPublicTemplateType,
 }
 
 impl TpmPublicTemplate {
@@ -40,7 +40,7 @@ impl TpmPublicTemplate {
         Self {
             name: format!("rsa-{key_bits}:{name_alg_str}"),
             hash: name_alg,
-            kind: TpmObjectType::Rsa { key_bits },
+            kind: TpmPublicTemplateType::Rsa { key_bits },
         }
     }
 
@@ -52,7 +52,7 @@ impl TpmPublicTemplate {
         Self {
             name: format!("ecc-{curve_str}:{name_alg_str}"),
             hash: name_alg,
-            kind: TpmObjectType::Ecc { curve_id },
+            kind: TpmPublicTemplateType::Ecc { curve_id },
         }
     }
 
@@ -63,7 +63,7 @@ impl TpmPublicTemplate {
         Self {
             name: format!("keyedhash:{name_alg_str}"),
             hash: name_alg,
-            kind: TpmObjectType::KeyedHash,
+            kind: TpmPublicTemplateType::KeyedHash,
         }
     }
 
@@ -71,9 +71,9 @@ impl TpmPublicTemplate {
     #[must_use]
     pub fn alg_id(&self) -> TpmAlgId {
         match self.kind {
-            TpmObjectType::Ecc { .. } => TpmAlgId::Ecc,
-            TpmObjectType::Rsa { .. } => TpmAlgId::Rsa,
-            TpmObjectType::KeyedHash => TpmAlgId::KeyedHash,
+            TpmPublicTemplateType::Ecc { .. } => TpmAlgId::Ecc,
+            TpmPublicTemplateType::Rsa { .. } => TpmAlgId::Rsa,
+            TpmPublicTemplateType::KeyedHash => TpmAlgId::KeyedHash,
         }
     }
 
@@ -87,7 +87,7 @@ impl TpmPublicTemplate {
         };
 
         let (parameters, unique) = match self.kind {
-            TpmObjectType::Rsa { key_bits } => (
+            TpmPublicTemplateType::Rsa { key_bits } => (
                 TpmuPublicParms::Rsa(TpmsRsaParms {
                     symmetric,
                     scheme: TpmtRsaScheme::default(),
@@ -96,7 +96,7 @@ impl TpmPublicTemplate {
                 }),
                 TpmuPublicId::Rsa(TpmBuffer::default()),
             ),
-            TpmObjectType::Ecc { curve_id } => (
+            TpmPublicTemplateType::Ecc { curve_id } => (
                 TpmuPublicParms::Ecc(TpmsEccParms {
                     symmetric,
                     scheme: TpmtEccScheme::default(),
@@ -105,7 +105,7 @@ impl TpmPublicTemplate {
                 }),
                 TpmuPublicId::Ecc(tpm2_protocol::data::TpmsEccPoint::default()),
             ),
-            TpmObjectType::KeyedHash => (
+            TpmPublicTemplateType::KeyedHash => (
                 TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
                     scheme: TpmtKeyedhashScheme {
                         scheme: TpmAlgId::Null,
