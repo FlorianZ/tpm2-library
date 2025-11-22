@@ -31,8 +31,8 @@ use tpm2_protocol::{
     },
     frame::{
         tpm_marshal_command, tpm_unmarshal_response, TpmAuthResponses, TpmContextLoadCommand,
-        TpmContextSaveCommand, TpmEvictControlCommand, TpmFlushContextCommand, TpmFrame,
-        TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponse,
+        TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame, TpmGetCapabilityCommand,
+        TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponse,
     },
     TpmHandle, TpmWriter,
 };
@@ -677,34 +677,6 @@ impl TpmDevice {
             }
             Err(e) => Err(e),
         }
-    }
-
-    /// Evicts a persistent object or makes a transient object persistent.
-    ///
-    /// # Errors
-    ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`transmit`](TpmDevice::transmit). Returns
-    /// [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) when the
-    /// TPM response does not contain `TPM2_EvictControl` data.
-    pub fn evict_control(
-        &mut self,
-        auth: TpmHandle,
-        object_handle: TpmHandle,
-        persistent_handle: TpmHandle,
-        sessions: &[TpmsAuthCommand],
-    ) -> Result<(), TpmDeviceError> {
-        let cmd = TpmEvictControlCommand {
-            handles: [auth, object_handle],
-            persistent_handle,
-        };
-
-        let (resp, _) = self.transmit(&cmd, sessions)?;
-
-        resp.EvictControl()
-            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::EvictControl))?;
-
-        Ok(())
     }
 
     /// Refreshes a key context. Returns `true` if the context is still valid,
