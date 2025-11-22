@@ -255,6 +255,8 @@ impl TpmHash {
         };
 
         let mut counter: u32 = 1;
+        let md = (*self).into();
+
         while key_stream.len() < key_bytes {
             let counter_bytes = counter.to_be_bytes();
             let digest_payload = [
@@ -266,7 +268,16 @@ impl TpmHash {
                 context_v,
             ];
 
-            let result = self.digest(&digest_payload)?;
+            let mut hasher = Hasher::new(md).map_err(|_| TpmCryptoError::OutOfMemory)?;
+            for chunk in &digest_payload {
+                hasher
+                    .update(chunk)
+                    .map_err(|_| TpmCryptoError::OperationFailed)?;
+            }
+            let result = hasher
+                .finish()
+                .map_err(|_| TpmCryptoError::OperationFailed)?;
+
             let remaining = key_bytes - key_stream.len();
             let to_take = remaining.min(result.len());
             key_stream.extend_from_slice(&result[..to_take]);
