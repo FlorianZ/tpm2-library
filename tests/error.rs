@@ -1,4 +1,8 @@
-use std::{cell::RefCell, path::Path, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    path::Path,
+    rc::Rc,
+};
 
 use rstest::rstest;
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
@@ -60,4 +64,22 @@ fn with_device_errors(#[case] scenario: WithDeviceCase) {
             ));
         }
     }
+}
+
+#[test]
+fn with_device_success() {
+    let device = TpmDevice::builder()
+        .with_path(Path::new("/dev/null"))
+        .build()
+        .expect("failed to open /dev/null for TpmDevice");
+    let device = Rc::new(RefCell::new(device));
+    let called = Cell::new(false);
+
+    let result: Result<u32, WithDeviceError> = with_device(Some(device.clone()), |_dev| {
+        called.set(true);
+        Ok(7)
+    });
+
+    assert!(called.get());
+    assert!(matches!(result, Ok(7)));
 }
