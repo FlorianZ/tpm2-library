@@ -525,7 +525,7 @@ impl TpmDevice {
             return Err(TpmDeviceError::CapabilityMissing(TpmCap::TpmProperties));
         };
 
-        let Some(prop) = props.first() else {
+        let Some(prop) = props.iter().find(|prop| prop.property == property) else {
             return Err(TpmDeviceError::CapabilityMissing(TpmCap::TpmProperties));
         };
 
