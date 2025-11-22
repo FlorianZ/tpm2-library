@@ -3,12 +3,14 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    alg::Alg,
     cli::Task,
     command::{print_table, CommandError},
     task::TaskState,
 };
 use clap::Args;
 use tabled::Tabled;
+use tpm2_crypto::TpmHash;
 use tpm2_device::with_device;
 use tpm2_protocol::{data::TpmRh, TpmHandle};
 
@@ -89,10 +91,16 @@ impl Task for Cache {
                     TpmRh::Null => "null",
                     _ => "unknown",
                 };
+
+                let details = Alg::try_from(&key.public).map_or_else(
+                    |_| TpmHash::from(key.public.object_type).to_string(),
+                    |a| a.to_string(),
+                );
+
                 CacheRow {
                     handle: format!("{:08x}", key.handle.0),
                     class: "transient".to_string(),
-                    details: format!("{}:{}", hierarchy, crate::alg::alg_details(&key.public)),
+                    details: format!("{hierarchy}:{details}"),
                 }
             })
             .collect();

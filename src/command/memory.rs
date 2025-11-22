@@ -3,7 +3,6 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::{Alg, AlgInfo},
     cli::Task,
     command::{print_table, AuthArgs, CommandError},
     task::{TaskAuth, TaskState},
@@ -16,7 +15,7 @@ use tabled::Tabled;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
-    data::{TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
+    data::{TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
     frame::{TpmNvReadCommand, TpmNvReadPublicCommand},
     TpmHandle,
 };
@@ -334,7 +333,7 @@ impl Memory {
         let (public, _) = device.read_public(handle)?;
         let TpmHandle(handle) = handle;
 
-        let details = crate::alg::alg_details(&public);
+        let details = crate::alg::Alg::try_from(&public)?;
 
         if (handle & 0xFF00_0000) == (TpmHt::Persistent as u32) << 24 {
             let hierarchy = if handle >= 0x8180_0000 {
@@ -344,7 +343,7 @@ impl Memory {
             };
             Ok(format!("{hierarchy}:{details}"))
         } else {
-            Ok(details)
+            Ok(details.to_string())
         }
     }
 
@@ -354,12 +353,7 @@ impl Memory {
             Nid::ECDSA_WITH_SHA256 | Nid::SHA256WITHRSAENCRYPTION => Ok(TpmHash::Sha256),
             Nid::ECDSA_WITH_SHA384 | Nid::SHA384WITHRSAENCRYPTION => Ok(TpmHash::Sha384),
             Nid::ECDSA_WITH_SHA512 | Nid::SHA512WITHRSAENCRYPTION => Ok(TpmHash::Sha512),
-            _ => Err(CommandError::UnsupportedSignatureAlgorithm(Alg {
-                name: oid_nid.long_name().unwrap_or("unknown").to_string(),
-                object_type: TpmAlgId::Null,
-                name_alg: TpmAlgId::Null,
-                params: AlgInfo::KeyedHash,
-            })),
+            _ => Err(CommandError::UnsupportedHashAlgorithm),
         }
     }
 
@@ -387,25 +381,12 @@ impl Memory {
                     Some(Nid::SECP384R1) => TpmEllipticCurve::NistP384,
                     Some(Nid::SECP521R1) => TpmEllipticCurve::NistP521,
                     _ => {
-                        let name = curve_nid
-                            .and_then(|n| n.long_name().ok())
-                            .unwrap_or("unknown");
-                        return Err(CommandError::UnsupportedKeyAlgorithm(Alg {
-                            name: name.to_string(),
-                            object_type: TpmAlgId::Null,
-                            name_alg: TpmAlgId::Null,
-                            params: AlgInfo::KeyedHash,
-                        }));
+                        return Err(CommandError::UnsupportedKeyAlgorithm);
                     }
                 };
                 Ok(format!("ecc-{curve}:{sig_alg_str}"))
             }
-            _ => Err(CommandError::UnsupportedKeyAlgorithm(Alg {
-                name: format!("{:?}", pkey.id()),
-                object_type: TpmAlgId::Null,
-                name_alg: TpmAlgId::Null,
-                params: AlgInfo::KeyedHash,
-            })),
+            _ => Err(CommandError::UnsupportedKeyAlgorithm),
         }
     }
 }

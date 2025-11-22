@@ -85,8 +85,8 @@ where
 /// Returns [`UnsupportedKeyAlgorithm`](crate::command::CommandError::UnsupportedKeyAlgorithm)
 /// if the algorithm is keyedhash.
 pub fn deny_keyedhash(algorithm: &crate::alg::Alg) -> Result<(), CommandError> {
-    if algorithm.params == AlgInfo::KeyedHash {
-        Err(CommandError::UnsupportedKeyAlgorithm(algorithm.clone()))
+    if algorithm.kind == AlgInfo::KeyedHash {
+        Err(CommandError::UnsupportedKeyAlgorithm)
     } else {
         Ok(())
     }
@@ -160,10 +160,10 @@ pub enum CommandError {
     UnknownParent,
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
-    #[error("unsupported key algorithm: '{0}'")]
-    UnsupportedKeyAlgorithm(crate::alg::Alg),
-    #[error("unsupported signature algorithm: {0}")]
-    UnsupportedSignatureAlgorithm(crate::alg::Alg),
+    #[error("unsupported hash algorithm")]
+    UnsupportedHashAlgorithm,
+    #[error("unsupported key algorithm")]
+    UnsupportedKeyAlgorithm,
 }
 
 impl From<TaskError> for CommandError {

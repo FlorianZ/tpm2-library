@@ -3,7 +3,6 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::AlgError,
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
     io::read_file_input,
@@ -48,7 +47,7 @@ impl Task for Load {
                 }
 
                 let tpm_key = TpmKey::from_pem(&input_bytes)
-                    .or_else(|_| TpmKey::from_der(&input_bytes).map_err(AlgError::from))?;
+                    .or_else(|_| TpmKey::from_der(&input_bytes).map_err(CommandError::from))?;
 
                 let parent_public = tpm_key
                     .parent_public()

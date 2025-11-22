@@ -2,10 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    alg::AlgError,
-    command::{CommandError, OutputEncoding},
-};
+use crate::command::{CommandError, OutputEncoding};
 
 use std::{
     fs,
@@ -50,8 +47,8 @@ pub fn write_key_data(
     encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
     let output_bytes = match encoding {
-        OutputEncoding::Der => tpm_key.to_der().map_err(AlgError::from)?,
-        OutputEncoding::Pem => tpm_key.to_pem().map_err(AlgError::from)?.into_bytes(),
+        OutputEncoding::Der => tpm_key.to_der().map_err(CommandError::from)?,
+        OutputEncoding::Pem => tpm_key.to_pem().map_err(CommandError::from)?.into_bytes(),
     };
 
     write_data(writer, output, &output_bytes)

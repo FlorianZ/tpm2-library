@@ -85,7 +85,7 @@ impl Task for Create {
 
 impl Create {
     fn get_sensitive_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
-        match (&self.data, &self.algorithm.params) {
+        match (&self.data, &self.algorithm.kind) {
             (Some(hex_data), AlgInfo::KeyedHash) => {
                 let bytes = hex::decode(hex_data)?;
                 if bytes.is_empty() {
@@ -116,12 +116,8 @@ impl Create {
         let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
         let sensitive_data = self.get_sensitive_data()?;
 
-        let (auth_policy_digest, policy_commands) = resolve_policy(
-            &self.creation_args,
-            task_state,
-            device,
-            self.algorithm.name_alg,
-        )?;
+        let (auth_policy_digest, policy_commands) =
+            resolve_policy(&self.creation_args, task_state, device, self.algorithm.hash)?;
 
         let public_template =
             template::build_public(&self.algorithm, auth_policy_digest, object_attributes);
@@ -188,7 +184,7 @@ impl Create {
             None
         };
 
-        let kind = if matches!(self.algorithm.params, AlgInfo::KeyedHash) {
+        let kind = if matches!(self.algorithm.kind, AlgInfo::KeyedHash) {
             TpmKeyType::SealedData
         } else {
             TpmKeyType::Loadable

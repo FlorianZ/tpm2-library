@@ -28,7 +28,7 @@ pub fn build_public(
         mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
     };
 
-    let (parameters, unique) = match alg_desc.params {
+    let (parameters, unique) = match alg_desc.kind {
         AlgInfo::Rsa { key_bits } => (
             TpmuPublicParms::Rsa(TpmsRsaParms {
                 symmetric,
@@ -59,8 +59,8 @@ pub fn build_public(
     };
 
     TpmtPublic {
-        object_type: alg_desc.object_type,
-        name_alg: alg_desc.name_alg,
+        object_type: alg_desc.alg_id(),
+        name_alg: alg_desc.hash,
         object_attributes,
         auth_policy,
         parameters,
