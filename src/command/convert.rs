@@ -116,7 +116,7 @@ impl Task for Convert {
             );
 
             if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                if let Err(e) = task_state.remove_session(device, vhandle) {
+                if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
                 }
             }

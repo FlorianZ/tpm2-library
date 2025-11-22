@@ -78,7 +78,7 @@ impl Task for Load {
                 );
 
                 if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                    if let Err(e) = task_state.remove_session(device, vhandle) {
+                    if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
                         log::error!("vtpm:{vhandle:08x}: {e}");
                     }
                 }
@@ -178,7 +178,7 @@ impl Load {
             .Load()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Load))?;
 
-        task_state.track_handle(resp.handles[0])?;
+        task_state.track(resp.handles[0])?;
         Ok((resp.handles[0], resp.name, in_public.clone()))
     }
 }

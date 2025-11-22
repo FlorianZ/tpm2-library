@@ -60,7 +60,7 @@ impl Task for Evict {
 
                 task_state.cache.remove(vhandle)?;
 
-                task_state.untrack_handle(transient_handle.0);
+                task_state.untrack(transient_handle);
 
                 Ok(())
             },

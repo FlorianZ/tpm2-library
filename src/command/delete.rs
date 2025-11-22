@@ -64,7 +64,7 @@ fn delete_tpm_handles(
                     TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
                         dev.flush_context(TpmHandle(handle))?;
                         if class == TpmHt::Transient {
-                            task_state.untrack_handle(handle);
+                            task_state.untrack(TpmHandle(handle));
                         }
                     }
                     TpmHt::Persistent => {

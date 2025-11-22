@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::Args;
 use tpm2_device::with_device;
-use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand};
+use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand, TpmHandle};
 use tpm2_vtpm::VtpmHandle;
 
 /// Retrieves data from a sealed data object.
@@ -56,7 +56,7 @@ impl Task for Unseal {
             let execution_result = task_state.execute(device, &unseal_cmd, &auths);
 
             if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                if let Err(e) = task_state.remove_session(device, vhandle) {
+                if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
                     log::error!("vtpm:{vhandle:08x}: {e}");
                 }
             }

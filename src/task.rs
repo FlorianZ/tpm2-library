@@ -4,7 +4,13 @@
 
 use crate::{alg::AlgError, command::AuthArgs};
 
-use std::{cell::RefCell, collections::HashMap, io, num::TryFromIntError, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    io,
+    num::TryFromIntError,
+    rc::Rc,
+};
 
 use hex;
 use rand::{thread_rng, RngCore};
@@ -12,11 +18,9 @@ use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
 use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
-    basic::TpmBuffer,
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc,
-        TpmRcBase, TpmRh, TpmSe, TpmaObject, TpmaSession, TpmsAuthCommand, TpmsContext, TpmtPublic,
-        TpmtSymDefObject,
+        TpmRh, TpmSe, TpmaObject, TpmaSession, TpmsAuthCommand, TpmtPublic, TpmtSymDefObject,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
@@ -39,7 +43,7 @@ pub trait TaskStateProgress {
 /// Manages the state of an active authorization session.
 #[derive(Debug, Clone)]
 pub struct TaskSession {
-    pub context: TpmsContext,
+    pub handle: TpmHandle,
     pub attributes: TpmaSession,
     pub hash_alg: TpmAlgId,
 }
@@ -50,14 +54,9 @@ impl TaskSession {
     /// # Errors
     ///
     /// Returns [`TaskError`] if the hash algorithm is unsupported or if `KDFa` fails.
-    pub fn new(hash_alg: TpmAlgId, resp: &TpmStartAuthSessionResponse) -> Result<Self, TaskError> {
+    pub fn new(hash_alg: TpmAlgId, handle: TpmHandle) -> Result<Self, TaskError> {
         Ok(Self {
-            context: TpmsContext {
-                sequence: 0,
-                saved_handle: resp.handles[0],
-                hierarchy: TpmRh::Null,
-                context_blob: TpmBuffer::default(),
-            },
+            handle,
             attributes: TpmaSession::CONTINUE_SESSION,
             hash_alg,
         })
@@ -65,8 +64,8 @@ impl TaskSession {
 
     /// Returns the VTPM handle.
     #[must_use]
-    pub fn handle(&self) -> u32 {
-        self.context.saved_handle.0
+    pub fn handle(&self) -> TpmHandle {
+        self.handle
     }
 
     /// Deletes a context.
@@ -76,15 +75,7 @@ impl TaskSession {
     /// Returns [`Device`](crate::task::TaskError::Device) when the TPM
     /// transmission fails.
     pub fn delete(&self, device: &mut TpmDevice) -> Result<(), TaskError> {
-        let vhandle = self.handle();
-        match device.flush_session(self.context.clone()) {
-            Ok(()) => {}
-            Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => {
-                log::debug!("vtpm session:{vhandle:08x} stale");
-            }
-            Err(e) => return Err(e.into()),
-        }
-        Ok(())
+        device.flush_context(self.handle).map_err(TaskError::Device)
     }
 }
 
@@ -103,7 +94,6 @@ pub fn is_empty_auth(public: &TpmtPublic) -> bool {
 pub enum TaskAuth {
     Password(Vec<u8>),
     Session(u32),
-    Policy(Vec<u8>),
 }
 
 impl Default for TaskAuth {
@@ -159,10 +149,9 @@ pub struct TaskState<'a> {
     pub cache: VtpmCache<'a>,
     pub progress: Option<Box<dyn TaskStateProgress>>,
     /// Holds all temporary sessions, indexed by their vhandle.
-    pub sessions: HashMap<u32, TaskSession>,
-    /// Holds all temporary physical handles (loaded keys + sessions) to be
-    /// flushed on drop.
-    pub physical_handles_to_flush: HashMap<u32, TpmHandle>,
+    pub sessions: HashMap<TpmHandle, TaskSession>,
+    /// Live handles.
+    pub handles: HashSet<TpmHandle>,
 }
 
 impl<'a> TaskState<'a> {
@@ -178,7 +167,7 @@ impl<'a> TaskState<'a> {
             cache,
             progress,
             sessions: HashMap::new(),
-            physical_handles_to_flush: HashMap::new(),
+            handles: HashSet::new(),
         }
     }
 
@@ -193,12 +182,12 @@ impl<'a> TaskState<'a> {
     pub fn remove_session(
         &mut self,
         device: &mut TpmDevice,
-        vhandle: u32,
+        vhandle: TpmHandle,
     ) -> Result<(), TaskError> {
         let session = self
             .sessions
             .remove(&vhandle)
-            .ok_or(TaskError::HandleNotFound("vtpm:", vhandle))?;
+            .ok_or(TaskError::HandleNotFound("tpm:", vhandle.0))?;
         session.delete(device)
     }
 
@@ -209,98 +198,17 @@ impl<'a> TaskState<'a> {
     /// Returns
     /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
     /// if the handle is already being tracked.
-    pub fn track_handle(&mut self, handle: TpmHandle) -> Result<(), TaskError> {
-        if self.physical_handles_to_flush.contains_key(&handle.0) {
+    pub fn track(&mut self, handle: TpmHandle) -> Result<(), TaskError> {
+        if self.handles.contains(&handle) {
             return Err(TaskError::HandleAlreadyTracked(handle));
         }
-        self.physical_handles_to_flush.insert(handle.0, handle);
+        self.handles.insert(handle);
         Ok(())
     }
 
-    /// Removes a handle from the tracking list.
-    pub fn untrack_handle(&mut self, handle: u32) {
-        self.physical_handles_to_flush.remove(&handle);
-    }
-
-    /// Flushes all tracked transient handles from the TPM.
-    fn flush_handles(&mut self, device: &mut TpmDevice) {
-        let handles_to_flush: Vec<TpmHandle> = self
-            .physical_handles_to_flush
-            .drain()
-            .map(|(_, v)| v)
-            .collect();
-        for handle in handles_to_flush {
-            if let Err(err) = device.flush_context(handle) {
-                log::error!("{handle}: {err}");
-            }
-        }
-    }
-
-    /// Prepares sessions by loading them into the TPM.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`TaskError`] if a session is not found or if loading its
-    /// context fails.
-    pub fn prepare_sessions(
-        &mut self,
-        device: &mut TpmDevice,
-        auth_list: &[TaskAuth],
-    ) -> Result<Vec<TpmHandle>, TaskError> {
-        let mut activated_handles = Vec::new();
-        for auth in auth_list {
-            if let TaskAuth::Session(vhandle) = auth {
-                let session = self
-                    .sessions
-                    .get(vhandle)
-                    .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
-                activated_handles.push(device.load_context(session.context.clone())?);
-            }
-        }
-        Ok(activated_handles)
-    }
-
-    /// Tears down sessions by saving their updated contexts.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`TaskError`] if a session is not found or if saving/flushing
-    /// the context fails.
-    pub fn teardown_sessions(
-        &mut self,
-        device: &mut TpmDevice,
-        auth_list: &[TaskAuth],
-        auth_responses: &TpmAuthResponses,
-    ) -> Result<(), TaskError> {
-        for (i, auth) in auth_list.iter().enumerate() {
-            if let TaskAuth::Session(vhandle) = auth {
-                let session_handle = self
-                    .sessions
-                    .get(vhandle)
-                    .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?
-                    .context
-                    .saved_handle;
-
-                match device.save_context(session_handle) {
-                    Ok(new_context) => {
-                        let session = self
-                            .sessions
-                            .get_mut(vhandle)
-                            .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
-                        session.context = new_context;
-                        let auth = auth_responses[i];
-                        session.attributes = auth.session_attributes;
-                    }
-                    Err(e) => {
-                        if let Err(e) = device.flush_context(session_handle) {
-                            log::warn!("{session_handle}: {e}");
-                        }
-                        return Err(e.into());
-                    }
-                }
-            }
-        }
-        Ok(())
+    /// Removes a handle from the live handle tracking list.
+    pub fn untrack(&mut self, handle: TpmHandle) {
+        self.handles.remove(&handle);
     }
 
     /// Resolves a `Tpm2bName` from a `PolicySecret` to a live `TpmHandle`.
@@ -417,7 +325,7 @@ impl<'a> TaskState<'a> {
                     .unwrap_or(&TaskAuth::Password(Vec::new()))
                 {
                     TaskAuth::Password(val) => build_password_session(val)?,
-                    _ => return Err(TaskError::InvalidAuth),
+                    TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
                 };
 
                 let mut auths = TpmAuthCommands::new();
@@ -483,7 +391,7 @@ impl<'a> TaskState<'a> {
             (TpmRh::Null as u32).into(),
         )?;
 
-        let temp_session = TaskSession::new(key_name_alg, &resp)?;
+        let temp_session = TaskSession::new(key_name_alg, resp.handles[0])?;
         let vhandle = self.add_session(temp_session);
         let policy_phandle = resp.handles[0];
 
@@ -510,17 +418,9 @@ impl<'a> TaskState<'a> {
         })();
 
         match execution_result {
-            Ok(()) => {
-                let new_context = device.save_context(policy_phandle)?;
-                let session = self
-                    .sessions
-                    .get_mut(&vhandle)
-                    .ok_or(TaskError::HandleNotFound("vtpm:", vhandle))?;
-                session.context = new_context;
-                Ok(Some(TaskAuth::Session(vhandle)))
-            }
+            Ok(()) => Ok(Some(TaskAuth::Session(vhandle.0))),
             Err(e) => {
-                let _ = self.remove_session(device, vhandle);
+                let _ = self.remove_session(device, policy_phandle);
                 Err(e)
             }
         }
@@ -632,7 +532,7 @@ impl<'a> TaskState<'a> {
             VtpmHandleClass::Vtpm => {
                 let key = self.cache.find_by_virtual_handle(TpmHandle(handle_val))?;
                 let loaded_phandle = device.load_context(key.context.clone())?;
-                self.track_handle(loaded_phandle)?;
+                self.track(loaded_phandle)?;
                 Ok(loaded_phandle)
             }
         }
@@ -693,12 +593,12 @@ impl<'a> TaskState<'a> {
             let loaded_phandle = device.load_context(key.context.clone())?;
 
             if device.read_public(phandle)?.1 != tpm_make_name(&key.parent)? {
-                self.untrack_handle(loaded_phandle.0);
+                self.untrack(loaded_phandle);
                 device.flush_context(loaded_phandle)?;
                 return Err(TaskError::InvalidParent("vtpm:", vhandle));
             }
 
-            self.track_handle(loaded_phandle)?;
+            self.track(loaded_phandle)?;
             phandle = loaded_phandle;
         }
 
@@ -745,42 +645,6 @@ impl<'a> TaskState<'a> {
         }
     }
 
-    /// Builds the authorization area for a command.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a
-    /// session handle in `auth_list` is not found.
-    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a `Policy`
-    /// auth class is encountered.
-    /// Returns [`OutOfMemory`](crate::TaskError::OutOfMemory) when
-    /// an auth struct is too large or memory allocation fails.
-    fn build_auth_area(&self, auth_list: &[TaskAuth]) -> Result<Vec<TpmsAuthCommand>, TaskError> {
-        let mut built_auths = Vec::new();
-
-        for auth in auth_list {
-            let auth_cmd = match auth {
-                TaskAuth::Session(vhandle) => {
-                    let session = self
-                        .sessions
-                        .get(vhandle)
-                        .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
-                    let nonce_size = TpmHash::from(session.hash_alg).size();
-                    let mut nonce_bytes = vec![0; nonce_size];
-                    thread_rng().fill_bytes(&mut nonce_bytes);
-                    let nonce_caller = Tpm2bNonce::try_from(nonce_bytes.as_slice())
-                        .map_err(|_| TaskError::OutOfMemory)?;
-
-                    create_auth(session, &nonce_caller, &[])?
-                }
-                TaskAuth::Password(password) => build_password_session(password)?,
-                TaskAuth::Policy(_) => return Err(TaskError::InvalidAuth),
-            };
-            built_auths.push(auth_cmd);
-        }
-        Ok(built_auths)
-    }
-
     /// Executes a TPM command with full authorization session handling.
     ///
     /// # Errors
@@ -800,24 +664,36 @@ impl<'a> TaskState<'a> {
         command: &C,
         auth_list: &[TaskAuth],
     ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
-        for auth in auth_list {
-            if let TaskAuth::Policy(_) = auth {
-                return Err(TaskError::InvalidAuth);
-            }
-        }
-        let effective_auth_list = auth_list.to_vec();
-
-        let activated_handles = self.prepare_sessions(device, &effective_auth_list)?;
-
-        for &handle in &activated_handles {
-            self.track_handle(handle)?;
-        }
-
         if let Some(p) = &self.progress {
             p.start();
         }
 
-        let sessions = self.build_auth_area(&effective_auth_list)?;
+        let mut sessions = Vec::new();
+
+        for auth in auth_list {
+            let auth_cmd = match auth {
+                TaskAuth::Session(vhandle) => {
+                    let session = self
+                        .sessions
+                        .get(&TpmHandle(*vhandle))
+                        .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
+                    let nonce_size = TpmHash::from(session.hash_alg).size();
+                    let mut nonce_bytes = vec![0; nonce_size];
+                    thread_rng().fill_bytes(&mut nonce_bytes);
+                    let nonce = Tpm2bNonce::try_from(nonce_bytes.as_slice())
+                        .map_err(|_| TaskError::OutOfMemory)?;
+
+                    TpmsAuthCommand {
+                        session_handle: session.handle(),
+                        nonce,
+                        session_attributes: session.attributes,
+                        hmac: Tpm2bAuth::default(),
+                    }
+                }
+                TaskAuth::Password(password) => build_password_session(password)?,
+            };
+            sessions.push(auth_cmd);
+        }
 
         let result = device.transmit(command, &sessions);
 
@@ -825,23 +701,7 @@ impl<'a> TaskState<'a> {
             p.stop();
         }
 
-        let (resp, auth_responses) = match result {
-            Ok((resp, auth_responses)) => (resp, auth_responses),
-            Err(TpmDeviceError::TpmRc(rc)) => {
-                return Err(TaskError::Device(TpmDeviceError::TpmRc(rc)));
-            }
-            Err(err) => {
-                return Err(TaskError::Device(err));
-            }
-        };
-
-        self.teardown_sessions(device, &effective_auth_list, &auth_responses)?;
-
-        for handle in activated_handles {
-            self.untrack_handle(handle.0);
-        }
-
-        Ok((resp, auth_responses))
+        Ok(result?)
     }
 
     /// Evicts a persistent object or makes a transient object persistent using `Session::execute`.
@@ -925,36 +785,23 @@ impl<'a> TaskState<'a> {
         Ok((resp, nonce_caller))
     }
 
-    fn add_session(&mut self, session: TaskSession) -> u32 {
+    fn add_session(&mut self, session: TaskSession) -> TpmHandle {
         let vhandle = session.handle();
         self.sessions.insert(vhandle, session);
         vhandle
     }
 }
 
-/// Creates an authorization command structure for a session.
-///
-/// # Errors
-///
-/// Returns a [`TaskError`] if TPM data structures cannot be serialized.
-fn create_auth(
-    session: &TaskSession,
-    nonce_caller: &Tpm2bNonce,
-    auth_value: &[u8],
-) -> Result<TpmsAuthCommand, TaskError> {
-    Ok(TpmsAuthCommand {
-        session_handle: session.context.saved_handle,
-        nonce: *nonce_caller,
-        session_attributes: session.attributes,
-        hmac: Tpm2bAuth::try_from(auth_value).map_err(|_| TaskError::OutOfMemory)?,
-    })
-}
-
 impl Drop for TaskState<'_> {
     fn drop(&mut self) {
         if let Some(device_rc) = self.device.clone() {
             if let Ok(mut dev) = device_rc.try_borrow_mut() {
-                self.flush_handles(&mut dev);
+                let handles_to_flush: Vec<TpmHandle> = self.handles.drain().collect();
+                for handle in handles_to_flush {
+                    if let Err(err) = dev.flush_context(handle) {
+                        log::error!("{handle}: {err}");
+                    }
+                }
                 for session in self.sessions.values() {
                     if let Err(e) = session.delete(&mut dev) {
                         log::error!("vtpm:{:08x}: {e}", session.handle());

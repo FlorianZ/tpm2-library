@@ -31,7 +31,7 @@ thiserror = "1.0"
 tpm2-crypto = "0.8.0"
 tpm2-device = "0.3.1"
 tpm2-policy-language = "0.9.6"
-tpm2-protocol = "0.15.8"
+tpm2-protocol = "0.15.9"
 tpm2-tpmkey = "0.9.1"
 tpm2-vtpm = "0.3.4"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
