@@ -4,7 +4,7 @@
 
 //! TPM 2.0 ECC curves and cryptographic operations.
 
-use crate::{TpmCryptoError, TpmHash, TpmPublicKey, KDF_LABEL_DUPLICATE};
+use crate::{TpmCryptoError, TpmExternalKey, TpmHash, KDF_LABEL_DUPLICATE};
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::ops::bytes::ToBytes;
 use openssl::{
@@ -128,13 +128,13 @@ impl From<Nid> for TpmEllipticCurve {
 
 /// ECC public key parameters.
 #[derive(Debug, Clone)]
-pub struct TpmEccPublicKey {
+pub struct TpmEccExternalKey {
     pub curve: TpmEllipticCurve,
     pub x: Tpm2bEccParameter,
     pub y: Tpm2bEccParameter,
 }
 
-impl TryFrom<&TpmtPublic> for TpmEccPublicKey {
+impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
     type Error = TpmCryptoError;
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
@@ -156,7 +156,7 @@ impl TryFrom<&TpmtPublic> for TpmEccPublicKey {
     }
 }
 
-impl TryFrom<&PKey<Private>> for TpmEccPublicKey {
+impl TryFrom<&PKey<Private>> for TpmEccExternalKey {
     type Error = TpmCryptoError;
 
     fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
@@ -176,11 +176,11 @@ impl TryFrom<&PKey<Private>> for TpmEccPublicKey {
     }
 }
 
-impl TpmPublicKey for TpmEccPublicKey {
+impl TpmExternalKey for TpmEccExternalKey {
     fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
-        let public_key = TpmEccPublicKey::try_from(&pkey)?;
+        let public_key = TpmEccExternalKey::try_from(&pkey)?;
         let ec_key = pkey
             .ec_key()
             .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
@@ -239,7 +239,7 @@ impl TpmPublicKey for TpmEccPublicKey {
     }
 }
 
-impl TpmEccPublicKey {
+impl TpmEccExternalKey {
     /// Performs ECDH and derives a seed using `KDFe` key derivation function from
     /// TCG TPM 2.0 Architecture specification.
     ///

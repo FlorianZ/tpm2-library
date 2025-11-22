@@ -34,7 +34,7 @@ pub use rsa::*;
 const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
 /// Trait for cryptographic public keys.
-pub trait TpmPublicKey
+pub trait TpmExternalKey
 where
     Self: Sized,
 {
