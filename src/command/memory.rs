@@ -12,7 +12,7 @@ use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
 use strum::Display;
 use tabled::Tabled;
-use tpm2_crypto::{TpmEllipticCurve, TpmHash};
+use tpm2_crypto::{TpmEllipticCurve, TpmHash, TpmPublicTemplate};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     data::{TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
@@ -333,7 +333,7 @@ impl Memory {
         let (public, _) = device.read_public(handle)?;
         let TpmHandle(handle) = handle;
 
-        let details = crate::alg::TpmPublicTemplate::try_from(&public)?;
+        let details = TpmPublicTemplate::try_from(&public)?;
 
         if (handle & 0xFF00_0000) == (TpmHt::Persistent as u32) << 24 {
             let hierarchy = if handle >= 0x8180_0000 {

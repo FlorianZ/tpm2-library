@@ -3,14 +3,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::TpmPublicTemplate,
     cli::Task,
     command::{print_table, CommandError},
     task::TaskState,
 };
 use clap::Args;
 use tabled::Tabled;
-use tpm2_crypto::TpmHash;
+use tpm2_crypto::{TpmHash, TpmPublicTemplate};
 use tpm2_device::with_device;
 use tpm2_protocol::{data::TpmRh, TpmHandle};
 

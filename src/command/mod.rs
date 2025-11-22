@@ -34,11 +34,7 @@ pub use reset_lock::*;
 pub use return_code::*;
 pub use unseal::*;
 
-use crate::{
-    alg::{TpmPublicError, TpmPublicKind},
-    pcr::PcrError,
-    task::TaskError,
-};
+use crate::{pcr::PcrError, task::TaskError};
 
 use std::{io::Write, num::TryFromIntError};
 
@@ -48,7 +44,7 @@ use tabled::{
     Table, Tabled,
 };
 use thiserror::Error;
-use tpm2_crypto::TpmCryptoError;
+use tpm2_crypto::{TpmCryptoError, TpmPublicTemplate, TpmPublicTemplateType};
 use tpm2_device::TpmDeviceError;
 use tpm2_protocol::data::{TpmCc, TpmRcBase};
 use tpm2_vtpm::VtpmError;
@@ -84,8 +80,8 @@ where
 ///
 /// Returns [`UnsupportedKeyAlgorithm`](crate::command::CommandError::UnsupportedKeyAlgorithm)
 /// if the algorithm is keyedhash.
-pub fn deny_keyedhash(algorithm: &crate::alg::TpmPublicTemplate) -> Result<(), CommandError> {
-    if algorithm.kind == TpmPublicKind::KeyedHash {
+pub fn deny_keyedhash(algorithm: &TpmPublicTemplate) -> Result<(), CommandError> {
+    if algorithm.kind == TpmPublicTemplateType::KeyedHash {
         Err(CommandError::UnsupportedKeyAlgorithm)
     } else {
         Ok(())
@@ -96,8 +92,6 @@ pub fn deny_keyedhash(algorithm: &crate::alg::TpmPublicTemplate) -> Result<(), C
 pub enum CommandError {
     #[error("access denied")]
     AccessDenied,
-    #[error("algorithm: {0}")]
-    Algorithm(#[from] TpmPublicError),
     #[error("authentication missing")]
     AuthenticationMissing,
     #[error("cache: {0}")]
@@ -177,7 +171,6 @@ impl From<TaskError> for CommandError {
                 Self::HandleNotFound("vtpm", handle.into())
             }
             TaskError::Vtpm(e) => Self::Cache(e),
-            TaskError::Key(e) => Self::Algorithm(e),
             TaskError::Crypto(e) => Self::Crypto(e),
             TaskError::Io(e) => Self::Io(e),
             TaskError::IntDecode(e) => Self::IntDecode(e),

@@ -5,13 +5,11 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-pub mod alg;
 pub mod cli;
 pub mod command;
 pub mod io;
 pub mod pcr;
 pub mod task;
-pub mod template;
 
 use crate::{
     cli::{Task, TopLevel},

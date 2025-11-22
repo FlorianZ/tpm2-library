@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{alg::TpmPublicError, command::AuthArgs};
+use crate::command::AuthArgs;
 
 use std::{
     cell::RefCell,
@@ -128,8 +128,6 @@ pub enum TaskError {
     TrailingAuthorizations,
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
-    #[error("key error: {0}")]
-    Key(#[from] TpmPublicError),
     #[error("cache: {0}")]
     Vtpm(#[from] VtpmError),
     #[error("device: {0}")]

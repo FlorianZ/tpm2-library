@@ -15,7 +15,7 @@ use clap::Args;
 use openssl::symm::{encrypt, Cipher};
 use rand;
 use tpm2_crypto::{
-    tpm_make_name, TpmCryptoError, TpmEccPublicKey, TpmHash, TpmPublicKey, TpmRsaPublicKey,
+    tpm_make_name, TpmCryptoError, TpmEccExternalKey, TpmExternalKey, TpmHash, TpmRsaExternalKey,
     KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_device::{with_device, TpmDevice};
@@ -238,12 +238,14 @@ impl Convert {
         let name_alg = parent_public.name_alg;
         let (seed, in_sym_seed) = match parent_public.object_type {
             TpmAlgId::Rsa => {
-                let key = TpmRsaPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
+                let key =
+                    TpmRsaExternalKey::try_from(parent_public).map_err(CommandError::Crypto)?;
                 key.to_seed(TpmHash::from(name_alg), rng)
                     .map_err(CommandError::Crypto)?
             }
             TpmAlgId::Ecc => {
-                let key = TpmEccPublicKey::try_from(parent_public).map_err(CommandError::Crypto)?;
+                let key =
+                    TpmEccExternalKey::try_from(parent_public).map_err(CommandError::Crypto)?;
                 key.to_seed(TpmHash::from(name_alg), rng)
                     .map_err(CommandError::Crypto)?
             }
@@ -290,7 +292,7 @@ impl Convert {
 
         let symmetric = TpmtSymDefObject::default();
 
-        match TpmRsaPublicKey::from_der(&der_bytes) {
+        match TpmRsaExternalKey::from_der(&der_bytes) {
             Ok((public_key, sensitive)) => {
                 let mut public = public_key.to_public(name_alg, object_attributes, symmetric);
                 public.auth_policy = auth_policy;
@@ -298,7 +300,7 @@ impl Convert {
             }
             Err(TpmCryptoError::InvalidRsaParameters) => {
                 let (public_key, sensitive) =
-                    TpmEccPublicKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
+                    TpmEccExternalKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
                 let mut public = public_key.to_public(name_alg, object_attributes, symmetric);
                 public.auth_policy = auth_policy;
                 Ok((public, sensitive))

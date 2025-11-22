@@ -3,13 +3,12 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::TpmPublicTemplate,
     cli::Task,
     command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
     task::{is_empty_auth, TaskState},
-    template::build_public,
 };
 use clap::Args;
+use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::with_device;
 use tpm2_protocol::{
     data::{
@@ -49,8 +48,9 @@ impl Task for CreatePrimary {
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
 
             let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
-            let public_template =
-                build_public(&self.algorithm, Tpm2bDigest::default(), object_attributes);
+            let public_template = self
+                .algorithm
+                .to_public(Tpm2bDigest::default(), object_attributes);
 
             let cmd = TpmCreatePrimaryCommand {
                 in_sensitive: Tpm2bSensitiveCreate {

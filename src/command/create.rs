@@ -5,7 +5,6 @@
 //! Handles the `create` command, which creates secondary keys or sealed objects.
 
 use crate::{
-    alg::{TpmPublicKind, TpmPublicTemplate},
     cli::Task,
     command::{
         common::resolve_policy, AuthArgs, CommandError, CreationArgs, OutputArgs,
@@ -13,11 +12,10 @@ use crate::{
     },
     io::write_key_data,
     task::{is_empty_auth, TaskAuth, TaskError, TaskState},
-    template,
 };
 
 use clap::Args;
-use tpm2_crypto::tpm_make_name;
+use tpm2_crypto::{tpm_make_name, TpmPublicTemplate, TpmPublicTemplateType};
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     data::{
@@ -86,7 +84,7 @@ impl Task for Create {
 impl Create {
     fn get_sensitive_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
         match (&self.data, &self.algorithm.kind) {
-            (Some(hex_data), TpmPublicKind::KeyedHash) => {
+            (Some(hex_data), TpmPublicTemplateType::KeyedHash) => {
                 let bytes = hex::decode(hex_data)?;
                 if bytes.is_empty() {
                     Err(CommandError::SensitiveDataMissing)
@@ -95,11 +93,11 @@ impl Create {
                         .map_err(|_| CommandError::CapacityExceeded)?)
                 }
             }
-            (None, TpmPublicKind::Rsa { .. } | TpmPublicKind::Ecc { .. }) => {
+            (None, TpmPublicTemplateType::Rsa { .. } | TpmPublicTemplateType::Ecc { .. }) => {
                 Ok(Tpm2bSensitiveData::default())
             }
             (Some(_), _) => Err(CommandError::SensitiveDataDenied),
-            (None, TpmPublicKind::KeyedHash) => Err(CommandError::SensitiveDataMissing),
+            (None, TpmPublicTemplateType::KeyedHash) => Err(CommandError::SensitiveDataMissing),
         }
     }
 
@@ -121,8 +119,9 @@ impl Create {
         let (auth_policy_digest, policy_commands) =
             resolve_policy(&self.creation_args, task_state, device, self.algorithm.hash)?;
 
-        let public_template =
-            template::build_public(&self.algorithm, auth_policy_digest, object_attributes);
+        let public_template = self
+            .algorithm
+            .to_public(auth_policy_digest, object_attributes);
 
         let create_cmd = TpmCreateCommand {
             in_sensitive: Tpm2bSensitiveCreate {
@@ -186,7 +185,7 @@ impl Create {
             None
         };
 
-        let kind = if matches!(self.algorithm.kind, TpmPublicKind::KeyedHash) {
+        let kind = if matches!(self.algorithm.kind, TpmPublicTemplateType::KeyedHash) {
             TpmKeyType::SealedData
         } else {
             TpmKeyType::Loadable

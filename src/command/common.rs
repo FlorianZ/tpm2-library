@@ -3,7 +3,6 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::{TpmPublicKind, TpmPublicTemplate},
     cli::Hierarchy,
     command::CommandError,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
@@ -17,7 +16,7 @@ use std::{
     path::PathBuf,
 };
 use strum::{Display, EnumString};
-use tpm2_crypto::tpm_make_name;
+use tpm2_crypto::{tpm_make_name, TpmPublicTemplate, TpmPublicTemplateType};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
@@ -141,7 +140,7 @@ impl CreationArgs {
             attributes |= TpmaObject::NO_DA;
         }
 
-        if alg.kind != TpmPublicKind::KeyedHash {
+        if alg.kind != TpmPublicTemplateType::KeyedHash {
             attributes |=
                 TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
         }
