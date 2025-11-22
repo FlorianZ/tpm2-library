@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::Alg,
+    alg::TpmPublicTemplate,
     cli::Task,
     command::{print_table, CommandError},
     task::TaskState,
@@ -92,7 +92,7 @@ impl Task for Cache {
                     _ => "unknown",
                 };
 
-                let details = Alg::try_from(&key.public).map_or_else(
+                let details = TpmPublicTemplate::try_from(&key.public).map_or_else(
                     |_| TpmHash::from(key.public.object_type).to_string(),
                     |a| a.to_string(),
                 );

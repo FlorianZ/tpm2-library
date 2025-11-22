@@ -333,7 +333,7 @@ impl Memory {
         let (public, _) = device.read_public(handle)?;
         let TpmHandle(handle) = handle;
 
-        let details = crate::alg::Alg::try_from(&public)?;
+        let details = crate::alg::TpmPublicTemplate::try_from(&public)?;
 
         if (handle & 0xFF00_0000) == (TpmHt::Persistent as u32) << 24 {
             let hierarchy = if handle >= 0x8180_0000 {

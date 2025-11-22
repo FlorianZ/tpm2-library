@@ -35,7 +35,7 @@ pub use return_code::*;
 pub use unseal::*;
 
 use crate::{
-    alg::{AlgError, AlgInfo},
+    alg::{TpmPublicError, TpmPublicKind},
     pcr::PcrError,
     task::TaskError,
 };
@@ -84,8 +84,8 @@ where
 ///
 /// Returns [`UnsupportedKeyAlgorithm`](crate::command::CommandError::UnsupportedKeyAlgorithm)
 /// if the algorithm is keyedhash.
-pub fn deny_keyedhash(algorithm: &crate::alg::Alg) -> Result<(), CommandError> {
-    if algorithm.kind == AlgInfo::KeyedHash {
+pub fn deny_keyedhash(algorithm: &crate::alg::TpmPublicTemplate) -> Result<(), CommandError> {
+    if algorithm.kind == TpmPublicKind::KeyedHash {
         Err(CommandError::UnsupportedKeyAlgorithm)
     } else {
         Ok(())
@@ -97,7 +97,7 @@ pub enum CommandError {
     #[error("access denied")]
     AccessDenied,
     #[error("algorithm: {0}")]
-    Algorithm(#[from] AlgError),
+    Algorithm(#[from] TpmPublicError),
     #[error("authentication missing")]
     AuthenticationMissing,
     #[error("cache: {0}")]

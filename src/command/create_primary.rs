@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::Alg,
+    alg::TpmPublicTemplate,
     cli::Task,
     command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
     task::{is_empty_auth, TaskState},
@@ -26,8 +26,8 @@ pub struct CreatePrimary {
     pub hierarchy_args: HierarchyArgs,
 
     /// Key algorithm
-    #[arg(value_parser = clap::value_parser!(Alg))]
-    pub algorithm: Alg,
+    #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
+    pub algorithm: TpmPublicTemplate,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,

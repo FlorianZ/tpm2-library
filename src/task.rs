@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{alg::AlgError, command::AuthArgs};
+use crate::{alg::TpmPublicError, command::AuthArgs};
 
 use std::{
     cell::RefCell,
@@ -129,7 +129,7 @@ pub enum TaskError {
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
     #[error("key error: {0}")]
-    Key(#[from] AlgError),
+    Key(#[from] TpmPublicError),
     #[error("cache: {0}")]
     Vtpm(#[from] VtpmError),
     #[error("device: {0}")]

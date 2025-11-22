@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    alg::{Alg, AlgInfo},
+    alg::{TpmPublicKind, TpmPublicTemplate},
     cli::Hierarchy,
     command::CommandError,
     pcr::{pcr_get_bank_list, resolve_pcr_digests},
@@ -128,7 +128,7 @@ impl CreationArgs {
     /// # Errors
     ///
     /// Returns a `CommandError` if parsing fails.
-    pub fn parse(&self, alg: &Alg) -> Result<(TpmaObject, Tpm2bAuth), CommandError> {
+    pub fn parse(&self, alg: &TpmPublicTemplate) -> Result<(TpmaObject, Tpm2bAuth), CommandError> {
         let user_auth = match &self.password {
             Some(hex_str) => Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())
                 .map_err(|_| CommandError::CapacityExceeded)?,
@@ -141,7 +141,7 @@ impl CreationArgs {
             attributes |= TpmaObject::NO_DA;
         }
 
-        if alg.kind != AlgInfo::KeyedHash {
+        if alg.kind != TpmPublicKind::KeyedHash {
             attributes |=
                 TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
         }

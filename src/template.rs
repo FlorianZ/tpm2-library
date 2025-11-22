@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::alg::{Alg, AlgInfo};
+use crate::alg::{TpmPublicKind, TpmPublicTemplate};
 use tpm2_protocol::{
     basic::TpmBuffer,
     data::{
@@ -18,7 +18,7 @@ use tpm2_protocol::{
 /// handling RSA, ECC, and `KeyedHash` types based on the provided `Alg`.
 #[must_use]
 pub fn build_public(
-    alg_desc: &Alg,
+    alg_desc: &TpmPublicTemplate,
     auth_policy: Tpm2bDigest,
     object_attributes: TpmaObject,
 ) -> TpmtPublic {
@@ -29,7 +29,7 @@ pub fn build_public(
     };
 
     let (parameters, unique) = match alg_desc.kind {
-        AlgInfo::Rsa { key_bits } => (
+        TpmPublicKind::Rsa { key_bits } => (
             TpmuPublicParms::Rsa(TpmsRsaParms {
                 symmetric,
                 scheme: TpmtRsaScheme::default(),
@@ -38,7 +38,7 @@ pub fn build_public(
             }),
             TpmuPublicId::Rsa(TpmBuffer::default()),
         ),
-        AlgInfo::Ecc { curve_id } => (
+        TpmPublicKind::Ecc { curve_id } => (
             TpmuPublicParms::Ecc(TpmsEccParms {
                 symmetric,
                 scheme: TpmtEccScheme::default(),
@@ -47,7 +47,7 @@ pub fn build_public(
             }),
             TpmuPublicId::Ecc(tpm2_protocol::data::TpmsEccPoint::default()),
         ),
-        AlgInfo::KeyedHash => (
+        TpmPublicKind::KeyedHash => (
             TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
                 scheme: TpmtKeyedhashScheme {
                     scheme: TpmAlgId::Null,

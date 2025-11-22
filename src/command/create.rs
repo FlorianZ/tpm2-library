@@ -5,7 +5,7 @@
 //! Handles the `create` command, which creates secondary keys or sealed objects.
 
 use crate::{
-    alg::{Alg, AlgInfo},
+    alg::{TpmPublicKind, TpmPublicTemplate},
     cli::Task,
     command::{
         common::resolve_policy, AuthArgs, CommandError, CreationArgs, OutputArgs,
@@ -34,7 +34,7 @@ type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
 /// A template for creating a new TPM key object.
 pub struct TpmKeyTemplate<'a> {
-    pub alg_desc: &'a Alg,
+    pub alg_desc: &'a TpmPublicTemplate,
     pub sensitive_data: Tpm2bSensitiveData,
 }
 
@@ -46,8 +46,8 @@ pub struct Create {
     pub parent: VtpmHandle,
 
     /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256'.
-    #[arg(value_parser = clap::value_parser!(Alg))]
-    pub algorithm: Alg,
+    #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
+    pub algorithm: TpmPublicTemplate,
 
     /// Sensitive data: hex string
     #[arg(long = "data")]
@@ -86,7 +86,7 @@ impl Task for Create {
 impl Create {
     fn get_sensitive_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
         match (&self.data, &self.algorithm.kind) {
-            (Some(hex_data), AlgInfo::KeyedHash) => {
+            (Some(hex_data), TpmPublicKind::KeyedHash) => {
                 let bytes = hex::decode(hex_data)?;
                 if bytes.is_empty() {
                     Err(CommandError::SensitiveDataMissing)
@@ -95,9 +95,11 @@ impl Create {
                         .map_err(|_| CommandError::CapacityExceeded)?)
                 }
             }
-            (None, AlgInfo::Rsa { .. } | AlgInfo::Ecc { .. }) => Ok(Tpm2bSensitiveData::default()),
+            (None, TpmPublicKind::Rsa { .. } | TpmPublicKind::Ecc { .. }) => {
+                Ok(Tpm2bSensitiveData::default())
+            }
             (Some(_), _) => Err(CommandError::SensitiveDataDenied),
-            (None, AlgInfo::KeyedHash) => Err(CommandError::SensitiveDataMissing),
+            (None, TpmPublicKind::KeyedHash) => Err(CommandError::SensitiveDataMissing),
         }
     }
 
@@ -184,7 +186,7 @@ impl Create {
             None
         };
 
-        let kind = if matches!(self.algorithm.kind, AlgInfo::KeyedHash) {
+        let kind = if matches!(self.algorithm.kind, TpmPublicKind::KeyedHash) {
             TpmKeyType::SealedData
         } else {
             TpmKeyType::Loadable
