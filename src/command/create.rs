@@ -27,7 +27,7 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand, TpmCreateResponse},
     TpmHandle,
 };
-use tpm2_tpmkey::{TpmKey as TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
 use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmPolicyCommand};
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;

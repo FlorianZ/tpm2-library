@@ -11,7 +11,7 @@ use std::{
 };
 
 use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmMarshal, TpmProtocolError, TpmWriter};
-use tpm2_tpmkey::TpmKey;
+use tpm2_tpmkey::TpmKeyFile;
 
 /// Reads data from a file path or from stdin if the path is not provided.
 ///
@@ -42,7 +42,7 @@ pub fn read_file_input(input: Option<&Path>) -> io::Result<Vec<u8>> {
 /// Returns `CommandError` on failure.
 pub fn write_key_data(
     writer: &mut dyn Write,
-    tpm_key: &TpmKey,
+    tpm_key: &TpmKeyFile,
     output: Option<&Path>,
     encoding: OutputEncoding,
 ) -> Result<(), CommandError> {

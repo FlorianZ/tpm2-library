@@ -17,7 +17,7 @@ use tpm2_protocol::{
     frame::TpmLoadCommand,
     TpmHandle, TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::TpmKey;
+use tpm2_tpmkey::TpmKeyFile;
 use tpm2_vtpm::{vtpm_policy_command_from_parts, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand};
 
 /// Loads a PEM or DER TPMKey file to cache.
@@ -46,8 +46,8 @@ impl Task for Load {
                     return Ok(());
                 }
 
-                let tpm_key = TpmKey::from_pem(&input_bytes)
-                    .or_else(|_| TpmKey::from_der(&input_bytes).map_err(CommandError::from))?;
+                let tpm_key = TpmKeyFile::from_pem(&input_bytes)
+                    .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;
 
                 let parent_public = tpm_key
                     .parent_public()

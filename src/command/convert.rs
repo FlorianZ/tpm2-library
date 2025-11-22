@@ -29,7 +29,7 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand, TpmImportCommand},
     TpmHandle, TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::{TpmKey, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
 use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmPolicyCommand};
 
 /// Convert external keys to TPM keys.
@@ -318,7 +318,7 @@ impl Convert {
         auth_policy: Tpm2bDigest,
         object_attributes: TpmaObject,
         policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-    ) -> Result<TpmKey, CommandError> {
+    ) -> Result<TpmKeyFile, CommandError> {
         let (parent_public, _) = device
             .read_public(parent_handle)
             .map_err(CommandError::from)?;
@@ -392,7 +392,7 @@ impl Convert {
             None
         };
 
-        let tpm_key = TpmKey {
+        let tpm_key = TpmKeyFile {
             public: Tpm2bPublic {
                 inner: public.clone(),
             },
