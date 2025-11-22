@@ -7,10 +7,6 @@ use thiserror::Error;
 /// The top-level error type for cryptographic operations.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TpmCryptoError {
-    /// Hash algorithm is not supported in the context of use.
-    #[error("invalid hash algorithm")]
-    InvalidHash,
-
     /// ECC curve is not supported in the context of use.
     #[error("invalid ECC curve")]
     InvalidEccCurve,
@@ -18,6 +14,18 @@ pub enum TpmCryptoError {
     /// Invalid ECC public parameters.
     #[error("invalid ECC parameters")]
     InvalidEccParameters,
+
+    /// Hash algorithm is not supported in the context of use.
+    #[error("invalid hash algorithm")]
+    InvalidHash,
+
+    /// Invalid RSA key bits.
+    #[error("invalid RSA key bits: {0}")]
+    InvalidKeyBits(u16),
+
+    /// Invalid object type.
+    #[error("invalid object type")]
+    InvalidObjectType,
 
     /// Invalid RSA public parameters.
     #[error("invalid RSA parameters")]

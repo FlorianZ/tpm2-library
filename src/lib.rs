@@ -11,6 +11,7 @@ mod ecc;
 mod error;
 mod hash;
 mod rsa;
+mod template;
 
 use openssl::{
     bn::BigNumContext,
@@ -30,6 +31,7 @@ pub use ecc::*;
 pub use error::*;
 pub use hash::*;
 pub use rsa::*;
+pub use template::*;
 
 const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
