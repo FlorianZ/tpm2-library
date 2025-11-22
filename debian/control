@@ -2,8 +2,16 @@ Source: tpm2sh
 Section: utils
 Priority: optional
 Maintainer: Jarkko Sakkinen <jarkko@kernel.org>
-Build-Depends: dh-cargo (>= 25), cargo, rustc (>= 1.79)
-Standards-Version: 4.6.2
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-cargo (>= 25),
+ cargo,
+ rustc (>= 1.81),
+ pkg-config,
+ libssl-dev
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2sh.git
 
 Package: tpm2sh
 Architecture: any
