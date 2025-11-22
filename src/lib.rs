@@ -32,7 +32,7 @@ pub mod r#macro;
 pub mod frame;
 
 /// A TPM handle, which is a 32-bit unsigned integer.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct TpmHandle(pub u32);
 
