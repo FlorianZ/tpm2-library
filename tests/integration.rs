@@ -176,7 +176,6 @@ fn test_password_auth() {
             "ecc-nist-p256:sha256",
             "--password",
             "deadbeef",
-            "--no-lock",
         ],
     )
     .read()
@@ -195,7 +194,6 @@ fn test_password_auth() {
             "deadbeef",
             "--password",
             "deadbeef",
-            "--no-lock",
         ],
     )
     .pipe(tpm2sh(cache_path, &["load", "--auth", "deadbeef"]))

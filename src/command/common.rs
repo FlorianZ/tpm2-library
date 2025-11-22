@@ -117,9 +117,9 @@ pub struct CreationArgs {
     #[arg(long = "policy")]
     pub policy_expression: Option<String>,
 
-    /// Sets the noDA attribute (exempt from dictionary attack protection)
-    #[arg(long = "no-lock")]
-    pub no_lock: bool,
+    /// Enable dictionary attack protection.
+    #[arg(long = "lock")]
+    pub lock: bool,
 }
 
 impl CreationArgs {
@@ -137,7 +137,7 @@ impl CreationArgs {
 
         let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
 
-        if self.no_lock {
+        if !self.lock {
             attributes |= TpmaObject::NO_DA;
         }
 
