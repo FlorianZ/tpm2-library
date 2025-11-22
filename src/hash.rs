@@ -172,6 +172,7 @@ impl TpmHash {
     ///
     /// Returns [`InvalidHash`](crate::Error::InvalidHash)
     /// when the hash algorithm is not recognized.
+    /// Returns [`KeyIsEmpty`](crate::Error::KeyIsEmpty) when the provided key is empty.
     /// Returns [`OperationFailed`](crate::Error::OperationFailed)
     /// when the HMAC computation fails.
     /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
@@ -183,11 +184,18 @@ impl TpmHash {
         context_b: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
+        if hmac_key.is_empty() {
+            return Err(TpmCryptoError::KeyIsEmpty);
+        }
+
         let key_bytes = (key_bits as usize).div_ceil(8);
         let mut key_stream = Vec::with_capacity(key_bytes);
 
         let mut counter: u32 = 1;
         let key_bits_bytes = u32::from(key_bits).to_be_bytes();
+
+        let md = (*self).into();
+        let pkey = PKey::hmac(hmac_key).map_err(|_| TpmCryptoError::OutOfMemory)?;
 
         while key_stream.len() < key_bytes {
             let counter_bytes = counter.to_be_bytes();
@@ -200,7 +208,16 @@ impl TpmHash {
                 key_bits_bytes.as_slice(),
             ];
 
-            let result = self.hmac(hmac_key, &hmac_payload)?;
+            let mut signer = Signer::new(md, &pkey).map_err(|_| TpmCryptoError::OutOfMemory)?;
+            for chunk in &hmac_payload {
+                signer
+                    .update(chunk)
+                    .map_err(|_| TpmCryptoError::OperationFailed)?;
+            }
+            let result = signer
+                .sign_to_vec()
+                .map_err(|_| TpmCryptoError::OperationFailed)?;
+
             let remaining = key_bytes - key_stream.len();
             let to_take = remaining.min(result.len());
             key_stream.extend_from_slice(&result[..to_take]);
