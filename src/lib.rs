@@ -277,7 +277,19 @@ impl VtpmKey {
         ])?;
 
         buf.extend_from_slice(&key_bytes);
-        buf.extend_from_slice(&Vec::<u8>::try_from(self)?);
+
+        let count = u32::try_from(self.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
+        buf.extend_from_slice(&tpm_marshal_array(&[&count])?);
+
+        for command in &self.policy {
+            let cc = command.cc();
+            buf.extend_from_slice(&tpm_marshal_array(&[&cc])?);
+
+            let body = command.body();
+            let body_len = u32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
+            buf.extend_from_slice(&tpm_marshal_array(&[&body_len])?);
+            buf.extend_from_slice(&body);
+        }
 
         fs::write(path, buf)?;
         Ok(())
@@ -292,29 +304,6 @@ impl VtpmKey {
             }
         }
         Ok(())
-    }
-}
-
-impl TryFrom<&VtpmKey> for Vec<u8> {
-    type Error = VtpmError;
-
-    fn try_from(key: &VtpmKey) -> Result<Self, Self::Error> {
-        let mut buf = Vec::new();
-
-        let count = u32::try_from(key.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
-        buf.extend_from_slice(&tpm_marshal_array(&[&count])?);
-
-        for command in &key.policy {
-            let cc = command.cc();
-            buf.extend_from_slice(&tpm_marshal_array(&[&cc])?);
-
-            let body = command.body();
-            let body_len = u32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
-            buf.extend_from_slice(&tpm_marshal_array(&[&body_len])?);
-            buf.extend_from_slice(&body);
-        }
-
-        Ok(buf)
     }
 }
 

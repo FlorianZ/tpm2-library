@@ -17,7 +17,7 @@ mod tests {
             Tpm2bDigest, Tpm2bPublicKeyRsa, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaObject, TpmsContext,
             TpmsRsaParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
         },
-        TpmHandle, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
+        TpmHandle, TpmMarshal, TpmSized, TpmWriter,
     };
     use tpm2_vtpm::{
         VtpmCache, VtpmError, VtpmPolicyCommand, VtpmPolicyDefaultCommand, VtpmPolicySecretCommand,
@@ -134,19 +134,6 @@ mod tests {
             .expect("find_by_name failed")
             .expect("Failed to find child by name");
         assert_eq!(child_key_name.handle.0, child_vhandle);
-
-        let key = cache
-            .find_by_virtual_handle(TpmHandle(child_vhandle))
-            .unwrap();
-        let policy_bytes = &Vec::<u8>::try_from(key).unwrap();
-
-        let (count, remainder) =
-            u32::unmarshal(policy_bytes).expect("Failed to unmarshal policy header");
-        assert_eq!(count, 0, "Expected empty policy list");
-        assert!(
-            remainder.is_empty(),
-            "Policy encoding has unexpected trailing bytes"
-        );
 
         let chain = cache
             .fetch_ancestor_chain(TpmHandle(child_vhandle))
