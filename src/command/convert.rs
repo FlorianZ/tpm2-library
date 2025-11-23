@@ -5,8 +5,8 @@
 use crate::{
     cli::Task,
     command::{
-        common::resolve_policy, AuthArgs, CommandError, CreationArgs, InputArgs, OutputArgs,
-        OutputEncodingArgs,
+        common::{build_key_policy, build_policy_command_list},
+        AuthArgs, CommandError, CreationArgs, InputArgs, OutputArgs, OutputEncodingArgs,
     },
     io::{read_file_input, write_key_data, write_object},
     task::{TaskAuth, TaskState},
@@ -29,8 +29,8 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand, TpmImportCommand},
     TpmHandle, TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
-use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmPolicyCommand};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyType};
+use tpm2_vtpm::VtpmHandle;
 
 /// Convert external keys to TPM keys.
 #[derive(Args, Debug)]
@@ -97,7 +97,7 @@ impl Task for Convert {
             }
 
             let (auth_policy, policy_commands) =
-                resolve_policy(&self.creation_args, task_state, device, name_alg)?;
+                build_policy_command_list(&self.creation_args, task_state, device, name_alg)?;
 
             if !auth_policy.is_empty() {
                 object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
@@ -322,40 +322,6 @@ impl Convert {
         Ok(import_resp.out_private)
     }
 
-    fn build_key_policy(
-        task_state: &mut TaskState,
-        device: &mut TpmDevice,
-        policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-    ) -> Result<Option<TpmKeyPolicy>, CommandError> {
-        let Some(commands) = policy_commands else {
-            return Ok(None);
-        };
-
-        let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
-        for (cmd, _) in commands {
-            let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
-                if let Ok(key) = task_state.cache.find_by_virtual_handle(inner.handles[0]) {
-                    tpm_make_name(&key.public)?
-                } else {
-                    let (_, name) = device.read_public(inner.handles[0])?;
-                    name
-                }
-            } else {
-                Tpm2bName::default()
-            };
-            vtpm_policy.push(vtpm_policy_command_from(&cmd, &object_name)?);
-        }
-
-        let mut policy = Vec::new();
-        for cmd in vtpm_policy {
-            policy.push(TpmKeyPolicyCommand {
-                cc: cmd.cc(),
-                body: cmd.body(),
-            });
-        }
-        Ok(Some(TpmKeyPolicy { name: None, policy }))
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn construct_imported_key(
         public: TpmtPublic,
@@ -438,7 +404,7 @@ impl Convert {
             inner: parent_public,
         };
 
-        let tpm_key_policy = Self::build_key_policy(task_state, device, policy_commands)?;
+        let tpm_key_policy = build_key_policy(task_state, device, policy_commands)?;
 
         Ok(Self::construct_imported_key(
             public,

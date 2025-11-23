@@ -207,133 +207,6 @@ impl<'a> TaskState<'a> {
         self.live_handles.retain(|_, v| *v != handle);
     }
 
-    /// Resolves a `Tpm2bName` from a `PolicySecret` to a live `TpmHandle`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
-    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
-    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when a cache operation fails.
-    /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
-    /// the name cannot be found.
-    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when the
-    /// `VtpmHandle` is invalid.
-    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
-    /// handle is not in the cache.
-    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
-    /// loaded key's parent is incorrect.
-    pub fn fetch_handle_by_name(
-        &mut self,
-        device: &mut TpmDevice,
-        name: &Tpm2bName,
-    ) -> Result<TpmHandle, TaskError> {
-        if let Some(handle) = device.find_persistent(name)? {
-            return Ok(handle);
-        }
-
-        if let Some(key) = self.cache.find_by_name(name)? {
-            let vhandle = key.handle.0;
-            return self.load_context(device, &VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle));
-        }
-
-        Err(TaskError::HandleNameNotFound(*name))
-    }
-
-    /// Converts the custom binary cache format into a "live" `TpmCommandList`.
-    ///
-    /// This performs "JIT resolution" for `PolicySecret`, converting the stored
-    /// `Tpm2bName` into a live `TpmHandle`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when parsing the policy blob
-    /// fails.
-    /// Returns [`Key`](crate::TaskError::Key) when parsing a policy command
-    /// fails.
-    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when an
-    /// auth list is too large.
-    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
-    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
-    /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
-    /// a policy secret handle cannot be found.
-    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a
-    /// `VtpmHandle` is invalid.
-    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
-    /// handle is not in the cache.
-    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
-    /// loaded key's parent is incorrect.
-    pub fn to_policy_command_list(
-        &mut self,
-        device: &mut TpmDevice,
-        policy_blob: &[u8],
-        policy_auths: &mut std::slice::Iter<'_, TaskAuth>,
-    ) -> Result<Option<TpmCommandList>, TaskError> {
-        if policy_blob.is_empty() {
-            return Ok(None);
-        }
-        let (count, mut remainder) = u32::unmarshal(policy_blob).map_err(TaskError::Unmarshal)?;
-        let mut commands = Vec::with_capacity(count as usize);
-
-        for _ in 0..count {
-            let (cc, rest) = TpmCc::unmarshal(remainder).map_err(TaskError::Unmarshal)?;
-            let (len, rest) = u32::unmarshal(rest).map_err(TaskError::Unmarshal)?;
-            let len = len as usize;
-
-            if rest.len() < len {
-                return Err(TaskError::MalformedData);
-            }
-            let (body_blob, rest) = rest.split_at(len);
-            remainder = rest;
-
-            let (cmd, auth) = if cc == TpmCc::PolicySecret {
-                let (handle_hint, rest) =
-                    TpmHandle::unmarshal(body_blob).map_err(TaskError::Unmarshal)?;
-                let (object_name, rest) =
-                    Tpm2bName::unmarshal(rest).map_err(TaskError::Unmarshal)?;
-                let (policy_ref, _) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
-                    .map_err(TaskError::Unmarshal)?;
-
-                let live_handle = if object_name.is_empty() {
-                    log::warn!(
-                        "PolicySecret uses handle hint {:08x} but has no object name. Policy may fail.",
-                        handle_hint.0
-                    );
-                    handle_hint
-                } else {
-                    self.fetch_handle_by_name(device, &object_name)?
-                };
-
-                let tpm_cmd =
-                    TpmCommand::PolicySecret(tpm2_protocol::frame::TpmPolicySecretCommand {
-                        nonce_tpm: Tpm2bNonce::default(),
-                        cp_hash_a: Tpm2bDigest::default(),
-                        policy_ref,
-                        expiration: 0,
-                        handles: [live_handle, TpmHandle(0)],
-                    });
-
-                let auth = match policy_auths
-                    .next()
-                    .unwrap_or(&TaskAuth::Password(Vec::new()))
-                {
-                    TaskAuth::Password(val) => build_password_session(val)?,
-                    TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
-                };
-
-                let mut auths = TpmAuthCommands::new();
-                auths.try_push(auth).map_err(|_| TaskError::OutOfMemory)?;
-                (tpm_cmd, auths)
-            } else {
-                let policy_cmd =
-                    vtpm_policy_command_from_parts(cc, body_blob).map_err(TaskError::Vtpm)?;
-                let tpm_cmd = policy_cmd.to_command().map_err(TaskError::Vtpm)?;
-                (tpm_cmd, TpmAuthCommands::new())
-            };
-            commands.push((cmd, auth));
-        }
-        Ok(Some(commands))
-    }
-
     /// Creates and executes a policy session from a key's embedded policy blobs.
     ///
     /// # Errors
@@ -365,7 +238,7 @@ impl<'a> TaskState<'a> {
     ) -> Result<Option<TaskAuth>, TaskError> {
         let mut auth_iter = policy_auths.iter();
 
-        let Some(commands) = self.to_policy_command_list(device, policy_blob, &mut auth_iter)?
+        let Some(commands) = self.load_policy_command_list(device, policy_blob, &mut auth_iter)?
         else {
             return Ok(None);
         };
@@ -382,7 +255,8 @@ impl<'a> TaskState<'a> {
         )?;
 
         let temp_session = TaskSession::new(key_name_alg, resp.handles[0])?;
-        let vhandle = self.add_session(temp_session);
+        let vhandle = temp_session.handle();
+        self.sessions.insert(vhandle, temp_session);
         let policy_phandle = resp.handles[0];
 
         let execution_result: Result<(), TaskError> = (|| {
@@ -473,62 +347,6 @@ impl<'a> TaskState<'a> {
         Ok((auths, policy_session_auth))
     }
 
-    /// Fetches persistent handles and maps their names to the handle value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::task::TaskError::Device) when the TPM command
-    /// fails.
-    pub fn fetch_persistent_key_map(
-        device: &mut TpmDevice,
-    ) -> Result<HashMap<Tpm2bName, TpmHandle>, TaskError> {
-        let handles = device.fetch_handles(tpm2_protocol::data::TpmHt::Persistent)?;
-        let mut persistent_keys = HashMap::new();
-        for handle_val in handles {
-            let phandle = handle_val;
-            if let Ok((_, name)) = device.read_public(phandle) {
-                persistent_keys.insert(name, phandle);
-            }
-        }
-        Ok(persistent_keys)
-    }
-
-    /// Loads the root of a key chain.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidParent`](crate::task::TaskError::InvalidParent) when
-    /// the handle value is missing.
-    /// Returns [`Vtpm`](crate::task::TaskError::Vtpm) when the handle is not
-    /// found in the cache.
-    /// Returns [`Device`](crate::task::TaskError::Device) when loading the
-    /// context fails.
-    /// Returns
-    /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
-    /// if the handle is already tracked.
-    fn load_chain_root(
-        &mut self,
-        device: &mut TpmDevice,
-        handle: &VtpmHandle,
-    ) -> Result<TpmHandle, TaskError> {
-        let handle_val = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
-
-        match handle.class() {
-            VtpmHandleClass::Tpm => Ok(TpmHandle(handle_val)),
-            VtpmHandleClass::Vtpm => {
-                if let Some(&phandle) = self.live_handles.get(&handle_val) {
-                    return Ok(phandle);
-                }
-
-                let key = self.cache.find_by_virtual_handle(TpmHandle(handle_val))?;
-                let loaded_phandle = device.load_context(key.context.clone())?;
-                self.track(loaded_phandle)?;
-                self.live_handles.insert(handle_val, loaded_phandle);
-                Ok(loaded_phandle)
-            }
-        }
-    }
-
     /// Loads a TPM context from a handle, recursively loading its ancestors
     /// first.
     ///
@@ -552,7 +370,7 @@ impl<'a> TaskState<'a> {
     /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
     /// if a loaded handle
     /// is already being tracked.
-    pub fn load_context(
+    pub fn load_key(
         &mut self,
         device: &mut TpmDevice,
         target: &VtpmHandle,
@@ -606,6 +424,38 @@ impl<'a> TaskState<'a> {
         Ok(phandle)
     }
 
+    /// Loads a TPM context from a `Tpm2bName`, recursively loading its ancestors first
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
+    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
+    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when a cache operation fails.
+    /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
+    /// the name cannot be found.
+    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when the
+    /// `VtpmHandle` is invalid.
+    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
+    /// handle is not in the cache.
+    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
+    /// loaded key's parent is incorrect.
+    pub fn load_key_by_name(
+        &mut self,
+        device: &mut TpmDevice,
+        name: &Tpm2bName,
+    ) -> Result<TpmHandle, TaskError> {
+        if let Some(handle) = device.find_persistent(name)? {
+            return Ok(handle);
+        }
+
+        if let Some(key) = self.cache.find_by_name(name)? {
+            let vhandle = key.handle.0;
+            return self.load_key(device, &VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle));
+        }
+
+        Err(TaskError::HandleNameNotFound(*name))
+    }
+
     /// Fetches policy details (policy blob, name algorithm, and empty auth
     /// status) for a handle.
     ///
@@ -629,7 +479,7 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         handle: &VtpmHandle,
     ) -> Result<(TpmHandle, Vec<u8>, TpmAlgId, bool), TaskError> {
-        let phys_handle = self.load_context(device, handle)?;
+        let phys_handle = self.load_key(device, handle)?;
 
         if handle.class() == VtpmHandleClass::Vtpm {
             let vhandle = handle.value().ok_or(TaskError::InvalidAuth)?;
@@ -786,10 +636,99 @@ impl<'a> TaskState<'a> {
         Ok((resp, nonce_caller))
     }
 
-    fn add_session(&mut self, session: TaskSession) -> TpmHandle {
-        let vhandle = session.handle();
-        self.sessions.insert(vhandle, session);
-        vhandle
+    fn load_chain_root(
+        &mut self,
+        device: &mut TpmDevice,
+        handle: &VtpmHandle,
+    ) -> Result<TpmHandle, TaskError> {
+        let handle_val = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
+
+        match handle.class() {
+            VtpmHandleClass::Tpm => Ok(TpmHandle(handle_val)),
+            VtpmHandleClass::Vtpm => {
+                if let Some(&phandle) = self.live_handles.get(&handle_val) {
+                    return Ok(phandle);
+                }
+
+                let key = self.cache.find_by_virtual_handle(TpmHandle(handle_val))?;
+                let loaded_phandle = device.load_context(key.context.clone())?;
+                self.track(loaded_phandle)?;
+                self.live_handles.insert(handle_val, loaded_phandle);
+                Ok(loaded_phandle)
+            }
+        }
+    }
+
+    fn load_policy_command_list(
+        &mut self,
+        device: &mut TpmDevice,
+        policy_blob: &[u8],
+        policy_auths: &mut std::slice::Iter<'_, TaskAuth>,
+    ) -> Result<Option<TpmCommandList>, TaskError> {
+        if policy_blob.is_empty() {
+            return Ok(None);
+        }
+        let (count, mut remainder) = u32::unmarshal(policy_blob).map_err(TaskError::Unmarshal)?;
+        let mut commands = Vec::with_capacity(count as usize);
+
+        for _ in 0..count {
+            let (cc, rest) = TpmCc::unmarshal(remainder).map_err(TaskError::Unmarshal)?;
+            let (len, rest) = u32::unmarshal(rest).map_err(TaskError::Unmarshal)?;
+            let len = len as usize;
+
+            if rest.len() < len {
+                return Err(TaskError::MalformedData);
+            }
+            let (body_blob, rest) = rest.split_at(len);
+            remainder = rest;
+
+            let (cmd, auth) = if cc == TpmCc::PolicySecret {
+                let (handle_hint, rest) =
+                    TpmHandle::unmarshal(body_blob).map_err(TaskError::Unmarshal)?;
+                let (object_name, rest) =
+                    Tpm2bName::unmarshal(rest).map_err(TaskError::Unmarshal)?;
+                let (policy_ref, _) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
+                    .map_err(TaskError::Unmarshal)?;
+
+                let live_handle = if object_name.is_empty() {
+                    log::warn!(
+                        "PolicySecret uses handle hint {:08x} but has no object name. Policy may fail.",
+                        handle_hint.0
+                    );
+                    handle_hint
+                } else {
+                    self.load_key_by_name(device, &object_name)?
+                };
+
+                let tpm_cmd =
+                    TpmCommand::PolicySecret(tpm2_protocol::frame::TpmPolicySecretCommand {
+                        nonce_tpm: Tpm2bNonce::default(),
+                        cp_hash_a: Tpm2bDigest::default(),
+                        policy_ref,
+                        expiration: 0,
+                        handles: [live_handle, TpmHandle(0)],
+                    });
+
+                let auth = match policy_auths
+                    .next()
+                    .unwrap_or(&TaskAuth::Password(Vec::new()))
+                {
+                    TaskAuth::Password(val) => build_password_session(val)?,
+                    TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
+                };
+
+                let mut auths = TpmAuthCommands::new();
+                auths.try_push(auth).map_err(|_| TaskError::OutOfMemory)?;
+                (tpm_cmd, auths)
+            } else {
+                let policy_cmd =
+                    vtpm_policy_command_from_parts(cc, body_blob).map_err(TaskError::Vtpm)?;
+                let tpm_cmd = policy_cmd.to_command().map_err(TaskError::Vtpm)?;
+                (tpm_cmd, TpmAuthCommands::new())
+            };
+            commands.push((cmd, auth));
+        }
+        Ok(Some(commands))
     }
 }
 

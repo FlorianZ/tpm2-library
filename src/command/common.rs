@@ -18,7 +18,8 @@ use tpm2_protocol::{
     data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmaObject},
     frame::{TpmAuthCommands, TpmCommand},
 };
-use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
+use tpm2_tpmkey::{TpmKeyPolicy, TpmKeyPolicyCommand};
+use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand};
 
 /// Parses an authentication string as 'empty' or a hex string.
 ///
@@ -157,7 +158,7 @@ impl CreationArgs {
 ///
 /// Returns [`CommandError`] if policy parsing, name resolution, or PCR reading fails.
 #[allow(clippy::type_complexity)]
-pub fn resolve_policy(
+pub fn build_policy_command_list(
     creation_args: &CreationArgs,
     task_state: &mut TaskState,
     device: &mut TpmDevice,
@@ -168,7 +169,7 @@ pub fn resolve_policy(
         let banks = pcr_get_bank_list(device)?;
         let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
 
-        let names = fetch_all_names(task_state, device)?;
+        let names = fetch_handle_names(task_state, device)?;
 
         let policy_context = TpmPolicyState {
             pcr_count,
@@ -186,7 +187,7 @@ pub fn resolve_policy(
 }
 
 /// Fetches a map of all available names (virtual and persistent).
-fn fetch_all_names(
+fn fetch_handle_names(
     state: &mut TaskState,
     device: &mut TpmDevice,
 ) -> Result<HashMap<VtpmHandle, Tpm2bName>, CommandError> {
@@ -205,4 +206,49 @@ fn fetch_all_names(
     }
 
     Ok(map)
+}
+
+/// Builds a `TpmKeyPolicy` from a list of commands, resolving any virtual
+/// handles to names.
+///
+/// # Errors
+///
+/// Returns [`Device`](crate::command::CommandError::Device) when reading a
+/// public area from the TPM fails.
+/// Returns [`Crypto`](crate::command::CommandError::Crypto) when name
+/// calculation fails.
+/// Returns [`Vtpm`](crate::command::CommandError::Vtpm) when creating a
+/// policy command fails.
+pub fn build_key_policy(
+    task_state: &TaskState,
+    device: &mut TpmDevice,
+    commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
+) -> Result<Option<TpmKeyPolicy>, CommandError> {
+    let Some(commands) = commands else {
+        return Ok(None);
+    };
+
+    let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
+    for (cmd, _) in commands {
+        let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
+            if let Ok(key) = task_state.cache.find_by_virtual_handle(inner.handles[0]) {
+                tpm_make_name(&key.public)?
+            } else {
+                let (_, name) = device.read_public(inner.handles[0])?;
+                name
+            }
+        } else {
+            Tpm2bName::default()
+        };
+        vtpm_policy.push(vtpm_policy_command_from(&cmd, &object_name)?);
+    }
+
+    let mut policy = Vec::new();
+    for cmd in vtpm_policy {
+        policy.push(TpmKeyPolicyCommand {
+            cc: cmd.cc(),
+            body: cmd.body(),
+        });
+    }
+    Ok(Some(TpmKeyPolicy { name: None, policy }))
 }

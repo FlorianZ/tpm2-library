@@ -94,8 +94,6 @@ pub enum CommandError {
     AccessDenied,
     #[error("authentication missing")]
     AuthenticationMissing,
-    #[error("cache: {0}")]
-    Cache(VtpmError),
     #[error("capacity exceeded")]
     CapacityExceeded,
     #[error("crypto: {0}")]
@@ -156,6 +154,8 @@ pub enum CommandError {
     UnsupportedHashAlgorithm,
     #[error("unsupported key algorithm")]
     UnsupportedKeyAlgorithm,
+    #[error("vtpm: {0}")]
+    Vtpm(VtpmError),
 }
 
 impl From<TaskError> for CommandError {
@@ -168,7 +168,7 @@ impl From<TaskError> for CommandError {
             TaskError::Vtpm(VtpmError::HandleNotFound(handle)) => {
                 Self::HandleNotFound("vtpm", handle.into())
             }
-            TaskError::Vtpm(e) => Self::Cache(e),
+            TaskError::Vtpm(e) => Self::Vtpm(e),
             TaskError::Crypto(e) => Self::Crypto(e),
             TaskError::Io(e) => Self::Io(e),
             TaskError::IntDecode(e) => Self::IntDecode(e),
@@ -179,7 +179,7 @@ impl From<TaskError> for CommandError {
 
 impl From<VtpmError> for CommandError {
     fn from(err: VtpmError) -> Self {
-        Self::Cache(err)
+        Self::Vtpm(err)
     }
 }
 

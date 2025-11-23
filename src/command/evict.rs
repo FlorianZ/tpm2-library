@@ -49,7 +49,7 @@ impl Task for Evict {
                 }
                 let persistent_handle = TpmHandle(persistent_handle_val);
 
-                let transient_handle = task_state.load_context(dev, &self.input)?;
+                let transient_handle = task_state.load_key(dev, &self.input)?;
 
                 task_state.evict_control(
                     dev,
