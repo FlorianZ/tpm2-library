@@ -5,22 +5,17 @@
 use crate::{
     cli::Hierarchy,
     command::CommandError,
-    pcr::{pcr_get_bank_list, resolve_pcr_digests},
+    pcr::{pcr_get_bank_list, read_all_pcrs},
     task::{TaskAuth, TaskState},
 };
 use clap::{Args, ValueEnum};
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    hash::BuildHasher,
-    path::PathBuf,
-};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf};
 use strum::{Display, EnumString};
 use tpm2_crypto::{tpm_make_name, TpmPublicTemplate, TpmPublicTemplateType};
 use tpm2_device::TpmDevice;
-use tpm2_policy_language::TpmPolicyExpression;
+use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
-    data::{Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmHt, TpmaObject},
+    data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmaObject},
     frame::{TpmAuthCommands, TpmCommand},
 };
 use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
@@ -169,49 +164,19 @@ pub fn resolve_policy(
     name_alg: TpmAlgId,
 ) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
     if let Some(expression) = &creation_args.policy_expression {
+        let pcrs = read_all_pcrs(task_state, device)?;
         let banks = pcr_get_bank_list(device)?;
         let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
 
-        let static_pcr_banks: Vec<TpmAlgId> = banks.iter().map(|b| b.alg).collect();
+        let names = fetch_all_names(task_state, device)?;
 
-        let tmp_policy_context = tpm2_policy_language::TpmPolicyState {
+        let policy_context = TpmPolicyState {
             pcr_count,
-            pcr_banks: static_pcr_banks.clone(),
-            names: HashMap::new(),
-        };
-
-        let mut ast = TpmPolicyExpression::new(expression, &tmp_policy_context)?;
-
-        let mut handles: HashSet<VtpmHandle> = HashSet::new();
-        visit_secret_handles(&ast, &mut handles)?;
-
-        let mut names = HashMap::new();
-        for handle in handles {
-            let name = match handle.class() {
-                VtpmHandleClass::Tpm => {
-                    let (_, name) =
-                        device.read_public(handle.value().unwrap_or_default().into())?;
-                    name
-                }
-                VtpmHandleClass::Vtpm => {
-                    let vhandle = handle.value().unwrap_or_default();
-                    let key = task_state
-                        .cache
-                        .find_by_virtual_handle(tpm2_protocol::TpmHandle(vhandle))?;
-                    tpm_make_name(&key.public)?
-                }
-            };
-            names.insert(handle, name);
-        }
-
-        let policy_context = tpm2_policy_language::TpmPolicyState {
-            pcr_count,
-            pcr_banks: static_pcr_banks,
             names,
+            pcrs,
         };
 
-        resolve_pcr_digests(task_state, device, &mut ast, name_alg, &banks)?;
-
+        let ast = TpmPolicyExpression::new(expression, &policy_context)?;
         let (commands, final_digest) = ast.to_command_list(name_alg, &policy_context)?;
 
         Ok((final_digest, Some(commands)))
@@ -220,35 +185,24 @@ pub fn resolve_policy(
     }
 }
 
-fn visit_secret_handles<S: BuildHasher>(
-    ast: &TpmPolicyExpression,
-    handles: &mut HashSet<VtpmHandle, S>,
-) -> Result<(), CommandError> {
-    match ast {
-        TpmPolicyExpression::Pcr { .. } | TpmPolicyExpression::Handle(_) => {}
-        TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
-            for branch in branches {
-                visit_secret_handles(branch, handles)?;
-            }
-        }
-        TpmPolicyExpression::Secret { auth_handle, .. } => {
-            if let TpmPolicyExpression::Handle(handle) = &**auth_handle {
-                let Some(val) = handle.value() else {
-                    return Err(CommandError::PatternNotAllowed(auth_handle.to_string()));
-                };
+/// Fetches a map of all available names (virtual and persistent).
+fn fetch_all_names(
+    state: &mut TaskState,
+    device: &mut TpmDevice,
+) -> Result<HashMap<VtpmHandle, Tpm2bName>, CommandError> {
+    let mut map = HashMap::new();
 
-                if handle.class() == VtpmHandleClass::Tpm
-                    && (val >> 24) as u8 != TpmHt::Persistent as u8
-                {
-                    return Err(CommandError::InvalidHandle);
-                }
-                handles.insert(*handle);
-            } else {
-                return Err(CommandError::InvalidPolicyExpression(
-                    "secret() first argument must be a handle".to_string(),
-                ));
-            }
+    for (vhandle, key) in state.cache.key_iter() {
+        let name = tpm_make_name(&key.public)?;
+        map.insert(VtpmHandle::new(VtpmHandleClass::Vtpm, *vhandle), name);
+    }
+
+    let handles = device.fetch_handles(TpmHt::Persistent)?;
+    for h in handles {
+        if let Ok((_, name)) = device.read_public(h) {
+            map.insert(VtpmHandle::new(VtpmHandleClass::Tpm, h.0), name);
         }
     }
-    Ok(())
+
+    Ok(map)
 }

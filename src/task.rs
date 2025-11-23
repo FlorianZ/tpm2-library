@@ -588,7 +588,7 @@ impl<'a> TaskState<'a> {
         Ok(phandle)
     }
 
-    /// Resolves policy details (policy blob, name algorithm, and empty auth
+    /// Fetches policy details (policy blob, name algorithm, and empty auth
     /// status) for a handle.
     ///
     /// This loads the context associated with the handle first.
@@ -606,7 +606,7 @@ impl<'a> TaskState<'a> {
     /// handle is invalid.
     /// Returns [`HandleNotFound`](crate::task::TaskError::HandleNotFound) when
     /// the handle cannot be loaded.
-    pub fn resolve_policy(
+    pub fn fetch_policy(
         &mut self,
         device: &mut TpmDevice,
         handle: &VtpmHandle,

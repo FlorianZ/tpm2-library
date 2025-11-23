@@ -8,9 +8,8 @@ use crate::task::{TaskError, TaskState};
 use std::collections::HashMap;
 use thiserror::Error;
 
-use tpm2_crypto::{TpmCryptoError, TpmHash};
+use tpm2_crypto::TpmCryptoError;
 use tpm2_device::{TpmDevice, TpmDeviceError};
-use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection},
     frame::TpmPcrReadCommand,
@@ -23,6 +22,8 @@ pub enum PcrError {
     Device(#[from] TpmDeviceError),
     #[error("capacity exceeded")]
     CapacityExceeded,
+    #[error("consistency check failed")]
+    Consistency,
     #[error("invalid algorithm: {0:?}")]
     InvalidAlgorithm(TpmAlgId),
     #[error("invalid PCR selection: {0}")]
@@ -33,14 +34,6 @@ pub enum PcrError {
     Session(#[from] TaskError),
     #[error("protocol: {0}")]
     Protocol(#[from] TpmProtocolError),
-}
-
-/// Represents the state of a single PCR register.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pcr {
-    pub bank: TpmAlgId,
-    pub index: u32,
-    pub value: Vec<u8>,
 }
 
 /// Represents the properties of a single PCR bank.
@@ -74,199 +67,116 @@ pub fn pcr_get_bank_list(device: &mut TpmDevice) -> Result<Vec<PcrBank>, PcrErro
     Ok(banks)
 }
 
-/// Merges multiple `TpmsPcrSelection` structs into a single `TpmlPcrSelection`.
+/// Reads all PCRs from the active banks.
 ///
-/// This is used to combine all PCRs required by a policy into a single read.
-///
-/// # Errors
-///
-/// Returns a `PcrError` if bitmask operations fail.
-pub(crate) fn merge_pcr_selections(
-    selections: &[TpmsPcrSelection],
-    banks: &[PcrBank],
-) -> Result<TpmlPcrSelection, PcrError> {
-    let mut merged: HashMap<TpmAlgId, Vec<u8>> = HashMap::new();
-
-    for sel in selections {
-        let bank = banks
-            .iter()
-            .find(|b| b.alg == sel.hash)
-            .ok_or(PcrError::InvalidAlgorithm(sel.hash))?;
-
-        let pcr_select_bytes = merged
-            .entry(sel.hash)
-            .or_insert_with(|| vec![0u8; bank.count.div_ceil(8)]);
-
-        if pcr_select_bytes.len() != sel.pcr_select.len() {
-            return Err(PcrError::InvalidPcrSelection(format!(
-                "Mismatched PCR select size for {:?}",
-                sel.hash
-            )));
-        }
-
-        for (i, byte) in sel.pcr_select.iter().enumerate() {
-            pcr_select_bytes[i] |= byte;
-        }
-    }
-
-    let mut list = TpmlPcrSelection::new();
-    for (hash, pcr_select_bytes) in merged {
-        list.try_push(TpmsPcrSelection {
-            hash,
-            pcr_select: TpmsPcrSelect::try_from(pcr_select_bytes.as_slice())?,
-        })
-        .map_err(|_| PcrError::CapacityExceeded)?;
-    }
-    Ok(list)
-}
-
-/// Reads the selected PCRs and returns them in a structured format.
+/// This function handles response fragmentation (reading in chunks) to ensure
+/// all PCRs are retrieved.
 ///
 /// # Errors
 ///
-/// Returns a `PcrError` if the `TPM2_PcrRead` command fails or if the TPM's
-/// response does not contain the expected number of digests for the selection.
-pub fn pcr_read(
-    session: &mut TaskState,
+/// Returns `PcrError` on device or protocol failure.
+pub fn read_all_pcrs(
+    task_state: &mut TaskState,
     device: &mut TpmDevice,
-    pcr_selection_in: &TpmlPcrSelection,
-) -> Result<(Vec<Pcr>, u32), PcrError> {
-    let cmd = TpmPcrReadCommand {
-        pcr_selection_in: *pcr_selection_in,
-        handles: [],
-    };
-    let (resp, _) = session.execute(device, &cmd, &[])?;
-    let pcr_read_resp = resp
-        .PcrRead()
-        .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::PcrRead))?;
-    let mut pcrs = Vec::new();
-    let mut digest_iter = pcr_read_resp.pcr_values.iter();
-    for selection in pcr_read_resp.pcr_selection_out.iter() {
-        for (byte_idx, &byte) in selection.pcr_select.iter().enumerate() {
-            if byte == 0 {
-                continue;
-            }
-            for bit_idx in 0..8 {
-                if (byte >> bit_idx) & 1 == 1 {
-                    let pcr_index = u32::try_from(byte_idx * 8 + bit_idx)
-                        .map_err(|_| PcrError::InvalidPcrSelection("PCR index overflow".into()))?;
-                    let value = digest_iter.next().ok_or_else(|| {
-                        PcrError::InvalidPcrSelection("PCR selection mismatch".to_string())
-                    })?;
-                    pcrs.push(Pcr {
-                        bank: selection.hash,
-                        index: pcr_index,
-                        value: value.to_vec(),
-                    });
-                }
-            }
+) -> Result<HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>, PcrError> {
+    let banks = pcr_get_bank_list(device)?;
+    let mut remaining_selection = TpmlPcrSelection::new();
+
+    for bank in &banks {
+        let mut mask = Vec::new();
+        mask.resize(bank.count.div_ceil(8), 0xFF);
+
+        if bank.count % 8 != 0 {
+            let last_idx = mask.len() - 1;
+            mask[last_idx] &= (1 << (bank.count % 8)) - 1;
         }
+
+        remaining_selection
+            .try_push(TpmsPcrSelection {
+                hash: bank.alg,
+                pcr_select: TpmsPcrSelect::try_from(mask.as_slice())
+                    .map_err(|_| PcrError::CapacityExceeded)?,
+            })
+            .map_err(|_| PcrError::CapacityExceeded)?;
     }
-    Ok((pcrs, pcr_read_resp.pcr_update_counter))
-}
 
-/// Computes a composite digest from a set of PCRs using a specified algorithm.
-///
-/// # Errors
-///
-/// Returns a `PcrError` if the provided hash algorithm is not supported for
-/// creating a composite digest.
-pub fn pcr_composite_digest(pcrs: &[Pcr], alg: TpmAlgId) -> Result<Vec<u8>, PcrError> {
-    let digests: Vec<&[u8]> = pcrs.iter().map(|p| p.value.as_slice()).collect();
-    Ok(TpmHash::from(alg).digest(&digests)?)
-}
+    let mut results: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>> = HashMap::new();
+    for bank in banks {
+        results.insert(bank.alg, HashMap::new());
+    }
 
-/// Populates the AST with PCR digests by reading current values from the TPM.
-///
-/// # Errors
-///
-/// Returns [`CommandError::Policy`](crate::command::CommandError::Policy) when
-/// the policy AST visitor fails.
-/// Returns [`CommandError::Pcr`](crate::command::CommandError::Pcr) when
-/// merging PCR selections, reading PCRs, or calculating the composite digest
-/// fails.
-pub fn resolve_pcr_digests(
-    job: &mut TaskState,
-    device: &mut TpmDevice,
-    ast: &mut TpmPolicyExpression,
-    session_hash_alg: TpmAlgId,
-    banks: &[PcrBank],
-) -> Result<(), PcrError> {
-    let mut required_selections: Vec<TpmsPcrSelection> = Vec::new();
-    visit_pcr_expressions_mut(ast, &mut |expr| -> Result<(), PcrError> {
-        if let TpmPolicyExpression::Pcr {
-            selections,
-            digest: None,
-            ..
-        } = expr
-        {
-            for s in selections.iter() {
-                required_selections.push(*s);
-            }
-        }
-        Ok(())
-    })?;
-
-    if !required_selections.is_empty() {
-        let merged_selection = crate::pcr::merge_pcr_selections(&required_selections, banks)?;
-        let (pcr_values, _) = pcr_read(job, device, &merged_selection)?;
-
-        let mut populator = |expr: &mut TpmPolicyExpression| -> Result<(), PcrError> {
-            if let TpmPolicyExpression::Pcr {
-                selections, digest, ..
-            } = expr
-            {
-                if digest.is_none() {
-                    let mut pcr_subset: Vec<crate::pcr::Pcr> = Vec::new();
-                    for sel in selections.iter() {
-                        pcr_subset.extend(
-                            pcr_values
-                                .iter()
-                                .filter(|pcr| {
-                                    if pcr.bank != sel.hash {
-                                        return false;
-                                    }
-                                    let pcr_index = pcr.index as usize;
-                                    let byte_index = pcr_index / 8;
-                                    let bit_index = pcr_index % 8;
-
-                                    sel.pcr_select
-                                        .get(byte_index)
-                                        .is_some_and(|&byte| (byte >> bit_index) & 1 == 1)
-                                })
-                                .cloned(),
-                        );
-                    }
-
-                    let composite_digest = pcr_composite_digest(&pcr_subset, session_hash_alg)?;
-                    *digest = Some(Tpm2bDigest::try_from(composite_digest.as_slice())?);
-                }
-            }
-            Ok(())
+    while !is_selection_empty(&remaining_selection) {
+        let cmd = TpmPcrReadCommand {
+            pcr_selection_in: remaining_selection,
+            handles: [],
         };
-        visit_pcr_expressions_mut(ast, &mut populator)?;
-    }
-    Ok(())
-}
 
-fn visit_pcr_expressions_mut<F>(
-    ast: &mut TpmPolicyExpression,
-    visitor: &mut F,
-) -> Result<(), PcrError>
-where
-    F: FnMut(&mut TpmPolicyExpression) -> Result<(), PcrError>,
-{
-    match ast {
-        TpmPolicyExpression::Pcr { .. } => visitor(ast)?,
-        TpmPolicyExpression::And(branches) | TpmPolicyExpression::Or(branches) => {
-            for branch in branches.iter_mut() {
-                visit_pcr_expressions_mut(branch, visitor)?;
+        let (resp, _) = task_state.execute(device, &cmd, &[])?;
+        let pcr_resp = resp
+            .PcrRead()
+            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::PcrRead))?;
+
+        let mut value_iter = pcr_resp.pcr_values.iter();
+        for selection_out in pcr_resp.pcr_selection_out.iter() {
+            let bank_store = results
+                .get_mut(&selection_out.hash)
+                .ok_or(PcrError::InvalidAlgorithm(selection_out.hash))?;
+
+            for (byte_idx, &byte) in selection_out.pcr_select.iter().enumerate() {
+                for bit_idx in 0..8 {
+                    if (byte >> bit_idx) & 1 == 1 {
+                        let pcr_idx = u32::try_from(byte_idx * 8 + bit_idx)
+                            .map_err(|_| PcrError::CapacityExceeded)?;
+                        let digest = value_iter
+                            .next()
+                            .ok_or_else(|| PcrError::InvalidPcrSelection("Missing value".into()))?;
+
+                        bank_store.insert(pcr_idx, *digest);
+                    }
+                }
             }
         }
-        TpmPolicyExpression::Secret { auth_handle, .. } => {
-            visit_pcr_expressions_mut(auth_handle, visitor)?;
-        }
-        TpmPolicyExpression::Handle(_) => {}
+
+        update_remaining_selection(&mut remaining_selection, &pcr_resp.pcr_selection_out)?;
     }
+
+    Ok(results)
+}
+
+fn is_selection_empty(selection: &TpmlPcrSelection) -> bool {
+    selection
+        .iter()
+        .all(|s| s.pcr_select.iter().all(|&b| b == 0))
+}
+
+fn update_remaining_selection(
+    remaining: &mut TpmlPcrSelection,
+    read: &TpmlPcrSelection,
+) -> Result<(), PcrError> {
+    let mut new_list = TpmlPcrSelection::new();
+
+    for target_sel in remaining.iter() {
+        let mut mask_bytes = target_sel.pcr_select.to_vec();
+
+        if let Some(read_sel) = read.iter().find(|s| s.hash == target_sel.hash) {
+            for (i, &byte) in read_sel.pcr_select.iter().enumerate() {
+                if i < mask_bytes.len() {
+                    mask_bytes[i] &= !byte;
+                }
+            }
+        }
+
+        let new_select = TpmsPcrSelect::try_from(mask_bytes.as_slice())
+            .map_err(|_| PcrError::CapacityExceeded)?;
+
+        new_list
+            .try_push(TpmsPcrSelection {
+                hash: target_sel.hash,
+                pcr_select: new_select,
+            })
+            .map_err(|_| PcrError::CapacityExceeded)?;
+    }
+
+    *remaining = new_list;
     Ok(())
 }

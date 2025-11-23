@@ -67,7 +67,7 @@ impl Task for Convert {
 
         with_device(task_state.device.clone(), |device| {
             let (parent_handle, policy_blob, name_alg, parent_empty_auth) =
-                task_state.resolve_policy(device, &self.parent)?;
+                task_state.fetch_policy(device, &self.parent)?;
 
             let (auths, policy_session_auth) = task_state.build_auth(
                 device,
