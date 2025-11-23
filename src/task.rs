@@ -32,6 +32,28 @@ use tpm2_vtpm::{
     VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand, VtpmPolicySecretCommand,
 };
 
+/// Returns true if the object has no authorization.
+#[must_use]
+pub fn is_empty_auth(public: &TpmtPublic) -> bool {
+    !public
+        .object_attributes
+        .contains(TpmaObject::ADMIN_WITH_POLICY)
+        && !public
+            .object_attributes
+            .contains(TpmaObject::USER_WITH_AUTH)
+}
+
+/// Returns true if the object's attributes indicate policy-only authorization.
+#[must_use]
+pub fn is_policy_only(public: &TpmtPublic) -> bool {
+    public
+        .object_attributes
+        .contains(TpmaObject::ADMIN_WITH_POLICY)
+        && !public
+            .object_attributes
+            .contains(TpmaObject::USER_WITH_AUTH)
+}
+
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
 /// Interface for reporting progress of long-running TPM operations.
@@ -77,17 +99,6 @@ impl TaskSession {
     pub fn delete(&self, device: &mut TpmDevice) -> Result<(), TaskError> {
         device.flush_context(self.handle).map_err(TaskError::Device)
     }
-}
-
-/// Returns true if the object's attributes indicate policy-only authorization.
-#[must_use]
-pub fn is_empty_auth(public: &TpmtPublic) -> bool {
-    public
-        .object_attributes
-        .contains(TpmaObject::ADMIN_WITH_POLICY)
-        && !public
-            .object_attributes
-            .contains(TpmaObject::USER_WITH_AUTH)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -240,24 +251,29 @@ impl<'a> TaskState<'a> {
         handle: &VtpmHandle,
         auth_args: &AuthArgs,
     ) -> Result<(TpmHandle, TpmAlgId, Vec<TaskAuth>, Option<TaskAuth>), TaskError> {
-        let (phys_handle, policy, name_alg, empty_auth) = self.fetch_policy(device, handle)?;
+        let (phys_handle, policy, name_alg, attributes) = self.fetch_policy(device, handle)?;
+
+        let use_password = attributes.contains(TpmaObject::USER_WITH_AUTH);
+        let all_auths = if use_password {
+            auth_args.build_auth_list()
+        } else {
+            std::borrow::Cow::Owned(vec![])
+        };
 
         let mut policy_session_auth: Option<TaskAuth> = None;
-        let all_auths = auth_args.auths(empty_auth);
-        let (cmd_auths, policy_auths) = if empty_auth {
-            (Vec::new(), all_auths.as_ref())
-        } else {
+
+        let (mut auths, passwords) = if use_password {
             (
                 vec![all_auths.first().cloned().unwrap_or_default()],
                 all_auths.get(1..).unwrap_or_default(),
             )
+        } else {
+            (Vec::new(), all_auths.as_ref())
         };
-
-        let mut auths = cmd_auths;
 
         if !policy.is_empty() {
             if let Some(session_auth) =
-                self.start_policy_session(device, &policy, name_alg, policy_auths)?
+                self.start_policy_session(device, &policy, name_alg, passwords)?
             {
                 auths = vec![session_auth.clone()];
                 policy_session_auth = Some(session_auth);
@@ -399,7 +415,15 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         handle: &VtpmHandle,
-    ) -> Result<(TpmHandle, Vec<Box<dyn VtpmPolicyCommand>>, TpmAlgId, bool), TaskError> {
+    ) -> Result<
+        (
+            TpmHandle,
+            Vec<Box<dyn VtpmPolicyCommand>>,
+            TpmAlgId,
+            TpmaObject,
+        ),
+        TaskError,
+    > {
         let phys_handle = self.load_key(device, handle)?;
 
         if handle.class() == VtpmHandleClass::Vtpm {
@@ -412,12 +436,16 @@ impl<'a> TaskState<'a> {
                 phys_handle,
                 key.policy.clone(),
                 key.public.name_alg,
-                key.empty_auth != 0,
+                key.public.object_attributes,
             ))
         } else {
             let (public, _) = device.read_public(phys_handle)?;
-            let empty = is_empty_auth(&public);
-            Ok((phys_handle, Vec::new(), public.name_alg, empty))
+            Ok((
+                phys_handle,
+                Vec::new(),
+                public.name_alg,
+                public.object_attributes,
+            ))
         }
     }
 
@@ -525,9 +553,9 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
         key_name_alg: TpmAlgId,
-        policy_auths: &[TaskAuth],
+        passwords: &[TaskAuth],
     ) -> Result<Option<TaskAuth>, TaskError> {
-        let mut auth_iter = policy_auths.iter();
+        let mut auth_iter = passwords.iter();
 
         let Some(commands) = self.load_policy_command_list(device, policy, &mut auth_iter)? else {
             return Ok(None);
@@ -636,7 +664,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
-        policy_auths: &mut std::slice::Iter<'_, TaskAuth>,
+        passwords: &mut std::slice::Iter<'_, TaskAuth>,
     ) -> Result<Option<TpmCommandList>, TaskError> {
         if policy.is_empty() {
             return Ok(None);
@@ -674,10 +702,7 @@ impl<'a> TaskState<'a> {
                         handles: [live_handle, TpmHandle(0)],
                     });
 
-                let auth = match policy_auths
-                    .next()
-                    .unwrap_or(&TaskAuth::Password(Vec::new()))
-                {
+                let auth = match passwords.next().unwrap_or(&TaskAuth::Password(Vec::new())) {
                     TaskAuth::Password(val) => build_password_session(val)?,
                     TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
                 };

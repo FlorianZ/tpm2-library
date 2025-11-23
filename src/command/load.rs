@@ -4,9 +4,9 @@
 
 use crate::{
     cli::Task,
-    command::{common::is_policy_only, AuthArgs, CommandError, InputArgs},
+    command::{AuthArgs, CommandError, InputArgs},
     io::read_file_input,
-    task::{TaskAuth, TaskState},
+    task::{is_policy_only, TaskAuth, TaskState},
 };
 use clap::Args;
 use tpm2_crypto::tpm_make_name;

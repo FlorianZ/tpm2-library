@@ -58,7 +58,8 @@ impl Task for PcrEvent {
                 handles: [handles[0].into()],
             };
 
-            let (resp, _) = task_state.execute(device, &command, &self.auth_args.auths(false))?;
+            let (resp, _) =
+                task_state.execute(device, &command, &self.auth_args.build_auth_list())?;
 
             let pcr_resp = resp
                 .PcrEvent()

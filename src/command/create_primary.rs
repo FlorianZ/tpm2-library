@@ -4,10 +4,8 @@
 
 use crate::{
     cli::Task,
-    command::{
-        common::is_policy_only, deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs,
-    },
-    task::TaskState,
+    command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
+    task::{is_policy_only, TaskState},
 };
 use clap::Args;
 use tpm2_crypto::TpmPublicTemplate;
@@ -69,9 +67,9 @@ impl Task for CreatePrimary {
                 handles: [(primary_handle as u32).into()],
             };
 
-            let empty_auth = is_policy_only(&cmd.in_public.inner);
+            let policy_only = is_policy_only(&cmd.in_public.inner);
 
-            let (resp, _) = task_state.execute(device, &cmd, &self.auth_args.auths(empty_auth))?;
+            let (resp, _) = task_state.execute(device, &cmd, &self.auth_args.build_auth_list())?;
 
             let resp = resp
                 .CreatePrimary()
@@ -84,7 +82,7 @@ impl Task for CreatePrimary {
                 object_context,
                 &resp.out_public.inner,
                 &Tpm2bPublic::default().inner,
-                empty_auth,
+                policy_only,
                 &None,
             )?;
             writeln!(writer, "vtpm:{vhandle:08x}")?;

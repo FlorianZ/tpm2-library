@@ -224,7 +224,7 @@ impl Memory {
 
         let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
-        let auths_cow = auth_args.auths(false);
+        let auths_cow = auth_args.build_auth_list();
         let effective_auths: &[TaskAuth] = if needs_auth { auths_cow.as_ref() } else { &[] };
 
         while offset < data_size {

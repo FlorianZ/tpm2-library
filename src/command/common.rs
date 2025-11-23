@@ -6,7 +6,7 @@ use crate::{
     cli::Hierarchy,
     command::CommandError,
     pcr::{pcr_get_bank_list, read_all_pcrs},
-    task::{TaskAuth, TaskState},
+    task::{is_empty_auth, TaskAuth, TaskState},
 };
 use clap::{Args, ValueEnum};
 use std::{borrow::Cow, collections::HashMap, path::PathBuf};
@@ -17,7 +17,6 @@ use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmHt, TpmaObject,
-        TpmtPublic,
     },
     frame::{TpmAuthCommands, TpmCommand},
     TpmHandle,
@@ -51,19 +50,11 @@ impl AuthArgs {
     /// Returns a slice of authorizations.
     ///
     /// If no authorizations were provided, this returns a default slice
-    /// representing a single empty password, unless `empty_auth` is true.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `CommandError` if a non-password auth is encountered.
+    /// representing a single empty password.
     #[must_use]
-    pub fn auths(&self, empty_auth: bool) -> Cow<'_, [TaskAuth]> {
+    pub fn build_auth_list(&self) -> Cow<'_, [TaskAuth]> {
         if self.auth.is_empty() {
-            if empty_auth {
-                Cow::Owned(vec![])
-            } else {
-                Cow::Owned(vec![TaskAuth::default()])
-            }
+            Cow::Owned(vec![TaskAuth::default()])
         } else {
             Cow::Borrowed(self.auth.as_slice())
         }
@@ -257,17 +248,6 @@ pub fn build_key_policy(
     Ok(Some(TpmKeyPolicy { name: None, policy }))
 }
 
-/// Returns true if the object's attributes indicate policy-only authorization.
-#[must_use]
-pub fn is_policy_only(public: &TpmtPublic) -> bool {
-    public
-        .object_attributes
-        .contains(TpmaObject::ADMIN_WITH_POLICY)
-        && !public
-            .object_attributes
-            .contains(TpmaObject::USER_WITH_AUTH)
-}
-
 /// Constructs a `TpmKeyFile` from the given key components.
 ///
 /// # Errors
@@ -286,7 +266,7 @@ pub fn build_tpm_key_file(
         inner: parent_public_data,
     };
 
-    let empty_auth = if is_policy_only(&public.inner) {
+    let empty_auth = if is_empty_auth(&public.inner) {
         Some(true)
     } else {
         None

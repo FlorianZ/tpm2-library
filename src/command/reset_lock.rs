@@ -34,7 +34,8 @@ impl Task for ResetLock {
                 handles: [lock_handle],
             };
 
-            let (resp, _) = task_state.execute(device, &command, &self.auth_args.auths(false))?;
+            let (resp, _) =
+                task_state.execute(device, &command, &self.auth_args.build_auth_list())?;
 
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;
