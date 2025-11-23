@@ -142,8 +142,10 @@ pub struct TaskState<'a> {
     pub progress: Option<Box<dyn TaskStateProgress>>,
     /// Holds all temporary sessions, indexed by their vhandle.
     pub sessions: HashMap<TpmHandle, TaskSession>,
-    /// Live handles.
-    pub handles: HashSet<TpmHandle>,
+    /// Live handles (virtual handle -> physical handle).
+    pub live_handles: HashMap<u32, TpmHandle>,
+    /// All tracked handles (physical) for cleanup.
+    pub tracked_handles: HashSet<TpmHandle>,
 }
 
 impl<'a> TaskState<'a> {
@@ -159,7 +161,8 @@ impl<'a> TaskState<'a> {
             cache,
             progress,
             sessions: HashMap::new(),
-            handles: HashSet::new(),
+            live_handles: HashMap::new(),
+            tracked_handles: HashSet::new(),
         }
     }
 
@@ -191,16 +194,17 @@ impl<'a> TaskState<'a> {
     /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
     /// if the handle is already being tracked.
     pub fn track(&mut self, handle: TpmHandle) -> Result<(), TaskError> {
-        if self.handles.contains(&handle) {
+        if self.tracked_handles.contains(&handle) {
             return Err(TaskError::HandleAlreadyTracked(handle));
         }
-        self.handles.insert(handle);
+        self.tracked_handles.insert(handle);
         Ok(())
     }
 
     /// Removes a handle from the live handle tracking list.
     pub fn untrack(&mut self, handle: TpmHandle) {
-        self.handles.remove(&handle);
+        self.tracked_handles.remove(&handle);
+        self.live_handles.retain(|_, v| *v != handle);
     }
 
     /// Resolves a `Tpm2bName` from a `PolicySecret` to a live `TpmHandle`.
@@ -382,9 +386,7 @@ impl<'a> TaskState<'a> {
         let policy_phandle = resp.handles[0];
 
         let execution_result: Result<(), TaskError> = (|| {
-            for (command_body, auth_sessions) in commands {
-                let mut command_body = command_body.clone();
-
+            for (mut command_body, auth_sessions) in commands {
                 match &mut command_body {
                     TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
                     TpmCommand::PolicyOr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
@@ -514,9 +516,14 @@ impl<'a> TaskState<'a> {
         match handle.class() {
             VtpmHandleClass::Tpm => Ok(TpmHandle(handle_val)),
             VtpmHandleClass::Vtpm => {
+                if let Some(&phandle) = self.live_handles.get(&handle_val) {
+                    return Ok(phandle);
+                }
+
                 let key = self.cache.find_by_virtual_handle(TpmHandle(handle_val))?;
                 let loaded_phandle = device.load_context(key.context.clone())?;
                 self.track(loaded_phandle)?;
+                self.live_handles.insert(handle_val, loaded_phandle);
                 Ok(loaded_phandle)
             }
         }
@@ -556,6 +563,10 @@ impl<'a> TaskState<'a> {
             return Ok(TpmHandle(target_vhandle));
         }
 
+        if let Some(&phandle) = self.live_handles.get(&target_vhandle) {
+            return Ok(phandle);
+        }
+
         let chain = self.cache.fetch_ancestor_chain(TpmHandle(target_vhandle))?;
 
         if chain.is_empty() {
@@ -571,6 +582,12 @@ impl<'a> TaskState<'a> {
 
         for handle in chain_iter {
             let vhandle = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
+
+            if let Some(&live_h) = self.live_handles.get(&vhandle) {
+                phandle = live_h;
+                continue;
+            }
+
             let key = self.cache.find_by_virtual_handle(TpmHandle(vhandle))?;
 
             let loaded_phandle = device.load_context(key.context.clone())?;
@@ -582,6 +599,7 @@ impl<'a> TaskState<'a> {
             }
 
             self.track(loaded_phandle)?;
+            self.live_handles.insert(vhandle, loaded_phandle);
             phandle = loaded_phandle;
         }
 
@@ -779,7 +797,7 @@ impl Drop for TaskState<'_> {
     fn drop(&mut self) {
         if let Some(device_rc) = self.device.clone() {
             if let Ok(mut dev) = device_rc.try_borrow_mut() {
-                let handles_to_flush: Vec<TpmHandle> = self.handles.drain().collect();
+                let handles_to_flush: Vec<TpmHandle> = self.tracked_handles.drain().collect();
                 for handle in handles_to_flush {
                     if let Err(err) = dev.flush_context(handle) {
                         log::error!("{handle}: {err}");
