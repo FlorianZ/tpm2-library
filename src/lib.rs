@@ -44,10 +44,12 @@ use tpm2_protocol::{
 pub struct TpmPolicyState {
     /// Number of PCRs.
     pub pcr_count: usize,
-    /// List of available PCR banks.
-    pub pcr_banks: Vec<TpmAlgId>,
     /// Map of persistent handle values to their TPM names.
     pub names: HashMap<tpm2_vtpm::VtpmHandle, Tpm2bName>,
+    /// Map of PCR banks to PCR indices and their values.
+    ///
+    /// The keys of this map represent the available PCR banks.
+    pub pcrs: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>,
 }
 
 /// Parses a PCR selection string (e.g., "sha1:0,1+sha256:7") into a
@@ -70,7 +72,8 @@ fn parse_tpml_pcr_selection_str(
         let alg = alg_str
             .parse::<TpmHash>()
             .map_err(|_| TpmPolicyError::InvalidPcrDigestAlgorithm)?;
-        if !context.pcr_banks.contains(&alg.into()) {
+
+        if !context.pcrs.contains_key(&alg.into()) {
             return Err(TpmPolicyError::PcrBankNotAvailable(alg));
         }
 

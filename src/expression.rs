@@ -248,7 +248,7 @@ impl TpmPolicyExpression {
                 expr.to_command_list_walk_or(command_list, software_session, context)
             }
             expr @ TpmPolicyExpression::Pcr { .. } => {
-                expr.to_command_list_walk_pcr(command_list, software_session)
+                expr.to_command_list_walk_pcr(command_list, software_session, context)
             }
             expr @ TpmPolicyExpression::Secret { .. } => {
                 expr.to_command_list_walk_secret(command_list, software_session, context)
@@ -263,13 +263,42 @@ impl TpmPolicyExpression {
         &self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut TpmPolicySession,
+        context: &TpmPolicyState,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
         let (selections, digest) = match self {
             TpmPolicyExpression::Pcr { selections, digest } => (selections, digest),
             expr => return Err(TpmPolicyError::InvalidExpression(Box::new(expr.clone()))),
         };
 
-        let pcr_digest = digest.ok_or(TpmPolicyError::PcrDigestMissing)?;
+        let pcr_digest = if let Some(digest) = digest {
+            *digest
+        } else {
+            let mut pcr_data = Vec::new();
+            for selection in selections.iter() {
+                let bank_pcrs = context
+                    .pcrs
+                    .get(&selection.hash)
+                    .ok_or(TpmPolicyError::PcrDigestMissing)?;
+
+                for (byte_index, &byte) in selection.pcr_select.iter().enumerate() {
+                    for bit_index in 0..8 {
+                        if (byte & (1 << bit_index)) != 0 {
+                            #[allow(clippy::cast_possible_truncation)]
+                            let pcr_index = (byte_index * 8 + bit_index) as u32;
+                            let pcr_value = bank_pcrs
+                                .get(&pcr_index)
+                                .ok_or(TpmPolicyError::PcrDigestMissing)?;
+                            pcr_data.extend_from_slice(pcr_value.as_ref());
+                        }
+                    }
+                }
+            }
+
+            let calculated_digest = TpmHash::from(software_session.hash_alg)
+                .digest(&[&pcr_data])
+                .map_err(TpmPolicyError::Crypto)?;
+            Tpm2bDigest::try_from(calculated_digest.as_slice()).map_err(TpmPolicyError::Marshal)?
+        };
 
         if pcr_digest.as_ref().len() != software_session.digest_size {
             return Err(TpmPolicyError::InvalidPcrDigest);

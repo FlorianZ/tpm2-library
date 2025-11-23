@@ -40,10 +40,14 @@ fn command_list_roundtrip(#[case] input: &str) {
         )
         .unwrap(),
     );
+
+    let mut pcrs = HashMap::new();
+    pcrs.insert(TpmAlgId::Sha256, HashMap::new());
+
     let policy_state = TpmPolicyState {
         pcr_count: 24,
-        pcr_banks: vec![TpmAlgId::Sha256],
         names,
+        pcrs,
     };
 
     let original_ast = TpmPolicyExpression::new(input, &policy_state).unwrap();
@@ -74,10 +78,14 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
         )
         .unwrap(),
     );
+
+    let mut pcrs = HashMap::new();
+    pcrs.insert(TpmAlgId::Sha256, HashMap::new());
+
     let policy_state = TpmPolicyState {
         pcr_count: 24,
-        pcr_banks: vec![TpmAlgId::Sha256],
         names,
+        pcrs,
     };
 
     let expr = TpmPolicyExpression::new(input, &policy_state).unwrap();

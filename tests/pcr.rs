@@ -37,10 +37,15 @@ fn pcr_roundtrip(
     #[case] pcr_banks: Vec<TpmAlgId>,
     #[case] session_alg: TpmAlgId,
 ) {
+    let mut pcrs = HashMap::new();
+    for alg in pcr_banks {
+        pcrs.insert(alg, HashMap::new());
+    }
+
     let policy_state = TpmPolicyState {
         pcr_count,
-        pcr_banks,
         names: HashMap::new(),
+        pcrs,
     };
 
     let original_ast = TpmPolicyExpression::new(input, &policy_state).unwrap();
