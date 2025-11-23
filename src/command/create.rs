@@ -7,11 +7,11 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_key_policy, build_policy_command_list},
+        common::{build_policy_command_list, build_tpm_key_file},
         AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs,
     },
     io::write_key_data,
-    task::{is_empty_auth, TaskAuth, TaskError, TaskState},
+    task::{TaskAuth, TaskError, TaskState},
 };
 
 use clap::Args;
@@ -22,10 +22,9 @@ use tpm2_protocol::{
         Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmlPcrSelection,
         TpmsSensitiveCreate,
     },
-    frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand, TpmCreateResponse},
+    frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
     TpmHandle,
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 use tpm2_vtpm::VtpmHandle;
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
@@ -139,43 +138,6 @@ impl Create {
         Ok((create_cmd, policy_commands))
     }
 
-    fn build_tpm_key_file(
-        &self,
-        task_state: &TaskState,
-        device: &mut TpmDevice,
-        create_resp: &TpmCreateResponse,
-        parent_phys_handle: TpmHandle,
-        policy_commands: Option<PolicyCommands>,
-    ) -> Result<TpmKeyFile, CommandError> {
-        let (parent_public_data, _) = device.read_public(parent_phys_handle)?;
-        let parent_public_2b = Tpm2bPublic {
-            inner: parent_public_data,
-        };
-
-        let empty_auth = is_empty_auth(&create_resp.out_public.inner);
-
-        let tpm_key_policy = build_key_policy(task_state, device, policy_commands)?;
-
-        let kind = if matches!(self.algorithm.kind, TpmPublicTemplateType::KeyedHash) {
-            TpmKeyType::SealedData
-        } else {
-            TpmKeyType::Loadable
-        };
-
-        Ok(TpmKeyFile {
-            public: create_resp.out_public.clone(),
-            private: create_resp.out_private,
-            parent_handle: parent_phys_handle,
-            parent_public: Some(parent_public_2b),
-            empty_auth: if empty_auth { Some(true) } else { None },
-            policy: tpm_key_policy,
-            auth_policy: None,
-            secret: None,
-            description: None,
-            kind,
-        })
-    }
-
     fn create_object(
         &self,
         task_state: &mut TaskState,
@@ -207,10 +169,11 @@ impl Create {
             .Create()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
 
-        let tpm_key = self.build_tpm_key_file(
+        let tpm_key = build_tpm_key_file(
             task_state,
             device,
-            &create_resp,
+            create_resp.out_public,
+            create_resp.out_private,
             parent_phys_handle,
             policy_commands,
         )?;

@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{AuthArgs, CommandError, InputArgs},
+    command::{common::is_policy_only, AuthArgs, CommandError, InputArgs},
     io::read_file_input,
     task::{TaskAuth, TaskState},
 };
@@ -125,7 +125,7 @@ impl Task for Load {
                     object_context,
                     &loaded_public.inner,
                     &parent_public.inner,
-                    tpm_key.empty_auth.unwrap_or_default(),
+                    is_policy_only(&loaded_public.inner),
                     &policy_blob,
                 )?;
 

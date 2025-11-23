@@ -5,7 +5,7 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_key_policy, build_policy_command_list},
+        common::{build_policy_command_list, build_tpm_key_file},
         AuthArgs, CommandError, CreationArgs, InputArgs, OutputArgs, OutputEncodingArgs,
     },
     io::{read_file_input, write_key_data, write_object},
@@ -29,7 +29,7 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand, TpmImportCommand},
     TpmHandle, TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyType};
+use tpm2_tpmkey::TpmKeyFile;
 use tpm2_vtpm::VtpmHandle;
 
 /// Convert external keys to TPM keys.
@@ -315,36 +315,6 @@ impl Convert {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn construct_imported_key(
-        public: TpmtPublic,
-        out_private: &Tpm2bPrivate,
-        parent_handle: TpmHandle,
-        parent_public: Tpm2bPublic,
-        user_auth: Tpm2bAuth,
-        object_attributes: TpmaObject,
-        policy: Option<TpmKeyPolicy>,
-    ) -> TpmKeyFile {
-        TpmKeyFile {
-            public: Tpm2bPublic { inner: public },
-            private: *out_private,
-            parent_handle,
-            parent_public: Some(parent_public),
-            empty_auth: if object_attributes.contains(TpmaObject::USER_WITH_AUTH)
-                && user_auth.is_empty()
-            {
-                Some(true)
-            } else {
-                None
-            },
-            policy,
-            auth_policy: None,
-            secret: None,
-            description: None,
-            kind: TpmKeyType::Loadable,
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn create_external_key(
         task_state: &mut TaskState,
         device: &mut TpmDevice,
@@ -392,20 +362,17 @@ impl Convert {
 
         let out_private = Self::run_import_command(task_state, device, &import_cmd, auths)?;
 
-        let parent_public_2b = Tpm2bPublic {
-            inner: parent_public,
+        let tpm_public_2b = Tpm2bPublic {
+            inner: public.clone(),
         };
 
-        let tpm_key_policy = build_key_policy(task_state, device, policy_commands)?;
-
-        Ok(Self::construct_imported_key(
-            public,
-            &out_private,
+        build_tpm_key_file(
+            task_state,
+            device,
+            tpm_public_2b,
+            out_private,
             parent_handle,
-            parent_public_2b,
-            user_auth,
-            object_attributes,
-            tpm_key_policy,
-        ))
+            policy_commands,
+        )
     }
 }

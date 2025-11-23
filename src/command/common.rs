@@ -15,10 +15,14 @@ use tpm2_crypto::{tpm_make_name, TpmPublicTemplate, TpmPublicTemplateType};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
-    data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmaObject},
+    data::{
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmHt, TpmaObject,
+        TpmtPublic,
+    },
     frame::{TpmAuthCommands, TpmCommand},
+    TpmHandle,
 };
-use tpm2_tpmkey::{TpmKeyPolicy, TpmKeyPolicyCommand};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
 use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand};
 
 /// Parses an authentication string as 'empty' or a hex string.
@@ -251,4 +255,61 @@ pub fn build_key_policy(
         });
     }
     Ok(Some(TpmKeyPolicy { name: None, policy }))
+}
+
+/// Returns true if the object's attributes indicate policy-only authorization.
+#[must_use]
+pub fn is_policy_only(public: &TpmtPublic) -> bool {
+    public
+        .object_attributes
+        .contains(TpmaObject::ADMIN_WITH_POLICY)
+        && !public
+            .object_attributes
+            .contains(TpmaObject::USER_WITH_AUTH)
+}
+
+/// Constructs a `TpmKeyFile` from the given key components.
+///
+/// # Errors
+///
+/// Returns [`CommandError`] if reading the parent public area or building the key policy fails.
+pub fn build_tpm_key_file(
+    task_state: &TaskState,
+    device: &mut TpmDevice,
+    public: Tpm2bPublic,
+    private: Tpm2bPrivate,
+    parent_handle: TpmHandle,
+    policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
+) -> Result<TpmKeyFile, CommandError> {
+    let (parent_public_data, _) = device.read_public(parent_handle)?;
+    let parent_public = Tpm2bPublic {
+        inner: parent_public_data,
+    };
+
+    let empty_auth = if is_policy_only(&public.inner) {
+        Some(true)
+    } else {
+        None
+    };
+
+    let tpm_key_policy = build_key_policy(task_state, device, policy_commands)?;
+
+    let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
+        TpmKeyType::SealedData
+    } else {
+        TpmKeyType::Loadable
+    };
+
+    Ok(TpmKeyFile {
+        public,
+        private,
+        parent_handle,
+        parent_public: Some(parent_public),
+        empty_auth,
+        policy: tpm_key_policy,
+        auth_policy: None,
+        secret: None,
+        description: None,
+        kind,
+    })
 }

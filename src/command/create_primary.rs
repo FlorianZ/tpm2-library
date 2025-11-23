@@ -4,8 +4,10 @@
 
 use crate::{
     cli::Task,
-    command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
-    task::{is_empty_auth, TaskState},
+    command::{
+        common::is_policy_only, deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs,
+    },
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_crypto::TpmPublicTemplate;
@@ -67,7 +69,7 @@ impl Task for CreatePrimary {
                 handles: [(primary_handle as u32).into()],
             };
 
-            let empty_auth = is_empty_auth(&cmd.in_public.inner);
+            let empty_auth = is_policy_only(&cmd.in_public.inner);
 
             let (resp, _) = task_state.execute(device, &cmd, &self.auth_args.auths(empty_auth))?;
 
