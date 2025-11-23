@@ -67,16 +67,8 @@ impl Task for Load {
                     return Err(CommandError::ParentMissing);
                 };
 
-                let (parent_handle, policy_blob, name_alg, parent_empty_auth) =
-                    task_state.fetch_policy(device, &parent_handle_ref)?;
-
-                let (auths, policy_session_auth) = task_state.build_auth(
-                    device,
-                    &policy_blob,
-                    name_alg,
-                    parent_empty_auth,
-                    &self.auth_args,
-                )?;
+                let (parent_handle, _, auths, policy_session_auth) =
+                    task_state.build_auth(device, &parent_handle_ref, &self.auth_args)?;
 
                 let run_load_result = Self::run_load(
                     task_state,

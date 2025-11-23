@@ -182,16 +182,8 @@ impl Create {
         writer: &mut dyn std::io::Write,
         device: &mut TpmDevice,
     ) -> Result<(), CommandError> {
-        let (parent_phys_handle, policy_blob, name_alg, parent_empty_auth) =
-            task_state.fetch_policy(device, &self.parent)?;
-
-        let (auths, policy_session_auth) = task_state.build_auth(
-            device,
-            &policy_blob,
-            name_alg,
-            parent_empty_auth,
-            &self.auth_args,
-        )?;
+        let (parent_phys_handle, _, auths, policy_session_auth) =
+            task_state.build_auth(device, &self.parent, &self.auth_args)?;
 
         let (create_cmd, policy_commands) =
             self.build_create_command(task_state, device, parent_phys_handle)?;

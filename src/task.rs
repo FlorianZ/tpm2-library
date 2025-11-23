@@ -26,10 +26,10 @@ use tpm2_protocol::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
         TpmResponse, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
-    TpmHandle, TpmSized, TpmUnmarshal,
+    TpmHandle, TpmUnmarshal,
 };
 use tpm2_vtpm::{
-    vtpm_policy_command_from_parts, VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass,
+    VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand, VtpmPolicySecretCommand,
 };
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
@@ -232,14 +232,13 @@ impl<'a> TaskState<'a> {
     pub fn build_policy_session(
         &mut self,
         device: &mut TpmDevice,
-        policy_blob: &[u8],
+        policy: &[Box<dyn VtpmPolicyCommand>],
         key_name_alg: TpmAlgId,
         policy_auths: &[TaskAuth],
     ) -> Result<Option<TaskAuth>, TaskError> {
         let mut auth_iter = policy_auths.iter();
 
-        let Some(commands) = self.load_policy_command_list(device, policy_blob, &mut auth_iter)?
-        else {
+        let Some(commands) = self.load_policy_command_list(device, policy, &mut auth_iter)? else {
             return Ok(None);
         };
 
@@ -314,14 +313,15 @@ impl<'a> TaskState<'a> {
     /// a policy secret handle cannot be found.
     /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
     /// loaded key's parent is incorrect.
+    #[allow(clippy::type_complexity)]
     pub fn build_auth(
         &mut self,
         device: &mut TpmDevice,
-        policy_blob: &[u8],
-        name_alg: TpmAlgId,
-        empty_auth: bool,
+        handle: &VtpmHandle,
         auth_args: &AuthArgs,
-    ) -> Result<(Vec<TaskAuth>, Option<TaskAuth>), TaskError> {
+    ) -> Result<(TpmHandle, TpmAlgId, Vec<TaskAuth>, Option<TaskAuth>), TaskError> {
+        let (phys_handle, policy, name_alg, empty_auth) = self.fetch_policy(device, handle)?;
+
         let mut policy_session_auth: Option<TaskAuth> = None;
         let all_auths = auth_args.auths(empty_auth);
         let (cmd_auths, policy_auths) = if empty_auth {
@@ -335,16 +335,16 @@ impl<'a> TaskState<'a> {
 
         let mut auths = cmd_auths;
 
-        if !policy_blob.is_empty() {
+        if !policy.is_empty() {
             if let Some(session_auth) =
-                self.build_policy_session(device, policy_blob, name_alg, policy_auths)?
+                self.build_policy_session(device, &policy, name_alg, policy_auths)?
             {
                 auths = vec![session_auth.clone()];
                 policy_session_auth = Some(session_auth);
             }
         }
 
-        Ok((auths, policy_session_auth))
+        Ok((phys_handle, name_alg, auths, policy_session_auth))
     }
 
     /// Loads a TPM context from a handle, recursively loading its ancestors
@@ -474,11 +474,12 @@ impl<'a> TaskState<'a> {
     /// handle is invalid.
     /// Returns [`HandleNotFound`](crate::task::TaskError::HandleNotFound) when
     /// the handle cannot be loaded.
-    pub fn fetch_policy(
+    #[allow(clippy::type_complexity)]
+    fn fetch_policy(
         &mut self,
         device: &mut TpmDevice,
         handle: &VtpmHandle,
-    ) -> Result<(TpmHandle, Vec<u8>, TpmAlgId, bool), TaskError> {
+    ) -> Result<(TpmHandle, Vec<Box<dyn VtpmPolicyCommand>>, TpmAlgId, bool), TaskError> {
         let phys_handle = self.load_key(device, handle)?;
 
         if handle.class() == VtpmHandleClass::Vtpm {
@@ -487,8 +488,12 @@ impl<'a> TaskState<'a> {
                 .cache
                 .find_by_virtual_handle(TpmHandle(vhandle))
                 .map_err(TaskError::Vtpm)?;
-            let blob = Vec::<u8>::try_from(key).map_err(TaskError::Vtpm)?;
-            Ok((phys_handle, blob, key.public.name_alg, key.empty_auth != 0))
+            Ok((
+                phys_handle,
+                key.policy.clone(),
+                key.public.name_alg,
+                key.empty_auth != 0,
+            ))
         } else {
             let (public, _) = device.read_public(phys_handle)?;
             let empty = is_empty_auth(&public);
@@ -662,49 +667,41 @@ impl<'a> TaskState<'a> {
     fn load_policy_command_list(
         &mut self,
         device: &mut TpmDevice,
-        policy_blob: &[u8],
+        policy: &[Box<dyn VtpmPolicyCommand>],
         policy_auths: &mut std::slice::Iter<'_, TaskAuth>,
     ) -> Result<Option<TpmCommandList>, TaskError> {
-        if policy_blob.is_empty() {
+        if policy.is_empty() {
             return Ok(None);
         }
-        let (count, mut remainder) = u32::unmarshal(policy_blob).map_err(TaskError::Unmarshal)?;
-        let mut commands = Vec::with_capacity(count as usize);
 
-        for _ in 0..count {
-            let (cc, rest) = TpmCc::unmarshal(remainder).map_err(TaskError::Unmarshal)?;
-            let (len, rest) = u32::unmarshal(rest).map_err(TaskError::Unmarshal)?;
-            let len = len as usize;
+        let mut commands = Vec::with_capacity(policy.len());
 
-            if rest.len() < len {
-                return Err(TaskError::MalformedData);
-            }
-            let (body_blob, rest) = rest.split_at(len);
-            remainder = rest;
-
+        for vtpm_cmd in policy {
+            let cc = vtpm_cmd.cc();
             let (cmd, auth) = if cc == TpmCc::PolicySecret {
-                let (handle_hint, rest) =
-                    TpmHandle::unmarshal(body_blob).map_err(TaskError::Unmarshal)?;
-                let (object_name, rest) =
-                    Tpm2bName::unmarshal(rest).map_err(TaskError::Unmarshal)?;
-                let (policy_ref, _) = tpm2_protocol::data::Tpm2bDigest::unmarshal(rest)
-                    .map_err(TaskError::Unmarshal)?;
+                let body = vtpm_cmd.body();
+                let (vtpm_secret_cmd, rest) =
+                    VtpmPolicySecretCommand::unmarshal(&body).map_err(TaskError::Unmarshal)?;
 
-                let live_handle = if object_name.is_empty() {
+                if !rest.is_empty() {
+                    return Err(TaskError::MalformedData);
+                }
+
+                let live_handle = if vtpm_secret_cmd.object_name.is_empty() {
                     log::warn!(
                         "PolicySecret uses handle hint {:08x} but has no object name. Policy may fail.",
-                        handle_hint.0
+                        vtpm_secret_cmd.object_handle_hint.0
                     );
-                    handle_hint
+                    vtpm_secret_cmd.object_handle_hint
                 } else {
-                    self.load_key_by_name(device, &object_name)?
+                    self.load_key_by_name(device, &vtpm_secret_cmd.object_name)?
                 };
 
                 let tpm_cmd =
                     TpmCommand::PolicySecret(tpm2_protocol::frame::TpmPolicySecretCommand {
                         nonce_tpm: Tpm2bNonce::default(),
                         cp_hash_a: Tpm2bDigest::default(),
-                        policy_ref,
+                        policy_ref: vtpm_secret_cmd.policy_ref,
                         expiration: 0,
                         handles: [live_handle, TpmHandle(0)],
                     });
@@ -721,9 +718,7 @@ impl<'a> TaskState<'a> {
                 auths.try_push(auth).map_err(|_| TaskError::OutOfMemory)?;
                 (tpm_cmd, auths)
             } else {
-                let policy_cmd =
-                    vtpm_policy_command_from_parts(cc, body_blob).map_err(TaskError::Vtpm)?;
-                let tpm_cmd = policy_cmd.to_command().map_err(TaskError::Vtpm)?;
+                let tpm_cmd = vtpm_cmd.to_command().map_err(TaskError::Vtpm)?;
                 (tpm_cmd, TpmAuthCommands::new())
             };
             commands.push((cmd, auth));

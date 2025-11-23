@@ -66,16 +66,8 @@ impl Task for Convert {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            let (parent_handle, policy_blob, name_alg, parent_empty_auth) =
-                task_state.fetch_policy(device, &self.parent)?;
-
-            let (auths, policy_session_auth) = task_state.build_auth(
-                device,
-                &policy_blob,
-                name_alg,
-                parent_empty_auth,
-                &self.auth_args,
-            )?;
+            let (parent_handle, name_alg, auths, policy_session_auth) =
+                task_state.build_auth(device, &self.parent, &self.auth_args)?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
             if input_bytes.is_empty() {

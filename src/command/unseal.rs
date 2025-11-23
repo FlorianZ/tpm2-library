@@ -38,16 +38,8 @@ impl Task for Unseal {
         }
 
         with_device(task_state.device.clone(), |device| {
-            let (item_handle, policy_blob, name_alg, empty_auth) =
-                task_state.fetch_policy(device, &self.input)?;
-
-            let (auths, policy_session_auth) = task_state.build_auth(
-                device,
-                &policy_blob,
-                name_alg,
-                empty_auth,
-                &self.auth_args,
-            )?;
+            let (item_handle, _, auths, policy_session_auth) =
+                task_state.build_auth(device, &self.input, &self.auth_args)?;
 
             let unseal_cmd = TpmUnsealCommand {
                 handles: [item_handle.0.into()],
