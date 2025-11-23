@@ -207,86 +207,6 @@ impl<'a> TaskState<'a> {
         self.live_handles.retain(|_, v| *v != handle);
     }
 
-    /// Creates and executes a policy session from a key's embedded policy blobs.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a
-    /// non-password auth is provided.
-    /// Returns [`MalformedData`](crate::TaskError::MalformedData) when an
-    /// unsupported policy command is found.
-    /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when the
-    /// temporary session handle is lost.
-    /// Returns [`Device`](crate::TaskError::Device) when a TPM command fails.
-    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when session creation, saving, or
-    /// parsing fails.
-    /// Returns [`Key`](crate::TaskError::Key) when parsing a policy command
-    /// fails.
-    /// Returns [`CapacityExceeded`](crate::TaskError::CapacityExceeded) when an
-    /// auth list is too large.
-    /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
-    /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
-    /// a policy secret handle cannot be found.
-    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
-    /// loaded key's parent is incorrect.
-    pub fn build_policy_session(
-        &mut self,
-        device: &mut TpmDevice,
-        policy: &[Box<dyn VtpmPolicyCommand>],
-        key_name_alg: TpmAlgId,
-        policy_auths: &[TaskAuth],
-    ) -> Result<Option<TaskAuth>, TaskError> {
-        let mut auth_iter = policy_auths.iter();
-
-        let Some(commands) = self.load_policy_command_list(device, policy, &mut auth_iter)? else {
-            return Ok(None);
-        };
-
-        if commands.is_empty() {
-            return Ok(None);
-        }
-
-        let (resp, _) = TaskState::start_session(
-            device,
-            TpmSe::Policy,
-            key_name_alg,
-            (TpmRh::Null as u32).into(),
-        )?;
-
-        let temp_session = TaskSession::new(key_name_alg, resp.handles[0])?;
-        let vhandle = temp_session.handle();
-        self.sessions.insert(vhandle, temp_session);
-        let policy_phandle = resp.handles[0];
-
-        let execution_result: Result<(), TaskError> = (|| {
-            for (mut command_body, auth_sessions) in commands {
-                match &mut command_body {
-                    TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
-                    TpmCommand::PolicyOr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
-                    TpmCommand::PolicyRestart(cmd) => {
-                        cmd.handles[0] = policy_phandle.0.into();
-                    }
-                    TpmCommand::PolicySecret(cmd) => {
-                        cmd.handles[1] = policy_phandle.0.into();
-                    }
-                    _ => {
-                        return Err(TaskError::MalformedData);
-                    }
-                }
-                device.transmit(&command_body, auth_sessions.as_ref())?;
-            }
-            Ok(())
-        })();
-
-        match execution_result {
-            Ok(()) => Ok(Some(TaskAuth::Session(vhandle.0))),
-            Err(e) => {
-                let _ = self.remove_session(device, policy_phandle);
-                Err(e)
-            }
-        }
-    }
-
     /// Prepares the final authorization vector for a command.
     ///
     /// This function contains the common logic to split user authentication,
@@ -337,7 +257,7 @@ impl<'a> TaskState<'a> {
 
         if !policy.is_empty() {
             if let Some(session_auth) =
-                self.build_policy_session(device, &policy, name_alg, policy_auths)?
+                self.start_policy_session(device, &policy, name_alg, policy_auths)?
             {
                 auths = vec![session_auth.clone()];
                 policy_session_auth = Some(session_auth);
@@ -600,17 +520,65 @@ impl<'a> TaskState<'a> {
         Ok(())
     }
 
-    /// Starts a new authorization session.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::TaskError::Device) when the transmission
-    /// fails.
-    /// Returns [`ResponseMismatch`](crate::TaskError::ResponseMismatch) when
-    /// the TPM command returns an unexpected response type.
-    /// Returns [`Vtpm`](crate::TaskError::Vtpm) when `Tpm2bNonce` conversion
-    /// fails.
-    pub fn start_session(
+    fn start_policy_session(
+        &mut self,
+        device: &mut TpmDevice,
+        policy: &[Box<dyn VtpmPolicyCommand>],
+        key_name_alg: TpmAlgId,
+        policy_auths: &[TaskAuth],
+    ) -> Result<Option<TaskAuth>, TaskError> {
+        let mut auth_iter = policy_auths.iter();
+
+        let Some(commands) = self.load_policy_command_list(device, policy, &mut auth_iter)? else {
+            return Ok(None);
+        };
+
+        if commands.is_empty() {
+            return Ok(None);
+        }
+
+        let (resp, _) = TaskState::start_session(
+            device,
+            TpmSe::Policy,
+            key_name_alg,
+            (TpmRh::Null as u32).into(),
+        )?;
+
+        let temp_session = TaskSession::new(key_name_alg, resp.handles[0])?;
+        let vhandle = temp_session.handle();
+        self.sessions.insert(vhandle, temp_session);
+        let policy_phandle = resp.handles[0];
+
+        let execution_result: Result<(), TaskError> = (|| {
+            for (mut command_body, auth_sessions) in commands {
+                match &mut command_body {
+                    TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
+                    TpmCommand::PolicyOr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
+                    TpmCommand::PolicyRestart(cmd) => {
+                        cmd.handles[0] = policy_phandle.0.into();
+                    }
+                    TpmCommand::PolicySecret(cmd) => {
+                        cmd.handles[1] = policy_phandle.0.into();
+                    }
+                    _ => {
+                        return Err(TaskError::MalformedData);
+                    }
+                }
+                device.transmit(&command_body, auth_sessions.as_ref())?;
+            }
+            Ok(())
+        })();
+
+        match execution_result {
+            Ok(()) => Ok(Some(TaskAuth::Session(vhandle.0))),
+            Err(e) => {
+                let _ = self.remove_session(device, policy_phandle);
+                Err(e)
+            }
+        }
+    }
+
+    fn start_session(
         device: &mut TpmDevice,
         session_type: TpmSe,
         auth_hash: TpmAlgId,
