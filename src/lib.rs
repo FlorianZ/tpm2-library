@@ -88,7 +88,7 @@ impl core::fmt::UpperHex for TpmHandle {
 
 /// TPM frame marshaling and unmarshaling error type containing variants
 /// for all the possible error conditions.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum TpmProtocolError {
     /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
     /// magic value.
