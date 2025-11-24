@@ -1,6 +1,6 @@
-//! SPDX-License-Identifier: GPL-3-0-or-later
-//! Copyright (c) 2025 Opinsys Oy
-//! Copyright (c) 2024-2025 Jarkko Sakkinen
+// SPDX-License-Identifier: GPL-3-0-or-later
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
 
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
@@ -25,7 +25,7 @@ use thiserror::Error;
 use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
-        Tpm2bName, TpmCap, TpmCc, TpmEccCurve, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt,
+        Tpm2bName, TpmAlgId, TpmCap, TpmCc, TpmEccCurve, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt,
         TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsPcrSelection,
         TpmtPublic, TpmuCapabilities,
     },
@@ -51,6 +51,10 @@ pub enum TpmDeviceError {
     InvalidResponse,
     #[error("device not available")]
     NotAvailable,
+    #[error("PCR banks not available")]
+    PcrBanksNotAvailable,
+    #[error("PCR bank size mismatch")]
+    PcrBankSizeMismatch,
 
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
@@ -453,7 +457,7 @@ impl TpmDevice {
         )
     }
 
-    /// Retrieves all active PCR banks supported by the TPM.
+    /// Retrieves the list of active PCR banks and the bank size.
     ///
     /// # Errors
     ///
@@ -463,8 +467,12 @@ impl TpmDevice {
     /// [`get_capability`](TpmDevice::get_capability), including
     /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
     /// TPM does not report PCRs.
-    pub fn fetch_pcr_banks(&mut self) -> Result<Vec<TpmsPcrSelection>, TpmDeviceError> {
-        self.get_capability(
+    /// Returns [`PcrBanksNotAvailable`](crate::TpmDeviceError::PcrBanksNotAvailable)
+    /// if the list of banks is empty.
+    /// Returns [`PcrBankSizeMismatch`](crate::TpmDeviceError::PcrBankSizeMismatch)
+    /// if bank sizes are inconsistent.
+    pub fn fetch_pcr_bank_list(&mut self) -> Result<(usize, Vec<TpmAlgId>), TpmDeviceError> {
+        let pcrs: Vec<TpmsPcrSelection> = self.get_capability(
             TpmCap::Pcrs,
             0,
             u32::try_from(MAX_HANDLES)?,
@@ -473,7 +481,28 @@ impl TpmDevice {
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Pcrs)),
             },
             |last| last.hash as u32 + 1,
-        )
+        )?;
+
+        if pcrs.is_empty() {
+            return Err(TpmDeviceError::PcrBanksNotAvailable);
+        }
+
+        let mut count = 0;
+        let mut algs = Vec::with_capacity(pcrs.len());
+
+        for bank in pcrs {
+            let next_count = bank.pcr_select.len();
+            if count == 0 {
+                count = next_count;
+            }
+            if next_count != count {
+                return Err(TpmDeviceError::PcrBankSizeMismatch);
+            }
+            algs.push(bank.hash);
+        }
+
+        algs.sort();
+        Ok((count, algs))
     }
 
     /// Fetches and returns one page of capabilities of a certain type from the
@@ -489,12 +518,12 @@ impl TpmDevice {
         &mut self,
         cap: TpmCap,
         property: u32,
-        count: u32,
+        property_count: u32,
     ) -> Result<(bool, TpmsCapabilityData), TpmDeviceError> {
         let cmd = TpmGetCapabilityCommand {
             cap,
             property,
-            property_count: count,
+            property_count,
             handles: [],
         };
 
