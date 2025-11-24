@@ -4,7 +4,7 @@
 use crate::{
     cli::Task,
     command::{AuthArgs, CommandError},
-    task::{TaskAuth, TaskState},
+    task::TaskState,
 };
 use clap::Args;
 use tpm2_device::with_device;
@@ -17,10 +17,6 @@ pub struct Unseal {
     /// TPM handle as a eight characters hex string.
     pub handle: crate::handle::Handle,
 
-    /// Force hex output when redirecting to a file or pipe
-    #[arg(long)]
-    pub hex: bool,
-
     #[clap(flatten)]
     pub auth_args: AuthArgs,
 }
@@ -30,40 +26,30 @@ impl Task for Unseal {
         &self,
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
-        is_tty: bool,
+        _is_tty: bool,
     ) -> Result<(), CommandError> {
         let Some(handle) = self.handle.value() else {
             return Err(CommandError::PatternNotAllowed(self.handle.to_string()));
         };
 
         with_device(task_state.device.clone(), |device| {
-            let (item_handle, _, auths, policy_session_auth) =
-                task_state.build_auth(device, TpmHandle(handle), &self.auth_args)?;
+            let (item_handle, _, auth) =
+                task_state.build_auth(device, TpmHandle(handle), &self.auth_args.auth)?;
 
             let unseal_cmd = TpmUnsealCommand {
                 handles: [item_handle.0.into()],
             };
 
-            let execution_result = task_state.execute(device, &unseal_cmd, &auths);
-
-            if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
-                    log::error!("{vhandle:08x}: {e}");
-                }
-            }
-
-            let (resp, _) = execution_result.map_err(Into::<CommandError>::into)?;
+            let (resp, _) = task_state
+                .execute(device, &unseal_cmd, &[auth])
+                .map_err(Into::<CommandError>::into)?;
 
             let out_data = resp
                 .Unseal()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
                 .out_data;
 
-            if self.hex || is_tty {
-                writeln!(writer, "{}", hex::encode(out_data.as_ref()))?;
-            } else {
-                writer.write_all(out_data.as_ref())?;
-            }
+            writeln!(writer, "{}", hex::encode(out_data.as_ref()))?;
             Ok(())
         })
     }

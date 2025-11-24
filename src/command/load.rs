@@ -13,7 +13,7 @@ use tpm2_crypto::tpm_make_name;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, Tpm2bPublic, TpmCc, TpmHt},
+    data::{Tpm2bPublic, TpmCc, TpmHt},
     frame::TpmLoadCommand,
     TpmHandle, TpmMarshal, TpmWriter,
 };
@@ -67,28 +67,17 @@ impl Task for Load {
                     return Err(CommandError::ParentMissing);
                 };
 
-                let (parent_handle, _, auths, policy_session_auth) =
-                    task_state.build_auth(device, parent_handle_ref, &self.auth_args)?;
+                let (parent_handle, _, auth) =
+                    task_state.build_auth(device, parent_handle_ref, &self.auth_args.auth)?;
 
-                let run_load_result = Self::run_load(
+                let (object_handle, public) = Self::run_load(
                     task_state,
                     device,
                     parent_handle,
                     tpm_key.private(),
                     tpm_key.public(),
-                    &auths,
-                );
-
-                if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                    if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
-                        log::error!("{vhandle:08x}: {e}");
-                    }
-                }
-
-                let (object_handle, _, loaded_public) =
-                    run_load_result.inspect_err(|e: &CommandError| {
-                        log::debug!("run_load failed: {e}");
-                    })?;
+                    &[auth],
+                )?;
 
                 let policy_blob = if let Some(policy) = &tpm_key.policy {
                     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
@@ -123,9 +112,9 @@ impl Task for Load {
                 let object_context = device.save_context(object_handle)?;
                 let vhandle = task_state.cache.save_key(
                     object_context,
-                    &loaded_public.inner,
+                    &public.inner,
                     &parent_public.inner,
-                    is_policy_only(&loaded_public.inner),
+                    is_policy_only(&public.inner),
                     &policy_blob,
                 )?;
 
@@ -194,7 +183,7 @@ impl Load {
         in_private: &tpm2_protocol::data::Tpm2bPrivate,
         in_public: &Tpm2bPublic,
         auths: &[TaskAuth],
-    ) -> Result<(TpmHandle, Tpm2bName, Tpm2bPublic), CommandError> {
+    ) -> Result<(TpmHandle, Tpm2bPublic), CommandError> {
         let cmd = TpmLoadCommand {
             in_private: *in_private,
             in_public: in_public.clone(),
@@ -208,6 +197,6 @@ impl Load {
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Load))?;
 
         task_state.track(resp.handles[0])?;
-        Ok((resp.handles[0], resp.name, in_public.clone()))
+        Ok((resp.handles[0], in_public.clone()))
     }
 }

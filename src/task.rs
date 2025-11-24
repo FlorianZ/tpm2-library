@@ -2,8 +2,6 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::command::AuthArgs;
-
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -117,36 +115,38 @@ impl Default for TaskAuth {
 
 #[derive(Debug, Error)]
 pub enum TaskError {
+    #[error("crypto: {0}")]
+    Crypto(#[from] TpmCryptoError),
+    #[error("device: {0}")]
+    Device(#[from] TpmDeviceError),
     #[error("handle already tracked: {0}")]
     HandleAlreadyTracked(TpmHandle),
     #[error("handle not found: {0}")]
     HandleNotFound(TpmHandle),
     #[error("handle name not found: {}", hex::encode(.0.as_ref()))]
     HandleNameNotFound(Tpm2bName),
+    #[error("int decode: {0}")]
+    IntDecode(#[from] TryFromIntError),
     #[error("invalid auth")]
     InvalidAuth,
     #[error("invalid handle type: 0x{0:02x}")]
     InvalidHandleType(u8),
+    #[error("I/O: {0}")]
+    Io(#[from] io::Error),
     #[error("malformed data")]
     MalformedData,
+    #[error("marshal: {0}")]
+    Marshal(tpm2_protocol::TpmProtocolError),
     #[error("out of memory")]
     OutOfMemory,
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
-    #[error("I/O: {0}")]
-    Io(#[from] io::Error),
-    #[error("cache: {0}")]
-    Vtpm(#[from] VtpmError),
-    #[error("device: {0}")]
-    Device(#[from] TpmDeviceError),
-    #[error("crypto: {0}")]
-    Crypto(#[from] TpmCryptoError),
-    #[error("int decode: {0}")]
-    IntDecode(#[from] TryFromIntError),
-    #[error("marshal: {0}")]
-    Marshal(tpm2_protocol::TpmProtocolError),
+    #[error("too many auths")]
+    TooManyAuths,
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
+    #[error("cache: {0}")]
+    Vtpm(#[from] VtpmError),
 }
 
 pub struct TaskState<'a> {
@@ -251,38 +251,25 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         handle: TpmHandle,
-        auth_args: &AuthArgs,
-    ) -> Result<(TpmHandle, TpmAlgId, Vec<TaskAuth>, Option<TaskAuth>), TaskError> {
-        let (phys_handle, policy, name_alg, attributes) = self.fetch_policy(device, handle)?;
+        auth_list: &[TaskAuth],
+    ) -> Result<(TpmHandle, TpmAlgId, TaskAuth), TaskError> {
+        let (phys_handle, policy, name_alg) = self.fetch_policy(device, handle)?;
 
-        let use_password = attributes.contains(TpmaObject::USER_WITH_AUTH);
-        let all_auths = if use_password {
-            auth_args.build_auth_list()
+        if let Some(auth) = self.start_policy_session(device, &policy, name_alg, auth_list)? {
+            Ok((phys_handle, name_alg, auth))
         } else {
-            std::borrow::Cow::Owned(vec![])
-        };
-
-        let mut policy_session_auth: Option<TaskAuth> = None;
-
-        let (mut auths, passwords) = if use_password {
-            (
-                vec![all_auths.first().cloned().unwrap_or_default()],
-                all_auths.get(1..).unwrap_or_default(),
-            )
-        } else {
-            (Vec::new(), all_auths.as_ref())
-        };
-
-        if !policy.is_empty() {
-            if let Some(session_auth) =
-                self.start_policy_session(device, &policy, name_alg, passwords)?
-            {
-                auths = vec![session_auth.clone()];
-                policy_session_auth = Some(session_auth);
+            if auth_list.len() > 1 {
+                return Err(TaskError::TooManyAuths);
             }
-        }
 
-        Ok((phys_handle, name_alg, auths, policy_session_auth))
+            let auth = if let Some(auth) = auth_list.first() {
+                auth.clone()
+            } else {
+                TaskAuth::Password(vec![])
+            };
+
+            Ok((phys_handle, name_alg, auth))
+        }
     }
 
     /// Constructs a `TpmKeyFile` from the given key components.
@@ -430,15 +417,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         handle: TpmHandle,
-    ) -> Result<
-        (
-            TpmHandle,
-            Vec<Box<dyn VtpmPolicyCommand>>,
-            TpmAlgId,
-            TpmaObject,
-        ),
-        TaskError,
-    > {
+    ) -> Result<(TpmHandle, Vec<Box<dyn VtpmPolicyCommand>>, TpmAlgId), TaskError> {
         let phys_handle = self.load_key_by_handle(device, handle)?;
         let ht_byte = (handle.0 >> 24) as u8;
         let ht = TpmHt::try_from(ht_byte).map_err(|_| TaskError::InvalidHandleType(ht_byte))?;
@@ -449,20 +428,10 @@ impl<'a> TaskState<'a> {
                 .cache
                 .find_by_handle(TpmHandle(vhandle))
                 .ok_or(TaskError::HandleNotFound(TpmHandle(vhandle)))?;
-            Ok((
-                phys_handle,
-                key.policy.clone(),
-                key.public.name_alg,
-                key.public.object_attributes,
-            ))
+            Ok((phys_handle, key.policy.clone(), key.public.name_alg))
         } else {
             let (public, _) = device.read_public(phys_handle)?;
-            Ok((
-                phys_handle,
-                Vec::new(),
-                public.name_alg,
-                public.object_attributes,
-            ))
+            Ok((phys_handle, Vec::new(), public.name_alg))
         }
     }
 
@@ -604,9 +573,9 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
         key_name_alg: TpmAlgId,
-        passwords: &[TaskAuth],
+        auth_list: &[TaskAuth],
     ) -> Result<Option<TaskAuth>, TaskError> {
-        let mut auth_iter = passwords.iter();
+        let mut auth_iter = auth_list.iter();
 
         let Some(commands) = self.load_policy_command_list(device, policy, &mut auth_iter)? else {
             return Ok(None);
@@ -719,7 +688,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
-        passwords: &mut std::slice::Iter<'_, TaskAuth>,
+        auth_iter: &mut std::slice::Iter<'_, TaskAuth>,
     ) -> Result<Option<TpmCommandList>, TaskError> {
         if policy.is_empty() {
             return Ok(None);
@@ -757,7 +726,7 @@ impl<'a> TaskState<'a> {
                         handles: [live_handle, TpmHandle(0)],
                     });
 
-                let auth = match passwords.next().unwrap_or(&TaskAuth::Password(Vec::new())) {
+                let auth = match auth_iter.next().unwrap_or(&TaskAuth::Password(Vec::new())) {
                     TaskAuth::Password(val) => build_password_session(val)?,
                     TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
                 };
@@ -771,6 +740,11 @@ impl<'a> TaskState<'a> {
             };
             commands.push((cmd, auth));
         }
+
+        if auth_iter.next().is_some() {
+            return Err(TaskError::TooManyAuths);
+        }
+
         Ok(Some(commands))
     }
 }

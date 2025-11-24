@@ -11,7 +11,7 @@ use crate::{
         OutputEncodingArgs,
     },
     io::write_key_data,
-    task::{TaskAuth, TaskError, TaskState},
+    task::TaskState,
 };
 
 use clap::Args;
@@ -146,35 +146,21 @@ impl Create {
             return Err(CommandError::ParentMissing);
         };
 
-        let (parent_phys_handle, _, auths, policy_session_auth) =
-            task_state.build_auth(device, TpmHandle(parent), &self.auth_args)?;
+        let (parent_phys_handle, _, auth) =
+            task_state.build_auth(device, TpmHandle(parent), &self.auth_args.auth)?;
 
         let (create_cmd, policy_commands) =
             self.build_create_command(task_state, device, parent_phys_handle)?;
 
-        let execution_result = task_state.execute(device, &create_cmd, &auths);
-
-        if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-            if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
-                log::error!("{vhandle:08x}: {e}");
-            }
-        }
-
-        let (resp, _) = execution_result.map_err(|err| {
-            if let TaskError::Device(device_err) = err {
-                return CommandError::from(device_err);
-            }
-            err.into()
-        })?;
-
-        let create_resp = resp
+        let (resp, _) = task_state.execute(device, &create_cmd, &[auth])?;
+        let resp = resp
             .Create()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
 
         let tpm_key = task_state.build_tpm_key_file(
             device,
-            create_resp.out_public,
-            create_resp.out_private,
+            resp.out_public,
+            resp.out_private,
             parent_phys_handle,
             policy_commands,
         )?;

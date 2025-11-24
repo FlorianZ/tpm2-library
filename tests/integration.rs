@@ -59,7 +59,7 @@ fn integration() {
 
     println!("Sealed secret handle: {sealed_handle}");
 
-    let unseal_output = tpm2sh(cache_path, &["unseal", "--hex", sealed_handle])
+    let unseal_output = tpm2sh(cache_path, &["unseal", sealed_handle])
         .read()
         .unwrap();
 
@@ -83,7 +83,7 @@ fn integration() {
 
     println!("Sealed PCRs handle: {sealed_handle_pcr}");
 
-    let unseal_pcr_output = tpm2sh(cache_path, &["unseal", "--hex", sealed_handle_pcr])
+    let unseal_pcr_output = tpm2sh(cache_path, &["unseal", sealed_handle_pcr])
         .read()
         .unwrap();
 
@@ -264,7 +264,7 @@ fn test_deep_hierarchy_recursion() {
     .unwrap();
     let l3_handle = l3_handle.trim();
 
-    let output = tpm2sh(cache_path, &["unseal", "--hex", l3_handle])
+    let output = tpm2sh(cache_path, &["unseal", l3_handle])
         .read()
         .expect("Failed to unseal deep object");
 

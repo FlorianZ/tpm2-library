@@ -66,8 +66,8 @@ impl Task for Convert {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            let (parent_handle, name_alg, auths, policy_session_auth) =
-                task_state.build_auth(device, TpmHandle(parent), &self.auth_args)?;
+            let (parent_handle, name_alg, auth) =
+                task_state.build_auth(device, TpmHandle(parent), &self.auth_args.auth)?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
             if input_bytes.is_empty() {
@@ -100,18 +100,12 @@ impl Task for Convert {
                 device,
                 parent_handle,
                 &input_bytes,
-                &auths,
+                &[auth],
                 user_auth,
                 auth_policy,
                 object_attributes,
                 policy_commands,
             );
-
-            if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
-                if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
-                    log::error!("{vhandle:08x}: {e}");
-                }
-            }
 
             let tpm_key = tpm_key_result?;
 
