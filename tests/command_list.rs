@@ -10,7 +10,7 @@
 use rstest::rstest;
 use std::collections::HashMap;
 use tpm2_crypto::TpmHash;
-use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
+use tpm2_policy_language::{TpmPolicyError, TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
     data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmCc},
     frame::TpmCommand,
@@ -19,14 +19,14 @@ use tpm2_protocol::{
 
 #[rstest]
 #[case(
-    "pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(2164260865, copy_ref:))"
+    "pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(81000001, copy_ref:))"
 )]
 #[case(
     "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or pcr(sha256:15:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)"
 )]
 #[case("pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)")]
 #[case(
-    "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(2164260865, copy_ref:010203))"
+    "pcr(sha256:7:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) or (pcr(sha256:16:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962) and secret(81000001, copy_ref:010203))"
 )]
 /// Verifies that parsing a policy string, converting it to a command list, and
 /// parsing that command list back results in a correctly sanitized policy AST.
@@ -67,9 +67,9 @@ fn command_list_roundtrip(#[case] input: &str) {
 }
 
 #[rstest]
-#[case("secret(2164260865, copy_ref:)")]
-#[case("secret(2164260865)")]
-#[case("secret(2164260865, copy_ref:010203)")]
+#[case("secret(81000001, copy_ref:)")]
+#[case("secret(81000001)")]
+#[case("secret(81000001, copy_ref:010203)")]
 fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let handle = TpmHandle::from(0x8100_0001);
 
@@ -122,4 +122,23 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let reference_digest = Tpm2bDigest::try_from(second_digest_bytes.as_slice()).unwrap();
 
     assert_eq!(digest, reference_digest);
+}
+
+#[test]
+fn invalid_handle_literal_is_rejected() {
+    let policy_state = TpmPolicyState::default();
+    let result = TpmPolicyExpression::new("1234", &policy_state);
+
+    assert!(matches!(result, Err(TpmPolicyError::InvalidToken(_))));
+}
+
+#[test]
+fn invalid_handle_type_is_rejected() {
+    let policy_state = TpmPolicyState::default();
+    let result = TpmPolicyExpression::new("ff000001", &policy_state);
+
+    assert!(matches!(
+        result,
+        Err(TpmPolicyError::InvalidHandleType(0xff_u8))
+    ));
 }

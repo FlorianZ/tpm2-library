@@ -29,8 +29,8 @@ use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
     data::{
-        Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmlPcrSelection, TpmsPcrSelect,
-        TpmsPcrSelection,
+        Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmHt, TpmlPcrSelection,
+        TpmsPcrSelect, TpmsPcrSelection,
     },
     frame::{TpmPolicyOrCommand, TpmPolicyPcrCommand},
     TpmHandle, TpmMarshal, TpmSized, TpmWriter,
@@ -251,11 +251,17 @@ fn parse_primary<'a>(
 }
 
 fn parse_literal(s: &str) -> Result<TpmPolicyExpression, TpmPolicyError> {
-    if let Ok(raw) = s.parse::<u32>() {
-        Ok(TpmPolicyExpression::Handle(TpmHandle::from(raw)))
-    } else {
-        Err(TpmPolicyError::InvalidToken(s.to_string()))
+    if s.len() != 8 {
+        return Err(TpmPolicyError::InvalidToken(s.to_string()));
     }
+
+    let raw =
+        u32::from_str_radix(s, 16).map_err(|_| TpmPolicyError::InvalidToken(s.to_string()))?;
+
+    let ht_byte = (raw >> 24) as u8;
+    TpmHt::try_from(ht_byte).map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))?;
+
+    Ok(TpmPolicyExpression::Handle(TpmHandle::from(raw)))
 }
 
 fn parse_pcr_call<'a>(
