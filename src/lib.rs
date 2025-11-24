@@ -274,20 +274,15 @@ impl<'a> VtpmCache<'a> {
     ///
     /// Returns [`OperationFailed`](crate::VtpmError::OperationFailed) if name
     /// calculation fails.
-    pub fn find_by_name(&self, target_name: &Tpm2bName) -> Result<Option<&VtpmKey>, VtpmError> {
+    #[must_use]
+    pub fn find_by_name(&self, target_name: &Tpm2bName) -> Option<&VtpmKey> {
         if let Some(handle) = self.handles.get(target_name) {
             if let Some(key) = self.contexts.get(&handle.0) {
-                return Ok(Some(key));
+                return Some(key);
             }
         }
 
-        for (_, key) in self.key_iter() {
-            let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
-            if name == *target_name {
-                return Ok(Some(key));
-            }
-        }
-        Ok(None)
+        None
     }
 
     /// Finds a VTPM key corresponding to a virtual handle.
@@ -296,10 +291,9 @@ impl<'a> VtpmCache<'a> {
     ///
     /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) when
     /// no context with the given `virtual_handle` exists.
-    pub fn find_by_handle(&self, handle: TpmHandle) -> Result<&VtpmKey, VtpmError> {
-        self.contexts
-            .get(&handle.0)
-            .ok_or(VtpmError::HandleNotFound(handle))
+    #[must_use]
+    pub fn find_by_handle(&self, handle: TpmHandle) -> Option<VtpmKey> {
+        self.contexts.get(&handle.0).cloned()
     }
 
     /// Finds the ancestor chain for a given VTPM handle.
@@ -330,7 +324,9 @@ impl<'a> VtpmCache<'a> {
         let mut physical_primary: Option<TpmHandle> = None;
 
         loop {
-            let key = self.find_by_handle(current_virtual_handle)?;
+            let Some(key) = self.find_by_handle(current_virtual_handle) else {
+                return Err(VtpmError::HandleNotFound(current_virtual_handle));
+            };
 
             if key.parent.object_type == TpmAlgId::Null {
                 break;
@@ -379,15 +375,18 @@ impl<'a> VtpmCache<'a> {
     pub fn remove(&mut self, virtual_handle: u32) -> Result<Vec<u32>, VtpmError> {
         let mut deleted_handles = Vec::new();
 
-        if let Some(key) = self.contexts.get(&virtual_handle) {
-            key.delete(self.cache_dir())?;
-        } else {
+        let Some(key) = self.contexts.get(&virtual_handle) else {
             return Ok(deleted_handles);
-        }
+        };
+
+        let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
+
+        key.delete(self.cache_dir())?;
 
         if let Some(key) = self.contexts.remove(&virtual_handle) {
             deleted_handles.push(virtual_handle);
             self.dirty.remove(&virtual_handle);
+            self.handles.remove(&name);
 
             let deleted_children = self.remove_subtree(&key.public)?;
             deleted_handles.extend(deleted_children);
@@ -450,7 +449,12 @@ impl<'a> VtpmCache<'a> {
                     empty_auth: u32::from(empty_auth),
                     policy: policy.clone().unwrap_or_default(),
                 };
+
+                let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
+
                 e.insert(key);
+
+                self.handles.insert(name, TpmHandle(virtual_handle));
                 self.dirty.insert(virtual_handle);
 
                 let next = virtual_handle.wrapping_add(1);
@@ -500,7 +504,10 @@ impl<'a> VtpmCache<'a> {
             if ht == TpmHt::Transient as u8 {
                 match VtpmKey::load(&path) {
                     Ok(key) => {
+                        let name =
+                            tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
                         self.contexts.insert(virtual_handle, key);
+                        self.handles.insert(name, TpmHandle(virtual_handle));
                     }
                     Err(VtpmError::StaleHandle) => {
                         log::debug!("removing stale vtpm file: {}", path.display());
@@ -566,9 +573,11 @@ impl<'a> VtpmCache<'a> {
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_virtual_handle, child_public) in children_to_process.clone() {
                     if let Some(context) = self.contexts.get(&child_virtual_handle) {
+                        let name = tpm_make_name(&context.public)
+                            .map_err(|_| VtpmError::OperationFailed)?;
                         context.delete(self.cache_dir())?;
-
                         if self.contexts.remove(&child_virtual_handle).is_some() {
+                            self.handles.remove(&name);
                             self.dirty.remove(&child_virtual_handle);
                             deleted_children.push(child_virtual_handle);
                             ancestor_list.push_back(child_public);

@@ -129,10 +129,7 @@ mod tests {
         assert_eq!(child_key.context, child_context);
 
         let child_name = tpm_make_name(&child_public).unwrap();
-        let child_key_name = cache
-            .find_by_name(&child_name)
-            .expect("find_by_name failed")
-            .expect("Failed to find child by name");
+        let child_key_name = cache.find_by_name(&child_name).unwrap();
         assert_eq!(child_key_name.handle.0, child_vhandle);
 
         let chain = cache
@@ -184,8 +181,8 @@ mod tests {
         let cache_path = cache_dir.path();
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
 
-        let err = cache.find_by_handle(TpmHandle(0x8000_0000)).err().unwrap();
-        assert!(matches!(err, VtpmError::HandleNotFound(_)));
+        let err = cache.find_by_handle(TpmHandle(0x8000_0000));
+        assert!(err.is_none());
 
         let err = cache
             .fetch_ancestor_chain(TpmHandle(0x8000_0000))
@@ -227,7 +224,7 @@ mod tests {
 
         cache.remove(h1).expect("Failed to remove h1");
         assert!(
-            cache.find_by_handle(TpmHandle(h1)).is_err(),
+            cache.find_by_handle(TpmHandle(h1)).is_none(),
             "h1 was not removed from map"
         );
 
