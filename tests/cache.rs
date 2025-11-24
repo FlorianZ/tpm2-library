@@ -14,8 +14,8 @@ mod tests {
     use tpm2_protocol::{
         basic::TpmBuffer,
         data::{
-            Tpm2bDigest, Tpm2bPublicKeyRsa, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaObject, TpmsContext,
-            TpmsRsaParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
+            Tpm2bDigest, Tpm2bName, Tpm2bPublicKeyRsa, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaObject,
+            TpmsContext, TpmsRsaParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
         },
         TpmHandle, TpmMarshal, TpmSized, TpmWriter,
     };
@@ -140,13 +140,11 @@ mod tests {
             .expect("Failed to fetch ancestor chain");
         assert_eq!(chain.len(), 2);
         assert_eq!(
-            chain[0].value().unwrap(),
-            parent_vhandle,
+            chain[0].0, parent_vhandle,
             "Ancestor chain root is incorrect"
         );
         assert_eq!(
-            chain[1].value().unwrap(),
-            child_vhandle,
+            chain[1].0, child_vhandle,
             "Ancestor chain target is incorrect"
         );
 
@@ -348,9 +346,7 @@ mod tests {
 
         if has_persistent_parent {
             let parent_name = tpm_make_name(&parent_public).expect("Failed to compute parent name");
-
-            let persistent_handle = TpmHandle(0x8100_0000);
-            persistent_keys.insert(parent_name, persistent_handle);
+            persistent_keys.insert(parent_name, TpmHandle(0x8100_0000));
         }
 
         let mut cache =
@@ -366,13 +362,11 @@ mod tests {
                 .expect("Failed to fetch ancestor chain with persistent root");
             assert_eq!(chain.len(), 2);
             assert_eq!(
-                chain[0].value().unwrap(),
-                0x8100_0000,
+                chain[0].0, 0x8100_0000,
                 "Root of ancestor chain should be persistent handle"
             );
             assert_eq!(
-                chain[1].value().unwrap(),
-                child_vhandle,
+                chain[1].0, child_vhandle,
                 "Target of ancestor chain should be child handle"
             );
         } else {
@@ -381,6 +375,19 @@ mod tests {
                 .expect_err("Expected fetch_ancestor_chain to fail");
             assert!(matches!(err, VtpmError::ParentNotFound));
         }
+    }
+
+    /// Test 6b: `new` validates persistent handles
+    #[rstest]
+    fn new_validates_persistent_handles(cache_dir: TempDir) {
+        let cache_path = cache_dir.path();
+        let mut handles = HashMap::new();
+        handles.insert(Tpm2bName::default(), TpmHandle(0x8000_0000));
+
+        let err = VtpmCache::new(cache_path, handles)
+            .expect_err("VtpmCache::new should fail with non-persistent handles");
+
+        assert!(matches!(err, VtpmError::InvalidHandleType(_)));
     }
 
     /// Test 7: `remove` on a missing handle returns an empty list
