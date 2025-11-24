@@ -246,12 +246,6 @@ impl TryFrom<u32> for TpmRc {
     }
 }
 
-impl From<TpmRcBase> for TpmRc {
-    fn from(base: TpmRcBase) -> Self {
-        Self::Fmt0(base)
-    }
-}
-
 impl Display for TpmRc {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
