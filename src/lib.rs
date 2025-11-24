@@ -90,6 +90,9 @@ impl core::fmt::UpperHex for TpmHandle {
 /// for all the possible error conditions.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum TpmProtocolError {
+    /// Integer overflow while converting to an integer of a different size.
+    IntegerTooLarge,
+
     /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
     /// magic value.
     InvalidAttestMagic,
@@ -104,10 +107,7 @@ pub enum TpmProtocolError {
     /// [`NoSessions`](crate::data::TpmSt::NoSessions).
     InvalidTag,
 
-    /// A cryptographic operation failed.
-    OperationFailed,
-
-    /// Writer's buffer is full.
+    /// Buffer ran out of memory while marshaling.
     OutOfMemory,
 
     /// Buffer contains more bytes than allowed by the TCG specifications.
@@ -129,14 +129,14 @@ pub enum TpmProtocolError {
 impl core::fmt::Display for TpmProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::IntegerTooLarge => write!(f, "integer overflow"),
             Self::InvalidAttestMagic => write!(f, "invalid attestation magic"),
             Self::InvalidBoolean => write!(f, "invalid boolean value"),
             Self::InvalidCc => write!(f, "invalid command code"),
             Self::InvalidTag => write!(f, "invalid tag"),
-            Self::OperationFailed => write!(f, "operation failed"),
             Self::OutOfMemory => write!(f, "out of memory"),
-            Self::TooManyBytes => write!(f, "bytes surpass buffer capacity"),
-            Self::TooManyItems => write!(f, "items surpass list capacity"),
+            Self::TooManyBytes => write!(f, "buffer capacity surpassed"),
+            Self::TooManyItems => write!(f, "list capaacity surpassed"),
             Self::TrailingData => write!(f, "trailing data"),
             Self::UnexpectedEnd => write!(f, "unexpected end"),
             Self::VariantMissing => write!(f, "variant missing"),

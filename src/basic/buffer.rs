@@ -139,7 +139,7 @@ impl<'a, const CAPACITY: usize> TryFrom<&'a [u8]> for TpmBuffer<CAPACITY> {
             return Err(TpmProtocolError::TooManyBytes);
         }
         let mut buffer = Self::new();
-        let len_u16 = u16::try_from(slice.len()).map_err(|_| TpmProtocolError::OperationFailed)?;
+        let len_u16 = u16::try_from(slice.len()).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
         buffer.size = len_u16;
         buffer.data[..slice.len()].copy_from_slice(slice);
         Ok(buffer)

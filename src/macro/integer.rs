@@ -11,7 +11,7 @@ macro_rules! tpm_integer {
                 let bytes = buf.get(..size).ok_or(TpmProtocolError::UnexpectedEnd)?;
                 let array = bytes
                     .try_into()
-                    .map_err(|_| TpmProtocolError::OperationFailed)?;
+                    .map_err(|_| TpmProtocolError::UnexpectedEnd)?;
                 let val = <$ty>::from_be_bytes(array);
                 Ok((val, &buf[size..]))
             }

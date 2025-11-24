@@ -187,7 +187,7 @@ impl TpmUnmarshalTagged for TpmuHa {
         let (digest_bytes, buf) = buf.split_at(digest_size);
 
         let digest = Self::Digest(
-            TpmBuffer::try_from(digest_bytes).map_err(|_| TpmProtocolError::OperationFailed)?,
+            TpmBuffer::try_from(digest_bytes).map_err(|_| TpmProtocolError::IntegerTooLarge)?,
         );
 
         Ok((digest, buf))

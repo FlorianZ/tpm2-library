@@ -382,7 +382,7 @@ macro_rules! tpm2b_struct {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 u16::try_from(inner_len)
-                    .map_err(|_| $crate::TpmProtocolError::OperationFailed)?
+                    .map_err(|_| $crate::TpmProtocolError::IntegerTooLarge)?
                     .marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
             }

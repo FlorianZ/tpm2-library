@@ -61,7 +61,7 @@ impl TryFrom<&[u8]> for TpmsPcrSelect {
             return Err(TpmProtocolError::TooManyItems);
         }
         let mut pcr_select = Self::new();
-        let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmProtocolError::OperationFailed)?;
+        let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
         pcr_select.size = len_u8;
         pcr_select.data[..slice.len()].copy_from_slice(slice);
         Ok(pcr_select)
