@@ -292,8 +292,12 @@ impl Memory {
 
         let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
-        let auths_cow = auth_args.build_auth_list();
-        let effective_auths: &[TaskAuth] = if needs_auth { auths_cow.as_ref() } else { &[] };
+        let auth_map = auth_args.build_auth_map();
+        let auth = auth_map
+            .get(&TpmHandle(auth_handle_val))
+            .cloned()
+            .unwrap_or_default();
+        let effective_auths: &[TaskAuth] = if needs_auth { &[auth] } else { &[] };
 
         while offset < data_size {
             let chunk_size = std::cmp::min(max_read_size, data_size - offset);

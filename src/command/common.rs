@@ -5,55 +5,72 @@
 use crate::{
     cli::Hierarchy,
     command::CommandError,
+    handle::Handle,
     pcr::read_all_pcrs,
     task::{TaskAuth, TaskState},
 };
 use clap::{Args, ValueEnum};
-use std::{borrow::Cow, collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use strum::{Display, EnumString};
 use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
-    data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmaObject},
+    data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmaObject},
     frame::{TpmAuthCommands, TpmCommand},
     TpmHandle,
 };
 
-/// Parses an authentication string as 'empty' or a hex string.
+fn parse_handle_target(s: &str) -> Result<TpmHandle, String> {
+    match s {
+        "owner" => Ok(TpmHandle(TpmRh::Owner as u32)),
+        "platform" => Ok(TpmHandle(TpmRh::Platform as u32)),
+        "endorsement" => Ok(TpmHandle(TpmRh::Endorsement as u32)),
+        "null" => Ok(TpmHandle(TpmRh::Null as u32)),
+        "lockout" => Ok(TpmHandle(TpmRh::Lockout as u32)),
+        _ => {
+            let handle = Handle::from_str(s).map_err(|e| e.to_string())?;
+            let value = handle.value().ok_or("handle pattern not allowed here")?;
+            Ok(TpmHandle(value))
+        }
+    }
+}
+
+/// Parses an authentication entry in the format `<handle>:<value>`.
 ///
 /// # Errors
 ///
-/// Returns an error if the string is not 'empty' and is not valid hex.
-fn parse_auth_password(s: &str) -> Result<TaskAuth, String> {
-    if s == "empty" {
-        Ok(TaskAuth::Password(Vec::new()))
+/// Returns an error if the string is not formatted correctly, the handle is invalid,
+/// or the hex value is malformed.
+fn parse_auth(s: &str) -> Result<(TpmHandle, TaskAuth), String> {
+    let (handle_str, auth_str) = s
+        .split_once(':')
+        .ok_or_else(|| "format must be <handle>:<value>".to_string())?;
+
+    let handle = parse_handle_target(handle_str)?;
+
+    let auth = if auth_str == "empty" {
+        TaskAuth::Password(Vec::new())
     } else {
-        hex::decode(s)
+        hex::decode(auth_str)
             .map(TaskAuth::Password)
-            .map_err(|e| e.to_string())
-    }
+            .map_err(|e| e.to_string())?
+    };
+    Ok((handle, auth))
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AuthArgs {
-    /// Authentication value: 'empty' or '<hex string>'
-    #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = parse_auth_password)]
-    pub auth: Vec<TaskAuth>,
+    /// List of authentication values in the format '<handle>:<hex string|empty>'.
+    #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = parse_auth)]
+    pub auth: Vec<(TpmHandle, TaskAuth)>,
 }
 
 impl AuthArgs {
-    /// Returns a slice of authorizations.
-    ///
-    /// If no authorizations were provided, this returns a default slice
-    /// representing a single empty password.
+    /// Builds a map of handle-specific authorizations.
     #[must_use]
-    pub fn build_auth_list(&self) -> Cow<'_, [TaskAuth]> {
-        if self.auth.is_empty() {
-            Cow::Owned(vec![TaskAuth::default()])
-        } else {
-            Cow::Borrowed(self.auth.as_slice())
-        }
+    pub fn build_auth_map(&self) -> HashMap<TpmHandle, TaskAuth> {
+        self.auth.iter().cloned().collect()
     }
 }
 

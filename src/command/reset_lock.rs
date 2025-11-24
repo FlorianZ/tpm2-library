@@ -12,6 +12,7 @@ use tpm2_device::with_device;
 use tpm2_protocol::{
     data::{TpmCc, TpmRh},
     frame::TpmDictionaryAttackLockResetCommand,
+    TpmHandle,
 };
 
 /// Resets the dictionary attack lockout counter.
@@ -34,8 +35,13 @@ impl Task for ResetLock {
                 handles: [lock_handle],
             };
 
-            let (resp, _) =
-                task_state.execute(device, &command, &self.auth_args.build_auth_list())?;
+            let auth_map = self.auth_args.build_auth_map();
+            let auth = auth_map
+                .get(&TpmHandle(lock_handle.into()))
+                .cloned()
+                .unwrap_or_default();
+
+            let (resp, _) = task_state.execute(device, &command, &[auth])?;
 
             resp.DictionaryAttackLockReset()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;

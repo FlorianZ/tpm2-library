@@ -153,7 +153,7 @@ impl Create {
         };
 
         let (parent_phys_handle, _, auth) =
-            task_state.build_auth(device, TpmHandle(parent), &self.auth_args.auth)?;
+            task_state.build_auth(device, TpmHandle(parent), &self.auth_args.build_auth_map())?;
 
         let (create_cmd, policy_commands, empty_auth) =
             self.build_create_command(task_state, device, parent_phys_handle)?;

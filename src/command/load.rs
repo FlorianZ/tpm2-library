@@ -67,8 +67,11 @@ impl Task for Load {
                     return Err(CommandError::ParentMissing);
                 };
 
-                let (parent_handle, _, auth) =
-                    task_state.build_auth(device, parent_handle_ref, &self.auth_args.auth)?;
+                let (parent_handle, _, auth) = task_state.build_auth(
+                    device,
+                    parent_handle_ref,
+                    &self.auth_args.build_auth_map(),
+                )?;
 
                 let (object_handle, public) = Self::run_load(
                     task_state,

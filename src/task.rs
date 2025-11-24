@@ -200,10 +200,6 @@ impl<'a> TaskState<'a> {
 
     /// Prepares the final authorization vector for a command.
     ///
-    /// This function contains the common logic to split user authentication,
-    /// build policy sessions if needed, and return the final `auths` vector
-    /// and the temporary `policy_session_auth` for cleanup.
-    ///
     /// # Errors
     ///
     /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when a
@@ -229,23 +225,18 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         handle: TpmHandle,
-        auth_list: &[TaskAuth],
+        auth_map: &HashMap<TpmHandle, TaskAuth>,
     ) -> Result<(TpmHandle, TpmAlgId, TaskAuth), TaskError> {
         let (phys_handle, policy, name_alg) = self.fetch_policy(device, handle)?;
 
-        if let Some(auth) = self.start_policy_session(device, &policy, name_alg, auth_list)? {
+        if let Some(auth) = self.start_policy_session(device, &policy, name_alg, auth_map)? {
             Ok((phys_handle, name_alg, auth))
         } else {
-            if auth_list.len() > 1 {
-                return Err(TaskError::TooManyAuths);
-            }
-
-            let auth = if let Some(auth) = auth_list.first() {
-                auth.clone()
-            } else {
-                TaskAuth::Password(vec![])
-            };
-
+            let auth = auth_map
+                .get(&handle)
+                .or_else(|| auth_map.get(&phys_handle))
+                .cloned()
+                .unwrap_or_default();
             Ok((phys_handle, name_alg, auth))
         }
     }
@@ -487,7 +478,7 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
-        auth_list: &[TaskAuth],
+        auth_map: &HashMap<TpmHandle, TaskAuth>,
     ) -> Result<(), TaskError> {
         let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
@@ -495,12 +486,14 @@ impl<'a> TaskState<'a> {
             (TpmRh::Platform as u32).into()
         };
 
+        let auth = auth_map.get(&auth_handle).cloned().unwrap_or_default();
+
         let cmd = TpmEvictControlCommand {
             persistent_handle,
             handles: [auth_handle, object_to_evict],
         };
 
-        let (resp, _) = self.execute(device, &cmd, auth_list)?;
+        let (resp, _) = self.execute(device, &cmd, &[auth])?;
 
         resp.EvictControl()
             .map_err(|_| TaskError::ResponseMismatch(TpmCc::EvictControl))?;
@@ -546,11 +539,9 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
         key_name_alg: TpmAlgId,
-        auth_list: &[TaskAuth],
+        auth_map: &HashMap<TpmHandle, TaskAuth>,
     ) -> Result<Option<TaskAuth>, TaskError> {
-        let mut auth_iter = auth_list.iter();
-
-        let Some(commands) = self.load_policy_command_list(device, policy, &mut auth_iter)? else {
+        let Some(commands) = self.load_policy_command_list(device, policy, auth_map)? else {
             return Ok(None);
         };
 
@@ -661,7 +652,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
-        auth_iter: &mut std::slice::Iter<'_, TaskAuth>,
+        auth_map: &HashMap<TpmHandle, TaskAuth>,
     ) -> Result<Option<TpmCommandList>, TaskError> {
         if policy.is_empty() {
             return Ok(None);
@@ -699,23 +690,35 @@ impl<'a> TaskState<'a> {
                         handles: [live_handle, TpmHandle(0)],
                     });
 
-                let auth = match auth_iter.next().unwrap_or(&TaskAuth::Password(Vec::new())) {
-                    TaskAuth::Password(val) => build_password_session(val)?,
+                let vhandle = if vtpm_secret_cmd.object_name.is_empty() {
+                    None
+                } else {
+                    self.cache
+                        .find_by_name(&vtpm_secret_cmd.object_name)
+                        .map(|k| TpmHandle(k.handle.0))
+                };
+
+                let task_auth = vhandle
+                    .and_then(|v| auth_map.get(&v))
+                    .or_else(|| auth_map.get(&live_handle))
+                    .cloned()
+                    .unwrap_or_default();
+
+                let auth_cmd = match task_auth {
+                    TaskAuth::Password(password) => build_password_session(&password)?,
                     TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
                 };
 
                 let mut auths = TpmAuthCommands::new();
-                auths.try_push(auth).map_err(|_| TaskError::OutOfMemory)?;
+                auths
+                    .try_push(auth_cmd)
+                    .map_err(|_| TaskError::OutOfMemory)?;
                 (tpm_cmd, auths)
             } else {
                 let tpm_cmd = vtpm_cmd.to_command().map_err(TaskError::Vtpm)?;
                 (tpm_cmd, TpmAuthCommands::new())
             };
             commands.push((cmd, auth));
-        }
-
-        if auth_iter.next().is_some() {
-            return Err(TaskError::TooManyAuths);
         }
 
         Ok(Some(commands))

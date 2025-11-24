@@ -16,6 +16,7 @@ use tpm2_protocol::{
         TpmRh, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::TpmCreatePrimaryCommand,
+    TpmHandle,
 };
 
 /// Creates a new primary key in a specified hierarchy.
@@ -69,7 +70,13 @@ impl Task for CreatePrimary {
 
             let empty_auth = user_auth.is_empty();
 
-            let (resp, _) = task_state.execute(device, &cmd, &self.auth_args.build_auth_list())?;
+            let auth_map = self.auth_args.build_auth_map();
+            let auth = auth_map
+                .get(&TpmHandle(primary_handle as u32))
+                .cloned()
+                .unwrap_or_default();
+
+            let (resp, _) = task_state.execute(device, &cmd, &[auth])?;
 
             let resp = resp
                 .CreatePrimary()

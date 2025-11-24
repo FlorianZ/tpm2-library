@@ -61,7 +61,7 @@ impl Task for Evict {
                     dev,
                     transient_handle,
                     persistent_handle,
-                    self.auth_args.build_auth_list().as_ref(),
+                    &self.auth_args.build_auth_map(),
                 )?;
                 task_state.cache.remove(input_handle)?;
                 task_state.untrack(transient_handle);

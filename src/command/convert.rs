@@ -66,8 +66,11 @@ impl Task for Convert {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            let (parent_handle, name_alg, auth) =
-                task_state.build_auth(device, TpmHandle(parent), &self.auth_args.auth)?;
+            let (parent_handle, name_alg, auth) = task_state.build_auth(
+                device,
+                TpmHandle(parent),
+                &self.auth_args.build_auth_map(),
+            )?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
             if input_bytes.is_empty() {
