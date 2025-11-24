@@ -7,7 +7,7 @@ macro_rules! tpm_integer {
     ($ty:ty) => {
         impl TpmUnmarshal for $ty {
             fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-                let size = size_of::<$ty>();
+                let size = core::mem::size_of::<$ty>();
                 let bytes = buf.get(..size).ok_or(TpmProtocolError::UnexpectedEnd)?;
                 let array = bytes
                     .try_into()
@@ -24,7 +24,7 @@ macro_rules! tpm_integer {
         }
 
         impl TpmSized for $ty {
-            const SIZE: usize = size_of::<$ty>();
+            const SIZE: usize = core::mem::size_of::<$ty>();
             fn len(&self) -> usize {
                 Self::SIZE
             }
