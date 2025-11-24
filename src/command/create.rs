@@ -7,8 +7,8 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_policy_command_list, build_tpm_key_file},
-        AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs,
+        common::build_policy_command_list, AuthArgs, CommandError, CreationArgs, OutputArgs,
+        OutputEncodingArgs,
     },
     io::write_key_data,
     task::{TaskAuth, TaskError, TaskState},
@@ -169,8 +169,7 @@ impl Create {
             .Create()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
 
-        let tpm_key = build_tpm_key_file(
-            task_state,
+        let tpm_key = task_state.build_tpm_key_file(
             device,
             create_resp.out_public,
             create_resp.out_private,

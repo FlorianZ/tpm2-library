@@ -19,8 +19,9 @@ use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
 use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc,
-        TpmRh, TpmSe, TpmaObject, TpmaSession, TpmsAuthCommand, TpmtPublic, TpmtSymDefObject,
+        Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, Tpm2bPrivate,
+        Tpm2bPublic, TpmAlgId, TpmCc, TpmRh, TpmSe, TpmaObject, TpmaSession, TpmsAuthCommand,
+        TpmtPublic, TpmtSymDefObject,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
@@ -28,8 +29,10 @@ use tpm2_protocol::{
     },
     TpmHandle, TpmUnmarshal,
 };
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
 use tpm2_vtpm::{
-    VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand, VtpmPolicySecretCommand,
+    vtpm_policy_command_from, VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand,
+    VtpmPolicySecretCommand,
 };
 
 /// Returns true if the object has no authorization.
@@ -281,6 +284,52 @@ impl<'a> TaskState<'a> {
         }
 
         Ok((phys_handle, name_alg, auths, policy_session_auth))
+    }
+
+    /// Constructs a `TpmKeyFile` from the given key components.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] if reading the parent public area or building the key policy fails.
+    pub fn build_tpm_key_file(
+        &self,
+        device: &mut TpmDevice,
+        public: Tpm2bPublic,
+        private: Tpm2bPrivate,
+        parent_handle: TpmHandle,
+        policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
+    ) -> Result<TpmKeyFile, TaskError> {
+        let (parent_public_data, _) = device.read_public(parent_handle)?;
+        let parent_public = Tpm2bPublic {
+            inner: parent_public_data,
+        };
+
+        let empty_auth = if is_empty_auth(&public.inner) {
+            Some(true)
+        } else {
+            None
+        };
+
+        let tpm_key_policy = self.build_key_policy(device, policy_commands)?;
+
+        let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
+            TpmKeyType::SealedData
+        } else {
+            TpmKeyType::Loadable
+        };
+
+        Ok(TpmKeyFile {
+            public,
+            private,
+            parent_handle,
+            parent_public: Some(parent_public),
+            empty_auth,
+            policy: tpm_key_policy,
+            auth_policy: None,
+            secret: None,
+            description: None,
+            kind,
+        })
     }
 
     /// Loads a TPM context from a handle, recursively loading its ancestors
@@ -546,6 +595,40 @@ impl<'a> TaskState<'a> {
         resp.EvictControl()
             .map_err(|_| TaskError::ResponseMismatch(TpmCc::EvictControl))?;
         Ok(())
+    }
+
+    fn build_key_policy(
+        &self,
+        device: &mut TpmDevice,
+        commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
+    ) -> Result<Option<TpmKeyPolicy>, TaskError> {
+        let Some(commands) = commands else {
+            return Ok(None);
+        };
+
+        let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
+        for (cmd, _) in commands {
+            let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
+                if let Ok(key) = self.cache.find_by_virtual_handle(inner.handles[0]) {
+                    tpm_make_name(&key.public)?
+                } else {
+                    let (_, name) = device.read_public(inner.handles[0])?;
+                    name
+                }
+            } else {
+                Tpm2bName::default()
+            };
+            vtpm_policy.push(vtpm_policy_command_from(&cmd, &object_name)?);
+        }
+
+        let mut policy = Vec::new();
+        for cmd in vtpm_policy {
+            policy.push(TpmKeyPolicyCommand {
+                cc: cmd.cc(),
+                body: cmd.body(),
+            });
+        }
+        Ok(Some(TpmKeyPolicy { name: None, policy }))
     }
 
     fn start_policy_session(

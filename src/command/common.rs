@@ -6,7 +6,7 @@ use crate::{
     cli::Hierarchy,
     command::CommandError,
     pcr::{pcr_get_bank_list, read_all_pcrs},
-    task::{is_empty_auth, TaskAuth, TaskState},
+    task::{TaskAuth, TaskState},
 };
 use clap::{Args, ValueEnum};
 use std::{borrow::Cow, collections::HashMap, path::PathBuf};
@@ -15,14 +15,10 @@ use tpm2_crypto::{tpm_make_name, TpmPublicTemplate, TpmPublicTemplateType};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
-    data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmHt, TpmaObject,
-    },
+    data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmaObject},
     frame::{TpmAuthCommands, TpmCommand},
-    TpmHandle,
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
-use tpm2_vtpm::{vtpm_policy_command_from, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand};
+use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
 
 /// Parses an authentication string as 'empty' or a hex string.
 ///
@@ -201,95 +197,4 @@ fn fetch_handle_names(
     }
 
     Ok(map)
-}
-
-/// Builds a `TpmKeyPolicy` from a list of commands, resolving any virtual
-/// handles to names.
-///
-/// # Errors
-///
-/// Returns [`Device`](crate::command::CommandError::Device) when reading a
-/// public area from the TPM fails.
-/// Returns [`Crypto`](crate::command::CommandError::Crypto) when name
-/// calculation fails.
-/// Returns [`Vtpm`](crate::command::CommandError::Vtpm) when creating a
-/// policy command fails.
-pub fn build_key_policy(
-    task_state: &TaskState,
-    device: &mut TpmDevice,
-    commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-) -> Result<Option<TpmKeyPolicy>, CommandError> {
-    let Some(commands) = commands else {
-        return Ok(None);
-    };
-
-    let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
-    for (cmd, _) in commands {
-        let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
-            if let Ok(key) = task_state.cache.find_by_virtual_handle(inner.handles[0]) {
-                tpm_make_name(&key.public)?
-            } else {
-                let (_, name) = device.read_public(inner.handles[0])?;
-                name
-            }
-        } else {
-            Tpm2bName::default()
-        };
-        vtpm_policy.push(vtpm_policy_command_from(&cmd, &object_name)?);
-    }
-
-    let mut policy = Vec::new();
-    for cmd in vtpm_policy {
-        policy.push(TpmKeyPolicyCommand {
-            cc: cmd.cc(),
-            body: cmd.body(),
-        });
-    }
-    Ok(Some(TpmKeyPolicy { name: None, policy }))
-}
-
-/// Constructs a `TpmKeyFile` from the given key components.
-///
-/// # Errors
-///
-/// Returns [`CommandError`] if reading the parent public area or building the key policy fails.
-pub fn build_tpm_key_file(
-    task_state: &TaskState,
-    device: &mut TpmDevice,
-    public: Tpm2bPublic,
-    private: Tpm2bPrivate,
-    parent_handle: TpmHandle,
-    policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-) -> Result<TpmKeyFile, CommandError> {
-    let (parent_public_data, _) = device.read_public(parent_handle)?;
-    let parent_public = Tpm2bPublic {
-        inner: parent_public_data,
-    };
-
-    let empty_auth = if is_empty_auth(&public.inner) {
-        Some(true)
-    } else {
-        None
-    };
-
-    let tpm_key_policy = build_key_policy(task_state, device, policy_commands)?;
-
-    let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
-        TpmKeyType::SealedData
-    } else {
-        TpmKeyType::Loadable
-    };
-
-    Ok(TpmKeyFile {
-        public,
-        private,
-        parent_handle,
-        parent_public: Some(parent_public),
-        empty_auth,
-        policy: tpm_key_policy,
-        auth_policy: None,
-        secret: None,
-        description: None,
-        kind,
-    })
 }

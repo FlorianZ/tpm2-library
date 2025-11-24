@@ -5,8 +5,8 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_policy_command_list, build_tpm_key_file},
-        AuthArgs, CommandError, CreationArgs, InputArgs, OutputArgs, OutputEncodingArgs,
+        common::build_policy_command_list, AuthArgs, CommandError, CreationArgs, InputArgs,
+        OutputArgs, OutputEncodingArgs,
     },
     io::{read_file_input, write_key_data, write_object},
     task::{TaskAuth, TaskState},
@@ -366,13 +366,14 @@ impl Convert {
             inner: public.clone(),
         };
 
-        build_tpm_key_file(
-            task_state,
-            device,
-            tpm_public_2b,
-            out_private,
-            parent_handle,
-            policy_commands,
-        )
+        task_state
+            .build_tpm_key_file(
+                device,
+                tpm_public_2b,
+                out_private,
+                parent_handle,
+                policy_commands,
+            )
+            .map_err(CommandError::from)
     }
 }
