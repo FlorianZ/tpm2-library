@@ -17,10 +17,6 @@ pub enum TpmPolicyError {
     #[error("crypto: {0}")]
     Crypto(#[from] tpm2_crypto::TpmCryptoError),
 
-    /// A concrete handle is required but a handle pattern was given.
-    #[error("handle pattern not allowed")]
-    HandlePatternNotAllowed,
-
     /// An invalid command code was encountered.
     #[error("invalid command code: {0:?}")]
     InvalidCc(TpmCc),

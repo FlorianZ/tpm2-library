@@ -20,11 +20,11 @@
 pub mod error;
 pub mod expression;
 
-pub use self::error::TpmPolicyError;
+pub use error::*;
 pub use expression::*;
-pub use tpm2_vtpm::{VtpmError, VtpmHandle, VtpmHandleClass};
 
 use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
+
 use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
     constant::TPM_PCR_SELECT_MAX,
@@ -33,7 +33,7 @@ use tpm2_protocol::{
         TpmsPcrSelection,
     },
     frame::{TpmPolicyOrCommand, TpmPolicyPcrCommand},
-    TpmMarshal, TpmSized, TpmWriter,
+    TpmHandle, TpmMarshal, TpmSized, TpmWriter,
 };
 
 /// Pre-resolved data needed for policy execution.
@@ -45,7 +45,7 @@ pub struct TpmPolicyState {
     /// Number of PCRs.
     pub pcr_count: usize,
     /// Map of persistent handle values to their TPM names.
-    pub names: HashMap<tpm2_vtpm::VtpmHandle, Tpm2bName>,
+    pub names: HashMap<TpmHandle, Tpm2bName>,
     /// Map of PCR banks to PCR indices and their values.
     ///
     /// The keys of this map represent the available PCR banks.
@@ -251,9 +251,8 @@ fn parse_primary<'a>(
 }
 
 fn parse_literal(s: &str) -> Result<TpmPolicyExpression, TpmPolicyError> {
-    use std::str::FromStr;
-    if let Ok(handle) = VtpmHandle::from_str(s) {
-        Ok(TpmPolicyExpression::Handle(handle))
+    if let Ok(raw) = s.parse::<u32>() {
+        Ok(TpmPolicyExpression::Handle(TpmHandle::from(raw)))
     } else {
         Err(TpmPolicyError::InvalidToken(s.to_string()))
     }

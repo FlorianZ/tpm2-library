@@ -213,12 +213,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
 
 [[package]]
-name = "log"
-version = "0.4.28"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
-
-[[package]]
 name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -584,21 +578,6 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "026e83041f51359312ec9e31be292993c0c06aa1f1095301bccf8debf414c3a2"
-dependencies = [
- "num-bigint",
- "num-traits",
- "openssl",
- "rand",
- "strum",
- "thiserror",
- "tpm2-protocol",
-]
-
-[[package]]
-name = "tpm2-crypto"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6477abed06746bbb6fa3c1d44fdb9be609b6bca8c65c30e646151ac7b16712ee"
@@ -620,28 +599,15 @@ dependencies = [
  "rstest",
  "strum",
  "thiserror",
- "tpm2-crypto 0.8.2",
+ "tpm2-crypto",
  "tpm2-protocol",
- "tpm2-vtpm",
 ]
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.15.8"
+version = "0.15.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6428f88d4133166972632826e1c4f33a5dc71f7b1ce7ddd03a4e2c9f2c06bfe2"
-
-[[package]]
-name = "tpm2-vtpm"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cfb83dea2b5931a778f58de098247447862c541602bd76560ccec220c5f968f"
-dependencies = [
- "log",
- "thiserror",
- "tpm2-crypto 0.7.3",
- "tpm2-protocol",
-]
+checksum = "d044a1f2f7faeb25875d24120605972a3f1398cc9738404ae93349d15c00c4ef"
 
 [[package]]
 name = "unicode-ident"

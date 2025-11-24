@@ -2,9 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    build_and_branch, TpmPolicyError, TpmPolicySession, TpmPolicyState, VtpmHandle, VtpmHandleClass,
-};
+use crate::{build_and_branch, TpmHandle, TpmPolicyError, TpmPolicySession, TpmPolicyState};
 use std::borrow::Cow;
 use std::fmt;
 use tpm2_crypto::TpmHash;
@@ -31,7 +29,7 @@ pub enum TpmPolicyExpression {
     },
     And(Vec<TpmPolicyExpression>),
     Or(Vec<TpmPolicyExpression>),
-    Handle(VtpmHandle),
+    Handle(TpmHandle),
 }
 
 impl fmt::Display for TpmPolicyExpression {
@@ -144,10 +142,7 @@ impl TpmPolicyExpression {
                     current_branch.push(expr);
                 }
                 TpmCommand::PolicySecret(cmd) => {
-                    let auth_handle = Box::new(TpmPolicyExpression::Handle(VtpmHandle::new(
-                        VtpmHandleClass::Vtpm,
-                        cmd.handles[0].into(),
-                    )));
+                    let auth_handle = Box::new(TpmPolicyExpression::Handle(cmd.handles[0]));
 
                     let copy_ref = if cmd.policy_ref.as_ref().is_empty() {
                         None
@@ -336,9 +331,7 @@ impl TpmPolicyExpression {
             )));
         };
 
-        let h_val = handle
-            .value()
-            .ok_or(TpmPolicyError::HandlePatternNotAllowed)?;
+        let h_val: u32 = (*handle).into();
 
         let ht_byte = (h_val >> 24) as u8;
         let ht =
