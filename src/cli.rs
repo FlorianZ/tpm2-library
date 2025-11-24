@@ -6,8 +6,8 @@
 
 use crate::{
     command::{
-        Algorithm, Cache, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load,
-        Memory, PcrEvent, ResetLock, ReturnCode, Unseal,
+        Algorithm, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load, Memory,
+        PcrEvent, ResetLock, ReturnCode, Unseal,
     },
     task::TaskState,
 };
@@ -61,7 +61,6 @@ pub struct TopLevel {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     Algorithm(Algorithm),
-    Cache(Cache),
     Convert(Convert),
     Create(Create),
     CreatePrimary(CreatePrimary),
@@ -79,7 +78,6 @@ impl Command {
     fn as_task(&self) -> &dyn Task {
         match self {
             Self::Algorithm(cmd) => cmd,
-            Self::Cache(cmd) => cmd,
             Self::Convert(cmd) => cmd,
             Self::Create(cmd) => cmd,
             Self::CreatePrimary(cmd) => cmd,

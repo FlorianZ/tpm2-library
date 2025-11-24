@@ -5,7 +5,6 @@
 #![allow(clippy::doc_markdown)]
 
 pub mod algorithm;
-pub mod cache;
 pub mod common;
 pub mod convert;
 pub mod create;
@@ -20,7 +19,6 @@ pub mod return_code;
 pub mod unseal;
 
 pub use algorithm::*;
-pub use cache::*;
 pub use common::*;
 pub use convert::*;
 pub use create::*;

@@ -48,6 +48,10 @@ pub struct Memory {
     /// TPM handle as a eight characters hex string.
     pub handle: Option<crate::handle::Handle>,
 
+    /// Do not use cache. Show physical handles in transient range.
+    #[arg(long)]
+    pub no_cache: bool,
+
     #[clap(flatten)]
     pub auth_args: AuthArgs,
 }
@@ -71,12 +75,50 @@ impl Task for Memory {
                 &self.auth_args,
             )
         } else {
-            Self::list_all_memory(session, writer, &self.auth_args, is_tty)
+            Self::list_all_memory(session, writer, &self.auth_args, is_tty, self.no_cache)
         }
     }
 }
 
 impl Memory {
+    fn refresh_cache(
+        task_state: &mut TaskState,
+        device: &mut TpmDevice,
+    ) -> Result<(), CommandError> {
+        let vhandles: Vec<u32> = task_state.cache.key_iter().map(|(h, _)| *h).collect();
+        let mut errors: Vec<CommandError> = Vec::new();
+        let mut handles_to_remove = Vec::new();
+
+        for &vhandle in &vhandles {
+            if let Some(key) = task_state.cache.find_by_handle(TpmHandle(vhandle)) {
+                match device.refresh_key(key.context.clone()) {
+                    Ok(true) => {
+                        task_state.cache.mark_dirty(vhandle);
+                    }
+                    Ok(false) => handles_to_remove.push(vhandle),
+                    Err(e) => {
+                        log::warn!("{vhandle:08x}: {e}");
+                        errors.push(e.into());
+                        handles_to_remove.push(vhandle);
+                    }
+                }
+            }
+        }
+
+        for vhandle in handles_to_remove {
+            if let Err(e) = task_state.cache.remove(vhandle) {
+                log::error!("{vhandle:08x}: {e}");
+                errors.push(e.into());
+            }
+        }
+
+        if let Some(err) = errors.into_iter().next() {
+            Err(err)
+        } else {
+            Ok(())
+        }
+    }
+
     fn inspect_handle(
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
@@ -107,6 +149,7 @@ impl Memory {
         writer: &mut dyn std::io::Write,
         auth_args: &AuthArgs,
         is_tty: bool,
+        no_cache: bool,
     ) -> Result<(), CommandError> {
         with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
@@ -120,15 +163,41 @@ impl Memory {
                 auth_args,
                 |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
             )?;
-            Self::fetch_rows(
-                session,
-                device,
-                &mut rows,
-                TpmHt::Transient,
-                MemoryHandleType::Transient,
-                auth_args,
-                |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
-            )?;
+
+            if no_cache {
+                Self::fetch_rows(
+                    session,
+                    device,
+                    &mut rows,
+                    TpmHt::Transient,
+                    MemoryHandleType::Transient,
+                    auth_args,
+                    |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
+                )?;
+            } else {
+                Self::refresh_cache(session, device)?;
+                for (_, key) in session.cache.key_iter() {
+                    let hierarchy = match key.context.hierarchy {
+                        TpmRh::Owner => "owner",
+                        TpmRh::Platform => "platform",
+                        TpmRh::Endorsement => "endorsement",
+                        TpmRh::Null => "null",
+                        _ => "unknown",
+                    };
+
+                    let details = TpmPublicTemplate::try_from(&key.public).map_or_else(
+                        |_| TpmHash::from(key.public.object_type).to_string(),
+                        |a| a.to_string(),
+                    );
+
+                    rows.push(MemoryRow {
+                        handle: format!("{:08x}", key.handle.0),
+                        class: "transient".to_string(),
+                        details: format!("{hierarchy}:{details}"),
+                    });
+                }
+            }
+
             Self::fetch_rows(
                 session,
                 device,
