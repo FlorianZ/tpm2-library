@@ -9,14 +9,13 @@ use crate::{
 use clap::Args;
 use tpm2_device::with_device;
 use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand, TpmHandle};
-use tpm2_vtpm::VtpmHandle;
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
 #[command(about = "Retrieves data from a sealed data object.")]
 pub struct Unseal {
-    /// Input: 'tpm:<persistent handle>' or 'vtpm:<transient handle>'
-    pub input: VtpmHandle,
+    /// TPM handle as a eight characters hex string.
+    pub handle: crate::handle::Handle,
 
     /// Force hex output when redirecting to a file or pipe
     #[arg(long)]
@@ -33,13 +32,13 @@ impl Task for Unseal {
         writer: &mut dyn std::io::Write,
         is_tty: bool,
     ) -> Result<(), CommandError> {
-        if self.input.value().is_none() {
-            return Err(CommandError::PatternNotAllowed(self.input.to_string()));
-        }
+        let Some(handle) = self.handle.value() else {
+            return Err(CommandError::PatternNotAllowed(self.handle.to_string()));
+        };
 
         with_device(task_state.device.clone(), |device| {
             let (item_handle, _, auths, policy_session_auth) =
-                task_state.build_auth(device, &self.input, &self.auth_args)?;
+                task_state.build_auth(device, TpmHandle(handle), &self.auth_args)?;
 
             let unseal_cmd = TpmUnsealCommand {
                 handles: [item_handle.0.into()],
@@ -49,7 +48,7 @@ impl Task for Unseal {
 
             if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                 if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
-                    log::error!("vtpm:{vhandle:08x}: {e}");
+                    log::error!("{vhandle:08x}: {e}");
                 }
             }
 

@@ -19,7 +19,6 @@ use tpm2_protocol::{
     frame::{TpmNvReadCommand, TpmNvReadPublicCommand},
     TpmHandle,
 };
-use tpm2_vtpm::VtpmHandle;
 
 const EK_CERT_RANGE: std::ops::RangeInclusive<u32> = 0x01C0_0000..=0x01C0_FFFF;
 
@@ -46,8 +45,8 @@ struct MemoryRow {
 #[derive(Args, Debug)]
 #[command(about = "Lists objects inside TPM memory or inspects a single handle.")]
 pub struct Memory {
-    /// Optional handle to inspect: 'tpm:<handle>'
-    pub handle: Option<VtpmHandle>,
+    /// TPM handle as a eight characters hex string.
+    pub handle: Option<crate::handle::Handle>,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,

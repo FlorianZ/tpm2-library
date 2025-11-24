@@ -39,14 +39,14 @@ impl Cache {
             let mut handles_to_remove = Vec::new();
 
             for &vhandle in &vhandles {
-                if let Ok(key) = task_state.cache.find_by_virtual_handle(TpmHandle(vhandle)) {
+                if let Some(key) = task_state.cache.find_by_handle(TpmHandle(vhandle)) {
                     match dev.refresh_key(key.context.clone()) {
                         Ok(true) => {
                             task_state.cache.mark_dirty(vhandle);
                         }
                         Ok(false) => handles_to_remove.push(vhandle),
                         Err(e) => {
-                            log::warn!("vtpm:{vhandle:08x}: {e}");
+                            log::warn!("{vhandle:08x}: {e}");
                             errors.push(e.into());
                             handles_to_remove.push(vhandle);
                         }
@@ -56,7 +56,7 @@ impl Cache {
 
             for vhandle in handles_to_remove {
                 if let Err(e) = task_state.cache.remove(vhandle) {
-                    log::error!("vtpm:{vhandle:08x}: {e}");
+                    log::error!("{vhandle:08x}: {e}");
                     errors.push(e.into());
                 }
             }

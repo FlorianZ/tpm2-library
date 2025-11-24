@@ -17,8 +17,8 @@ use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
     data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmaObject},
     frame::{TpmAuthCommands, TpmCommand},
+    TpmHandle,
 };
-use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
 
 /// Parses an authentication string as 'empty' or a hex string.
 ///
@@ -181,18 +181,18 @@ pub fn build_policy_command_list(
 fn fetch_handle_names(
     state: &mut TaskState,
     device: &mut TpmDevice,
-) -> Result<HashMap<VtpmHandle, Tpm2bName>, CommandError> {
+) -> Result<HashMap<TpmHandle, Tpm2bName>, CommandError> {
     let mut map = HashMap::new();
 
     for (vhandle, key) in state.cache.key_iter() {
         let name = tpm_make_name(&key.public)?;
-        map.insert(VtpmHandle::new(VtpmHandleClass::Vtpm, *vhandle), name);
+        map.insert(TpmHandle(*vhandle), name);
     }
 
     let handles = device.fetch_handles(TpmHt::Persistent)?;
     for h in handles {
         if let Ok((_, name)) = device.read_public(h) {
-            map.insert(VtpmHandle::new(VtpmHandleClass::Tpm, h.0), name);
+            map.insert(TpmHandle(h.0), name);
         }
     }
 

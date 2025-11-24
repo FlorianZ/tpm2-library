@@ -20,8 +20,8 @@ use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, Tpm2bPrivate,
-        Tpm2bPublic, TpmAlgId, TpmCc, TpmRh, TpmSe, TpmaObject, TpmaSession, TpmsAuthCommand,
-        TpmtPublic, TpmtSymDefObject,
+        Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSe, TpmaObject, TpmaSession,
+        TpmsAuthCommand, TpmtPublic, TpmtSymDefObject,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
@@ -31,8 +31,7 @@ use tpm2_protocol::{
 };
 use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
 use tpm2_vtpm::{
-    vtpm_policy_command_from, VtpmCache, VtpmError, VtpmHandle, VtpmHandleClass, VtpmPolicyCommand,
-    VtpmPolicySecretCommand,
+    vtpm_policy_command_from, VtpmCache, VtpmError, VtpmPolicyCommand, VtpmPolicySecretCommand,
 };
 
 /// Returns true if the object has no authorization.
@@ -120,14 +119,14 @@ impl Default for TaskAuth {
 pub enum TaskError {
     #[error("handle already tracked: {0}")]
     HandleAlreadyTracked(TpmHandle),
-    #[error("handle not found: {0}{1:08x}")]
-    HandleNotFound(&'static str, u32),
+    #[error("handle not found: {0}")]
+    HandleNotFound(TpmHandle),
     #[error("handle name not found: {}", hex::encode(.0.as_ref()))]
     HandleNameNotFound(Tpm2bName),
     #[error("invalid auth")]
     InvalidAuth,
-    #[error("invalid parent: {0}{1:08x}")]
-    InvalidParent(&'static str, u32),
+    #[error("invalid handle type: 0x{0:02x}")]
+    InvalidHandleType(u8),
     #[error("malformed data")]
     MalformedData,
     #[error("out of memory")]
@@ -196,7 +195,7 @@ impl<'a> TaskState<'a> {
         let session = self
             .sessions
             .remove(&vhandle)
-            .ok_or(TaskError::HandleNotFound("tpm:", vhandle.0))?;
+            .ok_or(TaskError::HandleNotFound(vhandle))?;
         session.delete(device)
     }
 
@@ -251,7 +250,7 @@ impl<'a> TaskState<'a> {
     pub fn build_auth(
         &mut self,
         device: &mut TpmDevice,
-        handle: &VtpmHandle,
+        handle: TpmHandle,
         auth_args: &AuthArgs,
     ) -> Result<(TpmHandle, TpmAlgId, Vec<TaskAuth>, Option<TaskAuth>), TaskError> {
         let (phys_handle, policy, name_alg, attributes) = self.fetch_policy(device, handle)?;
@@ -346,7 +345,7 @@ impl<'a> TaskState<'a> {
     /// Returns [`InvalidParent`](crate::task::TaskError::InvalidParent) when a
     /// loaded key's parent does not match the expected parent in the chain.
     /// Returns [`InvalidAuth`](crate::task::TaskError::InvalidAuth) when the
-    /// target `VtpmHandle` is invalid.
+    /// target `TpmHandle` is invalid.
     /// Returns [`Crypto`](crate::task::TaskError::Crypto) when name calculation
     /// fails.
     /// Returns [`Marshal`](crate::task::TaskError::Marshal) when marshaling
@@ -358,13 +357,9 @@ impl<'a> TaskState<'a> {
     pub fn load_key(
         &mut self,
         device: &mut TpmDevice,
-        target: &VtpmHandle,
+        target: TpmHandle,
     ) -> Result<TpmHandle, TaskError> {
-        let target_vhandle = target.value().ok_or(TaskError::InvalidAuth)?;
-
-        if target.class() == VtpmHandleClass::Tpm {
-            return Ok(TpmHandle(target_vhandle));
-        }
+        let target_vhandle = target.0;
 
         if let Some(&phandle) = self.live_handles.get(&target_vhandle) {
             return Ok(phandle);
@@ -373,34 +368,30 @@ impl<'a> TaskState<'a> {
         let chain = self.cache.fetch_ancestor_chain(TpmHandle(target_vhandle))?;
 
         if chain.is_empty() {
-            return Err(TaskError::HandleNotFound("vtpm:", target_vhandle));
+            return Err(TaskError::HandleNotFound(TpmHandle(target_vhandle)));
         }
 
         let mut chain_iter = chain.into_iter();
 
         let first_handle = chain_iter
             .next()
-            .ok_or(TaskError::HandleNotFound("vtpm:", target_vhandle))?;
-        let mut phandle = self.load_chain_root(device, &first_handle)?;
+            .ok_or(TaskError::HandleNotFound(TpmHandle(target_vhandle)))?;
+        let mut phandle = self.load_chain_root(device, first_handle)?;
 
         for handle in chain_iter {
-            let vhandle = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
+            let vhandle = handle.0;
 
             if let Some(&live_h) = self.live_handles.get(&vhandle) {
                 phandle = live_h;
                 continue;
             }
 
-            let key = self.cache.find_by_virtual_handle(TpmHandle(vhandle))?;
+            let key = self
+                .cache
+                .find_by_handle(TpmHandle(vhandle))
+                .ok_or(TaskError::HandleNotFound(TpmHandle(vhandle)))?;
 
             let loaded_phandle = device.load_context(key.context.clone())?;
-
-            if device.read_public(phandle)?.1 != tpm_make_name(&key.parent)? {
-                self.untrack(loaded_phandle);
-                device.flush_context(loaded_phandle)?;
-                return Err(TaskError::InvalidParent("vtpm:", vhandle));
-            }
-
             self.track(loaded_phandle)?;
             self.live_handles.insert(vhandle, loaded_phandle);
             phandle = loaded_phandle;
@@ -419,7 +410,7 @@ impl<'a> TaskState<'a> {
     /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
     /// the name cannot be found.
     /// Returns [`InvalidAuth`](crate::TaskError::InvalidAuth) when the
-    /// `VtpmHandle` is invalid.
+    /// `TpmHandle` is invalid.
     /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
     /// handle is not in the cache.
     /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
@@ -433,9 +424,9 @@ impl<'a> TaskState<'a> {
             return Ok(handle);
         }
 
-        if let Some(key) = self.cache.find_by_name(name)? {
+        if let Some(key) = self.cache.find_by_name(name) {
             let vhandle = key.handle.0;
-            return self.load_key(device, &VtpmHandle::new(VtpmHandleClass::Vtpm, vhandle));
+            return self.load_key(device, TpmHandle(vhandle));
         }
 
         Err(TaskError::HandleNameNotFound(*name))
@@ -463,7 +454,7 @@ impl<'a> TaskState<'a> {
     fn fetch_policy(
         &mut self,
         device: &mut TpmDevice,
-        handle: &VtpmHandle,
+        handle: TpmHandle,
     ) -> Result<
         (
             TpmHandle,
@@ -474,13 +465,15 @@ impl<'a> TaskState<'a> {
         TaskError,
     > {
         let phys_handle = self.load_key(device, handle)?;
+        let ht_byte = (handle.0 >> 24) as u8;
+        let ht = TpmHt::try_from(ht_byte).map_err(|_| TaskError::InvalidHandleType(ht_byte))?;
 
-        if handle.class() == VtpmHandleClass::Vtpm {
-            let vhandle = handle.value().ok_or(TaskError::InvalidAuth)?;
+        if ht == TpmHt::Transient {
+            let vhandle = handle.0;
             let key = self
                 .cache
-                .find_by_virtual_handle(TpmHandle(vhandle))
-                .map_err(TaskError::Vtpm)?;
+                .find_by_handle(TpmHandle(vhandle))
+                .ok_or(TaskError::HandleNotFound(TpmHandle(vhandle)))?;
             Ok((
                 phys_handle,
                 key.policy.clone(),
@@ -529,7 +522,7 @@ impl<'a> TaskState<'a> {
                     let session = self
                         .sessions
                         .get(&TpmHandle(*vhandle))
-                        .ok_or(TaskError::HandleNotFound("vtpm:", *vhandle))?;
+                        .ok_or(TaskError::HandleNotFound(TpmHandle(*vhandle)))?;
                     let nonce_size = TpmHash::from(session.hash_alg).size();
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
@@ -609,7 +602,7 @@ impl<'a> TaskState<'a> {
         let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
         for (cmd, _) in commands {
             let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
-                if let Ok(key) = self.cache.find_by_virtual_handle(inner.handles[0]) {
+                if let Some(key) = self.cache.find_by_handle(inner.handles[0]) {
                     tpm_make_name(&key.public)?
                 } else {
                     let (_, name) = device.read_public(inner.handles[0])?;
@@ -723,24 +716,28 @@ impl<'a> TaskState<'a> {
     fn load_chain_root(
         &mut self,
         device: &mut TpmDevice,
-        handle: &VtpmHandle,
+        handle: TpmHandle,
     ) -> Result<TpmHandle, TaskError> {
-        let handle_val = handle.value().ok_or(TaskError::InvalidParent("vtpm:", 0))?;
+        let handle_val = handle.0;
+        let ht_byte = (handle_val >> 24) as u8;
+        let ht = TpmHt::try_from(ht_byte).map_err(|_| TaskError::InvalidHandleType(ht_byte))?;
 
-        match handle.class() {
-            VtpmHandleClass::Tpm => Ok(TpmHandle(handle_val)),
-            VtpmHandleClass::Vtpm => {
-                if let Some(&phandle) = self.live_handles.get(&handle_val) {
-                    return Ok(phandle);
-                }
-
-                let key = self.cache.find_by_virtual_handle(TpmHandle(handle_val))?;
-                let loaded_phandle = device.load_context(key.context.clone())?;
-                self.track(loaded_phandle)?;
-                self.live_handles.insert(handle_val, loaded_phandle);
-                Ok(loaded_phandle)
-            }
+        if ht == TpmHt::Persistent {
+            return Ok(TpmHandle(handle_val));
         }
+
+        if let Some(&phandle) = self.live_handles.get(&handle_val) {
+            return Ok(phandle);
+        }
+
+        let key = self
+            .cache
+            .find_by_handle(TpmHandle(handle_val))
+            .ok_or(TaskError::HandleNotFound(TpmHandle(handle_val)))?;
+        let loaded_phandle = device.load_context(key.context.clone())?;
+        self.track(loaded_phandle)?;
+        self.live_handles.insert(handle_val, loaded_phandle);
+        Ok(loaded_phandle)
     }
 
     fn load_policy_command_list(
@@ -815,7 +812,7 @@ impl Drop for TaskState<'_> {
                 }
                 for session in self.sessions.values() {
                     if let Err(e) = session.delete(&mut dev) {
-                        log::error!("vtpm:{:08x}: {e}", session.handle());
+                        log::error!("{:08x}: {e}", session.handle());
                     }
                 }
             }

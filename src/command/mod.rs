@@ -114,6 +114,8 @@ pub enum CommandError {
     Io(#[from] std::io::Error),
     #[error("invalid handle")]
     InvalidHandle,
+    #[error("invalid handle type: 0x{0:02x}")]
+    InvalidHandleType(u8),
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("invalid parent handle")]
@@ -162,9 +164,6 @@ impl From<TaskError> for CommandError {
     fn from(err: TaskError) -> Self {
         match err {
             TaskError::Device(dev_err) => Self::from(dev_err),
-            TaskError::InvalidParent(prefix, handle) => {
-                CommandError::HandleNotFound(prefix, handle)
-            }
             TaskError::Vtpm(VtpmError::HandleNotFound(handle)) => {
                 Self::HandleNotFound("vtpm", handle.into())
             }

@@ -30,13 +30,12 @@ use tpm2_protocol::{
     TpmHandle, TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKeyFile;
-use tpm2_vtpm::VtpmHandle;
 
 /// Convert external keys to TPM keys.
 #[derive(Args, Debug)]
 pub struct Convert {
-    /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
-    pub parent: VtpmHandle,
+    /// Parent's TPM handle as an eight characters hex string.
+    pub parent: crate::handle::Handle,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -61,13 +60,14 @@ impl Task for Convert {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<(), CommandError> {
-        self.parent
+        let parent = self
+            .parent
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
             let (parent_handle, name_alg, auths, policy_session_auth) =
-                task_state.build_auth(device, &self.parent, &self.auth_args)?;
+                task_state.build_auth(device, TpmHandle(parent), &self.auth_args)?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
             if input_bytes.is_empty() {
@@ -109,7 +109,7 @@ impl Task for Convert {
 
             if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
                 if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
-                    log::error!("vtpm:{vhandle:08x}: {e}");
+                    log::error!("{vhandle:08x}: {e}");
                 }
             }
 

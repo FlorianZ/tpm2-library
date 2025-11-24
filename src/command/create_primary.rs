@@ -85,7 +85,7 @@ impl Task for CreatePrimary {
                 policy_only,
                 &None,
             )?;
-            writeln!(writer, "vtpm:{vhandle:08x}")?;
+            writeln!(writer, "{vhandle:08x}")?;
             Ok(())
         })
     }

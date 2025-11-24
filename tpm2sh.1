@@ -9,24 +9,16 @@ tpm2sh \- a command-line tool for accessing TPM 2.0 devices
 is a command-line tool for accessing TPM 2.0 devices.
 .P
 .B tpm2sh
-provides a virtual memory manager for sharing key, sealed object,
-and session resources across multiple commands. It is the primary mechanism for
-managing and accessing transient TPM objects, which exist only as long as the
-application is running.
+provides a virtual memory manager for sharing transient TPM
+resources across multiple commands.
 .P
-The physical memory of a TPM chip is referenced with the 'tpm:' prefix, and virtual
-memory with the 'vtpm:' prefix. For example, 'tpm:81000001' references a persistent
-handle in physical memory, while 'vtpm:80000000' might reference a transient
-key loaded into the virtual memory cache.
-.P
-The cache automatically invalidates and resets on reboot, requiring very
-little management from the user.
+Transient handles are cached in a per-user cache directory. The cache
+automatically invalidates and resets on reboot, and does not require
+attention from the user.
 .P
 .B tpm2sh
-provides 'convert' and 'load' subcommands for loading DER or PEM
-encoded internal and external keys. The tool uses the TPMKey ASN.1 format as
-the native output format when creating new TPM keys.
-It supports PKCS#1, PKCS#8, and SEC1 formats for external keys.
+provides subcommands for creating and loading DER or PEM encoded keys in TPMKey
+ASN.1 format.
 .P
 Several commands, such as
 .BR create ,
@@ -92,11 +84,6 @@ Prints a TPM return code in human-readable format.
 .TP
 .B unseal
 Retrieves data from a sealed data object.
-
-.SH LOAD OPTIONS
-.TP
-.B -P, --parent=\fI<tpm:HANDLE|vtpm:HANDLE>\fR
-Parent handle to use when the TPMKey file does not include the parent public area.
 
 .SH ENVIRONMENT
 .TP

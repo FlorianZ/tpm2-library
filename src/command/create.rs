@@ -25,7 +25,6 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
     TpmHandle,
 };
-use tpm2_vtpm::VtpmHandle;
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
@@ -33,8 +32,8 @@ type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 #[derive(Args, Debug, Clone)]
 #[command(about = "Creates a secondary key or a sealed data object.")]
 pub struct Create {
-    /// Parent handle: 'tpm:<handle>' or 'vtpm:<handle>'
-    pub parent: VtpmHandle,
+    /// Parent's TPM handle as an eight characters hex string.
+    pub parent: crate::handle::Handle,
 
     /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256'.
     #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
@@ -144,8 +143,12 @@ impl Create {
         writer: &mut dyn std::io::Write,
         device: &mut TpmDevice,
     ) -> Result<(), CommandError> {
+        let Some(parent) = self.parent.value() else {
+            return Err(CommandError::ParentMissing);
+        };
+
         let (parent_phys_handle, _, auths, policy_session_auth) =
-            task_state.build_auth(device, &self.parent, &self.auth_args)?;
+            task_state.build_auth(device, TpmHandle(parent), &self.auth_args)?;
 
         let (create_cmd, policy_commands) =
             self.build_create_command(task_state, device, parent_phys_handle)?;
@@ -154,7 +157,7 @@ impl Create {
 
         if let Some(TaskAuth::Session(vhandle)) = policy_session_auth {
             if let Err(e) = task_state.remove_session(device, TpmHandle(vhandle)) {
-                log::error!("vtpm:{vhandle:08x}: {e}");
+                log::error!("{vhandle:08x}: {e}");
             }
         }
 

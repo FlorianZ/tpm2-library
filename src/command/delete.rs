@@ -10,13 +10,12 @@ use crate::{
 use clap::Args;
 use tpm2_device::with_device;
 use tpm2_protocol::{data::TpmHt, TpmHandle};
-use tpm2_vtpm::{VtpmHandle, VtpmHandleClass};
 
 /// Deletes active and cached objects.
 #[derive(Args, Debug)]
 pub struct Delete {
-    /// Input: 'tpm:<handle pattern>', or 'vtpm:<handle pattern>'
-    pub input: VtpmHandle,
+    /// TPM handle as a eight characters hex string or wildcard pattern.
+    pub handle: crate::handle::Handle,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -29,12 +28,8 @@ impl Task for Delete {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<(), CommandError> {
-        match self.input.class() {
-            VtpmHandleClass::Tpm => {
-                delete_tpm_handles(task_state, writer, &self.input, &self.auth_args)
-            }
-            VtpmHandleClass::Vtpm => delete_vtpm_handles(task_state, writer, &self.input),
-        }
+        delete_tpm_handles(task_state, writer, self.handle, &self.auth_args)?;
+        delete_vtpm_handles(task_state, writer, self.handle)
     }
 }
 
@@ -42,7 +37,7 @@ impl Task for Delete {
 fn delete_tpm_handles(
     task_state: &mut TaskState,
     writer: &mut dyn std::io::Write,
-    pattern: &VtpmHandle,
+    pattern: crate::handle::Handle,
     auth_args: &AuthArgs,
 ) -> Result<(), CommandError> {
     with_device(task_state.device.clone(), |dev| {
@@ -90,7 +85,7 @@ fn delete_tpm_handles(
 fn delete_vtpm_handles(
     task_state: &mut TaskState,
     writer: &mut dyn std::io::Write,
-    pattern: &VtpmHandle,
+    pattern: crate::handle::Handle,
 ) -> Result<(), CommandError> {
     let matched_handles: Vec<u32> = task_state
         .cache
@@ -106,7 +101,7 @@ fn delete_vtpm_handles(
     for vhandle in matched_handles {
         let all_deleted_handles = task_state.cache.remove(vhandle)?;
         for deleted_vhandle in all_deleted_handles {
-            writeln!(writer, "vtpm:{deleted_vhandle:08x}")?;
+            writeln!(writer, "{deleted_vhandle:08x}")?;
         }
     }
     Ok(())
