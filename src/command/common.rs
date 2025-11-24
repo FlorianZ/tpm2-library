@@ -156,7 +156,7 @@ pub fn build_policy_command_list(
     name_alg: TpmAlgId,
 ) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
     if let Some(expression) = &creation_args.policy_expression {
-        let pcrs = read_all_pcrs(task_state, device)?;
+        let pcrs = read_all_pcrs(device)?;
         let banks = pcr_get_bank_list(device)?;
         let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
 

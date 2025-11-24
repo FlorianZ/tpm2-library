@@ -4,7 +4,6 @@
 
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
-use crate::task::{TaskError, TaskState};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -18,20 +17,20 @@ use tpm2_protocol::{
 
 #[derive(Debug, Error)]
 pub enum PcrError {
+    #[error("crypto: {0}")]
+    Crypto(#[from] TpmCryptoError),
     #[error("device: {0}")]
     Device(#[from] TpmDeviceError),
     #[error("capacity exceeded")]
     CapacityExceeded,
-    #[error("consistency check failed")]
-    Consistency,
     #[error("invalid algorithm: {0:?}")]
     InvalidAlgorithm(TpmAlgId),
-    #[error("invalid PCR selection: {0}")]
-    InvalidPcrSelection(String),
-    #[error("crypto: {0}")]
-    Crypto(#[from] TpmCryptoError),
-    #[error("session: {0}")]
-    Session(#[from] TaskError),
+    #[error("PCR banks not available")]
+    PcrBanksNotAvailable,
+    #[error("PCR digest missing")]
+    PcrDigestMissing,
+    #[error("PCR bank size mismatch")]
+    PcrBankSizeMismatch,
     #[error("protocol: {0}")]
     Protocol(#[from] TpmProtocolError),
 }
@@ -52,6 +51,16 @@ pub struct PcrBank {
 pub fn pcr_get_bank_list(device: &mut TpmDevice) -> Result<Vec<PcrBank>, PcrError> {
     let pcrs = device.fetch_pcr_banks()?;
     let mut banks = Vec::new();
+    let mut first_count = 0;
+    for bank in pcrs.clone() {
+        let count = bank.pcr_select.len();
+        if first_count == 0 {
+            first_count = count;
+        }
+        if count != first_count {
+            return Err(PcrError::PcrBankSizeMismatch);
+        }
+    }
     for bank in pcrs {
         banks.push(PcrBank {
             alg: bank.hash,
@@ -59,9 +68,7 @@ pub fn pcr_get_bank_list(device: &mut TpmDevice) -> Result<Vec<PcrBank>, PcrErro
         });
     }
     if banks.is_empty() {
-        return Err(PcrError::InvalidPcrSelection(
-            "TPM reported no active PCR banks.".to_string(),
-        ));
+        return Err(PcrError::PcrBanksNotAvailable);
     }
     banks.sort_by_key(|b| b.alg);
     Ok(banks)
@@ -76,7 +83,6 @@ pub fn pcr_get_bank_list(device: &mut TpmDevice) -> Result<Vec<PcrBank>, PcrErro
 ///
 /// Returns `PcrError` on device or protocol failure.
 pub fn read_all_pcrs(
-    task_state: &mut TaskState,
     device: &mut TpmDevice,
 ) -> Result<HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>, PcrError> {
     let banks = pcr_get_bank_list(device)?;
@@ -111,7 +117,7 @@ pub fn read_all_pcrs(
             handles: [],
         };
 
-        let (resp, _) = task_state.execute(device, &cmd, &[])?;
+        let (resp, _) = device.transmit(&cmd, &[])?;
         let pcr_resp = resp
             .PcrRead()
             .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::PcrRead))?;
@@ -127,9 +133,7 @@ pub fn read_all_pcrs(
                     if (byte >> bit_idx) & 1 == 1 {
                         let pcr_idx = u32::try_from(byte_idx * 8 + bit_idx)
                             .map_err(|_| PcrError::CapacityExceeded)?;
-                        let digest = value_iter
-                            .next()
-                            .ok_or_else(|| PcrError::InvalidPcrSelection("Missing value".into()))?;
+                        let digest = value_iter.next().ok_or(PcrError::PcrDigestMissing)?;
 
                         bank_store.insert(pcr_idx, *digest);
                     }
