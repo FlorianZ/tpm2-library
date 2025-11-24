@@ -13,8 +13,8 @@ readme = "README.md"
 [dependencies]
 log = "0.4"
 thiserror = "1.0"
-tpm2-crypto = "0.8.2"
-tpm2-protocol = "0.15.9"
+tpm2-crypto = "0.9.0"
+tpm2-protocol = "0.15.10"
 
 [dev-dependencies]
 rstest = "0.18"
