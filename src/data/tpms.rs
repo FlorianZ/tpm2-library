@@ -3,8 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    constant::TPM_GENERATED_VALUE,
-    constant::TPM_PCR_SELECT_MAX,
+    constant::{TPM_GENERATED_VALUE, TPM_PCR_SELECT_MAX},
     data::{
         Tpm2b, Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bMaxNvBuffer, Tpm2bName,
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
@@ -420,7 +419,6 @@ tpm_struct! {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TpmsAttest {
-    pub magic: u32,
     pub attest_type: TpmSt,
     pub qualified_signer: Tpm2bName,
     pub extra_data: Tpm2bData,
@@ -450,7 +448,7 @@ impl TpmSized for TpmsAttest {
 
 impl TpmMarshal for TpmsAttest {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        0xff54_4347_u32.marshal(writer)?;
+        TPM_GENERATED_VALUE.marshal(writer)?;
         self.attest_type.marshal(writer)?;
         self.qualified_signer.marshal(writer)?;
         self.extra_data.marshal(writer)?;
@@ -475,7 +473,6 @@ impl TpmUnmarshal for TpmsAttest {
 
         Ok((
             Self {
-                magic,
                 attest_type,
                 qualified_signer,
                 extra_data,
