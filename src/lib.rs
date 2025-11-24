@@ -14,7 +14,6 @@ use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
     io::{Read, Write},
-    num::TryFromIntError,
     os::fd::{AsFd, AsRawFd},
     path::{Path, PathBuf},
     rc::Rc,
@@ -49,40 +48,49 @@ pub enum TpmDeviceError {
     Interrupted,
     #[error("invalid response")]
     InvalidResponse,
-    #[error("device not available")]
-    NotAvailable,
-    #[error("PCR banks not available")]
-    PcrBanksNotAvailable,
-    #[error("PCR bank size mismatch")]
-    PcrBankSizeMismatch,
+
+    #[error("I/O: {0}")]
+    Io(#[from] std::io::Error),
 
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmProtocolError),
 
+    #[error("device not available")]
+    NotAvailable,
+    #[error("operation failed")]
+    OperationFailed,
+    #[error("PCR banks not available")]
+    PcrBanksNotAvailable,
+    #[error("PCR bank size mismatch")]
+    PcrBankSizeMismatch,
+
+    /// The TPM response did not match the expected command code.
+    #[error("response mismatch: {0}")]
+    ResponseMismatch(TpmCc),
+
+    #[error("TPM command timed out")]
+    Timeout,
+    #[error("TPM return code: {0}")]
+    TpmRc(TpmRc),
+
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
 
-    #[error("response mismatch: {0}")]
-    ResponseMismatch(TpmCc),
-    #[error("TPM command timed out")]
-    Timeout,
     #[error("unexpected EOF")]
     UnexpectedEof,
-    #[error("int decode: {0}")]
-    IntDecode(#[from] TryFromIntError),
-    #[error("I/O: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("syscall: {0}")]
-    Nix(#[from] nix::Error),
-    #[error("TPM return code: {0}")]
-    TpmRc(TpmRc),
 }
 
 impl From<TpmRc> for TpmDeviceError {
     fn from(rc: TpmRc) -> Self {
         Self::TpmRc(rc)
+    }
+}
+
+impl From<nix::Error> for TpmDeviceError {
+    fn from(err: nix::Error) -> Self {
+        Self::Io(std::io::Error::from_raw_os_error(err as i32))
     }
 }
 
@@ -156,8 +164,7 @@ impl TpmDeviceBuilder {
     /// # Errors
     ///
     /// Returns [`Io`](crate::TpmDeviceError::Io) when the device file cannot be
-    /// opened and [`Nix`](crate::TpmDeviceError::Nix) when configuring the file
-    /// descriptor flags fails.
+    /// opened or when configuring the file descriptor flags fails.
     pub fn build(self) -> Result<TpmDevice, TpmDeviceError> {
         let file = OpenOptions::new()
             .read(true)
@@ -254,8 +261,7 @@ impl TpmDevice {
     /// Returns [`Timeout`](crate::TpmDeviceError::Timeout) when the TPM does
     /// not respond within the configured timeout.
     /// Returns [`Io`](crate::TpmDeviceError::Io) when a write, flush, or read
-    /// operation on the device file fails.
-    /// Returns [`Nix`](crate::TpmDeviceError::Nix) when polling the device file
+    /// operation on the device file fails, or when polling the device file
     /// descriptor fails.
     /// Returns [`InvalidResponse`](crate::TpmDeviceError::InvalidResponse) or
     /// [`UnexpectedEof`](crate::TpmDeviceError::UnexpectedEof) when the TPM
@@ -391,8 +397,8 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`IntDecode`](crate::TpmDeviceError::IntDecode) when the handle
-    /// count cannot be represented as `u32`. Propagates any
+    /// Returns [`OperationFailed`](crate::TpmDeviceError::OperationFailed) when
+    /// the handle count cannot be represented as `u32`. Propagates any
     /// [`TpmDeviceError`](crate::TpmDeviceError) from
     /// [`get_capability`](TpmDevice::get_capability), including
     /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
@@ -401,7 +407,7 @@ impl TpmDevice {
         self.get_capability(
             TpmCap::Algs,
             0,
-            u32::try_from(MAX_HANDLES)?,
+            u32::try_from(MAX_HANDLES).map_err(|_| TpmDeviceError::OperationFailed)?,
             |caps| match caps {
                 TpmuCapabilities::Algs(algs) => Ok(algs),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Algs)),
@@ -414,8 +420,8 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`IntDecode`](crate::TpmDeviceError::IntDecode) when the handle
-    /// count cannot be represented as `u32`. Propagates any
+    /// Returns [`OperationFailed`](crate::TpmDeviceError::OperationFailed) when
+    /// the handle count cannot be represented as `u32`. Propagates any
     /// [`TpmDeviceError`](crate::TpmDeviceError) from
     /// [`get_capability`](TpmDevice::get_capability), including
     /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
@@ -424,7 +430,7 @@ impl TpmDevice {
         self.get_capability(
             TpmCap::Handles,
             (class as u32) << 24,
-            u32::try_from(MAX_HANDLES)?,
+            u32::try_from(MAX_HANDLES).map_err(|_| TpmDeviceError::OperationFailed)?,
             |caps| match caps {
                 TpmuCapabilities::Handles(handles) => Ok(handles),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Handles)),
@@ -438,8 +444,8 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`IntDecode`](crate::TpmDeviceError::IntDecode) when the handle
-    /// count cannot be represented as `u32`. Propagates any
+    /// Returns [`OperationFailed`](crate::TpmDeviceError::OperationFailed) when
+    /// the handle count cannot be represented as `u32`. Propagates any
     /// [`TpmDeviceError`](crate::TpmDeviceError) from
     /// [`get_capability`](TpmDevice::get_capability), including
     /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
@@ -448,7 +454,7 @@ impl TpmDevice {
         self.get_capability(
             TpmCap::EccCurves,
             0,
-            u32::try_from(MAX_HANDLES)?,
+            u32::try_from(MAX_HANDLES).map_err(|_| TpmDeviceError::OperationFailed)?,
             |caps| match caps {
                 TpmuCapabilities::EccCurves(curves) => Ok(curves),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::EccCurves)),
@@ -461,8 +467,8 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`IntDecode`](crate::TpmDeviceError::IntDecode) when the handle
-    /// count cannot be represented as `u32`. Propagates any
+    /// Returns [`OperationFailed`](crate::TpmDeviceError::OperationFailed) when
+    /// the handle count cannot be represented as `u32`. Propagates any
     /// [`TpmDeviceError`](crate::TpmDeviceError) from
     /// [`get_capability`](TpmDevice::get_capability), including
     /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
@@ -475,7 +481,7 @@ impl TpmDevice {
         let pcrs: Vec<TpmsPcrSelection> = self.get_capability(
             TpmCap::Pcrs,
             0,
-            u32::try_from(MAX_HANDLES)?,
+            u32::try_from(MAX_HANDLES).map_err(|_| TpmDeviceError::OperationFailed)?,
             |caps| match caps {
                 TpmuCapabilities::Pcrs(pcrs) => Ok(pcrs),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Pcrs)),
