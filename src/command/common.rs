@@ -11,7 +11,7 @@ use crate::{
 use clap::{Args, ValueEnum};
 use std::{borrow::Cow, collections::HashMap, path::PathBuf};
 use strum::{Display, EnumString};
-use tpm2_crypto::{tpm_make_name, TpmPublicTemplate, TpmPublicTemplateType};
+use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
@@ -127,7 +127,7 @@ impl CreationArgs {
             attributes |= TpmaObject::NO_DA;
         }
 
-        if alg.kind != TpmPublicTemplateType::KeyedHash {
+        if alg.object_type != TpmAlgId::KeyedHash {
             attributes |=
                 TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
         }

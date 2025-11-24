@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{print_table, AuthArgs, CommandError},
+    command::{print_table, public_to_template, AuthArgs, CommandError},
     task::{TaskAuth, TaskState},
 };
 use clap::Args;
@@ -12,7 +12,7 @@ use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
 use strum::Display;
 use tabled::Tabled;
-use tpm2_crypto::{TpmEllipticCurve, TpmHash, TpmPublicTemplate};
+use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     data::{TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
@@ -185,7 +185,7 @@ impl Memory {
                         _ => "unknown",
                     };
 
-                    let details = TpmPublicTemplate::try_from(&key.public).map_or_else(
+                    let details = public_to_template(&key.public).map_or_else(
                         |_| TpmHash::from(key.public.object_type).to_string(),
                         |a| a.to_string(),
                     );
@@ -401,7 +401,7 @@ impl Memory {
         let (public, _) = device.read_public(handle)?;
         let TpmHandle(handle) = handle;
 
-        let details = TpmPublicTemplate::try_from(&public)?;
+        let details = public_to_template(&public)?;
 
         if (handle & 0xFF00_0000) == (TpmHt::Persistent as u32) << 24 {
             let hierarchy = if handle >= 0x8180_0000 {

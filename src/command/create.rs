@@ -15,12 +15,12 @@ use crate::{
 };
 
 use clap::Args;
-use tpm2_crypto::{TpmPublicTemplate, TpmPublicTemplateType};
+use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmlPcrSelection,
-        TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc,
+        TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
     TpmHandle,
@@ -75,8 +75,8 @@ impl Task for Create {
 
 impl Create {
     fn get_sensitive_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
-        match (&self.data, &self.algorithm.kind) {
-            (Some(hex_data), TpmPublicTemplateType::KeyedHash) => {
+        match (&self.data, self.algorithm.object_type) {
+            (Some(hex_data), TpmAlgId::KeyedHash) => {
                 let bytes = hex::decode(hex_data)?;
                 if bytes.is_empty() {
                     Err(CommandError::SensitiveDataMissing)
@@ -85,11 +85,10 @@ impl Create {
                         .map_err(|_| CommandError::CapacityExceeded)?)
                 }
             }
-            (None, TpmPublicTemplateType::Rsa { .. } | TpmPublicTemplateType::Ecc { .. }) => {
-                Ok(Tpm2bSensitiveData::default())
-            }
+            (None, TpmAlgId::Rsa | TpmAlgId::Ecc) => Ok(Tpm2bSensitiveData::default()),
             (Some(_), _) => Err(CommandError::SensitiveDataDenied),
-            (None, TpmPublicTemplateType::KeyedHash) => Err(CommandError::SensitiveDataMissing),
+            (None, TpmAlgId::KeyedHash) => Err(CommandError::SensitiveDataMissing),
+            _ => Err(CommandError::UnsupportedKeyAlgorithm),
         }
     }
 
@@ -112,7 +111,7 @@ impl Create {
             &self.creation_args,
             task_state,
             device,
-            self.algorithm.hash,
+            self.algorithm.name_alg,
         )?;
 
         let public_template = self
