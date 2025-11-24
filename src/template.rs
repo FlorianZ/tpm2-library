@@ -16,65 +16,84 @@ use tpm2_protocol::{
     },
 };
 
-/// The specific kind of public key or object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TpmPublicTemplateType {
-    Rsa { key_bits: u16 },
-    Ecc { curve_id: TpmEccCurve },
-    KeyedHash,
-}
-
 /// A template describing a TPM public area.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmPublicTemplate {
-    pub name: String,
-    pub hash: TpmAlgId,
-    pub kind: TpmPublicTemplateType,
+    pub object_type: TpmAlgId,
+    pub name_alg: TpmAlgId,
+    pub key_bits: Option<u16>,
+    pub curve_id: Option<TpmEccCurve>,
 }
 
 impl TpmPublicTemplate {
     /// Creates a new template for an RSA object.
     #[must_use]
-    pub fn new_rsa(key_bits: u16, name_alg: TpmAlgId) -> Self {
-        let name_alg_str = TpmHash::from(name_alg).to_string();
+    pub const fn new_rsa(key_bits: u16, name_alg: TpmAlgId) -> Self {
         Self {
-            name: format!("rsa-{key_bits}:{name_alg_str}"),
-            hash: name_alg,
-            kind: TpmPublicTemplateType::Rsa { key_bits },
+            object_type: TpmAlgId::Rsa,
+            name_alg,
+            key_bits: Some(key_bits),
+            curve_id: None,
         }
     }
 
     /// Creates a new template for an ECC object.
     #[must_use]
-    pub fn new_ecc(curve_id: TpmEccCurve, name_alg: TpmAlgId) -> Self {
-        let curve_str = TpmEllipticCurve::from(curve_id).to_string();
-        let name_alg_str = TpmHash::from(name_alg).to_string();
+    pub const fn new_ecc(curve_id: TpmEccCurve, name_alg: TpmAlgId) -> Self {
         Self {
-            name: format!("ecc-{curve_str}:{name_alg_str}"),
-            hash: name_alg,
-            kind: TpmPublicTemplateType::Ecc { curve_id },
+            object_type: TpmAlgId::Ecc,
+            name_alg,
+            key_bits: None,
+            curve_id: Some(curve_id),
         }
     }
 
     /// Creates a new template for a `KeyedHash` object.
     #[must_use]
-    pub fn new_keyedhash(name_alg: TpmAlgId) -> Self {
-        let name_alg_str = TpmHash::from(name_alg).to_string();
+    pub const fn new_keyedhash(name_alg: TpmAlgId) -> Self {
         Self {
-            name: format!("keyedhash:{name_alg_str}"),
-            hash: name_alg,
-            kind: TpmPublicTemplateType::KeyedHash,
+            object_type: TpmAlgId::KeyedHash,
+            name_alg,
+            key_bits: None,
+            curve_id: None,
         }
     }
 
-    /// Returns the `TpmAlgId` matching the key type.
+    /// Returns the template identifier name.
     #[must_use]
-    pub fn alg_id(&self) -> TpmAlgId {
-        match self.kind {
-            TpmPublicTemplateType::Ecc { .. } => TpmAlgId::Ecc,
-            TpmPublicTemplateType::Rsa { .. } => TpmAlgId::Rsa,
-            TpmPublicTemplateType::KeyedHash => TpmAlgId::KeyedHash,
+    pub fn name(&self) -> String {
+        let name_alg_str = TpmHash::from(self.name_alg).to_string();
+        match self.object_type {
+            TpmAlgId::Rsa => {
+                let key_bits = self.key_bits.unwrap_or(2048);
+                format!("rsa-{key_bits}:{name_alg_str}")
+            }
+            TpmAlgId::Ecc => {
+                let curve = self.curve_id.unwrap_or(TpmEccCurve::NistP256);
+                let curve_str = TpmEllipticCurve::from(curve).to_string();
+                format!("ecc-{curve_str}:{name_alg_str}")
+            }
+            TpmAlgId::KeyedHash => format!("keyedhash:{name_alg_str}"),
+            _ => format!("unknown:{name_alg_str}"),
         }
+    }
+
+    /// Returns the object type.
+    #[must_use]
+    pub fn object_type(&self) -> TpmAlgId {
+        self.object_type
+    }
+
+    /// Returns the curve ID, if applicable.
+    #[must_use]
+    pub fn curve_id(&self) -> Option<TpmEccCurve> {
+        self.curve_id
+    }
+
+    /// Returns the key bits, if applicable.
+    #[must_use]
+    pub fn key_bits(&self) -> Option<u16> {
+        self.key_bits
     }
 
     /// Constructs a `TpmtPublic` structure from this template.
@@ -86,26 +105,26 @@ impl TpmPublicTemplate {
             mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
         };
 
-        let (parameters, unique) = match self.kind {
-            TpmPublicTemplateType::Rsa { key_bits } => (
+        let (parameters, unique) = match self.object_type {
+            TpmAlgId::Rsa => (
                 TpmuPublicParms::Rsa(TpmsRsaParms {
                     symmetric,
                     scheme: TpmtRsaScheme::default(),
-                    key_bits,
+                    key_bits: self.key_bits.unwrap_or(2048),
                     exponent: 0,
                 }),
                 TpmuPublicId::Rsa(TpmBuffer::default()),
             ),
-            TpmPublicTemplateType::Ecc { curve_id } => (
+            TpmAlgId::Ecc => (
                 TpmuPublicParms::Ecc(TpmsEccParms {
                     symmetric,
                     scheme: TpmtEccScheme::default(),
-                    curve_id,
+                    curve_id: self.curve_id.unwrap_or(TpmEccCurve::NistP256),
                     kdf: TpmtKdfScheme::default(),
                 }),
                 TpmuPublicId::Ecc(tpm2_protocol::data::TpmsEccPoint::default()),
             ),
-            TpmPublicTemplateType::KeyedHash => (
+            _ => (
                 TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
                     scheme: TpmtKeyedhashScheme {
                         scheme: TpmAlgId::Null,
@@ -117,8 +136,8 @@ impl TpmPublicTemplate {
         };
 
         TpmtPublic {
-            object_type: self.alg_id(),
-            name_alg: self.hash,
+            object_type: self.object_type,
+            name_alg: self.name_alg,
             object_attributes,
             auth_policy,
             parameters,
@@ -162,7 +181,7 @@ impl TpmPublicTemplate {
 
 impl std::fmt::Display for TpmPublicTemplate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
+        write!(f, "{}", self.name())
     }
 }
 
@@ -179,42 +198,5 @@ impl FromStr for TpmPublicTemplate {
         } else {
             Err(TpmCryptoError::InvalidObjectType)
         }
-    }
-}
-
-impl TryFrom<&TpmtPublic> for TpmPublicTemplate {
-    type Error = TpmCryptoError;
-
-    fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
-        match public.object_type {
-            TpmAlgId::Rsa => {
-                if let TpmuPublicParms::Rsa(params) = &public.parameters {
-                    Ok(TpmPublicTemplate::new_rsa(params.key_bits, public.name_alg))
-                } else {
-                    Err(TpmCryptoError::InvalidRsaParameters)
-                }
-            }
-            TpmAlgId::Ecc => {
-                if let TpmuPublicParms::Ecc(params) = &public.parameters {
-                    Ok(TpmPublicTemplate::new_ecc(params.curve_id, public.name_alg))
-                } else {
-                    Err(TpmCryptoError::InvalidEccParameters)
-                }
-            }
-            TpmAlgId::KeyedHash => Ok(TpmPublicTemplate::new_keyedhash(public.name_alg)),
-            _ => Err(TpmCryptoError::InvalidObjectType),
-        }
-    }
-}
-
-impl std::cmp::Ord for TpmPublicTemplate {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.name.cmp(&other.name)
-    }
-}
-
-impl std::cmp::PartialOrd for TpmPublicTemplate {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }

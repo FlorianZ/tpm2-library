@@ -17,7 +17,7 @@ openssl = { version = "0.10" }
 rand = "0.8"
 strum = { version = "0.26", features = ["derive"] }
 thiserror = "1.0"
-tpm2-protocol = "0.15.8"
+tpm2-protocol = "0.15.10"
 
 [[test]]
 name = "hmac"
