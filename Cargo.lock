@@ -578,9 +578,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.8.2"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6477abed06746bbb6fa3c1d44fdb9be609b6bca8c65c30e646151ac7b16712ee"
+checksum = "13820bc8bd2a8426c58af022da4f87e88a6c71a6941057b7c99e1929c3915a1e"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -605,9 +605,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.15.9"
+version = "0.15.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d044a1f2f7faeb25875d24120605972a3f1398cc9738404ae93349d15c00c4ef"
+checksum = "b6c553d64a2bdff42cc366bebe951743eb89e0440b409f72b4531baa7af4432e"
 
 [[package]]
 name = "unicode-ident"
