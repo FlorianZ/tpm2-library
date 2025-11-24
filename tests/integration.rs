@@ -1,15 +1,11 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2025 Jarkko Sakkinen
 
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-use openssl::{
-    ec::{EcGroup, EcKey},
-    nid::Nid,
-    rsa::Rsa,
-};
+use openssl::rsa::Rsa;
 use rstest::rstest;
 use std::path::Path;
 use tempfile::TempDir;
@@ -21,45 +17,173 @@ fn tpm2sh(cache_dir: &Path, args: &[&str]) -> duct::Expression {
     duct::cmd(TPM2SH_PATH, args).env("TPM2SH_CACHE_PATH", cache_dir)
 }
 
+fn new_cache_dir() -> TempDir {
+    TempDir::new().expect("Failed to create temp dir")
+}
+
+fn create_primary_ecc_sha256(cache_dir: &Path, password_hex: Option<&str>) -> String {
+    let mut args = vec!["create-primary", "-H", "owner", "ecc-nist-p256:sha256"];
+
+    if let Some(password) = password_hex {
+        args.push("--password");
+        args.push(password);
+    }
+
+    let output = tpm2sh(cache_dir, &args)
+        .read()
+        .expect("Failed to create primary key");
+    let handle = output.trim().to_string();
+    assert!(handle.starts_with("80"));
+    handle
+}
+
+fn handle_auth_arg(handle: &str, password_hex: &str) -> String {
+    format!("{handle}:{password_hex}")
+}
+
 #[test]
-fn integration() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+fn auth_with_value() {
+    let temp_dir = new_cache_dir();
+    let cache_path = temp_dir.path();
+
+    let primary_handle = create_primary_ecc_sha256(cache_path, Some("deadbeef"));
+    let primary_handle_str = primary_handle.as_str();
+
+    let parent_auth_arg = handle_auth_arg(primary_handle_str, "deadbeef");
+
+    let native_child_output = tpm2sh(
+        cache_path,
+        &[
+            "create",
+            primary_handle_str,
+            "keyedhash:sha256",
+            "--data",
+            SEALED_DATA,
+            "--auth",
+            parent_auth_arg.as_str(),
+            "--password",
+            "deadbeef",
+        ],
+    )
+    .pipe(tpm2sh(
+        cache_path,
+        &["load", "--auth", parent_auth_arg.as_str()],
+    ))
+    .read()
+    .expect("Failed to create native child");
+    let native_child = native_child_output.trim().to_string();
+
+    let child_auth_arg = handle_auth_arg(native_child.as_str(), "deadbeef");
+
+    tpm2sh(
+        cache_path,
+        &[
+            "unseal",
+            native_child.as_str(),
+            "--auth",
+            child_auth_arg.as_str(),
+        ],
+    )
+    .run()
+    .expect("Failed to unseal with correct auth");
+
+    let rsa = Rsa::generate(2048).unwrap();
+    let rsa_pem = rsa.private_key_to_pem().unwrap();
+
+    let _ = tpm2sh(
+        cache_path,
+        &[
+            "convert",
+            primary_handle_str,
+            "--auth",
+            parent_auth_arg.as_str(),
+            "--password",
+            "deadbeef",
+        ],
+    )
+    .stdin_bytes(rsa_pem)
+    .pipe(tpm2sh(
+        cache_path,
+        &["load", "--auth", parent_auth_arg.as_str()],
+    ))
+    .read()
+    .expect("Failed to import external key");
+}
+
+#[test]
+fn auth_policy_secret_with_value() {
+    let temp_dir = new_cache_dir();
+    let cache_path = temp_dir.path();
+
+    let primary_handle = create_primary_ecc_sha256(cache_path, Some("deadbeef"));
+    let primary_handle_str = primary_handle.as_str();
+    let parent_auth = handle_auth_arg(primary_handle_str, "deadbeef");
+
+    let policy_str = format!("secret({primary_handle_str})");
+
+    let create_args = [
+        "create",
+        primary_handle_str,
+        "keyedhash:sha256",
+        "--data",
+        SEALED_DATA,
+        "--auth",
+        parent_auth.as_str(),
+        "--policy",
+        policy_str.as_str(),
+    ];
+
+    let sealed_output = tpm2sh(cache_path, &create_args)
+        .pipe(tpm2sh(
+            cache_path,
+            &["load", "--auth", parent_auth.as_str()],
+        ))
+        .read()
+        .expect("Failed to create and load policy-protected object");
+    let sealed_handle = sealed_output.trim().to_string();
+
+    let unseal_args_with_auth = [
+        "unseal",
+        sealed_handle.as_str(),
+        "--auth",
+        parent_auth.as_str(),
+    ];
+
+    let output = tpm2sh(cache_path, &unseal_args_with_auth)
+        .read()
+        .expect("Failed to unseal with policy and auth");
+    assert_eq!(output.trim(), SEALED_DATA);
+}
+
+#[test]
+fn auth_with_policy() {
+    let temp_dir = new_cache_dir();
     let cache_path = temp_dir.path();
 
     tpm2sh(cache_path, &["delete", "*"]).run().unwrap();
 
-    let primary_handle = tpm2sh(
-        cache_path,
-        &["create-primary", "-H", "owner", "ecc-nist-p256:sha256"],
-    )
-    .read()
-    .unwrap();
+    let primary_handle = create_primary_ecc_sha256(cache_path, None);
+    let primary_handle_str = primary_handle.as_str();
 
-    let primary_handle = primary_handle.trim();
-    assert!(primary_handle.starts_with("80"),);
-    eprintln!("Primary handle: {primary_handle}");
-
-    let policy_str = format!("secret({primary_handle})");
+    let policy_str = format!("secret({primary_handle_str})");
 
     let create_args = [
         "create",
-        primary_handle,
+        primary_handle_str,
         "keyedhash:sha256",
         "--data",
         SEALED_DATA,
         "--policy",
-        &policy_str,
+        policy_str.as_str(),
     ];
 
-    let sealed_handle = tpm2sh(cache_path, &create_args)
+    let sealed_output = tpm2sh(cache_path, &create_args)
         .pipe(tpm2sh(cache_path, &["load"]))
         .read()
         .unwrap();
-    let sealed_handle = sealed_handle.trim();
+    let sealed_handle = sealed_output.trim().to_string();
 
-    println!("Sealed secret handle: {sealed_handle}");
-
-    let unseal_output = tpm2sh(cache_path, &["unseal", sealed_handle])
+    let unseal_output = tpm2sh(cache_path, &["unseal", sealed_handle.as_str()])
         .read()
         .unwrap();
 
@@ -67,7 +191,7 @@ fn integration() {
 
     let create_pcr_args = [
         "create",
-        primary_handle,
+        primary_handle_str,
         "keyedhash:sha256",
         "--data",
         SEALED_DATA,
@@ -75,58 +199,38 @@ fn integration() {
         "pcr(sha256:7) or pcr(sha256:15)",
     ];
 
-    let sealed_handle_pcr = tpm2sh(cache_path, &create_pcr_args)
+    let sealed_pcr_output = tpm2sh(cache_path, &create_pcr_args)
         .pipe(tpm2sh(cache_path, &["load"]))
         .read()
         .unwrap();
-    let sealed_handle_pcr = sealed_handle_pcr.trim();
+    let sealed_handle_pcr = sealed_pcr_output.trim().to_string();
 
-    println!("Sealed PCRs handle: {sealed_handle_pcr}");
-
-    let unseal_pcr_output = tpm2sh(cache_path, &["unseal", sealed_handle_pcr])
+    let unseal_pcr_output = tpm2sh(cache_path, &["unseal", sealed_handle_pcr.as_str()])
         .read()
         .unwrap();
 
     assert_eq!(unseal_pcr_output.trim(), SEALED_DATA);
 
-    let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
-    let ec_key = EcKey::generate(&group).unwrap();
-    let ec_pem = ec_key.private_key_to_pem().unwrap();
-    let ecc_handle = tpm2sh(cache_path, &["convert", primary_handle])
-        .stdin_bytes(ec_pem)
-        .pipe(tpm2sh(cache_path, &["load"]))
-        .read()
-        .unwrap();
-    let ecc_handle = ecc_handle.trim();
-
-    assert!(ecc_handle.starts_with("80"),);
-    println!("External ECC handle: {ecc_handle}");
-
-    let rsa = Rsa::generate(2048).unwrap();
-    let rsa_pem = rsa.private_key_to_pem().unwrap();
-    let rsa_handle = tpm2sh(cache_path, &["convert", primary_handle])
-        .stdin_bytes(rsa_pem)
-        .pipe(tpm2sh(cache_path, &["load"]))
-        .read()
-        .unwrap();
-    let rsa_handle = rsa_handle.trim();
-
-    assert!(rsa_handle.starts_with("80"),);
-    println!("External RSA handle: {rsa_handle}");
-
     let delete_output = tpm2sh(cache_path, &["delete", "*"]).read().unwrap();
 
-    assert!(delete_output.contains(primary_handle.trim().strip_prefix("80").unwrap()),);
-    assert!(delete_output.contains(sealed_handle.trim().strip_prefix("80").unwrap()),);
+    assert!(delete_output.contains(
+        primary_handle_str
+            .strip_prefix("80")
+            .expect("primary handle did not start with 80")
+    ));
+    assert!(delete_output.contains(
+        sealed_handle
+            .as_str()
+            .strip_prefix("80")
+            .expect("sealed handle did not start with 80")
+    ));
 }
 
-/// Tests `convert` and `load` interoperability with keys generated by the external
-/// `openssl` binary.
 #[rstest]
 #[case::rsa("genrsa -out private.pem 2048")]
 #[case::ecc("ecparam -name prime256v1 -genkey -noout -out private.pem")]
-fn test_convert_openssl(#[case] openssl_args: &str) {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+fn load_external_key(#[case] openssl_args: &str) {
+    let temp_dir = new_cache_dir();
     let cache_path = temp_dir.path();
     let private_key_path = temp_dir.path().join("private.pem");
 
@@ -138,17 +242,12 @@ fn test_convert_openssl(#[case] openssl_args: &str) {
         .expect("Failed to execute openssl");
     assert!(openssl_status.success());
 
-    let primary_handle = tpm2sh(
-        cache_path,
-        &["create-primary", "-H", "owner", "ecc-nist-p256:sha256"],
-    )
-    .read()
-    .expect("Failed to create primary key");
-    let primary_handle = primary_handle.trim();
+    let primary_handle = create_primary_ecc_sha256(cache_path, None);
+    let primary_handle_str = primary_handle.as_str();
 
     let convert_args = [
         "convert",
-        primary_handle,
+        primary_handle_str,
         "-I",
         private_key_path.to_str().unwrap(),
     ];
@@ -163,104 +262,26 @@ fn test_convert_openssl(#[case] openssl_args: &str) {
 }
 
 #[test]
-fn test_password_auth() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+fn load_multi_level_hierarchy() {
+    let temp_dir = new_cache_dir();
     let cache_path = temp_dir.path();
 
-    let primary_handle = tpm2sh(
-        cache_path,
-        &[
-            "create-primary",
-            "-H",
-            "owner",
-            "ecc-nist-p256:sha256",
-            "--password",
-            "deadbeef",
-        ],
-    )
-    .read()
-    .expect("Failed to create primary");
-    let primary_handle = primary_handle.trim();
+    let l1 = create_primary_ecc_sha256(cache_path, None);
+    let l1_handle = l1.as_str();
 
-    let parent_auth_arg = format!("{primary_handle}:deadbeef");
-
-    let native_child = tpm2sh(
-        cache_path,
-        &[
-            "create",
-            primary_handle,
-            "keyedhash:sha256",
-            "--data",
-            SEALED_DATA,
-            "--auth",
-            &parent_auth_arg,
-            "--password",
-            "deadbeef",
-        ],
-    )
-    .pipe(tpm2sh(cache_path, &["load", "--auth", &parent_auth_arg]))
-    .read()
-    .expect("Failed to create native child");
-    let native_child = native_child.trim();
-
-    let child_auth_arg = format!("{native_child}:deadbeef");
-
-    tpm2sh(
-        cache_path,
-        &["unseal", native_child, "--auth", &child_auth_arg],
-    )
-    .run()
-    .expect("Failed to unseal with correct auth");
-
-    let rsa = Rsa::generate(2048).unwrap();
-    let rsa_pem = rsa.private_key_to_pem().unwrap();
-
-    let ext_handle = tpm2sh(
-        cache_path,
-        &[
-            "convert",
-            primary_handle,
-            "--auth",
-            &parent_auth_arg,
-            "--password",
-            "deadbeef",
-        ],
-    )
-    .stdin_bytes(rsa_pem)
-    .pipe(tpm2sh(cache_path, &["load", "--auth", &parent_auth_arg]))
-    .read()
-    .expect("Failed to import external key");
-    let ext_handle = ext_handle.trim();
-
-    println!("Imported external key handle: {ext_handle}");
-}
-
-#[test]
-fn test_deep_hierarchy_recursion() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let cache_path = temp_dir.path();
-
-    let l1_handle = tpm2sh(
-        cache_path,
-        &["create-primary", "-H", "owner", "ecc-nist-p256:sha256"],
-    )
-    .read()
-    .unwrap();
-    let l1_handle = l1_handle.trim();
-
-    let l2_handle = tpm2sh(cache_path, &["create", l1_handle, "rsa-2048:sha256"])
+    let l2_output = tpm2sh(cache_path, &["create", l1_handle, "rsa-2048:sha256"])
         .pipe(tpm2sh(cache_path, &["load"]))
         .read()
         .unwrap();
-    let l2_handle = l2_handle.trim();
+    let l2_handle = l2_output.trim().to_string();
 
     let deep_data = hex::encode("deep-secret");
 
-    let l3_handle = tpm2sh(
+    let l3_output = tpm2sh(
         cache_path,
         &[
             "create",
-            l2_handle,
+            l2_handle.as_str(),
             "keyedhash:sha256",
             "--data",
             &deep_data,
@@ -269,9 +290,9 @@ fn test_deep_hierarchy_recursion() {
     .pipe(tpm2sh(cache_path, &["load"]))
     .read()
     .unwrap();
-    let l3_handle = l3_handle.trim();
+    let l3_handle = l3_output.trim().to_string();
 
-    let output = tpm2sh(cache_path, &["unseal", l3_handle])
+    let output = tpm2sh(cache_path, &["unseal", l3_handle.as_str()])
         .read()
         .expect("Failed to unseal deep object");
 
