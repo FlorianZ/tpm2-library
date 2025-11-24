@@ -60,6 +60,39 @@ macro_rules! tpm_bitflags {
             }
         }
 
+        impl core::ops::BitAnd for $name {
+            type Output = Self;
+            fn bitand(self, rhs: Self) -> Self::Output {
+                Self(self.0 & rhs.0)
+            }
+        }
+
+        impl core::ops::BitAndAssign for $name {
+            fn bitand_assign(&mut self, rhs: Self) {
+                self.0 &= rhs.0;
+            }
+        }
+
+        impl core::ops::BitXor for $name {
+            type Output = Self;
+            fn bitxor(self, rhs: Self) -> Self::Output {
+                Self(self.0 ^ rhs.0)
+            }
+        }
+
+        impl core::ops::BitXorAssign for $name {
+            fn bitxor_assign(&mut self, rhs: Self) {
+                self.0 ^= rhs.0;
+            }
+        }
+
+        impl core::ops::Not for $name {
+            type Output = Self;
+            fn not(self) -> Self::Output {
+                Self(!self.0)
+            }
+        }
+
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $crate::TpmMarshal::marshal(&self.0, writer)
