@@ -55,7 +55,8 @@ impl Task for Evict {
             task_state.device.clone(),
             |dev| -> Result<(), CommandError> {
                 let persistent_handle = TpmHandle(output_handle);
-                let transient_handle = task_state.load_key(dev, TpmHandle(input_handle))?;
+                let transient_handle =
+                    task_state.load_key_by_handle(dev, TpmHandle(input_handle))?;
                 task_state.evict_control(
                     dev,
                     transient_handle,

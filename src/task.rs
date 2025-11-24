@@ -354,7 +354,7 @@ impl<'a> TaskState<'a> {
     /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
     /// if a loaded handle
     /// is already being tracked.
-    pub fn load_key(
+    pub fn load_key_by_handle(
         &mut self,
         device: &mut TpmDevice,
         target: TpmHandle,
@@ -371,33 +371,12 @@ impl<'a> TaskState<'a> {
             return Err(TaskError::HandleNotFound(TpmHandle(target_vhandle)));
         }
 
-        let mut chain_iter = chain.into_iter();
-
-        let first_handle = chain_iter
-            .next()
-            .ok_or(TaskError::HandleNotFound(TpmHandle(target_vhandle)))?;
-        let mut phandle = self.load_chain_root(device, first_handle)?;
-
-        for handle in chain_iter {
-            let vhandle = handle.0;
-
-            if let Some(&live_h) = self.live_handles.get(&vhandle) {
-                phandle = live_h;
-                continue;
-            }
-
-            let key = self
-                .cache
-                .find_by_handle(TpmHandle(vhandle))
-                .ok_or(TaskError::HandleNotFound(TpmHandle(vhandle)))?;
-
-            let loaded_phandle = device.load_context(key.context.clone())?;
-            self.track(loaded_phandle)?;
-            self.live_handles.insert(vhandle, loaded_phandle);
-            phandle = loaded_phandle;
+        let mut last_phandle = TpmHandle(0);
+        for handle in chain {
+            last_phandle = self.load_key_context(device, handle)?;
         }
 
-        Ok(phandle)
+        Ok(last_phandle)
     }
 
     /// Loads a TPM context from a `Tpm2bName`, recursively loading its ancestors first
@@ -420,13 +399,9 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         name: &Tpm2bName,
     ) -> Result<TpmHandle, TaskError> {
-        if let Some(handle) = device.find_persistent(name)? {
-            return Ok(handle);
-        }
-
         if let Some(key) = self.cache.find_by_name(name) {
             let vhandle = key.handle.0;
-            return self.load_key(device, TpmHandle(vhandle));
+            return self.load_key_by_handle(device, TpmHandle(vhandle));
         }
 
         Err(TaskError::HandleNameNotFound(*name))
@@ -464,7 +439,7 @@ impl<'a> TaskState<'a> {
         ),
         TaskError,
     > {
-        let phys_handle = self.load_key(device, handle)?;
+        let phys_handle = self.load_key_by_handle(device, handle)?;
         let ht_byte = (handle.0 >> 24) as u8;
         let ht = TpmHt::try_from(ht_byte).map_err(|_| TaskError::InvalidHandleType(ht_byte))?;
 
@@ -713,7 +688,7 @@ impl<'a> TaskState<'a> {
         Ok((resp, nonce_caller))
     }
 
-    fn load_chain_root(
+    fn load_key_context(
         &mut self,
         device: &mut TpmDevice,
         handle: TpmHandle,
