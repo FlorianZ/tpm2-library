@@ -5,7 +5,7 @@
 use crate::{
     cli::Hierarchy,
     command::CommandError,
-    pcr::{pcr_get_bank_list, read_all_pcrs},
+    pcr::read_all_pcrs,
     task::{TaskAuth, TaskState},
 };
 use clap::{Args, ValueEnum};
@@ -157,8 +157,8 @@ pub fn build_policy_command_list(
 ) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
     if let Some(expression) = &creation_args.policy_expression {
         let pcrs = read_all_pcrs(device)?;
-        let banks = pcr_get_bank_list(device)?;
-        let pcr_count = banks.iter().map(|b| b.count).max().unwrap_or(0);
+        let (pcr_select_size, _) = device.fetch_pcr_bank_list()?;
+        let pcr_count = pcr_select_size * 8;
 
         let names = fetch_handle_names(task_state, device)?;
 

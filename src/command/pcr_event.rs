@@ -5,7 +5,6 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
     io::{parse_u32, read_file_input},
-    pcr::pcr_get_bank_list,
     task::TaskState,
 };
 use clap::Args;
@@ -46,7 +45,7 @@ impl Task for PcrEvent {
         _is_tty: bool,
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
-            let banks = pcr_get_bank_list(device)?;
+            let (_, banks) = device.fetch_pcr_bank_list()?;
             let handles = [self.pcr_index.0];
 
             let data_bytes = read_file_input(self.input_args.input.as_deref())?;
@@ -68,11 +67,11 @@ impl Task for PcrEvent {
             let clauses: Vec<String> = banks
                 .iter()
                 .zip(pcr_resp.digests.iter())
-                .filter_map(|(bank, digest_struct)| {
+                .filter_map(|(alg, digest_struct)| {
                     if let TpmuHa::Digest(bytes) = digest_struct.digest {
                         Some(format!(
                             "{}:{}:{}",
-                            TpmHash::from(bank.alg),
+                            TpmHash::from(*alg),
                             self.pcr_index.0,
                             hex::encode(bytes)
                         ))

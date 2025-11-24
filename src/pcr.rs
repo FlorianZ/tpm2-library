@@ -25,53 +25,10 @@ pub enum PcrError {
     CapacityExceeded,
     #[error("invalid algorithm: {0:?}")]
     InvalidAlgorithm(TpmAlgId),
-    #[error("PCR banks not available")]
-    PcrBanksNotAvailable,
     #[error("PCR digest missing")]
     PcrDigestMissing,
-    #[error("PCR bank size mismatch")]
-    PcrBankSizeMismatch,
     #[error("protocol: {0}")]
     Protocol(#[from] TpmProtocolError),
-}
-
-/// Represents the properties of a single PCR bank.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PcrBank {
-    pub alg: TpmAlgId,
-    pub count: usize,
-}
-
-/// Discovers the list of available PCR banks and their sizes from the TPM.
-///
-/// # Errors
-///
-/// Returns a `PcrError` if the TPM capability query fails or if the TPM reports
-/// no active PCR banks.
-pub fn pcr_get_bank_list(device: &mut TpmDevice) -> Result<Vec<PcrBank>, PcrError> {
-    let pcrs = device.fetch_pcr_banks()?;
-    let mut banks = Vec::new();
-    let mut first_count = 0;
-    for bank in pcrs.clone() {
-        let count = bank.pcr_select.len();
-        if first_count == 0 {
-            first_count = count;
-        }
-        if count != first_count {
-            return Err(PcrError::PcrBankSizeMismatch);
-        }
-    }
-    for bank in pcrs {
-        banks.push(PcrBank {
-            alg: bank.hash,
-            count: bank.pcr_select.len() * 8,
-        });
-    }
-    if banks.is_empty() {
-        return Err(PcrError::PcrBanksNotAvailable);
-    }
-    banks.sort_by_key(|b| b.alg);
-    Ok(banks)
 }
 
 /// Reads all PCRs from the active banks.
@@ -85,21 +42,15 @@ pub fn pcr_get_bank_list(device: &mut TpmDevice) -> Result<Vec<PcrBank>, PcrErro
 pub fn read_all_pcrs(
     device: &mut TpmDevice,
 ) -> Result<HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>, PcrError> {
-    let banks = pcr_get_bank_list(device)?;
+    let (select_size, algs) = device.fetch_pcr_bank_list()?;
     let mut remaining_selection = TpmlPcrSelection::new();
 
-    for bank in &banks {
-        let mut mask = Vec::new();
-        mask.resize(bank.count.div_ceil(8), 0xFF);
-
-        if bank.count % 8 != 0 {
-            let last_idx = mask.len() - 1;
-            mask[last_idx] &= (1 << (bank.count % 8)) - 1;
-        }
+    for alg in &algs {
+        let mask = vec![0xFF; select_size];
 
         remaining_selection
             .try_push(TpmsPcrSelection {
-                hash: bank.alg,
+                hash: *alg,
                 pcr_select: TpmsPcrSelect::try_from(mask.as_slice())
                     .map_err(|_| PcrError::CapacityExceeded)?,
             })
@@ -107,8 +58,8 @@ pub fn read_all_pcrs(
     }
 
     let mut results: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>> = HashMap::new();
-    for bank in banks {
-        results.insert(bank.alg, HashMap::new());
+    for alg in algs {
+        results.insert(alg, HashMap::new());
     }
 
     while !is_selection_empty(&remaining_selection) {
