@@ -118,12 +118,12 @@ mod tests {
         );
 
         let parent_key = cache
-            .find_by_virtual_handle(TpmHandle(parent_vhandle))
+            .find_by_handle(TpmHandle(parent_vhandle))
             .expect("Failed to find parent by vhandle");
         assert_eq!(parent_key.public, parent_public);
 
         let child_key = cache
-            .find_by_virtual_handle(TpmHandle(child_vhandle))
+            .find_by_handle(TpmHandle(child_vhandle))
             .expect("Failed to find child by vhandle");
         assert_eq!(child_key.public, child_public);
         assert_eq!(child_key.context, child_context);
@@ -184,10 +184,7 @@ mod tests {
         let cache_path = cache_dir.path();
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
 
-        let err = cache
-            .find_by_virtual_handle(TpmHandle(0x8000_0000))
-            .err()
-            .unwrap();
+        let err = cache.find_by_handle(TpmHandle(0x8000_0000)).err().unwrap();
         assert!(matches!(err, VtpmError::HandleNotFound(_)));
 
         let err = cache
@@ -230,7 +227,7 @@ mod tests {
 
         cache.remove(h1).expect("Failed to remove h1");
         assert!(
-            cache.find_by_virtual_handle(TpmHandle(h1)).is_err(),
+            cache.find_by_handle(TpmHandle(h1)).is_err(),
             "h1 was not removed from map"
         );
 
@@ -455,7 +452,7 @@ mod tests {
 
         let cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to reload cache");
         let key = cache
-            .find_by_virtual_handle(TpmHandle(child_vhandle))
+            .find_by_handle(TpmHandle(child_vhandle))
             .expect("Failed to find child by vhandle after reload");
 
         assert_eq!(

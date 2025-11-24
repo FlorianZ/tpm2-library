@@ -296,10 +296,10 @@ impl<'a> VtpmCache<'a> {
     ///
     /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) when
     /// no context with the given `virtual_handle` exists.
-    pub fn find_by_virtual_handle(&self, virtual_handle: TpmHandle) -> Result<&VtpmKey, VtpmError> {
+    pub fn find_by_handle(&self, handle: TpmHandle) -> Result<&VtpmKey, VtpmError> {
         self.contexts
-            .get(&virtual_handle.0)
-            .ok_or(VtpmError::HandleNotFound(virtual_handle))
+            .get(&handle.0)
+            .ok_or(VtpmError::HandleNotFound(handle))
     }
 
     /// Finds the ancestor chain for a given VTPM handle.
@@ -330,7 +330,7 @@ impl<'a> VtpmCache<'a> {
         let mut physical_primary: Option<TpmHandle> = None;
 
         loop {
-            let key = self.find_by_virtual_handle(current_virtual_handle)?;
+            let key = self.find_by_handle(current_virtual_handle)?;
 
             if key.parent.object_type == TpmAlgId::Null {
                 break;
