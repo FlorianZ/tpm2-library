@@ -312,8 +312,14 @@ impl Memory {
             let read_resp = resp
                 .NvRead()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::NvRead))?;
+
+            let received_len = read_resp.data.len();
+            if received_len == 0 {
+                break;
+            }
+
             cert_bytes.extend_from_slice(read_resp.data.as_ref());
-            offset += chunk_size;
+            offset += received_len;
         }
         Ok(cert_bytes)
     }
