@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
     io::read_file_input,
-    task::{is_policy_only, TaskAuth, TaskState},
+    task::{TaskAuth, TaskState},
 };
 use clap::Args;
 use tpm2_crypto::tpm_make_name;
@@ -114,7 +114,7 @@ impl Task for Load {
                     object_context,
                     &public.inner,
                     &parent_public.inner,
-                    is_policy_only(&public.inner),
+                    tpm_key.empty_auth.is_some(),
                     &policy_blob,
                 )?;
 

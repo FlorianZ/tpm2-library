@@ -18,8 +18,8 @@ use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, Tpm2bPrivate,
-        Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSe, TpmaObject, TpmaSession,
-        TpmsAuthCommand, TpmtPublic, TpmtSymDefObject,
+        Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSe, TpmaSession, TpmsAuthCommand,
+        TpmtSymDefObject,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
@@ -31,28 +31,6 @@ use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
 use tpm2_vtpm::{
     vtpm_policy_command_from, VtpmCache, VtpmError, VtpmPolicyCommand, VtpmPolicySecretCommand,
 };
-
-/// Returns true if the object has no authorization.
-#[must_use]
-pub fn is_empty_auth(public: &TpmtPublic) -> bool {
-    !public
-        .object_attributes
-        .contains(TpmaObject::ADMIN_WITH_POLICY)
-        && !public
-            .object_attributes
-            .contains(TpmaObject::USER_WITH_AUTH)
-}
-
-/// Returns true if the object's attributes indicate policy-only authorization.
-#[must_use]
-pub fn is_policy_only(public: &TpmtPublic) -> bool {
-    public
-        .object_attributes
-        .contains(TpmaObject::ADMIN_WITH_POLICY)
-        && !public
-            .object_attributes
-            .contains(TpmaObject::USER_WITH_AUTH)
-}
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
@@ -283,17 +261,12 @@ impl<'a> TaskState<'a> {
         public: Tpm2bPublic,
         private: Tpm2bPrivate,
         parent_handle: TpmHandle,
+        empty_auth: Option<bool>,
         policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
     ) -> Result<TpmKeyFile, TaskError> {
         let (parent_public_data, _) = device.read_public(parent_handle)?;
         let parent_public = Tpm2bPublic {
             inner: parent_public_data,
-        };
-
-        let empty_auth = if is_empty_auth(&public.inner) {
-            Some(true)
-        } else {
-            None
         };
 
         let tpm_key_policy = self.build_key_policy(device, policy_commands)?;

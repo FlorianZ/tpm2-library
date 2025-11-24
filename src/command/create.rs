@@ -103,7 +103,7 @@ impl Create {
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
-    ) -> Result<(TpmCreateCommand, Option<PolicyCommands>), CommandError> {
+    ) -> Result<(TpmCreateCommand, Option<PolicyCommands>, Option<bool>), CommandError> {
         let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
         let sensitive_data = self.get_sensitive_data()?;
 
@@ -133,7 +133,13 @@ impl Create {
             handles: [parent_handle.0.into()],
         };
 
-        Ok((create_cmd, policy_commands))
+        let empty_auth = if user_auth.is_empty() {
+            Some(true)
+        } else {
+            None
+        };
+
+        Ok((create_cmd, policy_commands, empty_auth))
     }
 
     fn create_object(
@@ -149,7 +155,7 @@ impl Create {
         let (parent_phys_handle, _, auth) =
             task_state.build_auth(device, TpmHandle(parent), &self.auth_args.auth)?;
 
-        let (create_cmd, policy_commands) =
+        let (create_cmd, policy_commands, empty_auth) =
             self.build_create_command(task_state, device, parent_phys_handle)?;
 
         let (resp, _) = task_state.execute(device, &create_cmd, &[auth])?;
@@ -162,6 +168,7 @@ impl Create {
             resp.out_public,
             resp.out_private,
             parent_phys_handle,
+            empty_auth,
             policy_commands,
         )?;
 

@@ -360,12 +360,19 @@ impl Convert {
             inner: public.clone(),
         };
 
+        let empty_auth = if user_auth.is_empty() {
+            Some(true)
+        } else {
+            None
+        };
+
         task_state
             .build_tpm_key_file(
                 device,
                 tpm_public_2b,
                 out_private,
                 parent_handle,
+                empty_auth,
                 policy_commands,
             )
             .map_err(CommandError::from)
