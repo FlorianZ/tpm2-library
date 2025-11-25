@@ -34,9 +34,8 @@ pub use unseal::*;
 
 use crate::{pcr::PcrError, task::TaskError};
 
-use std::{io::Write, num::TryFromIntError};
+use std::io::Write;
 
-use openssl::error::ErrorStack;
 use tabled::{
     settings::{object::Rows, Color, Modify, Padding, Style},
     Table, Tabled,
@@ -99,18 +98,14 @@ pub fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate, Comm
             if let TpmuPublicParms::Rsa(parms) = &public.parameters {
                 Ok(TpmPublicTemplate::new_rsa(parms.key_bits, public.name_alg))
             } else {
-                Err(CommandError::InvalidInput(
-                    "Invalid RSA parameters".to_string(),
-                ))
+                Err(CommandError::InvalidRsaParameters)
             }
         }
         TpmAlgId::Ecc => {
             if let TpmuPublicParms::Ecc(parms) = &public.parameters {
                 Ok(TpmPublicTemplate::new_ecc(parms.curve_id, public.name_alg))
             } else {
-                Err(CommandError::InvalidInput(
-                    "Invalid ECC parameters".to_string(),
-                ))
+                Err(CommandError::InvalidEccParameters)
             }
         }
         TpmAlgId::KeyedHash => Ok(TpmPublicTemplate::new_keyedhash(public.name_alg)),
@@ -132,16 +127,12 @@ pub enum CommandError {
     Device(TpmDeviceError),
     #[error("dictionary attack lockout is active")]
     DictionaryAttackLocked,
-    #[error("handle not found: {0}:{1:08x}")]
-    HandleNotFound(&'static str, u32),
-    #[error("hex decode: {0}")]
-    HexDecode(#[from] hex::FromHexError),
-    #[error("int decode: {0}")]
-    IntDecode(#[from] TryFromIntError),
-    #[error("key: {0}")]
-    Key(#[from] tpm2_tpmkey::TpmKeyError),
+    #[error("encrypting duplicate blob for external key failed")]
+    EncryptingDuplicateFailed,
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
+    #[error("invalid ECC parameters")]
+    InvalidEccParameters,
     #[error("invalid handle")]
     InvalidHandle,
     #[error("invalid handle type: 0x{0:02x}")]
@@ -152,12 +143,22 @@ pub enum CommandError {
     InvalidParentHandle,
     #[error("invalid parent key type")]
     InvalidParentType,
+    #[error("password is not a valid hex string")]
+    InvalidPassword,
     #[error("invalid policy expression: {0}")]
     InvalidPolicyExpression(String),
+    #[error("invalid public key")]
+    InvalidPublicKey,
+    #[error("invalid RSA parameters")]
+    InvalidRsaParameters,
+    #[error("senstive data is not a valid hex string")]
+    InvalidSensitiveData,
+    #[error("integer ovrflow")]
+    IntegerOverflow,
+    #[error("key: {0}")]
+    Key(#[from] tpm2_tpmkey::TpmKeyError),
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmProtocolError),
-    #[error("openssl: {0}")]
-    Openssl(#[from] ErrorStack),
     #[error("handle pattern not allowed: {0}")]
     PatternNotAllowed(String),
     #[error("pcr: {0}")]
@@ -175,7 +176,7 @@ pub enum CommandError {
     #[error("sensitive data missing")]
     SensitiveDataMissing,
     #[error("task: {0}")]
-    Task(TaskError),
+    Task(#[from] TaskError),
     #[error("unknown handle: {0}")]
     UnknownHandle(String),
     #[error("unknown parent")]
@@ -187,28 +188,12 @@ pub enum CommandError {
     #[error("unsupported key algorithm")]
     UnsupportedKeyAlgorithm,
     #[error("vtpm: {0}")]
-    Vtpm(VtpmError),
+    Vtpm(#[from] VtpmError),
 }
 
-impl From<TaskError> for CommandError {
-    fn from(err: TaskError) -> Self {
-        match err {
-            TaskError::Device(dev_err) => Self::from(dev_err),
-            TaskError::Vtpm(VtpmError::HandleNotFound(handle)) => {
-                Self::HandleNotFound("vtpm", handle.into())
-            }
-            TaskError::Vtpm(e) => Self::Vtpm(e),
-            TaskError::Crypto(e) => Self::Crypto(e),
-            TaskError::Io(e) => Self::Io(e),
-            TaskError::IntDecode(e) => Self::IntDecode(e),
-            _ => Self::Task(err),
-        }
-    }
-}
-
-impl From<VtpmError> for CommandError {
-    fn from(err: VtpmError) -> Self {
-        Self::Vtpm(err)
+impl From<std::num::TryFromIntError> for CommandError {
+    fn from(_: std::num::TryFromIntError) -> Self {
+        CommandError::IntegerOverflow
     }
 }
 

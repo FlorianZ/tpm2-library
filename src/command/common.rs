@@ -133,8 +133,12 @@ impl CreationArgs {
     /// Returns a `CommandError` if parsing fails.
     pub fn parse(&self, alg: &TpmPublicTemplate) -> Result<(TpmaObject, Tpm2bAuth), CommandError> {
         let user_auth = match &self.password {
-            Some(hex_str) => Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())
-                .map_err(|_| CommandError::CapacityExceeded)?,
+            Some(hex_str) => Tpm2bAuth::try_from(
+                hex::decode(hex_str)
+                    .map_err(|_| CommandError::InvalidPassword)?
+                    .as_slice(),
+            )
+            .map_err(|_| CommandError::CapacityExceeded)?,
             None => Tpm2bAuth::default(),
         };
 

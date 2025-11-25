@@ -444,15 +444,19 @@ impl Memory {
         let sig_alg = Self::fetch_hash_alg(sig_nid)?;
         let sig_alg_str = sig_alg.to_string();
 
-        let pkey = cert.public_key()?;
+        let pkey = cert
+            .public_key()
+            .map_err(|_| CommandError::InvalidPublicKey)?;
         match pkey.id() {
             PKeyId::RSA => {
-                let rsa = pkey.rsa()?;
+                let rsa = pkey.rsa().map_err(|_| CommandError::InvalidRsaParameters)?;
                 let key_bits = u16::try_from(rsa.size() * 8)?;
                 Ok(format!("rsa-{key_bits}:{sig_alg_str}"))
             }
             PKeyId::EC => {
-                let ec_key = pkey.ec_key()?;
+                let ec_key = pkey
+                    .ec_key()
+                    .map_err(|_| CommandError::InvalidEccParameters)?;
                 let curve_nid = ec_key.group().curve_name();
                 let curve = match curve_nid {
                     Some(Nid::X9_62_PRIME256V1) => TpmEllipticCurve::NistP256,

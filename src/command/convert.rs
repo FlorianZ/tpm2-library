@@ -78,8 +78,12 @@ impl Task for Convert {
             }
 
             let user_auth = match &self.creation_args.password {
-                Some(hex_str) => Tpm2bAuth::try_from(hex::decode(hex_str)?.as_slice())
-                    .map_err(|_| CommandError::CapacityExceeded)?,
+                Some(hex_str) => Tpm2bAuth::try_from(
+                    hex::decode(hex_str)
+                        .map_err(|_| CommandError::InvalidPassword)?
+                        .as_slice(),
+                )
+                .map_err(|_| CommandError::CapacityExceeded)?,
                 None => Tpm2bAuth::default(),
             };
 
@@ -181,7 +185,8 @@ impl Convert {
         let enc_data_in = write_object(&sensitive_tpm2b).map_err(CommandError::Marshal)?;
         let iv = [0u8; 16];
 
-        let enc_data = encrypt(Cipher::aes_128_cfb128(), sym_key, Some(&iv), &enc_data_in)?;
+        let enc_data = encrypt(Cipher::aes_128_cfb128(), sym_key, Some(&iv), &enc_data_in)
+            .map_err(|_| CommandError::EncryptingDuplicateFailed)?;
 
         Ok(enc_data)
     }

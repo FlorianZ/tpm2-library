@@ -77,7 +77,8 @@ impl Create {
     fn get_sensitive_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
         match (&self.data, self.algorithm.object_type) {
             (Some(hex_data), TpmAlgId::KeyedHash) => {
-                let bytes = hex::decode(hex_data)?;
+                let bytes =
+                    hex::decode(hex_data).map_err(|_| CommandError::InvalidSensitiveData)?;
                 if bytes.is_empty() {
                     Err(CommandError::SensitiveDataMissing)
                 } else {
