@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    basic::TpmBuffer,
+    basic::{TpmBuffer, Uint16},
     constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
@@ -32,7 +32,7 @@ impl TpmTagged for TpmuAsymScheme {
 }
 
 impl TpmSized for TpmuAsymScheme {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::Hash(s) => s.len(),
@@ -88,7 +88,7 @@ impl TpmTagged for TpmuCapabilities {
 }
 
 impl TpmSized for TpmuCapabilities {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::Algs(algs) => algs.len(),
@@ -232,7 +232,7 @@ impl TpmTagged for TpmuPublicId {
 }
 
 impl TpmSized for TpmuPublicId {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::KeyedHash(data) => data.len(),
@@ -296,7 +296,7 @@ impl TpmTagged for TpmuPublicParms {
 }
 
 impl TpmSized for TpmuPublicParms {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::KeyedHash(d) => d.len(),
@@ -366,7 +366,7 @@ impl Default for TpmuSensitiveComposite {
 }
 
 impl TpmSized for TpmuSensitiveComposite {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::Ecc(val) => val.len(),
@@ -412,9 +412,9 @@ impl TpmUnmarshalTagged for TpmuSensitiveComposite {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuSymKeyBits {
-    Aes(u16),
-    Sm4(u16),
-    Camellia(u16),
+    Aes(Uint16),
+    Sm4(Uint16),
+    Camellia(Uint16),
     Xor(TpmAlgId),
     #[default]
     Null,
@@ -426,7 +426,7 @@ impl TpmTagged for TpmuSymKeyBits {
 }
 
 impl TpmSized for TpmuSymKeyBits {
-    const SIZE: usize = core::mem::size_of::<u16>();
+    const SIZE: usize = core::mem::size_of::<Uint16>();
     fn len(&self) -> usize {
         match self {
             Self::Aes(val) | Self::Sm4(val) | Self::Camellia(val) => val.len(),
@@ -450,15 +450,15 @@ impl TpmUnmarshalTagged for TpmuSymKeyBits {
     fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         match tag {
             TpmAlgId::Aes => {
-                let (val, buf) = u16::unmarshal(buf)?;
+                let (val, buf) = Uint16::unmarshal(buf)?;
                 Ok((TpmuSymKeyBits::Aes(val), buf))
             }
             TpmAlgId::Sm4 => {
-                let (val, buf) = u16::unmarshal(buf)?;
+                let (val, buf) = Uint16::unmarshal(buf)?;
                 Ok((TpmuSymKeyBits::Sm4(val), buf))
             }
             TpmAlgId::Camellia => {
-                let (val, buf) = u16::unmarshal(buf)?;
+                let (val, buf) = Uint16::unmarshal(buf)?;
                 Ok((TpmuSymKeyBits::Camellia(val), buf))
             }
             TpmAlgId::Xor => {
@@ -487,7 +487,7 @@ impl TpmTagged for TpmuSymMode {
 }
 
 impl TpmSized for TpmuSymMode {
-    const SIZE: usize = core::mem::size_of::<u16>();
+    const SIZE: usize = core::mem::size_of::<Uint16>();
     fn len(&self) -> usize {
         match self {
             Self::Aes(val) | Self::Sm4(val) | Self::Camellia(val) | Self::Xor(val) => val.len(),
@@ -550,7 +550,7 @@ impl TpmTagged for TpmuSignature {
 }
 
 impl TpmSized for TpmuSignature {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::Rsassa(s) | Self::Rsapss(s) => s.len(),
@@ -630,7 +630,7 @@ impl TpmTagged for TpmuAttest {
 }
 
 impl TpmSized for TpmuAttest {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::Certify(i) => i.len(),
@@ -714,7 +714,7 @@ impl TpmTagged for TpmuKeyedhashScheme {
 }
 
 impl TpmSized for TpmuKeyedhashScheme {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::Hmac(s) => s.len(),
@@ -765,7 +765,7 @@ impl TpmTagged for TpmuSigScheme {
 }
 
 impl TpmSized for TpmuSigScheme {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::Hash(s) | Self::Hmac(s) => s.len(),
@@ -819,7 +819,7 @@ impl TpmTagged for TpmuNvPublic2 {
 
 #[allow(clippy::match_same_arms)]
 impl TpmSized for TpmuNvPublic2 {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         match self {
             Self::NvIndex(s) => s.len(),

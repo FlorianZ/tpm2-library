@@ -204,14 +204,14 @@ impl crate::TpmSized for TpmRc {
 
 impl crate::TpmMarshal for TpmRc {
     fn marshal(&self, writer: &mut crate::TpmWriter) -> crate::TpmResult<()> {
-        self.value().marshal(writer)
+        crate::basic::Uint32::from(self.value()).marshal(writer)
     }
 }
 
 impl crate::TpmUnmarshal for TpmRc {
     fn unmarshal(buf: &[u8]) -> crate::TpmResult<(Self, &[u8])> {
-        let (val, remainder) = u32::unmarshal(buf)?;
-        let rc = Self::try_from(val)?;
+        let (val, remainder) = crate::basic::Uint32::unmarshal(buf)?;
+        let rc = Self::try_from(u32::from(val))?;
         Ok((rc, remainder))
     }
 }

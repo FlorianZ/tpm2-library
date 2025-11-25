@@ -13,6 +13,8 @@ pub use self::{data::*, marshal::*, unmarshal::*};
 
 use crate::constant::{MAX_HANDLES, MAX_SESSIONS};
 
+const TPM_HEADER_SIZE: u32 = 10;
+
 /// A fixed-capacity list for TPM handles.
 pub type TpmHandles = TpmList<crate::TpmHandle, MAX_HANDLES>;
 

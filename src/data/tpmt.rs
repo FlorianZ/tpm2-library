@@ -68,7 +68,7 @@ pub struct TpmtPublic {
 }
 
 impl TpmSized for TpmtPublic {
-    const SIZE: usize = TPM_MAX_COMMAND_SIZE as usize;
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
         self.object_type.len()
             + self.name_alg.len()

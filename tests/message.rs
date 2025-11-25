@@ -49,7 +49,7 @@ fn main() {
                     let (_handles, body, sessions) =
                         tpm_unmarshal_command(&original_bytes).unwrap();
 
-                    let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+                    let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
                     let built_len = {
                         let mut writer = TpmWriter::new(&mut built_bytes);
                         let tag = if sessions.is_empty() {
@@ -78,7 +78,7 @@ fn main() {
                                 .expect("unmarshaling failed on a success test case")
                                 .expect("expected success but got TpmRc error");
 
-                            let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+                            let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
                             let built_len = {
                                 let mut writer = TpmWriter::new(&mut built_bytes);
                                 let rc = TpmRc::try_from(0x0000).unwrap();
@@ -107,7 +107,7 @@ fn main() {
 
                             assert_eq!(actual_rc, expected_rc, "Mismatched TpmRc error");
 
-                            let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+                            let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
                             let built_len = {
                                 let mut writer = TpmWriter::new(&mut built_bytes);
                                 tpm_marshal_response(

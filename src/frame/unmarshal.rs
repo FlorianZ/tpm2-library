@@ -4,9 +4,10 @@
 
 use super::{
     TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmHandles, TpmResponse, TPM_DISPATCH_TABLE,
+    TPM_HEADER_SIZE,
 };
 use crate::{
-    constant::TPM_HEADER_SIZE,
+    basic::{Uint16, Uint32},
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     TpmProtocolError, TpmResult, TpmUnmarshal,
 };
@@ -42,18 +43,19 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
     }
     let buf_len = buf.len();
 
-    let (tag_raw, buf) = u16::unmarshal(buf)?;
-    let tag = TpmSt::try_from(tag_raw)?;
-    let (size, buf) = u32::unmarshal(buf)?;
-    let (cc_raw, body_buf) = u32::unmarshal(buf)?;
+    let (tag_raw, buf) = Uint16::unmarshal(buf)?;
+    let tag = TpmSt::try_from(u16::from(tag_raw))?;
+    let (size, buf) = Uint32::unmarshal(buf)?;
+    let (cc_raw, body_buf) = Uint32::unmarshal(buf)?;
 
-    if buf_len < size as usize {
+    let size_usize = u32::from(size) as usize;
+    if buf_len < size_usize {
         return Err(TpmProtocolError::UnexpectedEnd);
-    } else if buf_len > size as usize {
+    } else if buf_len > size_usize {
         return Err(TpmProtocolError::TrailingData);
     }
 
-    let cc = TpmCc::try_from(cc_raw)?;
+    let cc = TpmCc::try_from(u32::from(cc_raw))?;
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
@@ -71,8 +73,8 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
 
     let mut sessions = TpmAuthCommands::new();
     let param_area = if tag == TpmSt::Sessions {
-        let (auth_area_size, buf_after_auth_size) = u32::unmarshal(after_handles)?;
-        let auth_area_size = auth_area_size as usize;
+        let (auth_area_size, buf_after_auth_size) = Uint32::unmarshal(after_handles)?;
+        let auth_area_size = u32::from(auth_area_size) as usize;
         if buf_after_auth_size.len() < auth_area_size {
             return Err(TpmProtocolError::UnexpectedEnd);
         }
@@ -99,8 +101,8 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
     let mut handles = TpmHandles::new();
     let mut temp_handle_cursor = handle_area;
     while !temp_handle_cursor.is_empty() {
-        let (handle, rest) = u32::unmarshal(temp_handle_cursor)?;
-        handles.try_push(handle.into())?;
+        let (handle, rest) = Uint32::unmarshal(temp_handle_cursor)?;
+        handles.try_push(handle)?;
         temp_handle_cursor = rest;
     }
 
@@ -122,22 +124,23 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
         return Err(TpmProtocolError::UnexpectedEnd);
     }
 
-    let (tag_raw, remainder) = u16::unmarshal(buf)?;
-    let (size, remainder) = u32::unmarshal(remainder)?;
-    let (code, body_buf) = u32::unmarshal(remainder)?;
+    let (tag_raw, remainder) = Uint16::unmarshal(buf)?;
+    let (size, remainder) = Uint32::unmarshal(remainder)?;
+    let (code, body_buf) = Uint32::unmarshal(remainder)?;
 
-    if buf.len() < size as usize {
+    let size_usize = u32::from(size) as usize;
+    if buf.len() < size_usize {
         return Err(TpmProtocolError::UnexpectedEnd);
-    } else if buf.len() > size as usize {
+    } else if buf.len() > size_usize {
         return Err(TpmProtocolError::TrailingData);
     }
 
-    let rc = TpmRc::try_from(code)?;
+    let rc = TpmRc::try_from(u32::from(code))?;
     if !matches!(rc, TpmRc::Fmt0(TpmRcBase::Success)) {
         return Ok(Err(rc));
     }
 
-    let tag = TpmSt::try_from(tag_raw)?;
+    let tag = TpmSt::try_from(u16::from(tag_raw))?;
 
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)

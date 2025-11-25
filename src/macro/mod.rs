@@ -95,14 +95,16 @@ macro_rules! tpm_bitflags {
 
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $crate::TpmMarshal::marshal(&self.0, writer)
+                type Wrapper = <$repr as $crate::basic::IntegerRepr>::Wrapper;
+                Wrapper::from(self.0).marshal(writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = <$repr>::unmarshal(buf)?;
-                Ok((Self(val), buf))
+                type Wrapper = <$repr as $crate::basic::IntegerRepr>::Wrapper;
+                let (val, buf) = Wrapper::unmarshal(buf)?;
+                Ok((Self(val.into()), buf))
             }
         }
 
@@ -138,14 +140,15 @@ macro_rules! tpm_bool {
 
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $crate::TpmMarshal::marshal(&u8::from(self.0), writer)
+                let value = if self.0 { 1 } else { 0 };
+                $crate::basic::Uint8::from(value).marshal(writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = u8::unmarshal(buf)?;
-                match val {
+                let (val, buf) = $crate::basic::Uint8::unmarshal(buf)?;
+                match u8::from(val) {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
                     _ => Err($crate::TpmProtocolError::InvalidBoolean),
@@ -154,7 +157,7 @@ macro_rules! tpm_bool {
         }
 
         impl $crate::TpmSized for $name {
-            const SIZE: usize = core::mem::size_of::<u8>();
+            const SIZE: usize = core::mem::size_of::<$crate::basic::Uint8>();
             fn len(&self) -> usize {
                 Self::SIZE
             }
@@ -186,7 +189,7 @@ macro_rules! tpm_dispatch {
         }
 
         impl $crate::TpmSized for TpmCommand {
-            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE as usize;
+            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE;
             fn len(&self) -> usize {
                 match self {
                     $( Self::$variant(c) => $crate::TpmSized::len(c), )*
@@ -254,7 +257,7 @@ macro_rules! tpm_dispatch {
         }
 
         impl $crate::TpmSized for TpmResponse {
-            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE as usize;
+            const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE;
             fn len(&self) -> usize {
                 match self {
                     $( Self::$variant(r) => $crate::TpmSized::len(r), )*
@@ -369,9 +372,9 @@ macro_rules! tpm2b_struct {
         }
 
         impl $crate::TpmSized for $wrapper_ty {
-            const SIZE: usize = core::mem::size_of::<u16>() + <$inner_ty>::SIZE;
+            const SIZE: usize = core::mem::size_of::<$crate::basic::Uint16>() + <$inner_ty>::SIZE;
             fn len(&self) -> usize {
-                core::mem::size_of::<u16>() + $crate::TpmSized::len(&self.inner)
+                core::mem::size_of::<$crate::basic::Uint16>() + $crate::TpmSized::len(&self.inner)
             }
         }
 
@@ -381,17 +384,17 @@ macro_rules! tpm2b_struct {
         {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
-                u16::try_from(inner_len)
-                    .map_err(|_| $crate::TpmProtocolError::IntegerTooLarge)?
-                    .marshal(writer)?;
+                let len_field = <$crate::basic::Uint16>::try_from(inner_len)
+                    .map_err(|_| $crate::TpmProtocolError::IntegerTooLarge)?;
+                len_field.marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $wrapper_ty {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (size, buf_after_size) = u16::unmarshal(buf)?;
-                let size = size as usize;
+                let (size, buf_after_size) = <$crate::basic::Uint16 as $crate::TpmUnmarshal>::unmarshal(buf)?;
+                let size = u16::from(size) as usize;
 
                 if buf_after_size.len() < size {
                     return Err($crate::TpmProtocolError::UnexpectedEnd);

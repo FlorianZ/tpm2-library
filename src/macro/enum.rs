@@ -58,14 +58,18 @@ macro_rules! tpm_enum {
 
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                $crate::TpmMarshal::marshal(&(*self as $repr), writer)
+                type Wrapper = <$repr as $crate::basic::IntegerRepr>::Wrapper;
+                let value: $repr = *self as $repr;
+                Wrapper::from(value).marshal(writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = <$repr>::unmarshal(buf)?;
-                let enum_val = Self::try_from(val)?;
+                type Wrapper = <$repr as $crate::basic::IntegerRepr>::Wrapper;
+                let (val, buf) = Wrapper::unmarshal(buf)?;
+                let raw: $repr = val.into();
+                let enum_val = Self::try_from(raw)?;
                 Ok((enum_val, buf))
             }
         }

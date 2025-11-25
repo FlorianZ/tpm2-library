@@ -3,6 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 mod buffer;
+mod integer;
 mod list;
 
-pub use self::{buffer::*, list::*};
+pub use self::{buffer::*, integer::*, list::*};

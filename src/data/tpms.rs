@@ -3,6 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    basic::{Uint16, Uint32, Uint64, Uint8},
     constant::{TPM_GENERATED_VALUE, TPM_PCR_SELECT_MAX},
     data::{
         Tpm2b, Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bMaxNvBuffer, Tpm2bName,
@@ -24,7 +25,7 @@ use core::{
 /// A fixed-capacity list for a PCR selection bitmap.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct TpmsPcrSelect {
-    size: u8,
+    size: Uint8,
     data: [u8; TPM_PCR_SELECT_MAX as usize],
 }
 
@@ -33,7 +34,7 @@ impl TpmsPcrSelect {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            size: 0,
+            size: Uint8::new(0),
             data: [0; TPM_PCR_SELECT_MAX as usize],
         }
     }
@@ -49,7 +50,7 @@ impl Deref for TpmsPcrSelect {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.data[..self.size as usize]
+        &self.data[..u8::from(self.size) as usize]
     }
 }
 
@@ -62,7 +63,7 @@ impl TryFrom<&[u8]> for TpmsPcrSelect {
         }
         let mut pcr_select = Self::new();
         let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
-        pcr_select.size = len_u8;
+        pcr_select.size = Uint8::from(len_u8);
         pcr_select.data[..slice.len()].copy_from_slice(slice);
         Ok(pcr_select)
     }
@@ -79,10 +80,10 @@ impl Debug for TpmsPcrSelect {
 }
 
 impl TpmSized for TpmsPcrSelect {
-    const SIZE: usize = size_of::<u8>() + TPM_PCR_SELECT_MAX as usize;
+    const SIZE: usize = size_of::<Uint8>() + TPM_PCR_SELECT_MAX as usize;
 
     fn len(&self) -> usize {
-        size_of::<u8>() + self.size as usize
+        size_of::<Uint8>() + u8::from(self.size) as usize
     }
 }
 
@@ -95,16 +96,17 @@ impl TpmMarshal for TpmsPcrSelect {
 
 impl TpmUnmarshal for TpmsPcrSelect {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (size, remainder) = u8::unmarshal(buf)?;
+        let (size, remainder) = Uint8::unmarshal(buf)?;
+        let raw = u8::from(size);
 
-        if size > TPM_PCR_SELECT_MAX {
+        if raw > TPM_PCR_SELECT_MAX {
             return Err(TpmProtocolError::TooManyItems);
         }
-        if remainder.len() < size as usize {
+        if remainder.len() < raw as usize {
             return Err(TpmProtocolError::UnexpectedEnd);
         }
 
-        let (pcr_bytes, final_remainder) = remainder.split_at(size as usize);
+        let (pcr_bytes, final_remainder) = remainder.split_at(raw as usize);
         let pcr_select = Self::try_from(pcr_bytes)?;
         Ok((pcr_select, final_remainder))
     }
@@ -114,7 +116,7 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     pub struct TpmsAcOutput {
         pub tag: TpmAt,
-        pub data: u32,
+        pub data: Uint32,
     }
 }
 
@@ -152,7 +154,7 @@ pub struct TpmsCapabilityData {
 }
 
 impl TpmSized for TpmsCapabilityData {
-    const SIZE: usize = size_of::<u32>() + TpmuCapabilities::SIZE;
+    const SIZE: usize = size_of::<Uint32>() + TpmuCapabilities::SIZE;
     fn len(&self) -> usize {
         self.capability.len() + self.data.len()
     }
@@ -176,9 +178,9 @@ impl TpmUnmarshal for TpmsCapabilityData {
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     pub struct TpmsClockInfo {
-        pub clock: u64,
-        pub reset_count: u32,
-        pub restart_count: u32,
+        pub clock: Uint64,
+        pub reset_count: Uint32,
+        pub restart_count: Uint32,
         pub safe: TpmiYesNo,
     }
 }
@@ -186,7 +188,7 @@ tpm_struct! {
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct TpmsContext {
-        pub sequence: u64,
+        pub sequence: Uint64,
         pub saved_handle: TpmHandle,
         pub hierarchy: TpmRh,
         pub context_blob: Tpm2b,
@@ -233,7 +235,7 @@ tpm_struct! {
         pub name_alg: TpmAlgId,
         pub attributes: TpmaNv,
         pub auth_policy: Tpm2bDigest,
-        pub data_size: u16,
+        pub data_size: Uint16,
     }
 }
 
@@ -244,7 +246,7 @@ tpm_struct! {
         pub name_alg: TpmAlgId,
         pub attributes: TpmaNvExp,
         pub auth_policy: Tpm2bDigest,
-        pub data_size: u16,
+        pub data_size: Uint16,
     }
 }
 
@@ -304,14 +306,14 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmsTaggedProperty {
         pub property: TpmPt,
-        pub value: u32,
+        pub value: Uint32,
     }
 }
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     pub struct TpmsTimeInfo {
-        pub time: u64,
+        pub time: Uint64,
         pub clock_info: TpmsClockInfo,
     }
 }
@@ -337,7 +339,7 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
     pub struct TpmsTimeAttestInfo {
         pub time: TpmsTimeInfo,
-        pub firmware_version: u64,
+        pub firmware_version: Uint64,
     }
 }
 
@@ -360,7 +362,7 @@ tpm_struct! {
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
     pub struct TpmsCommandAuditInfo {
-        pub audit_counter: u64,
+        pub audit_counter: Uint64,
         pub digest_alg: TpmAlgId,
         pub audit_digest: Tpm2bDigest,
         pub command_digest: Tpm2bDigest,
@@ -387,7 +389,7 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
     pub struct TpmsNvCertifyInfo {
         pub index_name: Tpm2bName,
-        pub offset: u16,
+        pub offset: Uint16,
         pub nv_contents: Tpm2bMaxNvBuffer,
     }
 }
@@ -404,7 +406,7 @@ tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     pub struct TpmsAlgorithmDetailEcc {
         pub curve_id: TpmEccCurve,
-        pub key_size: u16,
+        pub key_size: Uint16,
         pub kdf: TpmtKdfScheme,
         pub sign: TpmtEccScheme,
         pub p: Tpm2bEccParameter,
@@ -423,32 +425,32 @@ pub struct TpmsAttest {
     pub qualified_signer: Tpm2bName,
     pub extra_data: Tpm2bData,
     pub clock_info: TpmsClockInfo,
-    pub firmware_version: u64,
+    pub firmware_version: Uint64,
     pub attested: TpmuAttest,
 }
 
 impl TpmSized for TpmsAttest {
-    const SIZE: usize = size_of::<u32>()
+    const SIZE: usize = size_of::<Uint32>()
         + TpmSt::SIZE
         + Tpm2bName::SIZE
         + Tpm2bData::SIZE
         + TpmsClockInfo::SIZE
-        + size_of::<u64>()
+        + size_of::<Uint64>()
         + TpmuAttest::SIZE;
     fn len(&self) -> usize {
-        size_of::<u32>()
+        size_of::<Uint32>()
             + self.attest_type.len()
             + self.qualified_signer.len()
             + self.extra_data.len()
             + self.clock_info.len()
-            + size_of::<u64>()
+            + size_of::<Uint64>()
             + self.attested.len()
     }
 }
 
 impl TpmMarshal for TpmsAttest {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        TPM_GENERATED_VALUE.marshal(writer)?;
+        crate::basic::Uint32::from(TPM_GENERATED_VALUE).marshal(writer)?;
         self.attest_type.marshal(writer)?;
         self.qualified_signer.marshal(writer)?;
         self.extra_data.marshal(writer)?;
@@ -460,15 +462,15 @@ impl TpmMarshal for TpmsAttest {
 
 impl TpmUnmarshal for TpmsAttest {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (magic, buf) = u32::unmarshal(buf)?;
-        if magic != TPM_GENERATED_VALUE {
+        let (magic, buf) = crate::basic::Uint32::unmarshal(buf)?;
+        if u32::from(magic) != TPM_GENERATED_VALUE {
             return Err(TpmProtocolError::InvalidAttestMagic);
         }
         let (attest_type, buf) = TpmSt::unmarshal(buf)?;
         let (qualified_signer, buf) = Tpm2bName::unmarshal(buf)?;
         let (extra_data, buf) = Tpm2bData::unmarshal(buf)?;
         let (clock_info, buf) = TpmsClockInfo::unmarshal(buf)?;
-        let (firmware_version, buf) = u64::unmarshal(buf)?;
+        let (firmware_version, buf) = Uint64::unmarshal(buf)?;
         let (attested, buf) = TpmuAttest::unmarshal_tagged(attest_type, buf)?;
 
         Ok((
@@ -507,8 +509,8 @@ tpm_struct! {
     pub struct TpmsRsaParms {
         pub symmetric: TpmtSymDefObject,
         pub scheme: TpmtRsaScheme,
-        pub key_bits: u16,
-        pub exponent: u32,
+        pub key_bits: Uint16,
+        pub exponent: Uint32,
     }
 }
 

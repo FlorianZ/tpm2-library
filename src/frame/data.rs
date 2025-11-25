@@ -3,6 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    basic::{Int32, Uint16, Uint32, Uint64},
     data::{
         Tpm2bAttest, Tpm2bAuth, Tpm2bCreationData, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter,
         Tpm2bEccPoint, Tpm2bEncryptedSecret, Tpm2bEvent, Tpm2bIdObject, Tpm2bIv, Tpm2bMaxBuffer,
@@ -28,7 +29,7 @@ tpm_struct! {
     handles: 1,
     parameters: {
         pub capability: TpmAt,
-        pub count: u32,
+        pub count: Uint32,
     }
 }
 
@@ -96,7 +97,7 @@ tpm_struct! {
     cc: TpmCc::ActSetTimeout,
     handles: 1,
     parameters: {
-        pub start_timeout: u32,
+        pub start_timeout: Uint32,
     }
 }
 
@@ -260,7 +261,7 @@ tpm_struct! {
     cc: TpmCc::ClockSet,
     handles: 1,
     parameters: {
-        pub new_time: u64,
+        pub new_time: Uint64,
     }
 }
 
@@ -296,7 +297,7 @@ tpm_struct! {
         pub k: Tpm2bEccPoint,
         pub l: Tpm2bEccPoint,
         pub e: Tpm2bEccPoint,
-        pub counter: u16,
+        pub counter: Uint16,
     }
 }
 
@@ -448,9 +449,9 @@ tpm_struct! {
     cc: TpmCc::DictionaryAttackParameters,
     handles: 1,
     parameters: {
-        pub new_max_tries: u32,
-        pub new_recovery_time: u32,
-        pub lockout_recovery: u32,
+        pub new_max_tries: Uint32,
+        pub new_recovery_time: Uint32,
+        pub lockout_recovery: Uint32,
     }
 }
 
@@ -532,7 +533,7 @@ tpm_struct! {
     handles: 0,
     parameters: {
         pub q: Tpm2bEccPoint,
-        pub counter: u16,
+        pub counter: Uint16,
     }
 }
 
@@ -771,7 +772,7 @@ tpm_struct! {
     cc: TpmCc::FirmwareRead,
     handles: 0,
     parameters: {
-        pub sequence_number: u32,
+        pub sequence_number: Uint32,
     }
 }
 
@@ -814,8 +815,8 @@ tpm_struct! {
     handles: 0,
     parameters: {
         pub cap: TpmCap,
-        pub property: u32,
-        pub property_count: u32,
+        pub property: Uint32,
+        pub property_count: Uint32,
     }
 }
 
@@ -862,7 +863,7 @@ tpm_struct! {
     cc: TpmCc::GetRandom,
     handles: 0,
     parameters: {
-        pub bytes_requested: u16,
+        pub bytes_requested: Uint16,
     }
 }
 
@@ -1205,8 +1206,8 @@ tpm_struct! {
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub in_scheme: TpmtSignature,
-        pub size: u16,
-        pub offset: u16,
+        pub size: Uint16,
+        pub offset: Uint16,
     }
 }
 
@@ -1347,8 +1348,8 @@ tpm_struct! {
     cc: TpmCc::NvRead,
     handles: 2,
     parameters: {
-        pub size: u16,
-        pub offset: u16,
+        pub size: Uint16,
+        pub offset: Uint16,
     }
 }
 
@@ -1430,7 +1431,7 @@ tpm_struct! {
     cc: TpmCc::NvSetBits,
     handles: 2,
     parameters: {
-        pub bits: u64,
+        pub bits: Uint64,
     }
 }
 
@@ -1487,7 +1488,7 @@ tpm_struct! {
     handles: 2,
     parameters: {
         pub data: Tpm2bMaxNvBuffer,
-        pub offset: u16,
+        pub offset: Uint16,
     }
 }
 
@@ -1559,9 +1560,9 @@ tpm_struct! {
     handles: 0,
     parameters: {
         pub allocation_success: TpmiYesNo,
-        pub max_pcr: u32,
-        pub size_needed: u32,
-        pub size_available: u32,
+        pub max_pcr: Uint32,
+        pub size_needed: Uint32,
+        pub size_available: Uint32,
     }
 }
 
@@ -1643,7 +1644,7 @@ tpm_struct! {
     cc: TpmCc::PcrRead,
     handles: 0,
     parameters: {
-        pub pcr_update_counter: u32,
+        pub pcr_update_counter: Uint32,
         pub pcr_selection_out: TpmlPcrSelection,
         pub pcr_values: TpmlDigest,
     }
@@ -1781,7 +1782,7 @@ tpm_struct! {
     handles: 1,
     parameters: {
         pub capability: TpmCap,
-        pub property: u32,
+        pub property: Uint32,
         pub op: TpmEo,
         pub operand_b: Tpm2bMaxBuffer,
     }
@@ -1824,7 +1825,7 @@ tpm_struct! {
     handles: 1,
     parameters: {
         pub operand_b: Tpm2bMaxBuffer,
-        pub offset: u16,
+        pub offset: Uint16,
         pub operation: TpmEo,
     }
 }
@@ -1948,7 +1949,7 @@ tpm_struct! {
     handles: 3,
     parameters: {
         pub operand_b: Tpm2bMaxBuffer,
-        pub offset: u16,
+        pub offset: Uint16,
         pub operation: TpmEo,
     }
 }
@@ -2107,7 +2108,7 @@ tpm_struct! {
         pub nonce_tpm: Tpm2bNonce,
         pub cp_hash_a: Tpm2bDigest,
         pub policy_ref: Tpm2bNonce,
-        pub expiration: i32,
+        pub expiration: Int32,
     }
 }
 
@@ -2133,7 +2134,7 @@ tpm_struct! {
         pub nonce_tpm: Tpm2bNonce,
         pub cp_hash_a: Tpm2bDigest,
         pub policy_ref: Tpm2bNonce,
-        pub expiration: i32,
+        pub expiration: Int32,
         pub auth: TpmtSignature,
     }
 }
@@ -2467,7 +2468,7 @@ tpm_struct! {
     cc: TpmCc::SetAlgorithmSet,
     handles: 1,
     parameters: {
-        pub algorithm_set: u32,
+        pub algorithm_set: Uint32,
     }
 }
 
@@ -2728,7 +2729,7 @@ tpm_struct! {
         pub in_qsb: Tpm2bEccPoint,
         pub in_qeb: Tpm2bEccPoint,
         pub in_scheme: TpmiEccKeyExchange,
-        pub counter: u16,
+        pub counter: Uint16,
     }
 }
 

@@ -31,62 +31,8 @@ pub mod data;
 pub mod r#macro;
 pub mod frame;
 
-use core::mem::size_of;
-
 /// A TPM handle, which is a 32-bit unsigned integer.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-pub struct TpmHandle(pub u32);
-
-impl core::convert::From<u32> for TpmHandle {
-    fn from(val: u32) -> Self {
-        Self(val)
-    }
-}
-
-impl core::convert::From<TpmHandle> for u32 {
-    fn from(val: TpmHandle) -> Self {
-        val.0
-    }
-}
-
-impl TpmMarshal for TpmHandle {
-    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        TpmMarshal::marshal(&self.0, writer)
-    }
-}
-
-impl TpmUnmarshal for TpmHandle {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (val, buf) = u32::unmarshal(buf)?;
-        Ok((Self(val), buf))
-    }
-}
-
-impl TpmSized for TpmHandle {
-    const SIZE: usize = size_of::<u32>();
-    fn len(&self) -> usize {
-        Self::SIZE
-    }
-}
-
-impl core::fmt::Display for TpmHandle {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl core::fmt::LowerHex for TpmHandle {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::LowerHex::fmt(&self.0, f)
-    }
-}
-
-impl core::fmt::UpperHex for TpmHandle {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::UpperHex::fmt(&self.0, f)
-    }
-}
+pub type TpmHandle = crate::basic::Uint32;
 
 /// TPM frame marshaling and unmarshaling error type containing variants
 /// for all the possible error conditions.
@@ -254,10 +200,3 @@ pub trait TpmUnmarshalTagged: Sized {
         Self: TpmTagged,
         <Self as TpmTagged>::Tag: TpmUnmarshal + TpmMarshal;
 }
-
-tpm_integer!(u8);
-tpm_integer!(i8);
-tpm_integer!(i32);
-tpm_integer!(u16);
-tpm_integer!(u32);
-tpm_integer!(u64);

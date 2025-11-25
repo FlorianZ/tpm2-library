@@ -176,8 +176,9 @@ macro_rules! tpm_struct {
                 }
 
                 if tag == $crate::data::TpmSt::Sessions {
-                    let (size, buf_after_size) = <u32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
-                    let size = size as usize;
+                    let (size, buf_after_size) =
+                        <$crate::basic::Uint32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
+                    let size = u32::from(size) as usize;
                     if buf_after_size.len() < size {
                         return Err($crate::TpmProtocolError::UnexpectedEnd);
                     }

@@ -21,7 +21,7 @@ use crate::{
 };
 use core::{convert::TryFrom, fmt::Debug};
 
-tpm2b!(Tpm2b, { TPM_MAX_COMMAND_SIZE as usize });
+tpm2b!(Tpm2b, { TPM_MAX_COMMAND_SIZE });
 tpm2b!(Tpm2bAuth, MAX_DIGEST_SIZE);
 tpm2b!(Tpm2bDigest, MAX_DIGEST_SIZE);
 tpm2b!(Tpm2bEccParameter, MAX_ECC_KEY_BYTES);
@@ -104,7 +104,7 @@ tpml!(TpmlCc, TpmCc, 256);
 tpml!(TpmlCca, TpmaCc, 256);
 tpml!(TpmlDigest, Tpm2bDigest, 8);
 tpml!(TpmlDigestValues, TpmtHa, 8);
-tpml!(TpmlHandle, u32, 128);
+tpml!(TpmlHandle, crate::basic::Uint32, 128);
 tpml!(TpmlPcrSelection, TpmsPcrSelection, 8);
 tpml!(TpmlEccCurve, TpmEccCurve, 64);
 tpml!(TpmlTaggedTpmProperty, TpmsTaggedProperty, 64);

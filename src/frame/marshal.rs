@@ -2,10 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+use super::{TpmFrame, TPM_HEADER_SIZE};
 use crate::{
-    constant::TPM_HEADER_SIZE,
+    basic::{Uint16, Uint32},
     data::{TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    frame::TpmFrame,
     TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
 };
 use core::{convert::TryFrom, mem::size_of};
@@ -47,16 +47,16 @@ where
         .ok_or(TpmProtocolError::IntegerTooLarge)?;
 
     let command_size =
-        u32::try_from(command_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+        Uint32::try_from(command_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
 
-    (tag as u16).marshal(writer)?;
+    Uint16::from(tag as u16).marshal(writer)?;
     command_size.marshal(writer)?;
-    (command.cc() as u32).marshal(writer)?;
+    Uint32::from(command.cc() as u32).marshal(writer)?;
 
     command.marshal_handles(writer)?;
 
     if tag == TpmSt::Sessions {
-        let sessions_len = u32::try_from(auth_area_size - size_of::<u32>())
+        let sessions_len = Uint32::try_from(auth_area_size - size_of::<Uint32>())
             .map_err(|_| TpmProtocolError::IntegerTooLarge)?;
         sessions_len.marshal(writer)?;
         for s in sessions {
@@ -82,9 +82,9 @@ where
     R: TpmFrame,
 {
     if !matches!(rc, TpmRc::Fmt0(TpmRcBase::Success)) {
-        (TpmSt::NoSessions as u16).marshal(writer)?;
-        TPM_HEADER_SIZE.marshal(writer)?;
-        rc.value().marshal(writer)?;
+        Uint16::from(TpmSt::NoSessions as u16).marshal(writer)?;
+        Uint32::from(TPM_HEADER_SIZE).marshal(writer)?;
+        Uint32::from(rc.value()).marshal(writer)?;
         return Ok(());
     }
 
@@ -99,7 +99,7 @@ where
     let sessions_len: usize = sessions.iter().map(TpmSized::len).sum();
 
     let parameter_area_size_field_len = if tag == TpmSt::Sessions {
-        size_of::<u32>()
+        size_of::<Uint32>()
     } else {
         0
     };
@@ -115,17 +115,17 @@ where
         .ok_or(TpmProtocolError::IntegerTooLarge)?;
 
     let response_size =
-        u32::try_from(response_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+        Uint32::try_from(response_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
 
-    (tag as u16).marshal(writer)?;
+    Uint16::from(tag as u16).marshal(writer)?;
     response_size.marshal(writer)?;
-    rc.value().marshal(writer)?;
+    Uint32::from(rc.value()).marshal(writer)?;
 
     response.marshal_handles(writer)?;
 
     if tag == TpmSt::Sessions {
         let params_len =
-            u32::try_from(param_area_size).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+            Uint32::try_from(param_area_size).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
         params_len.marshal(writer)?;
     }
 
