@@ -37,9 +37,17 @@ where
         0
     };
 
-    let total_body_len = handle_area_size + auth_area_size + param_area_size;
-    let command_size = u32::try_from(TPM_HEADER_SIZE as usize + total_body_len)
-        .map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+    let total_body_len = handle_area_size
+        .checked_add(auth_area_size)
+        .and_then(|len| len.checked_add(param_area_size))
+        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+
+    let command_size_usize = (TPM_HEADER_SIZE as usize)
+        .checked_add(total_body_len)
+        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+
+    let command_size =
+        u32::try_from(command_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
 
     (tag as u16).marshal(writer)?;
     command_size.marshal(writer)?;
@@ -96,11 +104,18 @@ where
         0
     };
 
-    let total_body_len =
-        handle_area_size + parameter_area_size_field_len + param_area_size + sessions_len;
+    let total_body_len = handle_area_size
+        .checked_add(parameter_area_size_field_len)
+        .and_then(|len| len.checked_add(param_area_size))
+        .and_then(|len| len.checked_add(sessions_len))
+        .ok_or(TpmProtocolError::IntegerTooLarge)?;
 
-    let response_size = u32::try_from(TPM_HEADER_SIZE as usize + total_body_len)
-        .map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+    let response_size_usize = (TPM_HEADER_SIZE as usize)
+        .checked_add(total_body_len)
+        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+
+    let response_size =
+        u32::try_from(response_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
 
     (tag as u16).marshal(writer)?;
     response_size.marshal(writer)?;
