@@ -148,7 +148,7 @@ impl VtpmKey {
 #[derive(Debug, Error)]
 pub enum VtpmError {
     /// Handle not found in the cache.
-    #[error("handle not found: vtpm:{0:08x}")]
+    #[error("handle not found: {0:08x}")]
     HandleNotFound(TpmHandle),
 
     /// Handle type byte is not valid.
