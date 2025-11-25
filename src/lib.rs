@@ -38,12 +38,12 @@ pub type TpmHandle = crate::basic::Uint32;
 /// for all the possible error conditions.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum TpmProtocolError {
+    /// Trying to marshal more bytes than buffer has space. This is unexpected
+    /// situation, and should be considered possible bug in the crate itself.
+    BufferOverflow,
+
     /// Integer overflow while converting to an integer of a different size.
     IntegerTooLarge,
-
-    /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
-    /// magic value.
-    InvalidAttestMagic,
 
     /// Boolean value was expected but the value is neither `0` nor `1`.
     InvalidBoolean,
@@ -51,12 +51,13 @@ pub enum TpmProtocolError {
     /// Non-existent command code encountered.
     InvalidCc,
 
+    /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
+    /// magic value.
+    InvalidMagicNumber,
+
     /// Tag is neither [`Sessions`](crate::data::TpmSt::Sessions) nor
     /// [`NoSessions`](crate::data::TpmSt::NoSessions).
     InvalidTag,
-
-    /// Buffer ran out of memory while marshaling.
-    OutOfMemory,
 
     /// Buffer contains more bytes than allowed by the TCG specifications.
     TooManyBytes,
@@ -70,24 +71,24 @@ pub enum TpmProtocolError {
     /// Run out of bytes while unmarshaling.
     UnexpectedEnd,
 
-    /// The requested variant is missing.
-    VariantMissing,
+    /// The variant accessed is not available.
+    VariantNotAvailable,
 }
 
 impl core::fmt::Display for TpmProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::IntegerTooLarge => write!(f, "integer overflow"),
-            Self::InvalidAttestMagic => write!(f, "invalid attestation magic"),
+            Self::BufferOverflow => write!(f, "buffer overflow"),
             Self::InvalidBoolean => write!(f, "invalid boolean value"),
             Self::InvalidCc => write!(f, "invalid command code"),
+            Self::InvalidMagicNumber => write!(f, "invalid magic number"),
             Self::InvalidTag => write!(f, "invalid tag"),
-            Self::OutOfMemory => write!(f, "out of memory"),
+            Self::IntegerTooLarge => write!(f, "integer overflow"),
             Self::TooManyBytes => write!(f, "buffer capacity surpassed"),
             Self::TooManyItems => write!(f, "list capaacity surpassed"),
             Self::TrailingData => write!(f, "trailing data"),
             Self::UnexpectedEnd => write!(f, "unexpected end"),
-            Self::VariantMissing => write!(f, "variant missing"),
+            Self::VariantNotAvailable => write!(f, "enum variant is not available"),
         }
     }
 }
@@ -131,10 +132,10 @@ impl<'a> TpmWriter<'a> {
         let end = self
             .cursor
             .checked_add(bytes.len())
-            .ok_or(TpmProtocolError::OutOfMemory)?;
+            .ok_or(TpmProtocolError::BufferOverflow)?;
 
         if end > self.buffer.len() {
-            return Err(TpmProtocolError::OutOfMemory);
+            return Err(TpmProtocolError::BufferOverflow);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;

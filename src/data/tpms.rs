@@ -464,7 +464,7 @@ impl TpmUnmarshal for TpmsAttest {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (magic, buf) = crate::basic::Uint32::unmarshal(buf)?;
         if u32::from(magic) != TPM_GENERATED_VALUE {
-            return Err(TpmProtocolError::InvalidAttestMagic);
+            return Err(TpmProtocolError::InvalidMagicNumber);
         }
         let (attest_type, buf) = TpmSt::unmarshal(buf)?;
         let (qualified_signer, buf) = Tpm2bName::unmarshal(buf)?;

@@ -34,7 +34,7 @@ macro_rules! tpm_enum {
                     $(
                         _ if value == $value => Ok(Self::$variant),
                     )*
-                    _ => Err($crate::TpmProtocolError::VariantMissing),
+                    _ => Err($crate::TpmProtocolError::VariantNotAvailable),
                 }
             }
         }
