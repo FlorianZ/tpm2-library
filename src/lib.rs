@@ -31,6 +31,8 @@ pub mod data;
 pub mod r#macro;
 pub mod frame;
 
+use core::mem::size_of;
+
 /// A TPM handle, which is a 32-bit unsigned integer.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
@@ -177,10 +179,14 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`CapacityExceeded`](crate::TpmProtocolError::CapacitExceeded)
+    /// Returns [`OutOfMemory`](crate::TpmProtocolError::OutOfMemory)
     /// when the capacity of the buffer is exceeded.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
-        let end = self.cursor + bytes.len();
+        let end = self
+            .cursor
+            .checked_add(bytes.len())
+            .ok_or(TpmProtocolError::OutOfMemory)?;
+
         if end > self.buffer.len() {
             return Err(TpmProtocolError::OutOfMemory);
         }
