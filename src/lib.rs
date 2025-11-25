@@ -317,11 +317,20 @@ impl<'a> VtpmCache<'a> {
     /// handle.
     pub fn fetch_ancestor_chain(
         &self,
-        target_virtual_handle: TpmHandle,
+        target_handle: TpmHandle,
     ) -> Result<Vec<TpmHandle>, VtpmError> {
-        let mut current_virtual_handle = target_virtual_handle;
+        let mut current_virtual_handle = target_handle;
         let mut chain: VecDeque<TpmHandle> = VecDeque::new();
         let mut physical_primary: Option<TpmHandle> = None;
+
+        let ht = (target_handle.0 >> 24) as u8;
+        if ht == TpmHt::Persistent as u8 {
+            for handle in self.handles.values() {
+                if *handle == target_handle {
+                    return Ok(vec![target_handle]);
+                }
+            }
+        }
 
         loop {
             let Some(key) = self.find_by_handle(current_virtual_handle) else {
