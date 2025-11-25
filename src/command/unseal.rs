@@ -33,7 +33,7 @@ impl Task for Unseal {
         };
 
         with_device(task_state.device.clone(), |device| {
-            let (item_handle, _, auth) = task_state.build_auth(
+            let (item_handle, _, auth) = task_state.resolve_auth(
                 device,
                 TpmHandle(handle),
                 &self.auth_args.build_auth_map(),

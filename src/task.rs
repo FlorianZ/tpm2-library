@@ -198,7 +198,7 @@ impl<'a> TaskState<'a> {
         self.live_handles.retain(|_, v| *v != handle);
     }
 
-    /// Prepares the final authorization vector for a command.
+    /// Resolves authorization for a given object.
     ///
     /// # Errors
     ///
@@ -221,7 +221,7 @@ impl<'a> TaskState<'a> {
     /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
     /// loaded key's parent is incorrect.
     #[allow(clippy::type_complexity)]
-    pub fn build_auth(
+    pub fn resolve_auth(
         &mut self,
         device: &mut TpmDevice,
         handle: TpmHandle,
@@ -229,15 +229,12 @@ impl<'a> TaskState<'a> {
     ) -> Result<(TpmHandle, TpmAlgId, TaskAuth), TaskError> {
         let (phys_handle, policy, name_alg) = self.fetch_policy(device, handle)?;
 
-        if let Some(auth) = self.start_policy_session(device, &policy, name_alg, auth_map)? {
+        if let Some(auth) = auth_map.get(&handle).cloned() {
+            Ok((phys_handle, name_alg, auth))
+        } else if let Some(auth) = self.start_policy_session(device, &policy, name_alg, auth_map)? {
             Ok((phys_handle, name_alg, auth))
         } else {
-            let auth = auth_map
-                .get(&handle)
-                .or_else(|| auth_map.get(&phys_handle))
-                .cloned()
-                .unwrap_or_default();
-            Ok((phys_handle, name_alg, auth))
+            Ok((phys_handle, name_alg, TaskAuth::default()))
         }
     }
 
@@ -699,8 +696,7 @@ impl<'a> TaskState<'a> {
                 };
 
                 let task_auth = vhandle
-                    .and_then(|v| auth_map.get(&v))
-                    .or_else(|| auth_map.get(&live_handle))
+                    .and_then(|vhandle| auth_map.get(&vhandle))
                     .cloned()
                     .unwrap_or_default();
 

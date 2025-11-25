@@ -66,7 +66,7 @@ impl Task for Convert {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            let (parent_handle, name_alg, auth) = task_state.build_auth(
+            let (parent_handle, name_alg, auth) = task_state.resolve_auth(
                 device,
                 TpmHandle(parent),
                 &self.auth_args.build_auth_map(),
