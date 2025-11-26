@@ -622,3 +622,33 @@ impl Drop for VtpmCache<'_> {
         self.teardown();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use tpm2_protocol::TpmMarshal;
+
+    #[test]
+    fn load_removes_stale_transient_entries() {
+        let dir = tempdir().unwrap();
+        let cache_path = dir.path();
+        let stale_path = cache_path.join("80000000.bin");
+
+        let mut buffer = vec![0u8; std::mem::size_of::<u32>()];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buffer);
+            let stale_version = VERSION + 1;
+            stale_version.marshal(&mut writer).unwrap();
+            writer.len()
+        };
+        buffer.truncate(len);
+
+        fs::write(&stale_path, &buffer).unwrap();
+
+        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+
+        assert!(cache.key_iter().next().is_none());
+        assert!(!stale_path.exists());
+    }
+}

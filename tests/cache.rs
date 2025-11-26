@@ -17,7 +17,6 @@ mod tests {
             Tpm2bDigest, Tpm2bName, Tpm2bPublicKeyRsa, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaObject,
             TpmsContext, TpmsRsaParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
         },
-        TpmMarshal, TpmSized, TpmWriter,
     };
     use tpm2_vtpm::{
         VtpmCache, VtpmError, VtpmPolicyCommand, VtpmPolicyDefaultCommand, VtpmPolicySecretCommand,
@@ -209,30 +208,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(h3, 0x8000_0002,);
-    }
-
-    /// Test 3: `load` handling of stale transient entries
-    #[rstest]
-    fn load_removes_stale_transient_entries(cache_dir: TempDir) {
-        let cache_path = cache_dir.path();
-        let stale_path = cache_path.join("80000000.bin");
-
-        let mut buffer = vec![0u8; u32::SIZE];
-        let len = {
-            let mut writer = TpmWriter::new(&mut buffer);
-            let stale_version = 0x0000_0002_u32;
-            stale_version.marshal(&mut writer).unwrap();
-            writer.len()
-        };
-        buffer.truncate(len);
-
-        fs::write(&stale_path, &buffer).unwrap();
-
-        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
-
-        assert!(cache.key_iter().next().is_none(),);
-
-        assert!(!stale_path.exists(),);
     }
 
     /// Test 4: `load` handling of session files (data-driven for HMAC and Policy)
