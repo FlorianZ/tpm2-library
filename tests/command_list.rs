@@ -12,9 +12,9 @@ use std::collections::HashMap;
 use tpm2_crypto::TpmHash;
 use tpm2_policy_language::{TpmPolicyError, TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
+    basic::TpmHandle,
     data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmCc},
     frame::TpmCommand,
-    TpmHandle,
 };
 
 #[rstest]

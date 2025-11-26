@@ -27,13 +27,14 @@ use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
 
 use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
+    basic::TpmHandle,
     constant::TPM_PCR_SELECT_MAX,
     data::{
         Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCc, TpmHt, TpmlPcrSelection,
         TpmsPcrSelect, TpmsPcrSelection,
     },
     frame::{TpmPolicyOrCommand, TpmPolicyPcrCommand},
-    TpmHandle, TpmMarshal, TpmSized, TpmWriter,
+    TpmMarshal, TpmSized, TpmWriter,
 };
 
 /// Pre-resolved data needed for policy execution.

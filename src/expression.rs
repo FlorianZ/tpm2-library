@@ -2,11 +2,12 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{build_and_branch, TpmHandle, TpmPolicyError, TpmPolicySession, TpmPolicyState};
+use crate::{build_and_branch, TpmPolicyError, TpmPolicySession, TpmPolicyState};
 use std::borrow::Cow;
 use std::fmt;
 use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmInt32},
     data::{
         Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmlDigest, TpmlPcrSelection,
     },
@@ -365,7 +366,7 @@ impl TpmPolicyExpression {
             nonce_tpm: Tpm2bNonce::default(),
             cp_hash_a: Tpm2bDigest::default(),
             policy_ref,
-            expiration: 0,
+            expiration: TpmInt32(0),
             handles: [h_val.into(), 0.into()],
         };
 
