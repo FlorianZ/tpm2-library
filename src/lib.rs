@@ -68,6 +68,7 @@ pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
+    basic::Uint32,
     data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc},
     TpmHandle, TpmUnmarshal,
 };
@@ -259,7 +260,7 @@ impl TpmKeyFile {
             description: self.description.as_deref().map(Utf8String::from),
             rsa_parent,
             parent_pubkey: parent_pubkey_bytes,
-            parent: self.parent_handle.0,
+            parent: self.parent_handle.into(),
             pubkey: OctetString::copy_from_slice(&tpm_marshal_array(&[&self.public])?),
             privkey: OctetString::copy_from_slice(&tpm_marshal_array(&[&self.private])?),
         })
@@ -318,7 +319,7 @@ impl TpmKeyFile {
             kind,
             public,
             private,
-            parent_handle: TpmHandle(asn1.parent),
+            parent_handle: Uint32::new(asn1.parent),
             parent_public,
             empty_auth: asn1.empty_auth,
             policy,
@@ -406,7 +407,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut sensitive_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let mut sensitive_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut sensitive_bytes);
             tpm_sensitive.marshal(&mut writer).unwrap();
@@ -519,7 +520,7 @@ mod tests {
             kind: TpmKeyType::Loadable,
             public,
             private,
-            parent_handle: TpmHandle(0),
+            parent_handle: Uint32::new(0),
             parent_public: None,
             empty_auth: None,
             policy: None,
@@ -568,7 +569,7 @@ mod tests {
             kind: TpmKeyType::Loadable,
             public: public.clone(),
             private,
-            parent_handle: TpmHandle(0x4000_0001),
+            parent_handle: Uint32::new(0x4000_0001),
             parent_public: None,
             empty_auth: None,
             policy: None,
@@ -639,7 +640,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut sensitive_bytes = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let mut sensitive_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut sensitive_bytes);
             tpm_sensitive.marshal(&mut writer).unwrap();
@@ -651,7 +652,7 @@ mod tests {
             kind: TpmKeyType::SealedData,
             public,
             private,
-            parent_handle: TpmHandle(0),
+            parent_handle: Uint32::new(0),
             parent_public: None,
             empty_auth: None,
             policy: None,

@@ -11,7 +11,7 @@ use rasn::{
 use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmMarshal, TpmWriter};
 
 pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmKeyError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
         for obj in objs {

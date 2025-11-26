@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn policy_or_roundtrip() {
-        let mut body = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let mut body = vec![0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut body);
             TpmlDigest::default().marshal(&mut writer).unwrap();
