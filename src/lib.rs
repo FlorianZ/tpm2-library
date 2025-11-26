@@ -22,6 +22,7 @@ use std::{
 
 use thiserror::Error;
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmUint32},
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bName, TpmAlgId, TpmCap, TpmCc, TpmEccCurve, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt,
@@ -33,7 +34,7 @@ use tpm2_protocol::{
         TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame, TpmGetCapabilityCommand,
         TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponse,
     },
-    TpmHandle, TpmWriter,
+    TpmWriter,
 };
 use tracing::trace;
 
@@ -183,8 +184,8 @@ impl TpmDeviceBuilder {
             name_cache: HashMap::new(),
             interrupted: self.interrupted,
             timeout: self.timeout,
-            command: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
-            response: Vec::with_capacity(TPM_MAX_COMMAND_SIZE as usize),
+            command: Vec::with_capacity(TPM_MAX_COMMAND_SIZE),
+            response: Vec::with_capacity(TPM_MAX_COMMAND_SIZE),
         })
     }
 }
@@ -305,7 +306,7 @@ impl TpmDevice {
                     return Err(TpmDeviceError::InvalidResponse);
                 };
                 let size = u32::from_be_bytes(size_bytes) as usize;
-                if !(10..=TPM_MAX_COMMAND_SIZE as usize).contains(&size) {
+                if !(10..={ TPM_MAX_COMMAND_SIZE }).contains(&size) {
                     return Err(TpmDeviceError::InvalidResponse);
                 }
                 total_size = Some(size);
@@ -338,7 +339,7 @@ impl TpmDevice {
             TpmSt::Sessions
         };
 
-        self.command.resize(TPM_MAX_COMMAND_SIZE as usize, 0);
+        self.command.resize(TPM_MAX_COMMAND_SIZE, 0);
 
         let len = {
             let mut writer = TpmWriter::new(&mut self.command);
@@ -376,7 +377,8 @@ impl TpmDevice {
         let mut results = Vec::new();
         let mut prop = property_start;
         loop {
-            let (more_data, cap_data) = self.get_capability_page(cap, prop, count)?;
+            let (more_data, cap_data) =
+                self.get_capability_page(cap, TpmUint32(prop), TpmUint32(count))?;
             let items: &[T] = extract(&cap_data.data)?;
             results.extend_from_slice(items);
 
@@ -435,9 +437,9 @@ impl TpmDevice {
                 TpmuCapabilities::Handles(handles) => Ok(handles),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Handles)),
             },
-            |last| *last + 1,
+            |last| last.value() + 1,
         )
-        .map(|handles| handles.into_iter().map(TpmHandle).collect())
+        .map(|handles| handles.into_iter().collect())
     }
 
     /// Retrieves all available ECC curves supported by the TPM.
@@ -523,8 +525,8 @@ impl TpmDevice {
     fn get_capability_page(
         &mut self,
         cap: TpmCap,
-        property: u32,
-        property_count: u32,
+        property: TpmUint32,
+        property_count: TpmUint32,
     ) -> Result<(bool, TpmsCapabilityData), TpmDeviceError> {
         let cmd = TpmGetCapabilityCommand {
             cap,
@@ -553,8 +555,12 @@ impl TpmDevice {
     /// when the TPM does not report the requested property. Propagates any
     /// [`TpmDeviceError`](crate::TpmDeviceError) from
     /// [`get_capability_page`](TpmDevice::get_capability_page).
-    pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<u32, TpmDeviceError> {
-        let (_, cap_data) = self.get_capability_page(TpmCap::TpmProperties, property as u32, 1)?;
+    pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<TpmUint32, TpmDeviceError> {
+        let (_, cap_data) = self.get_capability_page(
+            TpmCap::TpmProperties,
+            TpmUint32(property as u32),
+            TpmUint32(1),
+        )?;
 
         let TpmuCapabilities::TpmProperties(props) = &cap_data.data else {
             return Err(TpmDeviceError::CapabilityMissing(TpmCap::TpmProperties));

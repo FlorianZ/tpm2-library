@@ -15,7 +15,7 @@ hex = "0.4"
 log = "0.4"
 nix = { version = "0.29", features = ["fs", "poll"] }
 thiserror = "1.0"
-tpm2-protocol = "0.15.10"
+tpm2-protocol = "0.16.2"
 tracing = { version = "0.1", default-features = false }
 
 [dev-dependencies]
