@@ -5,6 +5,7 @@
 use crate::{tpm_marshal_array, VtpmError};
 use std::fmt::Debug;
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmInt32, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmCc, TpmlDigest, TpmlPcrSelection, TpmtSignature,
@@ -14,10 +15,10 @@ use tpm2_protocol::{
         TpmPolicyOrCommand, TpmPolicyPasswordCommand, TpmPolicyPcrCommand,
         TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
-    TpmHandle, TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
+    TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
 };
 
-const ZERO_HANDLE: TpmHandle = TpmHandle(0);
+const ZERO_HANDLE: TpmHandle = TpmUint32(0);
 
 /// A trait representing a single TPM policy command step.
 pub trait VtpmPolicyCommand: Debug + Send + Sync {
@@ -181,7 +182,7 @@ pub fn vtpm_policy_command_from(
 }
 
 fn vtpm_marshal_command_parameters(command: &TpmCommand) -> Result<Vec<u8>, VtpmError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
         command
@@ -384,7 +385,7 @@ impl VtpmPolicyCommand for VtpmPolicySecretCommand {
             nonce_tpm: Tpm2bDigest::default(),
             cp_hash_a: Tpm2bDigest::default(),
             policy_ref: self.policy_ref,
-            expiration: 0,
+            expiration: TpmInt32(0),
             handles: [self.object_handle_hint, ZERO_HANDLE],
         };
         Ok(TpmCommand::PolicySecret(inner))

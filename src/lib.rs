@@ -19,9 +19,10 @@ use std::{
 use thiserror::Error;
 use tpm2_crypto::tpm_make_name;
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmsContext, TpmtPublic},
-    TpmHandle, TpmMarshal, TpmUnmarshal, TpmWriter,
+    TpmMarshal, TpmUnmarshal, TpmWriter,
 };
 
 const VERSION: u32 = 0x0000_0001;
@@ -30,7 +31,7 @@ const TRANSIENT_END: u32 = 0x80FF_FFFF;
 const TRANSIENT_COUNT: u32 = 0x0100_0000;
 
 pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, VtpmError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
         for obj in objs {
@@ -347,7 +348,7 @@ impl<'a> VtpmCache<'a> {
                 .find(|(_, parent_key)| parent_key.public == key.parent)
             {
                 chain.push_front(current_virtual_handle);
-                current_virtual_handle = TpmHandle(parent_virtual_handle);
+                current_virtual_handle = TpmUint32(parent_virtual_handle);
             } else {
                 let parent_name =
                     tpm_make_name(&key.parent).map_err(|_| VtpmError::OperationFailed)?;
@@ -451,7 +452,7 @@ impl<'a> VtpmCache<'a> {
             if let Entry::Vacant(e) = self.contexts.entry(virtual_handle) {
                 let key = VtpmKey {
                     version: VERSION,
-                    handle: TpmHandle(virtual_handle),
+                    handle: TpmUint32(virtual_handle),
                     public: public.clone(),
                     parent: parent_public.clone(),
                     context,
@@ -463,7 +464,7 @@ impl<'a> VtpmCache<'a> {
 
                 e.insert(key);
 
-                self.handles.insert(name, TpmHandle(virtual_handle));
+                self.handles.insert(name, TpmUint32(virtual_handle));
                 self.dirty.insert(virtual_handle);
 
                 let next = virtual_handle.wrapping_add(1);
@@ -516,7 +517,7 @@ impl<'a> VtpmCache<'a> {
                         let name =
                             tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
                         self.contexts.insert(virtual_handle, key);
-                        self.handles.insert(name, TpmHandle(virtual_handle));
+                        self.handles.insert(name, TpmUint32(virtual_handle));
                     }
                     Err(VtpmError::StaleHandle) => {
                         log::debug!("removing stale vtpm file: {}", path.display());
