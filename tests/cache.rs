@@ -25,7 +25,7 @@ mod tests {
 
     #[fixture]
     fn cache_dir() -> TempDir {
-        tempdir().expect("Failed to create temp directory")
+        tempdir().unwrap()
     }
 
     #[fixture]
@@ -80,7 +80,7 @@ mod tests {
 
         let child_policy = Vec::new();
 
-        let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
+        let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
         let parent_vhandle = cache
             .save_key(
@@ -92,83 +92,57 @@ mod tests {
                 },
                 &parent_public,
                 &null_parent,
-                true,
                 &None,
             )
-            .expect("Failed to save parent");
+            .unwrap();
 
         let child_vhandle = cache
             .save_key(
                 child_context.clone(),
                 &child_public,
                 &parent_public,
-                false,
                 &Some(child_policy),
             )
-            .expect("Failed to save child");
+            .unwrap();
 
-        cache.flush().expect("Failed to flush cache");
+        cache.flush().unwrap();
         drop(cache);
 
-        let cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to reload cache");
-        assert_eq!(
-            cache.key_iter().count(),
-            2,
-            "Cache did not persist contexts"
-        );
+        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+        assert_eq!(cache.key_iter().count(), 2,);
 
-        let parent_key = cache
-            .find_by_handle(TpmUint32(parent_vhandle))
-            .expect("Failed to find parent by vhandle");
-        assert_eq!(parent_key.public, parent_public);
+        let parent_key = cache.find_by_handle(TpmUint32(parent_vhandle)).unwrap();
+        assert_eq!(*parent_key.public(), parent_public);
 
-        let child_key = cache
-            .find_by_handle(TpmUint32(child_vhandle))
-            .expect("Failed to find child by vhandle");
-        assert_eq!(child_key.public, child_public);
-        assert_eq!(child_key.context, child_context);
+        let child_key = cache.find_by_handle(TpmUint32(child_vhandle)).unwrap();
+        assert_eq!(*child_key.public(), child_public);
+        assert_eq!(*child_key.context(), child_context);
 
         let child_name = tpm_make_name(&child_public).unwrap();
         let child_key_name = cache.find_by_name(&child_name).unwrap();
-        assert_eq!(child_key_name.handle.0, child_vhandle);
+        assert_eq!(child_key_name.handle().value(), child_vhandle);
 
-        let chain = cache
-            .fetch_ancestor_chain(TpmUint32(child_vhandle))
-            .expect("Failed to fetch ancestor chain");
+        let chain = cache.fetch_ancestors(TpmUint32(child_vhandle)).unwrap();
+
         assert_eq!(chain.len(), 2);
-        assert_eq!(
-            chain[0].0, parent_vhandle,
-            "Ancestor chain root is incorrect"
-        );
-        assert_eq!(
-            chain[1].0, child_vhandle,
-            "Ancestor chain target is incorrect"
-        );
+        assert_eq!(chain[0].0, parent_vhandle,);
+        assert_eq!(chain[1].0, child_vhandle,);
 
         drop(cache);
-        let mut cache =
-            VtpmCache::new(cache_path, HashMap::new()).expect("Failed to reload cache for removal");
+        let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
-        let deleted_handles = cache
-            .remove(parent_vhandle)
-            .expect("Failed to remove parent");
+        let deleted_handles = cache.remove(parent_vhandle).unwrap();
 
-        assert_eq!(deleted_handles.len(), 2, "Subtree removal failed");
+        assert_eq!(deleted_handles.len(), 2);
         assert!(deleted_handles.contains(&parent_vhandle));
         assert!(deleted_handles.contains(&child_vhandle));
-        assert!(
-            cache.key_iter().next().is_none(),
-            "Cache was not empty after removal"
-        );
+        assert!(cache.key_iter().next().is_none(),);
 
         drop(cache);
 
-        let cache = VtpmCache::new(cache_path, HashMap::new())
-            .expect("Failed to reload cache after deletion");
-        assert!(
-            cache.key_iter().next().is_none(),
-            "Contexts were not deleted from disk"
-        );
+        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+
+        assert!(cache.key_iter().next().is_none(),);
     }
 
     /// Test 2: `cache_allocation`
@@ -179,15 +153,12 @@ mod tests {
     ) {
         let (parent_public, _, _, null_parent) = test_data;
         let cache_path = cache_dir.path();
-        let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
+        let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
         let err = cache.find_by_handle(TpmUint32(0x8000_0000));
         assert!(err.is_none());
 
-        let err = cache
-            .fetch_ancestor_chain(TpmUint32(0x8000_0000))
-            .err()
-            .unwrap();
+        let err = cache.fetch_ancestors(TpmUint32(0x8000_0000)).err().unwrap();
         assert!(matches!(err, VtpmError::HandleNotFound(_)));
 
         let h1 = cache
@@ -200,11 +171,10 @@ mod tests {
                 },
                 &parent_public,
                 &null_parent,
-                true,
                 &None,
             )
-            .expect("Failed to save h1");
-        assert_eq!(h1, 0x8000_0000, "First handle was not 0x8000_0000");
+            .unwrap();
+        assert_eq!(h1, 0x8000_0000);
 
         let h2 = cache
             .save_key(
@@ -216,17 +186,13 @@ mod tests {
                 },
                 &parent_public,
                 &null_parent,
-                true,
                 &None,
             )
-            .expect("Failed to save h2");
-        assert_eq!(h2, 0x8000_0001, "Second handle was not 0x8000_0001");
+            .unwrap();
+        assert_eq!(h2, 0x8000_0001);
 
-        cache.remove(h1).expect("Failed to remove h1");
-        assert!(
-            cache.find_by_handle(TpmUint32(h1)).is_none(),
-            "h1 was not removed from map"
-        );
+        cache.remove(h1).unwrap();
+        assert!(cache.find_by_handle(TpmUint32(h1)).is_none(),);
 
         let h3 = cache
             .save_key(
@@ -238,15 +204,11 @@ mod tests {
                 },
                 &parent_public,
                 &null_parent,
-                true,
                 &None,
             )
-            .expect("Failed to save h3");
+            .unwrap();
 
-        assert_eq!(
-            h3, 0x8000_0002,
-            "Handle allocation did not resume from the next available slot"
-        );
+        assert_eq!(h3, 0x8000_0002,);
     }
 
     /// Test 3: `load` handling of stale transient entries
@@ -259,24 +221,18 @@ mod tests {
         let len = {
             let mut writer = TpmWriter::new(&mut buffer);
             let stale_version = 0x0000_0002_u32;
-            stale_version
-                .marshal(&mut writer)
-                .expect("Failed to marshal stale version");
+            stale_version.marshal(&mut writer).unwrap();
             writer.len()
         };
         buffer.truncate(len);
 
-        fs::write(&stale_path, &buffer).expect("Failed to write stale vtpm file");
+        fs::write(&stale_path, &buffer).unwrap();
 
-        let cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
-        assert!(
-            cache.key_iter().next().is_none(),
-            "Stale key should not be loaded"
-        );
-        assert!(
-            !stale_path.exists(),
-            "Stale vtpm file was not removed from disk"
-        );
+        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+
+        assert!(cache.key_iter().next().is_none(),);
+
+        assert!(!stale_path.exists(),);
     }
 
     /// Test 4: `load` handling of session files (data-driven for HMAC and Policy)
@@ -289,17 +245,13 @@ mod tests {
         let filename = format!("{vhandle:08x}.bin");
         let file_path = cache_path.join(&filename);
 
-        fs::write(&file_path, b"session").expect("Failed to write session file");
+        fs::write(&file_path, b"session").unwrap();
 
-        let cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
-        assert!(
-            cache.key_iter().next().is_none(),
-            "Session contexts should not be loaded"
-        );
-        assert!(
-            !file_path.exists(),
-            "Session file {filename} was not removed from disk"
-        );
+        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+
+        assert!(cache.key_iter().next().is_none(),);
+
+        assert!(!file_path.exists(),);
     }
 
     /// Test 5: `load` keeps non-transient, non-session files for diagnosis
@@ -311,17 +263,13 @@ mod tests {
         let filename = format!("{vhandle:08x}.bin");
         let file_path = cache_path.join(&filename);
 
-        fs::write(&file_path, b"other").expect("Failed to write test file");
+        fs::write(&file_path, b"other").unwrap();
 
-        let cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
-        assert!(
-            cache.key_iter().next().is_none(),
-            "File should not be loaded as a context"
-        );
-        assert!(
-            file_path.exists(),
-            "File with other handle type should be kept"
-        );
+        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+
+        assert!(cache.key_iter().next().is_none(),);
+
+        assert!(file_path.exists(),);
     }
 
     /// Test 6: `fetch_ancestor_chain` with persistent root and missing parent (data-driven)
@@ -339,34 +287,23 @@ mod tests {
         let mut persistent_keys = HashMap::new();
 
         if has_persistent_parent {
-            let parent_name = tpm_make_name(&parent_public).expect("Failed to compute parent name");
+            let parent_name = tpm_make_name(&parent_public).unwrap();
             persistent_keys.insert(parent_name, TpmUint32(0x8100_0000));
         }
 
-        let mut cache =
-            VtpmCache::new(cache_path, persistent_keys).expect("Failed to create cache");
+        let mut cache = VtpmCache::new(cache_path, persistent_keys).unwrap();
 
         let child_vhandle = cache
-            .save_key(child_context, &child_public, &parent_public, false, &None)
-            .expect("Failed to save child context");
+            .save_key(child_context, &child_public, &parent_public, &None)
+            .unwrap();
 
         if has_persistent_parent {
-            let chain = cache
-                .fetch_ancestor_chain(TpmUint32(child_vhandle))
-                .expect("Failed to fetch ancestor chain with persistent root");
+            let chain = cache.fetch_ancestors(TpmUint32(child_vhandle)).unwrap();
             assert_eq!(chain.len(), 2);
-            assert_eq!(
-                chain[0].0, 0x8100_0000,
-                "Root of ancestor chain should be persistent handle"
-            );
-            assert_eq!(
-                chain[1].0, child_vhandle,
-                "Target of ancestor chain should be child handle"
-            );
+            assert_eq!(chain[0].0, 0x8100_0000,);
+            assert_eq!(chain[1].0, child_vhandle,);
         } else {
-            let err = cache
-                .fetch_ancestor_chain(TpmUint32(child_vhandle))
-                .expect_err("Expected fetch_ancestor_chain to fail");
+            let err = cache.fetch_ancestors(TpmUint32(child_vhandle)).unwrap_err();
             assert!(matches!(err, VtpmError::ParentNotFound));
         }
     }
@@ -378,8 +315,7 @@ mod tests {
         let mut handles = HashMap::new();
         handles.insert(Tpm2bName::default(), TpmUint32(0x8000_0000));
 
-        let err = VtpmCache::new(cache_path, handles)
-            .expect_err("VtpmCache::new should fail with non-persistent handles");
+        let err = VtpmCache::new(cache_path, handles).unwrap_err();
 
         assert!(matches!(err, VtpmError::InvalidHandleType(_)));
     }
@@ -388,19 +324,11 @@ mod tests {
     #[rstest]
     fn remove_nonexistent_handle(cache_dir: TempDir) {
         let cache_path = cache_dir.path();
-        let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
+        let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
-        let deleted = cache
-            .remove(0x8000_0000)
-            .expect("remove should succeed for missing handle");
-        assert!(
-            deleted.is_empty(),
-            "No handles should be reported as deleted"
-        );
-        assert!(
-            cache.key_iter().next().is_none(),
-            "Cache should remain empty"
-        );
+        let deleted = cache.remove(0x8000_0000).unwrap();
+        assert!(deleted.is_empty(),);
+        assert!(cache.key_iter().next().is_none(),);
     }
 
     /// Test 8: policies with bodies round-trip via disk
@@ -412,8 +340,7 @@ mod tests {
         let (_parent_public, child_public, child_context, null_parent) = test_data;
         let cache_path = cache_dir.path();
 
-        let object_name =
-            tpm_make_name(&child_public).expect("Failed to compute object name for policy");
+        let object_name = tpm_make_name(&child_public).unwrap();
         let policy_ref = Tpm2bDigest::default();
 
         let policy_secret = VtpmPolicySecretCommand {
@@ -432,29 +359,23 @@ mod tests {
             Box::new(policy_secret.clone()),
         ];
 
-        let mut cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to create cache");
+        let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
         let child_vhandle = cache
             .save_key(
                 child_context,
                 &child_public,
                 &null_parent,
-                false,
                 &Some(policy.clone()),
             )
-            .expect("Failed to save child context with policy");
+            .unwrap();
 
-        cache.flush().expect("Failed to flush cache with policy");
+        cache.flush().unwrap();
         drop(cache);
 
-        let cache = VtpmCache::new(cache_path, HashMap::new()).expect("Failed to reload cache");
-        let key = cache
-            .find_by_handle(TpmUint32(child_vhandle))
-            .expect("Failed to find child by vhandle after reload");
+        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+        let key = cache.find_by_handle(TpmUint32(child_vhandle)).unwrap();
 
-        assert_eq!(
-            key.policy, policy,
-            "Policy commands did not round-trip via disk"
-        );
+        assert_eq!(*key.policy(), policy);
     }
 }

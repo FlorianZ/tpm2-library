@@ -25,7 +25,7 @@ use tpm2_protocol::{
     TpmMarshal, TpmUnmarshal, TpmWriter,
 };
 
-const VERSION: u32 = 0x0000_0001;
+const VERSION: u32 = 0x0000_0002;
 const TRANSIENT_START: u32 = 0x8000_0000;
 const TRANSIENT_END: u32 = 0x80FF_FFFF;
 const TRANSIENT_COUNT: u32 = 0x0100_0000;
@@ -45,21 +45,45 @@ pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, Vtp
 
 #[derive(Debug, Clone)]
 pub struct VtpmKey {
-    pub version: u32,
-    pub handle: TpmHandle,
-    pub public: TpmtPublic,
-    pub parent: TpmtPublic,
-    pub context: TpmsContext,
-    pub empty_auth: u32,
-    pub policy: Vec<Box<dyn VtpmPolicyCommand>>,
+    version: TpmUint32,
+    handle: TpmHandle,
+    public: TpmtPublic,
+    parent: TpmtPublic,
+    context: TpmsContext,
+    policy: Vec<Box<dyn VtpmPolicyCommand>>,
 }
 
 impl VtpmKey {
+    #[must_use]
+    pub fn handle(&self) -> &TpmHandle {
+        &self.handle
+    }
+
+    #[must_use]
+    pub fn public(&self) -> &TpmtPublic {
+        &self.public
+    }
+
+    #[must_use]
+    pub fn parent(&self) -> &TpmtPublic {
+        &self.parent
+    }
+
+    #[must_use]
+    pub fn context(&self) -> &TpmsContext {
+        &self.context
+    }
+
+    #[must_use]
+    pub fn policy(&self) -> &Vec<Box<dyn VtpmPolicyCommand>> {
+        &self.policy
+    }
+
     fn load(path: &Path) -> Result<Self, VtpmError> {
         let buffer = fs::read(path)?;
-        let (version, tail) = u32::unmarshal(&buffer).map_err(|_| VtpmError::StaleHandle)?;
+        let (version, tail) = TpmUint32::unmarshal(&buffer).map_err(|_| VtpmError::StaleHandle)?;
 
-        if version != VERSION {
+        if version.value() != VERSION {
             return Err(VtpmError::StaleHandle);
         }
 
@@ -67,15 +91,15 @@ impl VtpmKey {
         let (public, tail) = TpmtPublic::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
         let (parent, tail) = TpmtPublic::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
         let (context, tail) = TpmsContext::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
-        let (empty_auth, tail) = u32::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
-        let (count, mut tail) = u32::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+        let (count, mut tail) = TpmUint32::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
 
         let mut policy = Vec::new();
 
-        for _ in 0..count {
+        for _ in 0..count.value() {
             let (cc, tail_next) = TpmCc::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
-            let (len_u32, tail_next) = u32::unmarshal(tail_next).map_err(VtpmError::Unmarshal)?;
-            let len = len_u32 as usize;
+            let (len_u32, tail_next) =
+                TpmUint32::unmarshal(tail_next).map_err(VtpmError::Unmarshal)?;
+            let len = len_u32.value() as usize;
 
             if tail_next.len() < len {
                 return Err(VtpmError::UnexpectedEnd);
@@ -97,7 +121,6 @@ impl VtpmKey {
             public,
             parent,
             context,
-            empty_auth,
             policy,
         })
     }
@@ -111,7 +134,6 @@ impl VtpmKey {
             &self.public,
             &self.parent,
             &self.context,
-            &self.empty_auth,
         ])?;
 
         buf.extend_from_slice(&key_bytes);
@@ -316,10 +338,7 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`ParentNotFound`](crate::VtpmError::ParentNotFound) when an
     /// intermediate parent cannot be found in the cache or as a persistent
     /// handle.
-    pub fn fetch_ancestor_chain(
-        &self,
-        target_handle: TpmHandle,
-    ) -> Result<Vec<TpmHandle>, VtpmError> {
+    pub fn fetch_ancestors(&self, target_handle: TpmHandle) -> Result<Vec<TpmHandle>, VtpmError> {
         let mut current_virtual_handle = target_handle;
         let mut chain: VecDeque<TpmHandle> = VecDeque::new();
         let mut physical_primary: Option<TpmHandle> = None;
@@ -437,7 +456,6 @@ impl<'a> VtpmCache<'a> {
         context: TpmsContext,
         public: &TpmtPublic,
         parent_public: &TpmtPublic,
-        empty_auth: bool,
         policy: &Option<Vec<Box<dyn VtpmPolicyCommand>>>,
     ) -> Result<u32, VtpmError> {
         for i in 0..TRANSIENT_COUNT {
@@ -451,12 +469,11 @@ impl<'a> VtpmCache<'a> {
 
             if let Entry::Vacant(e) = self.contexts.entry(virtual_handle) {
                 let key = VtpmKey {
-                    version: VERSION,
+                    version: TpmUint32(VERSION),
                     handle: TpmUint32(virtual_handle),
                     public: public.clone(),
                     parent: parent_public.clone(),
                     context,
-                    empty_auth: u32::from(empty_auth),
                     policy: policy.clone().unwrap_or_default(),
                 };
 
