@@ -101,19 +101,63 @@ pub enum TpmKeyType {
 /// High-level runtime representation of a TPM key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmKeyFile {
-    pub kind: TpmKeyType,
-    pub public: Tpm2bPublic,
-    pub private: Tpm2bPrivate,
-    pub parent_handle: TpmHandle,
-    pub empty_auth: Option<bool>,
-    pub policy: Option<TpmKeyPolicy>,
-    pub auth_policy: Option<Vec<TpmKeyPolicy>>,
-    pub secret: Option<Vec<u8>>,
-    pub description: Option<String>,
-    pub rsa_parent: Option<bool>,
+    kind: TpmKeyType,
+    empty_auth: Option<bool>,
+    policy: Option<TpmKeyPolicy>,
+    secret: Option<Vec<u8>>,
+    auth_policy: Option<Vec<TpmKeyPolicy>>,
+    description: Option<String>,
+    public: Tpm2bPublic,
+    private: Tpm2bPrivate,
+    parent_handle: TpmHandle,
+    rsa_parent: Option<bool>,
 }
 
 impl TpmKeyFile {
+    #[must_use]
+    pub fn kind(&self) -> TpmKeyType {
+        self.kind
+    }
+
+    #[must_use]
+    pub fn empty_auth(&self) -> bool {
+        self.empty_auth == Some(true)
+    }
+
+    #[must_use]
+    pub fn policy(&self) -> &Option<TpmKeyPolicy> {
+        &self.policy
+    }
+
+    #[must_use]
+    pub fn secret(&self) -> &Option<Vec<u8>> {
+        &self.secret
+    }
+
+    #[must_use]
+    pub fn auth_policy(&self) -> &Option<Vec<TpmKeyPolicy>> {
+        &self.auth_policy
+    }
+
+    #[must_use]
+    pub fn description(&self) -> String {
+        if let Some(description) = self.description.clone() {
+            description.clone()
+        } else {
+            String::default()
+        }
+    }
+
+    #[must_use]
+    pub fn rsa_parent(&self) -> bool {
+        self.rsa_parent == Some(true)
+    }
+
+    #[must_use]
+    pub fn parent(&self) -> TpmHandle {
+        self.parent_handle
+    }
+
     #[must_use]
     pub fn public(&self) -> &Tpm2bPublic {
         &self.public
@@ -122,16 +166,6 @@ impl TpmKeyFile {
     #[must_use]
     pub fn private(&self) -> &Tpm2bPrivate {
         &self.private
-    }
-
-    #[must_use]
-    pub fn parent_handle(&self) -> TpmHandle {
-        self.parent_handle
-    }
-
-    #[must_use]
-    pub fn rsa_parent(&self) -> Option<bool> {
-        self.rsa_parent
     }
 
     /// Serialize this key into PEM bytes.
