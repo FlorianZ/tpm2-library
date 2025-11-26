@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{tpm_marshal_array, VtpmError};
+use crate::VtpmError;
 use std::fmt::Debug;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmInt32, TpmUint32},
@@ -300,7 +300,16 @@ impl VtpmPolicyCommand for VtpmPolicyAuthorizeCommand {
     }
 
     fn body(&self) -> Vec<u8> {
-        tpm_marshal_array(&[self]).unwrap_or_default()
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            if self.marshal(&mut writer).is_err() {
+                return Vec::new();
+            }
+            writer.len()
+        };
+        buf.truncate(len);
+        buf
     }
 
     fn len(&self) -> usize {
@@ -369,7 +378,16 @@ impl VtpmPolicyCommand for VtpmPolicySecretCommand {
     }
 
     fn body(&self) -> Vec<u8> {
-        tpm_marshal_array(&[self]).unwrap_or_default()
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            if self.marshal(&mut writer).is_err() {
+                return Vec::new();
+            }
+            writer.len()
+        };
+        buf.truncate(len);
+        buf
     }
 
     fn len(&self) -> usize {

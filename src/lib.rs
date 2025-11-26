@@ -30,19 +30,6 @@ const TRANSIENT_START: u32 = 0x8000_0000;
 const TRANSIENT_END: u32 = 0x80FF_FFFF;
 const TRANSIENT_COUNT: u32 = 0x0100_0000;
 
-pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, VtpmError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        for obj in objs {
-            obj.marshal(&mut writer).map_err(VtpmError::Marshal)?;
-        }
-        writer.len()
-    };
-    buf.truncate(len);
-    Ok(buf)
-}
-
 #[derive(Debug, Clone)]
 pub struct VtpmKey {
     version: TpmUint32,
@@ -126,31 +113,43 @@ impl VtpmKey {
     }
 
     fn save(&self, path: &Path) -> Result<(), VtpmError> {
-        let mut buf = vec![];
+        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            self.version
+                .marshal(&mut writer)
+                .map_err(VtpmError::Marshal)?;
+            self.handle
+                .marshal(&mut writer)
+                .map_err(VtpmError::Marshal)?;
+            self.public
+                .marshal(&mut writer)
+                .map_err(VtpmError::Marshal)?;
+            self.parent
+                .marshal(&mut writer)
+                .map_err(VtpmError::Marshal)?;
+            self.context
+                .marshal(&mut writer)
+                .map_err(VtpmError::Marshal)?;
 
-        let key_bytes = tpm_marshal_array(&[
-            &self.version,
-            &self.handle,
-            &self.public,
-            &self.parent,
-            &self.context,
-        ])?;
+            let count = u32::try_from(self.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
+            count.marshal(&mut writer).map_err(VtpmError::Marshal)?;
 
-        buf.extend_from_slice(&key_bytes);
+            for command in &self.policy {
+                command
+                    .cc()
+                    .marshal(&mut writer)
+                    .map_err(VtpmError::Marshal)?;
 
-        let count = u32::try_from(self.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
-        buf.extend_from_slice(&tpm_marshal_array(&[&count])?);
+                let body = command.body();
+                let body_len = u32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
+                body_len.marshal(&mut writer).map_err(VtpmError::Marshal)?;
+                writer.write_bytes(&body).map_err(VtpmError::Marshal)?;
+            }
+            writer.len()
+        };
 
-        for command in &self.policy {
-            let cc = command.cc();
-            buf.extend_from_slice(&tpm_marshal_array(&[&cc])?);
-
-            let body = command.body();
-            let body_len = u32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
-            buf.extend_from_slice(&tpm_marshal_array(&[&body_len])?);
-            buf.extend_from_slice(&body);
-        }
-
+        buf.truncate(len);
         fs::write(path, buf)?;
         Ok(())
     }
@@ -584,7 +583,17 @@ impl<'a> VtpmCache<'a> {
     fn remove_subtree(&mut self, first_public: &TpmtPublic) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
         for (virtual_handle, key) in self.key_iter() {
-            let parent_key_bytes = tpm_marshal_array(&[&key.parent])?;
+            let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+            let len = {
+                let mut writer = TpmWriter::new(&mut buf);
+                key.parent
+                    .marshal(&mut writer)
+                    .map_err(VtpmError::Marshal)?;
+                writer.len()
+            };
+            buf.truncate(len);
+            let parent_key_bytes = buf;
+
             parent_to_children
                 .entry(parent_key_bytes)
                 .or_default()
@@ -596,7 +605,17 @@ impl<'a> VtpmCache<'a> {
         let mut deleted_children = Vec::new();
 
         while let Some(parent_public) = ancestor_list.pop_front() {
-            let parent_key_bytes = tpm_marshal_array(&[&parent_public])?;
+            let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+            let len = {
+                let mut writer = TpmWriter::new(&mut buf);
+                parent_public
+                    .marshal(&mut writer)
+                    .map_err(VtpmError::Marshal)?;
+                writer.len()
+            };
+            buf.truncate(len);
+            let parent_key_bytes = buf;
+
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_virtual_handle, child_public) in children_to_process.clone() {
                     if let Some(context) = self.contexts.get(&child_virtual_handle) {
