@@ -95,16 +95,14 @@ macro_rules! tpm_bitflags {
 
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                type Wrapper = <$repr as $crate::basic::IntegerRepr>::Wrapper;
-                Wrapper::from(self.0).marshal(writer)
+                $crate::TpmMarshal::marshal(&self.0, writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                type Wrapper = <$repr as $crate::basic::IntegerRepr>::Wrapper;
-                let (val, buf) = Wrapper::unmarshal(buf)?;
-                Ok((Self(val.into()), buf))
+                let (val, buf) = <$repr as $crate::TpmUnmarshal>::unmarshal(buf)?;
+                Ok((Self(val), buf))
             }
         }
 
