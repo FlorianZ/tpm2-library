@@ -593,7 +593,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "hex",
  "rstest",
