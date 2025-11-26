@@ -15,7 +15,7 @@ use openssl::{
 };
 use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
-    basic::{Uint16, Uint32},
+    basic::{TpmUint16, TpmUint32},
     data::{
         Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsRsaParms,
         TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId,
@@ -119,11 +119,11 @@ impl TpmExternalKey for TpmRsaExternalKey {
                     scheme: TpmAlgId::Oaep,
                     details: TpmuAsymScheme::Hash(TpmsSchemeHash { hash_alg }),
                 },
-                key_bits: Uint16::from(self.key_bits),
+                key_bits: TpmUint16::from(self.key_bits),
                 exponent: if self.e == 65537 {
-                    Uint32::from(0)
+                    TpmUint32::from(0)
                 } else {
-                    Uint32::from(self.e)
+                    TpmUint32::from(self.e)
                 },
             }),
             unique: TpmuPublicId::Rsa(self.n),

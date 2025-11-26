@@ -7,7 +7,7 @@
 use crate::{TpmCryptoError, TpmEllipticCurve, TpmHash};
 use std::str::FromStr;
 use tpm2_protocol::{
-    basic::{TpmBuffer, Uint16, Uint32},
+    basic::{TpmBuffer, TpmUint16, TpmUint32},
     data::{
         Tpm2bDigest, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms, TpmsKeyedhashParms,
         TpmsRsaParms, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtPublic, TpmtRsaScheme,
@@ -101,7 +101,7 @@ impl TpmPublicTemplate {
     pub fn to_public(&self, auth_policy: Tpm2bDigest, object_attributes: TpmaObject) -> TpmtPublic {
         let symmetric = TpmtSymDefObject {
             algorithm: TpmAlgId::Aes,
-            key_bits: TpmuSymKeyBits::Aes(Uint16::from(128)),
+            key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
             mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
         };
 
@@ -110,8 +110,8 @@ impl TpmPublicTemplate {
                 TpmuPublicParms::Rsa(TpmsRsaParms {
                     symmetric,
                     scheme: TpmtRsaScheme::default(),
-                    key_bits: Uint16::from(self.key_bits.unwrap_or(2048)),
-                    exponent: Uint32::from(0),
+                    key_bits: TpmUint16::from(self.key_bits.unwrap_or(2048)),
+                    exponent: TpmUint32::from(0),
                 }),
                 TpmuPublicId::Rsa(TpmBuffer::default()),
             ),
