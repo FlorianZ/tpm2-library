@@ -7,7 +7,7 @@ use super::{
     TPM_HEADER_SIZE,
 };
 use crate::{
-    basic::{Uint16, Uint32},
+    basic::{TpmUint16, TpmUint32},
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     TpmProtocolError, TpmResult, TpmUnmarshal,
 };
@@ -43,10 +43,10 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
     }
     let buf_len = buf.len();
 
-    let (tag_raw, buf) = Uint16::unmarshal(buf)?;
+    let (tag_raw, buf) = TpmUint16::unmarshal(buf)?;
     let tag = TpmSt::try_from(u16::from(tag_raw))?;
-    let (size, buf) = Uint32::unmarshal(buf)?;
-    let (cc_raw, body_buf) = Uint32::unmarshal(buf)?;
+    let (size, buf) = TpmUint32::unmarshal(buf)?;
+    let (cc_raw, body_buf) = TpmUint32::unmarshal(buf)?;
 
     let size_usize = u32::from(size) as usize;
     if buf_len < size_usize {
@@ -73,7 +73,7 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
 
     let mut sessions = TpmAuthCommands::new();
     let param_area = if tag == TpmSt::Sessions {
-        let (auth_area_size, buf_after_auth_size) = Uint32::unmarshal(after_handles)?;
+        let (auth_area_size, buf_after_auth_size) = TpmUint32::unmarshal(after_handles)?;
         let auth_area_size = u32::from(auth_area_size) as usize;
         if buf_after_auth_size.len() < auth_area_size {
             return Err(TpmProtocolError::UnexpectedEnd);
@@ -101,7 +101,7 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
     let mut handles = TpmHandles::new();
     let mut temp_handle_cursor = handle_area;
     while !temp_handle_cursor.is_empty() {
-        let (handle, rest) = Uint32::unmarshal(temp_handle_cursor)?;
+        let (handle, rest) = TpmUint32::unmarshal(temp_handle_cursor)?;
         handles.try_push(handle)?;
         temp_handle_cursor = rest;
     }
@@ -124,9 +124,9 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
         return Err(TpmProtocolError::UnexpectedEnd);
     }
 
-    let (tag_raw, remainder) = Uint16::unmarshal(buf)?;
-    let (size, remainder) = Uint32::unmarshal(remainder)?;
-    let (code, body_buf) = Uint32::unmarshal(remainder)?;
+    let (tag_raw, remainder) = TpmUint16::unmarshal(buf)?;
+    let (size, remainder) = TpmUint32::unmarshal(remainder)?;
+    let (code, body_buf) = TpmUint32::unmarshal(remainder)?;
 
     let size_usize = u32::from(size) as usize;
     if buf.len() < size_usize {

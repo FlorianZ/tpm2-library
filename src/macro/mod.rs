@@ -139,13 +139,13 @@ macro_rules! tpm_bool {
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let value = if self.0 { 1 } else { 0 };
-                $crate::basic::Uint8::from(value).marshal(writer)
+                $crate::basic::TpmUint8::from(value).marshal(writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = $crate::basic::Uint8::unmarshal(buf)?;
+                let (val, buf) = $crate::basic::TpmUint8::unmarshal(buf)?;
                 match u8::from(val) {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
@@ -155,7 +155,7 @@ macro_rules! tpm_bool {
         }
 
         impl $crate::TpmSized for $name {
-            const SIZE: usize = core::mem::size_of::<$crate::basic::Uint8>();
+            const SIZE: usize = core::mem::size_of::<$crate::basic::TpmUint8>();
             fn len(&self) -> usize {
                 Self::SIZE
             }
@@ -370,9 +370,9 @@ macro_rules! tpm2b_struct {
         }
 
         impl $crate::TpmSized for $wrapper_ty {
-            const SIZE: usize = core::mem::size_of::<$crate::basic::Uint16>() + <$inner_ty>::SIZE;
+            const SIZE: usize = core::mem::size_of::<$crate::basic::TpmUint16>() + <$inner_ty>::SIZE;
             fn len(&self) -> usize {
-                core::mem::size_of::<$crate::basic::Uint16>() + $crate::TpmSized::len(&self.inner)
+                core::mem::size_of::<$crate::basic::TpmUint16>() + $crate::TpmSized::len(&self.inner)
             }
         }
 
@@ -382,7 +382,7 @@ macro_rules! tpm2b_struct {
         {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
-                let len_field = <$crate::basic::Uint16>::try_from(inner_len)
+                let len_field = <$crate::basic::TpmUint16>::try_from(inner_len)
                     .map_err(|_| $crate::TpmProtocolError::IntegerTooLarge)?;
                 len_field.marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
@@ -391,7 +391,7 @@ macro_rules! tpm2b_struct {
 
         impl $crate::TpmUnmarshal for $wrapper_ty {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (size, buf_after_size) = <$crate::basic::Uint16 as $crate::TpmUnmarshal>::unmarshal(buf)?;
+                let (size, buf_after_size) = <$crate::basic::TpmUint16 as $crate::TpmUnmarshal>::unmarshal(buf)?;
                 let size = u16::from(size) as usize;
 
                 if buf_after_size.len() < size {

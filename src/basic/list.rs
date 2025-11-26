@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{basic::Uint32, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal};
+use crate::{basic::TpmUint32, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal};
 use core::{
     convert::TryFrom,
     fmt::Debug,
@@ -109,15 +109,15 @@ impl<T: Copy + PartialEq, const CAPACITY: usize> PartialEq for TpmList<T, CAPACI
 impl<T: Copy + Eq, const CAPACITY: usize> Eq for TpmList<T, CAPACITY> {}
 
 impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY> {
-    const SIZE: usize = size_of::<Uint32>() + (T::SIZE * CAPACITY);
+    const SIZE: usize = size_of::<TpmUint32>() + (T::SIZE * CAPACITY);
     fn len(&self) -> usize {
-        size_of::<Uint32>() + self.iter().map(TpmSized::len).sum::<usize>()
+        size_of::<TpmUint32>() + self.iter().map(TpmSized::len).sum::<usize>()
     }
 }
 
 impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPACITY> {
     fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len = Uint32::try_from(self.len).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+        let len = TpmUint32::try_from(self.len).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
         TpmMarshal::marshal(&len, writer)?;
         for item in &**self {
             TpmMarshal::marshal(item, writer)?;
@@ -128,7 +128,7 @@ impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPA
 
 impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, CAPACITY> {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (count_u32, mut buf) = Uint32::unmarshal(buf)?;
+        let (count_u32, mut buf) = TpmUint32::unmarshal(buf)?;
         let count = u32::from(count_u32) as usize;
         if count > CAPACITY {
             return Err(TpmProtocolError::TooManyItems);

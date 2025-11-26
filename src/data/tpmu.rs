@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    basic::{TpmBuffer, Uint16},
+    basic::{TpmBuffer, TpmUint16},
     constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
@@ -412,9 +412,9 @@ impl TpmUnmarshalTagged for TpmuSensitiveComposite {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuSymKeyBits {
-    Aes(Uint16),
-    Sm4(Uint16),
-    Camellia(Uint16),
+    Aes(TpmUint16),
+    Sm4(TpmUint16),
+    Camellia(TpmUint16),
     Xor(TpmAlgId),
     #[default]
     Null,
@@ -426,7 +426,7 @@ impl TpmTagged for TpmuSymKeyBits {
 }
 
 impl TpmSized for TpmuSymKeyBits {
-    const SIZE: usize = core::mem::size_of::<Uint16>();
+    const SIZE: usize = core::mem::size_of::<TpmUint16>();
     fn len(&self) -> usize {
         match self {
             Self::Aes(val) | Self::Sm4(val) | Self::Camellia(val) => val.len(),
@@ -450,15 +450,15 @@ impl TpmUnmarshalTagged for TpmuSymKeyBits {
     fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         match tag {
             TpmAlgId::Aes => {
-                let (val, buf) = Uint16::unmarshal(buf)?;
+                let (val, buf) = TpmUint16::unmarshal(buf)?;
                 Ok((TpmuSymKeyBits::Aes(val), buf))
             }
             TpmAlgId::Sm4 => {
-                let (val, buf) = Uint16::unmarshal(buf)?;
+                let (val, buf) = TpmUint16::unmarshal(buf)?;
                 Ok((TpmuSymKeyBits::Sm4(val), buf))
             }
             TpmAlgId::Camellia => {
-                let (val, buf) = Uint16::unmarshal(buf)?;
+                let (val, buf) = TpmUint16::unmarshal(buf)?;
                 Ok((TpmuSymKeyBits::Camellia(val), buf))
             }
             TpmAlgId::Xor => {
@@ -487,7 +487,7 @@ impl TpmTagged for TpmuSymMode {
 }
 
 impl TpmSized for TpmuSymMode {
-    const SIZE: usize = core::mem::size_of::<Uint16>();
+    const SIZE: usize = core::mem::size_of::<TpmUint16>();
     fn len(&self) -> usize {
         match self {
             Self::Aes(val) | Self::Sm4(val) | Self::Camellia(val) | Self::Xor(val) => val.len(),

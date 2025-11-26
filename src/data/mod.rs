@@ -104,7 +104,7 @@ tpml!(TpmlCc, TpmCc, 256);
 tpml!(TpmlCca, TpmaCc, 256);
 tpml!(TpmlDigest, Tpm2bDigest, 8);
 tpml!(TpmlDigestValues, TpmtHa, 8);
-tpml!(TpmlHandle, crate::basic::Uint32, 128);
+tpml!(TpmlHandle, crate::basic::TpmUint32, 128);
 tpml!(TpmlPcrSelection, TpmsPcrSelection, 8);
 tpml!(TpmlEccCurve, TpmEccCurve, 64);
 tpml!(TpmlTaggedTpmProperty, TpmsTaggedProperty, 64);

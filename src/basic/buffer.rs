@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    basic::Uint16, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal, TpmWriter,
+    basic::TpmUint16, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal, TpmWriter,
 };
 use core::{
     convert::TryFrom,
@@ -100,22 +100,22 @@ impl<const CAPACITY: usize> Hash for TpmBuffer<CAPACITY> {
 }
 
 impl<const CAPACITY: usize> TpmSized for TpmBuffer<CAPACITY> {
-    const SIZE: usize = size_of::<Uint16>() + CAPACITY;
+    const SIZE: usize = size_of::<TpmUint16>() + CAPACITY;
     fn len(&self) -> usize {
-        size_of::<Uint16>() + self.size as usize
+        size_of::<TpmUint16>() + self.size as usize
     }
 }
 
 impl<const CAPACITY: usize> TpmMarshal for TpmBuffer<CAPACITY> {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
-        Uint16::from(self.size).marshal(writer)?;
+        TpmUint16::from(self.size).marshal(writer)?;
         writer.write_bytes(&self.data[..self.size as usize])
     }
 }
 
 impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (native_size, remainder) = Uint16::unmarshal(buf)?;
+        let (native_size, remainder) = TpmUint16::unmarshal(buf)?;
         let size_usize = u16::from(native_size) as usize;
 
         if size_usize > CAPACITY {

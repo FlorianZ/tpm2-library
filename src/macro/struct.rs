@@ -17,7 +17,7 @@ macro_rules! tpm_struct {
     ) => {
         $(#[$meta])*
         pub struct $name {
-            pub handles: [$crate::TpmHandle; $count],
+            pub handles: [$crate::basic::TpmHandle; $count],
             $(pub $param_field: $param_type,)*
         }
 
@@ -36,9 +36,9 @@ macro_rules! tpm_struct {
         }
 
         impl $crate::TpmSized for $name {
-            const SIZE: usize = (Self::HANDLES * <$crate::TpmHandle>::SIZE) $(+ <$param_type>::SIZE)*;
+            const SIZE: usize = (Self::HANDLES * <$crate::basic::TpmHandle>::SIZE) $(+ <$param_type>::SIZE)*;
             fn len(&self) -> usize {
-                (self.handles.len() * <$crate::TpmHandle>::SIZE) $(+ $crate::TpmSized::len(&self.$param_field))*
+                (self.handles.len() * <$crate::basic::TpmHandle>::SIZE) $(+ $crate::TpmSized::len(&self.$param_field))*
             }
         }
 
@@ -73,9 +73,9 @@ macro_rules! tpm_struct {
                 params_buf: &'a [u8],
             ) -> $crate::TpmResult<(Self, &'a [u8])> {
                 let mut cursor = handles_buf;
-                let mut handles: [$crate::TpmHandle; $count] = ::core::default::Default::default();
+                let mut handles: [$crate::basic::TpmHandle; $count] = ::core::default::Default::default();
                 for handle in &mut handles {
-                    let (val, tail) = <$crate::TpmHandle as $crate::TpmUnmarshal>::unmarshal(cursor)?;
+                    let (val, tail) = <$crate::basic::TpmHandle as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     *handle = val;
                     cursor = tail;
                 }
@@ -114,7 +114,7 @@ macro_rules! tpm_struct {
     ) => {
         $(#[$meta])*
         pub struct $name {
-            pub handles: [$crate::TpmHandle; $count],
+            pub handles: [$crate::basic::TpmHandle; $count],
             $(pub $param_field: $param_type,)*
         }
 
@@ -148,9 +148,9 @@ macro_rules! tpm_struct {
         }
 
         impl $crate::TpmSized for $name {
-            const SIZE: usize = (Self::HANDLES * <$crate::TpmHandle>::SIZE) $(+ <$param_type>::SIZE)*;
+            const SIZE: usize = (Self::HANDLES * <$crate::basic::TpmHandle>::SIZE) $(+ <$param_type>::SIZE)*;
             fn len(&self) -> usize {
-                (self.handles.len() * <$crate::TpmHandle>::SIZE) $(+ $crate::TpmSized::len(&self.$param_field))*
+                (self.handles.len() * <$crate::basic::TpmHandle>::SIZE) $(+ $crate::TpmSized::len(&self.$param_field))*
             }
         }
 
@@ -168,16 +168,16 @@ macro_rules! tpm_struct {
                 buf: &[u8],
             ) -> $crate::TpmResult<(Self, &[u8])> {
                 let mut cursor = buf;
-                let mut handles: [$crate::TpmHandle; $count] = ::core::default::Default::default();
+                let mut handles: [$crate::basic::TpmHandle; $count] = ::core::default::Default::default();
                 for handle in &mut handles {
-                    let (val, tail) = <$crate::TpmHandle as $crate::TpmUnmarshal>::unmarshal(cursor)?;
+                    let (val, tail) = <$crate::basic::TpmHandle as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     *handle = val;
                     cursor = tail;
                 }
 
                 if tag == $crate::data::TpmSt::Sessions {
                     let (size, buf_after_size) =
-                        <$crate::basic::Uint32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
+                        <$crate::basic::TpmUint32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     let size = u32::from(size) as usize;
                     if buf_after_size.len() < size {
                         return Err($crate::TpmProtocolError::UnexpectedEnd);

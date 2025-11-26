@@ -31,9 +31,6 @@ pub mod data;
 pub mod r#macro;
 pub mod frame;
 
-/// A TPM handle, which is a 32-bit unsigned integer.
-pub type TpmHandle = crate::basic::Uint32;
-
 /// TPM frame marshaling and unmarshaling error type containing variants
 /// for all the possible error conditions.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]

@@ -2,8 +2,9 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{
+    basic::TpmHandle,
     data::{TpmAlgId, TpmSt},
-    tpm_bool, tpm_enum, TpmHandle,
+    tpm_bool, tpm_enum,
 };
 
 tpm_bool! {
