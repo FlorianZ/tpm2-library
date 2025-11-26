@@ -111,6 +111,7 @@ pub struct TpmKeyFile {
     pub auth_policy: Option<Vec<TpmKeyPolicy>>,
     pub secret: Option<Vec<u8>>,
     pub description: Option<String>,
+    pub rsa_parent: Option<bool>,
 }
 
 impl TpmKeyFile {
@@ -132,6 +133,11 @@ impl TpmKeyFile {
     #[must_use]
     pub fn parent_public(&self) -> Option<&Tpm2bPublic> {
         self.parent_public.as_ref()
+    }
+
+    #[must_use]
+    pub fn rsa_parent(&self) -> Option<bool> {
+        self.rsa_parent
     }
 
     /// Serialize this key into PEM bytes.
@@ -215,14 +221,6 @@ impl TpmKeyFile {
     }
 
     fn to_asn1(&self) -> Result<TpmKeyAsn1, TpmKeyError> {
-        let rsa_parent = self.parent_public.as_ref().and_then(|pp| {
-            if pp.inner.object_type == TpmAlgId::Rsa {
-                Some(true)
-            } else {
-                None
-            }
-        });
-
         let parent_pubkey_bytes = if let Some(parent_public) = &self.parent_public {
             Some(OctetString::copy_from_slice(&tpm_marshal_array(&[
                 parent_public,
@@ -258,7 +256,7 @@ impl TpmKeyFile {
                 .map(|v| OctetString::copy_from_slice(v)),
             auth_policy: auth_policy_asn1,
             description: self.description.as_deref().map(Utf8String::from),
-            rsa_parent,
+            rsa_parent: self.rsa_parent,
             parent_pubkey: parent_pubkey_bytes,
             parent: self.parent_handle.into(),
             pubkey: OctetString::copy_from_slice(&tpm_marshal_array(&[&self.public])?),
@@ -326,6 +324,7 @@ impl TpmKeyFile {
             auth_policy,
             secret: asn1.secret.as_ref().map(|o| o.as_ref().to_vec()),
             description: asn1.description,
+            rsa_parent: asn1.rsa_parent,
         })
     }
 }
@@ -384,7 +383,7 @@ mod tests {
     use tpm2_protocol::{
         constant::TPM_MAX_COMMAND_SIZE,
         data::{
-            Tpm2bEccParameter, Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc, TpmsEccParms,
+            Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc,
             TpmsRsaParms, TpmtPublic, TpmtSensitive, TpmuPublicId, TpmuPublicParms,
             TpmuSensitiveComposite,
         },
@@ -527,6 +526,7 @@ mod tests {
             auth_policy: None,
             secret: None,
             description: None,
+            rsa_parent: None,
         }
     }
 
@@ -558,47 +558,6 @@ mod tests {
         let bad_pem = "not pem data at all";
         let res = TpmKeyFile::from_pem(bad_pem.as_bytes());
         assert!(matches!(res, Err(TpmKeyError::PemDecodingFailed(_))));
-    }
-
-    #[test]
-    fn test_rsa_parent_encoding() {
-        use tpm2_protocol::data::{TpmtPublic, TpmuPublicId, TpmuPublicParms};
-
-        let (public, private) = minimal_rsa_key_components();
-        let mut key = TpmKeyFile {
-            kind: TpmKeyType::Loadable,
-            public: public.clone(),
-            private,
-            parent_handle: TpmUint32::new(0x4000_0001),
-            parent_public: None,
-            empty_auth: None,
-            policy: None,
-            auth_policy: None,
-            secret: None,
-            description: None,
-        };
-
-        let asn1_absent = key.to_asn1().unwrap();
-        assert!(asn1_absent.rsa_parent.is_none());
-
-        let rsa_parent_pub = public;
-        key.parent_public = Some(rsa_parent_pub);
-        let asn1_rsa = key.to_asn1().unwrap();
-        assert_eq!(asn1_rsa.rsa_parent, Some(true));
-
-        let ecc_tpm_pub = TpmtPublic {
-            object_type: TpmAlgId::Ecc,
-            name_alg: TpmAlgId::Sha256,
-            parameters: TpmuPublicParms::Ecc(TpmsEccParms::default()),
-            unique: TpmuPublicId::Ecc(tpm2_protocol::data::TpmsEccPoint {
-                x: Tpm2bEccParameter::default(),
-                y: Tpm2bEccParameter::default(),
-            }),
-            ..Default::default()
-        };
-        key.parent_public = Some(Tpm2bPublic::from(ecc_tpm_pub));
-        let asn1_ecc = key.to_asn1().unwrap();
-        assert!(asn1_ecc.rsa_parent.is_none());
     }
 
     #[test]
@@ -659,6 +618,7 @@ mod tests {
             auth_policy: None,
             secret: None,
             description: None,
+            rsa_parent: None,
         };
 
         let der = key.to_der().unwrap();
