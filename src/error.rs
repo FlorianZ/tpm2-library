@@ -65,6 +65,10 @@ pub enum TpmPolicyError {
     #[error("PCR bank not available: {0}")]
     PcrBankNotAvailable(tpm2_crypto::TpmHash),
 
+    /// PCR count mismatch.
+    #[error("PCR count mismatch")]
+    PcrCountMismatch,
+
     /// PCR digest is missing.
     #[error("PCR digest is missing")]
     PcrDigestMissing,

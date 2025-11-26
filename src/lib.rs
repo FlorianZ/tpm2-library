@@ -43,14 +43,45 @@ use tpm2_protocol::{
 /// [`Expression::to_command_list()`].
 #[derive(Debug, Clone, Default)]
 pub struct TpmPolicyState {
-    /// Number of PCRs.
-    pub pcr_count: usize,
-    /// Map of persistent handle values to their TPM names.
-    pub names: HashMap<TpmHandle, Tpm2bName>,
-    /// Map of PCR banks to PCR indices and their values.
+    names: HashMap<TpmHandle, Tpm2bName>,
+    pcrs: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>,
+    pcr_count: usize,
+}
+
+impl TpmPolicyState {
+    /// Initialize and return a new instace.
     ///
-    /// The keys of this map represent the available PCR banks.
-    pub pcrs: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>,
+    /// # Errors
+    ///
+    /// Returns [`PcrCountMismatch`](crate::TpmPolicyError::PcrCountMismatch) when
+    /// PCR banks don't have exact same amount of PCRs.
+    pub fn new(
+        names: HashMap<TpmHandle, Tpm2bName>,
+        pcrs: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>,
+    ) -> Result<Self, TpmPolicyError> {
+        let mut pcr_count = 0;
+
+        for bank in pcrs.values() {
+            if pcr_count == 0 {
+                pcr_count = bank.len();
+            }
+
+            if pcr_count != bank.len() {
+                return Err(TpmPolicyError::PcrCountMismatch);
+            }
+        }
+
+        Ok(Self {
+            pcrs,
+            names,
+            pcr_count: 0,
+        })
+    }
+
+    #[must_use]
+    pub fn names(&self) -> &HashMap<TpmHandle, Tpm2bName> {
+        &self.names
+    }
 }
 
 /// Parses a PCR selection string (e.g., "sha1:0,1+sha256:7") into a

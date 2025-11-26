@@ -47,12 +47,7 @@ fn command_list_roundtrip(#[case] input: &str) {
     let mut pcrs = HashMap::new();
     pcrs.insert(TpmAlgId::Sha256, HashMap::new());
 
-    let policy_state = TpmPolicyState {
-        pcr_count: 24,
-        names,
-        pcrs,
-    };
-
+    let policy_state = TpmPolicyState::new(names, pcrs).unwrap();
     let original_ast = TpmPolicyExpression::new(input, &policy_state).unwrap();
 
     let (command_list, _digest) = original_ast
@@ -87,11 +82,7 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let mut pcrs = HashMap::new();
     pcrs.insert(TpmAlgId::Sha256, HashMap::new());
 
-    let policy_state = TpmPolicyState {
-        pcr_count: 24,
-        names,
-        pcrs,
-    };
+    let policy_state = TpmPolicyState::new(names, pcrs).unwrap();
 
     let expr = TpmPolicyExpression::new(input, &policy_state).unwrap();
     let (command_list, digest) = expr
@@ -110,7 +101,7 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let digest_size = hash.size();
     let zero_digest = Tpm2bDigest::try_from(vec![0u8; digest_size].as_slice()).unwrap();
 
-    let name = policy_state.names.get(&handle).unwrap();
+    let name = policy_state.names().get(&handle).unwrap();
     let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
 
     let first_chunks: Vec<&[u8]> = vec![zero_digest.as_ref(), &cc_bytes, name.as_ref()];

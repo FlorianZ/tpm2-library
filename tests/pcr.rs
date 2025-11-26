@@ -15,25 +15,21 @@ use tpm2_protocol::data::TpmAlgId;
 #[rstest]
 #[case(
     "pcr(sha256:0,1,2:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)",
-    24,
     vec![TpmAlgId::Sha256],
     TpmAlgId::Sha256
 )]
 #[case(
     "pcr(sha1:0+sha256:7,9,12:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)",
-    24,
     vec![TpmAlgId::Sha1, TpmAlgId::Sha256],
     TpmAlgId::Sha256
 )]
 #[case(
     "pcr(sha256:0,1,2:01d4c1a1d5c7d49e2781a96d00ebcc6616492a09f196598f7d0c9dee21b94962)",
-    24,
     vec![TpmAlgId::Sha256],
     TpmAlgId::Sha256
 )]
 fn pcr_roundtrip(
     #[case] input: &str,
-    #[case] pcr_count: usize,
     #[case] pcr_banks: Vec<TpmAlgId>,
     #[case] session_alg: TpmAlgId,
 ) {
@@ -42,12 +38,7 @@ fn pcr_roundtrip(
         pcrs.insert(alg, HashMap::new());
     }
 
-    let policy_state = TpmPolicyState {
-        pcr_count,
-        names: HashMap::new(),
-        pcrs,
-    };
-
+    let policy_state = TpmPolicyState::new(HashMap::new(), pcrs).unwrap();
     let original_ast = TpmPolicyExpression::new(input, &policy_state).unwrap();
     let (cmds, _) = original_ast
         .to_command_list(session_alg, &policy_state)
