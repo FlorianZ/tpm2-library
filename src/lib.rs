@@ -68,9 +68,9 @@ pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
-    basic::Uint32,
+    basic::{TpmHandle, TpmUint32},
     data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc},
-    TpmHandle, TpmUnmarshal,
+    TpmUnmarshal,
 };
 
 /// A single policy command.
@@ -319,7 +319,7 @@ impl TpmKeyFile {
             kind,
             public,
             private,
-            parent_handle: Uint32::new(asn1.parent),
+            parent_handle: TpmUint32::new(asn1.parent),
             parent_public,
             empty_auth: asn1.empty_auth,
             policy,
@@ -520,7 +520,7 @@ mod tests {
             kind: TpmKeyType::Loadable,
             public,
             private,
-            parent_handle: Uint32::new(0),
+            parent_handle: TpmUint32::new(0),
             parent_public: None,
             empty_auth: None,
             policy: None,
