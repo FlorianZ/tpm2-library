@@ -42,8 +42,8 @@ fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
     assert_eq!(public.auth_policy.len(), 0);
 
     if let TpmuPublicParms::Rsa(params) = public.parameters {
-        assert_eq!(params.key_bits, key_bits);
-        assert_eq!(params.exponent, 0);
+        assert_eq!(u16::from(params.key_bits), key_bits);
+        assert_eq!(u32::from(params.exponent), 0);
         assert_eq!(params.scheme.scheme, TpmAlgId::Oaep);
         if let TpmuAsymScheme::Hash(details) = params.scheme.details {
             assert_eq!(details.hash_alg, hash_alg);

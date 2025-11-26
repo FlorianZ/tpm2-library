@@ -222,7 +222,7 @@ impl TpmExternalKey for TpmEccExternalKey {
     ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError> {
         let (derived_seed, ephemeral_point) = self.ecdh(name_alg, rng)?;
 
-        let mut point_bytes_buf = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+        let mut point_bytes_buf = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
             let mut writer = TpmWriter::new(&mut point_bytes_buf);
             ephemeral_point

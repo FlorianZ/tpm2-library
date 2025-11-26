@@ -14,10 +14,13 @@ use openssl::{
     rsa::{Padding, Rsa},
 };
 use rand::{CryptoRng, RngCore};
-use tpm2_protocol::data::{
-    Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsRsaParms,
-    TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId,
-    TpmuPublicParms,
+use tpm2_protocol::{
+    basic::{Uint16, Uint32},
+    data::{
+        Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsRsaParms,
+        TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId,
+        TpmuPublicParms,
+    },
 };
 
 /// RSA public key parameters.
@@ -46,16 +49,17 @@ impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
             _ => Err(TpmCryptoError::InvalidRsaParameters),
         }?;
 
-        let e = if params.exponent == 0 {
+        let exponent_u32 = u32::from(params.exponent);
+        let e = if exponent_u32 == 0 {
             65537
         } else {
-            params.exponent
+            exponent_u32
         };
 
         Ok(Self {
             n,
             e,
-            key_bits: params.key_bits,
+            key_bits: u16::from(params.key_bits),
         })
     }
 }
@@ -115,8 +119,12 @@ impl TpmExternalKey for TpmRsaExternalKey {
                     scheme: TpmAlgId::Oaep,
                     details: TpmuAsymScheme::Hash(TpmsSchemeHash { hash_alg }),
                 },
-                key_bits: self.key_bits,
-                exponent: if self.e == 65537 { 0 } else { self.e },
+                key_bits: Uint16::from(self.key_bits),
+                exponent: if self.e == 65537 {
+                    Uint32::from(0)
+                } else {
+                    Uint32::from(self.e)
+                },
             }),
             unique: TpmuPublicId::Rsa(self.n),
         }
