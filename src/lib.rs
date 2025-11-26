@@ -105,7 +105,6 @@ pub struct TpmKeyFile {
     pub public: Tpm2bPublic,
     pub private: Tpm2bPrivate,
     pub parent_handle: TpmHandle,
-    pub parent_public: Option<Tpm2bPublic>,
     pub empty_auth: Option<bool>,
     pub policy: Option<TpmKeyPolicy>,
     pub auth_policy: Option<Vec<TpmKeyPolicy>>,
@@ -128,11 +127,6 @@ impl TpmKeyFile {
     #[must_use]
     pub fn parent_handle(&self) -> TpmHandle {
         self.parent_handle
-    }
-
-    #[must_use]
-    pub fn parent_public(&self) -> Option<&Tpm2bPublic> {
-        self.parent_public.as_ref()
     }
 
     #[must_use]
@@ -221,14 +215,6 @@ impl TpmKeyFile {
     }
 
     fn to_asn1(&self) -> Result<TpmKeyAsn1, TpmKeyError> {
-        let parent_pubkey_bytes = if let Some(parent_public) = &self.parent_public {
-            Some(OctetString::copy_from_slice(&tpm_marshal_array(&[
-                parent_public,
-            ])?))
-        } else {
-            None
-        };
-
         let policy_asn1 = self.policy.as_ref().map(Vec::<TpmKeyCommandAsn1>::from);
 
         let auth_policy_asn1 = self
@@ -257,7 +243,6 @@ impl TpmKeyFile {
             auth_policy: auth_policy_asn1,
             description: self.description.as_deref().map(Utf8String::from),
             rsa_parent: self.rsa_parent,
-            parent_pubkey: parent_pubkey_bytes,
             parent: self.parent_handle.into(),
             pubkey: OctetString::copy_from_slice(&tpm_marshal_array(&[&self.public])?),
             privkey: OctetString::copy_from_slice(&tpm_marshal_array(&[&self.private])?),
@@ -268,13 +253,6 @@ impl TpmKeyFile {
         let (public, _) = Tpm2bPublic::unmarshal(&asn1.pubkey).map_err(TpmKeyError::Unmarshal)?;
         let (private, _) =
             Tpm2bPrivate::unmarshal(&asn1.privkey).map_err(TpmKeyError::Unmarshal)?;
-        let parent_public = if let Some(parent_bytes) = &asn1.parent_pubkey {
-            let (parent_pub, _) =
-                Tpm2bPublic::unmarshal(parent_bytes).map_err(TpmKeyError::Unmarshal)?;
-            Some(parent_pub)
-        } else {
-            None
-        };
 
         let key_type = public.inner.object_type;
 
@@ -318,7 +296,6 @@ impl TpmKeyFile {
             public,
             private,
             parent_handle: TpmUint32::new(asn1.parent),
-            parent_public,
             empty_auth: asn1.empty_auth,
             policy,
             auth_policy,
@@ -383,9 +360,8 @@ mod tests {
     use tpm2_protocol::{
         constant::TPM_MAX_COMMAND_SIZE,
         data::{
-            Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc,
-            TpmsRsaParms, TpmtPublic, TpmtSensitive, TpmuPublicId, TpmuPublicParms,
-            TpmuSensitiveComposite,
+            Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc, TpmsRsaParms, TpmtPublic, TpmtSensitive,
+            TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
         },
         TpmMarshal, TpmWriter,
     };
@@ -437,7 +413,6 @@ mod tests {
             auth_policy: None,
             description: None,
             rsa_parent: None,
-            parent_pubkey: None,
             parent: 0,
             pubkey: OctetString::copy_from_slice(&pub_bytes),
             privkey: OctetString::copy_from_slice(&priv_bytes),
@@ -472,7 +447,6 @@ mod tests {
             auth_policy: None,
             description: None,
             rsa_parent: None,
-            parent_pubkey: None,
             parent: 0,
             pubkey: OctetString::copy_from_slice(&pub_bytes),
             privkey: OctetString::copy_from_slice(&priv_bytes),
@@ -501,7 +475,6 @@ mod tests {
             auth_policy: None,
             description: None,
             rsa_parent: None,
-            parent_pubkey: None,
             parent: 0,
             pubkey: OctetString::copy_from_slice(&pub_bytes),
             privkey: OctetString::copy_from_slice(&priv_bytes),
@@ -520,7 +493,6 @@ mod tests {
             public,
             private,
             parent_handle: TpmUint32::new(0),
-            parent_public: None,
             empty_auth: None,
             policy: None,
             auth_policy: None,
@@ -612,7 +584,6 @@ mod tests {
             public,
             private,
             parent_handle: TpmUint32::new(0),
-            parent_public: None,
             empty_auth: None,
             policy: None,
             auth_policy: None,

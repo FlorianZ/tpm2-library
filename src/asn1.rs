@@ -57,8 +57,6 @@ pub(crate) struct TpmKeyAsn1 {
     pub description: Option<Utf8String>,
     #[rasn(tag(explicit(context, 5)))]
     pub rsa_parent: Option<bool>,
-    #[rasn(tag(explicit(context, 6)))]
-    pub parent_pubkey: Option<OctetString>,
     pub parent: u32,
     pub pubkey: OctetString,
     pub privkey: OctetString,
