@@ -154,9 +154,9 @@ pub enum CommandError {
     InvalidPublicKey,
     #[error("invalid RSA parameters")]
     InvalidRsaParameters,
-    #[error("senstive data is not a valid hex string")]
+    #[error("sensitive data is not a valid hex string")]
     InvalidSensitiveData,
-    #[error("integer ovrflow")]
+    #[error("integer overflow")]
     IntegerOverflow,
     #[error("key: {0}")]
     Key(#[from] tpm2_tpmkey::TpmKeyError),
