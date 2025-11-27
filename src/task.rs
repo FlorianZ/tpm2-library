@@ -199,7 +199,7 @@ impl<'a> TaskState<'a> {
                 let session = TpmPolicySession::builder()
                     .with_auth_hash(name_alg)
                     .open(device)?;
-                if let Err(e) = session.apply_policy(device, commands) {
+                if let Err(e) = session.run(device, commands) {
                     let _ = session.flush(device);
                     return Err(e.into());
                 }

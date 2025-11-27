@@ -1425,9 +1425,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-device"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "223e44ff48085e77b602c586ff70f9353608c4fc2caa95250a2683fc890d2a4a"
+checksum = "89dac58f343dfb4e53bb80601aeb19a87abb6bcd81aa918ab10cda8a71323eef"
 dependencies = [
  "hex",
  "log",
