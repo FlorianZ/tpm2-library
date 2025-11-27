@@ -80,7 +80,6 @@ pub struct TpmKeyBuilder {
     secret: Option<Vec<u8>>,
     auth_policy: Option<Vec<TpmKeyPolicy>>,
     description: Option<String>,
-    rsa_parent: Option<bool>,
 }
 
 impl TpmKeyBuilder {
@@ -115,12 +114,6 @@ impl TpmKeyBuilder {
     }
 
     #[must_use]
-    pub fn with_rsa_parent(mut self, rsa_parent: bool) -> Self {
-        self.rsa_parent = Some(rsa_parent);
-        self
-    }
-
-    #[must_use]
     pub fn build(
         self,
         public: Tpm2bPublic,
@@ -133,6 +126,12 @@ impl TpmKeyBuilder {
             TpmKeyType::Loadable
         };
 
+        let rsa_parent = if public.inner.object_type == TpmAlgId::Rsa {
+            Some(true)
+        } else {
+            None
+        };
+
         TpmKeyFile {
             kind,
             empty_auth: None,
@@ -143,7 +142,7 @@ impl TpmKeyBuilder {
             public,
             private,
             parent,
-            rsa_parent: None,
+            rsa_parent,
         }
     }
 }
