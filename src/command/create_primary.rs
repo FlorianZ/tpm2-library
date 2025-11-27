@@ -48,7 +48,8 @@ impl Task for CreatePrimary {
 
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
 
-            let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
+            let user_auth = self.creation_args.parse_password()?;
+            let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
             let public_template = self
                 .algorithm
                 .to_public(Tpm2bDigest::default(), object_attributes);

@@ -122,22 +122,30 @@ pub struct CreationArgs {
 }
 
 impl CreationArgs {
-    /// Parse authorization value and policy digest and create object attributes.
+    /// Parses the password into a TPM authorization value.
     ///
     /// # Errors
     ///
-    /// Returns a `CommandError` if parsing fails.
-    pub fn parse(&self, alg: &TpmPublicTemplate) -> Result<(TpmaObject, Tpm2bAuth), CommandError> {
-        let user_auth = match &self.password {
+    /// Returns [`CommandError::InvalidPassword`] when the hex string is malformed,
+    /// or [`CommandError::CapacityExceeded`] when the password is too long.
+    pub fn parse_password(&self) -> Result<Tpm2bAuth, CommandError> {
+        match &self.password {
             Some(hex_str) => Tpm2bAuth::try_from(
                 hex::decode(hex_str)
                     .map_err(|_| CommandError::InvalidPassword)?
                     .as_slice(),
             )
-            .map_err(|_| CommandError::CapacityExceeded)?,
-            None => Tpm2bAuth::default(),
-        };
+            .map_err(|_| CommandError::CapacityExceeded),
+            None => Ok(Tpm2bAuth::default()),
+        }
+    }
 
+    /// Creates object attributes based on the algorithm and policy configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] if attribute construction fails.
+    pub fn parse_attributes(&self, alg: &TpmPublicTemplate) -> Result<TpmaObject, CommandError> {
         let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
 
         if !self.lock {
@@ -156,7 +164,7 @@ impl CreationArgs {
             attributes |= TpmaObject::ADMIN_WITH_POLICY;
         }
 
-        Ok((attributes, user_auth))
+        Ok(attributes)
     }
 }
 

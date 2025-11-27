@@ -105,7 +105,8 @@ impl Create {
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
     ) -> Result<(TpmCreateCommand, Option<PolicyCommands>, bool), CommandError> {
-        let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
+        let user_auth = self.creation_args.parse_password()?;
+        let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
         let sensitive_data = self.get_sensitive_data()?;
 
         let (auth_policy_digest, policy_commands) = build_policy_command_list(
