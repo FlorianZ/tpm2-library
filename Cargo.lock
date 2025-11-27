@@ -1410,9 +1410,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d155ee2ee2fedaad9205f9d09b53adfa1769ee94905f69717e6d180a2bc662f2"
+checksum = "36327fe95ea7aee68cc3d5a17e3f572bec51c6ae639dce61defc0880cadeabfc"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -1425,9 +1425,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-device"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fad2e574a471fe3c727cc5c0e4d3bacb6177d6c220816f040b2a91a43f94c747"
+checksum = "fc00ea9de746bce71d7d47085c92920756d2fd017711a19aee91d94fdf16d33e"
 dependencies = [
  "hex",
  "log",
@@ -1439,9 +1439,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "0.10.4"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "377288562a0334387ed1c64dcd295513af029d5387905afa08f89d824a115698"
+checksum = "abb9dadfcbf5faf363d42c8f88ac0151077a6e7773936bd2ca348ddb595fdb59"
 dependencies = [
  "hex",
  "strum",
@@ -1452,15 +1452,15 @@ dependencies = [
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.16.2"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a44ed10111c3d0bb77bff09dad3eddfac512b337a2e34f7b94eb89169819c6cc"
+checksum = "7ea64efe97620a4d119117b5a26adbe163522aa422fc7df758ccb1c48dc6e0a8"
 
 [[package]]
 name = "tpm2-tpmkey"
-version = "0.10.6"
+version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f38e1de7be74f203db5896db587fa84b32c0bb0c2ec60d091d56f7057007b0"
+checksum = "c76ca668d2b75462e673ec5d5dfced3fef710443a0b19a411a2c4e3c52425d6b"
 dependencies = [
  "hex",
  "pem",
@@ -1471,9 +1471,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-vtpm"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a6a947aa1387cca997609eb52341f514db7477c8a35ad2f22ff55d5f851ebe4"
+checksum = "9c893ffc0e9089231083a9313db4e6c3c68aadb1e89f9443dbb515ee2c7ccc22"
 dependencies = [
  "log",
  "thiserror",
