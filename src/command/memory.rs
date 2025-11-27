@@ -5,7 +5,7 @@
 use crate::{
     cli::Task,
     command::{print_table, public_to_template, AuthArgs, CommandError},
-    task::{TaskAuth, TaskState},
+    task::{Auth, TaskState},
 };
 use clap::Args;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
@@ -299,7 +299,7 @@ impl Memory {
             .get(&TpmUint32(auth_handle_val))
             .cloned()
             .unwrap_or_default();
-        let effective_auths: &[TaskAuth] = if needs_auth { &[auth] } else { &[] };
+        let effective_auths: &[Auth] = if needs_auth { &[auth] } else { &[] };
 
         while offset < data_size.value() as usize {
             let chunk_size = std::cmp::min(

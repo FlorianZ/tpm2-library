@@ -7,7 +7,7 @@ use crate::{
     command::CommandError,
     handle::Handle,
     pcr::read_all_pcrs,
-    task::{TaskAuth, TaskState},
+    task::{Auth, TaskState},
 };
 use clap::{Args, ValueEnum};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
@@ -42,14 +42,14 @@ fn parse_handle_target(s: &str) -> Result<TpmHandle, String> {
 ///
 /// Returns an error if the string is not formatted correctly, the handle is invalid,
 /// or the hex value is malformed.
-fn parse_auth(s: &str) -> Result<(TpmHandle, TaskAuth), String> {
+fn parse_auth(s: &str) -> Result<(TpmHandle, Auth), String> {
     let (handle_str, auth_str) = s
         .split_once(':')
         .ok_or_else(|| "format must be <handle>:<value>".to_string())?;
 
     let handle = parse_handle_target(handle_str)?;
     let auth = hex::decode(auth_str)
-        .map(TaskAuth::Password)
+        .map(Auth::Password)
         .map_err(|e| e.to_string())?;
 
     Ok((handle, auth))
@@ -59,13 +59,13 @@ fn parse_auth(s: &str) -> Result<(TpmHandle, TaskAuth), String> {
 pub struct AuthArgs {
     /// List of authentication values in the format '<handle>:<hex string>'.
     #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = parse_auth)]
-    pub auth: Vec<(TpmHandle, TaskAuth)>,
+    pub auth: Vec<(TpmHandle, Auth)>,
 }
 
 impl AuthArgs {
     /// Builds a map of handle-specific authorizations.
     #[must_use]
-    pub fn build_auth_map(&self) -> HashMap<TpmHandle, TaskAuth> {
+    pub fn build_auth_map(&self) -> HashMap<TpmHandle, Auth> {
         self.auth.iter().cloned().collect()
     }
 }

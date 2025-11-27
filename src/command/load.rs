@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{AuthArgs, CommandError, InputArgs},
     io::read_file_input,
-    task::{TaskAuth, TaskState},
+    task::{Auth, TaskState},
 };
 use clap::Args;
 use tpm2_device::{with_device, TpmDevice};
@@ -153,7 +153,7 @@ impl Load {
         parent_handle: TpmHandle,
         in_private: &tpm2_protocol::data::Tpm2bPrivate,
         in_public: &Tpm2bPublic,
-        auths: &[TaskAuth],
+        auths: &[Auth],
     ) -> Result<(TpmHandle, Tpm2bPublic), CommandError> {
         let cmd = TpmLoadCommand {
             in_private: *in_private,

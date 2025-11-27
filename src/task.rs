@@ -41,12 +41,12 @@ pub trait TaskStateProgress {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TaskAuth {
+pub enum Auth {
     Password(Vec<u8>),
     Session(u32),
 }
 
-impl Default for TaskAuth {
+impl Default for Auth {
     fn default() -> Self {
         Self::Password(Vec::new())
     }
@@ -186,8 +186,8 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         handle: TpmHandle,
-        auth_map: &HashMap<TpmHandle, TaskAuth>,
-    ) -> Result<(TpmHandle, TpmAlgId, TaskAuth), TaskError> {
+        auth_map: &HashMap<TpmHandle, Auth>,
+    ) -> Result<(TpmHandle, TpmAlgId, Auth), TaskError> {
         let (phys_handle, policy, name_alg) = self.fetch_policy(device, handle)?;
 
         if let Some(auth) = auth_map.get(&handle).cloned() {
@@ -205,11 +205,11 @@ impl<'a> TaskState<'a> {
                 }
                 let vhandle = session.handle();
                 self.sessions.insert(vhandle, session);
-                return Ok((phys_handle, name_alg, TaskAuth::Session(vhandle.0)));
+                return Ok((phys_handle, name_alg, Auth::Session(vhandle.0)));
             }
         }
 
-        Ok((phys_handle, name_alg, TaskAuth::default()))
+        Ok((phys_handle, name_alg, Auth::default()))
     }
 
     /// Constructs a `TpmKeyFile` from the given key components.
@@ -366,7 +366,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         command: &C,
-        auth_list: &[TaskAuth],
+        auth_list: &[Auth],
     ) -> Result<(TpmResponse, TpmAuthResponses), TaskError> {
         if let Some(p) = &self.progress {
             p.start();
@@ -376,7 +376,7 @@ impl<'a> TaskState<'a> {
 
         for auth in auth_list {
             let auth_cmd = match auth {
-                TaskAuth::Session(vhandle) => {
+                Auth::Session(vhandle) => {
                     let session = self
                         .sessions
                         .get(&TpmUint32(*vhandle))
@@ -394,7 +394,7 @@ impl<'a> TaskState<'a> {
                         hmac: Tpm2bAuth::default(),
                     }
                 }
-                TaskAuth::Password(password) => build_password_session(password)?,
+                Auth::Password(password) => build_password_session(password)?,
             };
             sessions.push(auth_cmd);
         }
@@ -428,7 +428,7 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
-        auth_map: &HashMap<TpmHandle, TaskAuth>,
+        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<(), TaskError> {
         let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
@@ -488,7 +488,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
-        auth_map: &HashMap<TpmHandle, TaskAuth>,
+        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<Option<TpmCommandList>, TaskError> {
         if policy.is_empty() {
             return Ok(None);
@@ -513,7 +513,7 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         vtpm_cmd: &dyn VtpmPolicyCommand,
-        auth_map: &HashMap<TpmHandle, TaskAuth>,
+        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<(TpmCommand, TpmAuthCommands), TaskError> {
         let body = vtpm_cmd.body();
         let (vtpm_secret_cmd, rest) =
@@ -555,8 +555,8 @@ impl<'a> TaskState<'a> {
             .unwrap_or_default();
 
         let auth_cmd = match task_auth {
-            TaskAuth::Password(password) => build_password_session(&password)?,
-            TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
+            Auth::Password(password) => build_password_session(&password)?,
+            Auth::Session(_) => return Err(TaskError::InvalidAuth),
         };
 
         let mut auths = TpmAuthCommands::new();

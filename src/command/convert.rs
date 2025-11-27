@@ -9,7 +9,7 @@ use crate::{
         OutputArgs, OutputEncodingArgs,
     },
     io::{read_file_input, write_key_data, write_object},
-    task::{TaskAuth, TaskState},
+    task::{Auth, TaskState},
 };
 use clap::Args;
 use openssl::symm::{encrypt, Cipher};
@@ -308,7 +308,7 @@ impl Convert {
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         import_cmd: &TpmImportCommand,
-        auths: &[TaskAuth],
+        auths: &[Auth],
     ) -> Result<Tpm2bPrivate, CommandError> {
         let (resp, _) = task_state.execute(device, import_cmd, auths)?;
         let import_resp = resp
@@ -323,7 +323,7 @@ impl Convert {
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
         input_bytes: &[u8],
-        auths: &[TaskAuth],
+        auths: &[Auth],
         user_auth: Tpm2bAuth,
         auth_policy: Tpm2bDigest,
         object_attributes: TpmaObject,
