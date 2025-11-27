@@ -18,17 +18,17 @@ use tpm2_protocol::{
 #[derive(Debug, Error)]
 pub enum PcrError {
     #[error("crypto: {0}")]
-    Crypto(#[from] TpmCryptoError),
+    Crypto(TpmCryptoError),
     #[error("device: {0}")]
-    Device(#[from] TpmDeviceError),
+    Device(TpmDeviceError),
     #[error("capacity exceeded")]
     CapacityExceeded,
     #[error("invalid algorithm: {0:?}")]
     InvalidAlgorithm(TpmAlgId),
     #[error("PCR digest missing")]
     PcrDigestMissing,
-    #[error("protocol: {0}")]
-    Protocol(#[from] TpmProtocolError),
+    #[error("unmarshal: {0}")]
+    Unmarshal(TpmProtocolError),
 }
 
 /// Reads all PCRs from the active banks.
@@ -38,11 +38,11 @@ pub enum PcrError {
 ///
 /// # Errors
 ///
-/// Returns `PcrError` on device or protocol failure.
+/// Returns [`PcrError`] on device, capacity, or unmarshaling failure.
 pub fn read_all_pcrs(
     device: &mut TpmDevice,
 ) -> Result<HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>, PcrError> {
-    let (algs, common_mask) = device.fetch_pcr_bank_list()?;
+    let (algs, common_mask) = device.fetch_pcr_bank_list().map_err(PcrError::Device)?;
     let mut remaining_selection = TpmlPcrSelection::new();
 
     for alg in &algs {
@@ -65,10 +65,10 @@ pub fn read_all_pcrs(
             handles: [],
         };
 
-        let (resp, _) = device.transmit(&cmd, &[])?;
+        let (resp, _) = device.transmit(&cmd, &[]).map_err(PcrError::Device)?;
         let pcr_resp = resp
             .PcrRead()
-            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::PcrRead))?;
+            .map_err(|_| PcrError::Device(TpmDeviceError::ResponseMismatch(TpmCc::PcrRead)))?;
 
         let mut value_iter = pcr_resp.pcr_values.iter();
         for selection_out in pcr_resp.pcr_selection_out.iter() {
@@ -118,7 +118,8 @@ fn update_remaining_selection(
             }
         }
 
-        let new_select = TpmsPcrSelect::try_from(mask_bytes.as_slice()).unwrap();
+        let new_select =
+            TpmsPcrSelect::try_from(mask_bytes.as_slice()).map_err(PcrError::Unmarshal)?;
 
         new_list
             .try_push(TpmsPcrSelection {
