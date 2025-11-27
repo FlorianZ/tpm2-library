@@ -43,24 +43,38 @@ pub trait TaskStateProgress {
 
 /// Manages the state of an active authorization session.
 #[derive(Debug, Clone)]
-pub struct TaskSession {
+pub struct PolicySession {
     pub handle: TpmHandle,
     pub attributes: TpmaSession,
     pub hash_alg: TpmAlgId,
 }
 
-impl TaskSession {
-    /// Creates a new session from a `StartAuthSession` response.
+impl PolicySession {
+    /// Creates a new policy session, initializing it on the TPM and applying the policy.
     ///
     /// # Errors
     ///
-    /// Returns [`TaskError`] if the hash algorithm is unsupported or if `KDFa` fails.
-    pub fn new(hash_alg: TpmAlgId, handle: TpmHandle) -> Result<Self, TaskError> {
-        Ok(Self {
-            handle,
+    /// Returns [`TaskError`] if starting the session or applying policy commands fails.
+    pub fn new(
+        device: &mut TpmDevice,
+        hash_alg: TpmAlgId,
+        commands: Vec<(TpmCommand, TpmAuthCommands)>,
+    ) -> Result<Self, TaskError> {
+        let (resp, _) =
+            Self::start_session(device, TpmSe::Policy, hash_alg, (TpmRh::Null as u32).into())?;
+
+        let session = Self {
+            handle: resp.handles[0],
             attributes: TpmaSession::CONTINUE_SESSION,
             hash_alg,
-        })
+        };
+
+        if let Err(e) = session.apply_policy(device, commands) {
+            let _ = session.delete(device);
+            return Err(e);
+        }
+
+        Ok(session)
     }
 
     /// Returns the VTPM handle.
@@ -77,6 +91,61 @@ impl TaskSession {
     /// transmission fails.
     pub fn delete(&self, device: &mut TpmDevice) -> Result<(), TaskError> {
         device.flush_context(self.handle).map_err(TaskError::Device)
+    }
+
+    fn start_session(
+        device: &mut TpmDevice,
+        session_type: TpmSe,
+        auth_hash: TpmAlgId,
+        bind: TpmHandle,
+    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), TaskError> {
+        let digest_len = TpmHash::from(auth_hash).size();
+        let mut nonce_bytes = vec![0; digest_len];
+        thread_rng().fill_bytes(&mut nonce_bytes);
+        let nonce_caller =
+            Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?;
+
+        let cmd = TpmStartAuthSessionCommand {
+            nonce_caller,
+            encrypted_salt: Tpm2bEncryptedSecret::default(),
+            session_type,
+            symmetric: TpmtSymDefObject::default(),
+            auth_hash,
+            handles: [(TpmRh::Null as u32).into(), bind],
+        };
+        let sessions = vec![];
+
+        let (response_body, _) = device.transmit(&cmd, &sessions)?;
+
+        let resp = response_body
+            .StartAuthSession()
+            .map_err(|_| TaskError::ResponseMismatch(TpmCc::StartAuthSession))?;
+
+        Ok((resp, nonce_caller))
+    }
+
+    fn apply_policy(
+        &self,
+        device: &mut TpmDevice,
+        commands: TpmCommandList,
+    ) -> Result<(), TaskError> {
+        for (mut command_body, auth_sessions) in commands {
+            match &mut command_body {
+                TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = self.handle.0.into(),
+                TpmCommand::PolicyOr(cmd) => cmd.handles[0] = self.handle.0.into(),
+                TpmCommand::PolicyRestart(cmd) => {
+                    cmd.handles[0] = self.handle.0.into();
+                }
+                TpmCommand::PolicySecret(cmd) => {
+                    cmd.handles[1] = self.handle.0.into();
+                }
+                _ => {
+                    return Err(TaskError::MalformedData);
+                }
+            }
+            device.transmit(&command_body, auth_sessions.as_ref())?;
+        }
+        Ok(())
     }
 }
 
@@ -133,7 +202,7 @@ pub struct TaskState<'a> {
     pub cache: VtpmCache<'a>,
     pub progress: Option<Box<dyn TaskStateProgress>>,
     /// Holds all temporary sessions, indexed by their vhandle.
-    pub sessions: HashMap<TpmHandle, TaskSession>,
+    pub sessions: HashMap<TpmHandle, PolicySession>,
     /// Live handles (virtual handle -> physical handle).
     pub live_handles: HashMap<u32, TpmHandle>,
     /// All tracked handles (physical) for cleanup.
@@ -231,12 +300,19 @@ impl<'a> TaskState<'a> {
         let (phys_handle, policy, name_alg) = self.fetch_policy(device, handle)?;
 
         if let Some(auth) = auth_map.get(&handle).cloned() {
-            Ok((phys_handle, name_alg, auth))
-        } else if let Some(auth) = self.start_policy_session(device, &policy, name_alg, auth_map)? {
-            Ok((phys_handle, name_alg, auth))
-        } else {
-            Ok((phys_handle, name_alg, TaskAuth::default()))
+            return Ok((phys_handle, name_alg, auth));
         }
+
+        if let Some(commands) = self.load_policy(device, &policy, auth_map)? {
+            if !commands.is_empty() {
+                let session = PolicySession::new(device, name_alg, commands)?;
+                let vhandle = session.handle();
+                self.sessions.insert(vhandle, session);
+                return Ok((phys_handle, name_alg, TaskAuth::Session(vhandle.0)));
+            }
+        }
+
+        Ok((phys_handle, name_alg, TaskAuth::default()))
     }
 
     /// Constructs a `TpmKeyFile` from the given key components.
@@ -511,95 +587,87 @@ impl<'a> TaskState<'a> {
         Ok(Some(TpmKeyPolicy { name: None, policy }))
     }
 
-    fn start_policy_session(
+    fn load_policy(
         &mut self,
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
-        key_name_alg: TpmAlgId,
         auth_map: &HashMap<TpmHandle, TaskAuth>,
-    ) -> Result<Option<TaskAuth>, TaskError> {
-        let Some(commands) = self.load_policy_command_list(device, policy, auth_map)? else {
-            return Ok(None);
-        };
-
-        if commands.is_empty() {
+    ) -> Result<Option<TpmCommandList>, TaskError> {
+        if policy.is_empty() {
             return Ok(None);
         }
 
-        let (resp, _) = TaskState::start_session(
-            device,
-            TpmSe::Policy,
-            key_name_alg,
-            (TpmRh::Null as u32).into(),
-        )?;
+        let mut commands = Vec::with_capacity(policy.len());
 
-        let temp_session = TaskSession::new(key_name_alg, resp.handles[0])?;
-        let vhandle = temp_session.handle();
-        self.sessions.insert(vhandle, temp_session);
-        let policy_phandle = resp.handles[0];
-
-        match Self::run_policy(device, policy_phandle, commands) {
-            Ok(()) => Ok(Some(TaskAuth::Session(vhandle.0))),
-            Err(e) => {
-                let _ = self.remove_session(device, policy_phandle);
-                Err(e)
-            }
+        for vtpm_cmd in policy {
+            let (cmd, auth) = if vtpm_cmd.cc() == TpmCc::PolicySecret {
+                self.load_policy_secret(device, vtpm_cmd.as_ref(), auth_map)?
+            } else {
+                let tpm_cmd = vtpm_cmd.to_command().map_err(TaskError::Vtpm)?;
+                (tpm_cmd, TpmAuthCommands::new())
+            };
+            commands.push((cmd, auth));
         }
+
+        Ok(Some(commands))
     }
 
-    fn run_policy(
+    fn load_policy_secret(
+        &mut self,
         device: &mut TpmDevice,
-        policy_phandle: TpmHandle,
-        commands: TpmCommandList,
-    ) -> Result<(), TaskError> {
-        for (mut command_body, auth_sessions) in commands {
-            match &mut command_body {
-                TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
-                TpmCommand::PolicyOr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
-                TpmCommand::PolicyRestart(cmd) => {
-                    cmd.handles[0] = policy_phandle.0.into();
-                }
-                TpmCommand::PolicySecret(cmd) => {
-                    cmd.handles[1] = policy_phandle.0.into();
-                }
-                _ => {
-                    return Err(TaskError::MalformedData);
-                }
-            }
-            device.transmit(&command_body, auth_sessions.as_ref())?;
+        vtpm_cmd: &dyn VtpmPolicyCommand,
+        auth_map: &HashMap<TpmHandle, TaskAuth>,
+    ) -> Result<(TpmCommand, TpmAuthCommands), TaskError> {
+        let body = vtpm_cmd.body();
+        let (vtpm_secret_cmd, rest) =
+            VtpmPolicySecretCommand::unmarshal(&body).map_err(TaskError::Unmarshal)?;
+
+        if !rest.is_empty() {
+            return Err(TaskError::MalformedData);
         }
-        Ok(())
-    }
 
-    fn start_session(
-        device: &mut TpmDevice,
-        session_type: TpmSe,
-        auth_hash: TpmAlgId,
-        bind: TpmHandle,
-    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), TaskError> {
-        let digest_len = TpmHash::from(auth_hash).size();
-        let mut nonce_bytes = vec![0; digest_len];
-        thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce_caller =
-            Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?;
-
-        let cmd = TpmStartAuthSessionCommand {
-            nonce_caller,
-            encrypted_salt: Tpm2bEncryptedSecret::default(),
-            session_type,
-            symmetric: TpmtSymDefObject::default(),
-            auth_hash,
-            handles: [(TpmRh::Null as u32).into(), bind],
+        let live_handle = if vtpm_secret_cmd.object_name.is_empty() {
+            log::warn!(
+                "PolicySecret uses handle hint {:08x} but has no object name. Policy may fail.",
+                vtpm_secret_cmd.object_handle_hint.0
+            );
+            vtpm_secret_cmd.object_handle_hint
+        } else {
+            self.load_key_by_name(device, &vtpm_secret_cmd.object_name)?
         };
-        let sessions = vec![];
 
-        let (response_body, _) = device.transmit(&cmd, &sessions)?;
+        let tpm_cmd = TpmCommand::PolicySecret(tpm2_protocol::frame::TpmPolicySecretCommand {
+            nonce_tpm: Tpm2bNonce::default(),
+            cp_hash_a: Tpm2bDigest::default(),
+            policy_ref: vtpm_secret_cmd.policy_ref,
+            expiration: TpmInt32(0),
+            handles: [live_handle, TpmUint32(0)],
+        });
 
-        let resp = response_body
-            .StartAuthSession()
-            .map_err(|_| TaskError::ResponseMismatch(TpmCc::StartAuthSession))?;
+        let vhandle = if vtpm_secret_cmd.object_name.is_empty() {
+            None
+        } else {
+            self.cache
+                .find_by_name(&vtpm_secret_cmd.object_name)
+                .map(|k| TpmUint32(k.handle().0))
+        };
 
-        Ok((resp, nonce_caller))
+        let task_auth = vhandle
+            .and_then(|vhandle| auth_map.get(&vhandle))
+            .cloned()
+            .unwrap_or_default();
+
+        let auth_cmd = match task_auth {
+            TaskAuth::Password(password) => build_password_session(&password)?,
+            TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
+        };
+
+        let mut auths = TpmAuthCommands::new();
+        auths
+            .try_push(auth_cmd)
+            .map_err(|_| TaskError::OutOfMemory)?;
+
+        Ok((tpm_cmd, auths))
     }
 
     fn load_key_context(
@@ -627,81 +695,6 @@ impl<'a> TaskState<'a> {
         self.track(loaded_phandle)?;
         self.live_handles.insert(handle_val, loaded_phandle);
         Ok(loaded_phandle)
-    }
-
-    fn load_policy_command_list(
-        &mut self,
-        device: &mut TpmDevice,
-        policy: &[Box<dyn VtpmPolicyCommand>],
-        auth_map: &HashMap<TpmHandle, TaskAuth>,
-    ) -> Result<Option<TpmCommandList>, TaskError> {
-        if policy.is_empty() {
-            return Ok(None);
-        }
-
-        let mut commands = Vec::with_capacity(policy.len());
-
-        for vtpm_cmd in policy {
-            let cc = vtpm_cmd.cc();
-            let (cmd, auth) = if cc == TpmCc::PolicySecret {
-                let body = vtpm_cmd.body();
-                let (vtpm_secret_cmd, rest) =
-                    VtpmPolicySecretCommand::unmarshal(&body).map_err(TaskError::Unmarshal)?;
-
-                if !rest.is_empty() {
-                    return Err(TaskError::MalformedData);
-                }
-
-                let live_handle = if vtpm_secret_cmd.object_name.is_empty() {
-                    log::warn!(
-                        "PolicySecret uses handle hint {:08x} but has no object name. Policy may fail.",
-                        vtpm_secret_cmd.object_handle_hint.0
-                    );
-                    vtpm_secret_cmd.object_handle_hint
-                } else {
-                    self.load_key_by_name(device, &vtpm_secret_cmd.object_name)?
-                };
-
-                let tpm_cmd =
-                    TpmCommand::PolicySecret(tpm2_protocol::frame::TpmPolicySecretCommand {
-                        nonce_tpm: Tpm2bNonce::default(),
-                        cp_hash_a: Tpm2bDigest::default(),
-                        policy_ref: vtpm_secret_cmd.policy_ref,
-                        expiration: TpmInt32(0),
-                        handles: [live_handle, TpmUint32(0)],
-                    });
-
-                let vhandle = if vtpm_secret_cmd.object_name.is_empty() {
-                    None
-                } else {
-                    self.cache
-                        .find_by_name(&vtpm_secret_cmd.object_name)
-                        .map(|k| TpmUint32(k.handle().0))
-                };
-
-                let task_auth = vhandle
-                    .and_then(|vhandle| auth_map.get(&vhandle))
-                    .cloned()
-                    .unwrap_or_default();
-
-                let auth_cmd = match task_auth {
-                    TaskAuth::Password(password) => build_password_session(&password)?,
-                    TaskAuth::Session(_) => return Err(TaskError::InvalidAuth),
-                };
-
-                let mut auths = TpmAuthCommands::new();
-                auths
-                    .try_push(auth_cmd)
-                    .map_err(|_| TaskError::OutOfMemory)?;
-                (tpm_cmd, auths)
-            } else {
-                let tpm_cmd = vtpm_cmd.to_command().map_err(TaskError::Vtpm)?;
-                (tpm_cmd, TpmAuthCommands::new())
-            };
-            commands.push((cmd, auth));
-        }
-
-        Ok(Some(commands))
     }
 }
 
