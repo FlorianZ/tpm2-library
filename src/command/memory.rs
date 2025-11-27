@@ -16,7 +16,7 @@ use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
-    data::{TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
+    data::{TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
     frame::{TpmNvReadCommand, TpmNvReadPublicCommand},
 };
 
@@ -81,6 +81,17 @@ impl Task for Memory {
 }
 
 impl Memory {
+    fn refresh_key(device: &mut TpmDevice, context: TpmsContext) -> Result<bool, TpmDeviceError> {
+        match device.load_context(context) {
+            Ok(handle) => match device.flush_context(handle) {
+                Ok(()) => Ok(true),
+                Err(e) => Err(e),
+            },
+            Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     fn refresh_cache(
         task_state: &mut TaskState,
         device: &mut TpmDevice,
@@ -91,7 +102,7 @@ impl Memory {
 
         for &vhandle in &vhandles {
             if let Some(key) = task_state.cache.find_by_handle(TpmUint32(vhandle)) {
-                match device.refresh_key(key.context().clone()) {
+                match Memory::refresh_key(device, key.context().clone()) {
                     Ok(true) => {
                         task_state.cache.mark_dirty(vhandle);
                     }
