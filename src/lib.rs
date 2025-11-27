@@ -85,8 +85,8 @@ pub struct TpmKeyBuilder {
 
 impl TpmKeyBuilder {
     #[must_use]
-    pub fn with_empty_auth(mut self) -> Self {
-        self.empty_auth = Some(true);
+    pub fn with_empty_auth(mut self, empty_auth: bool) -> Self {
+        self.empty_auth = Some(empty_auth);
         self
     }
 
@@ -115,8 +115,8 @@ impl TpmKeyBuilder {
     }
 
     #[must_use]
-    pub fn with_rsa_parent(mut self) -> Self {
-        self.rsa_parent = Some(true);
+    pub fn with_rsa_parent(mut self, rsa_parent: bool) -> Self {
+        self.rsa_parent = Some(rsa_parent);
         self
     }
 
