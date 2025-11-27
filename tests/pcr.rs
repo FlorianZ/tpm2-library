@@ -10,7 +10,7 @@
 use rstest::rstest;
 use std::collections::HashMap;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
-use tpm2_protocol::data::TpmAlgId;
+use tpm2_protocol::data::{Tpm2bDigest, TpmAlgId};
 
 #[rstest]
 #[case(
@@ -35,7 +35,11 @@ fn pcr_roundtrip(
 ) {
     let mut pcrs = HashMap::new();
     for alg in pcr_banks {
-        pcrs.insert(alg, HashMap::new());
+        let mut bank_map = HashMap::new();
+        for i in 0..24 {
+            bank_map.insert(i, Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap());
+        }
+        pcrs.insert(alg, bank_map);
     }
 
     let policy_state = TpmPolicyState::new(HashMap::new(), pcrs).unwrap();

@@ -45,7 +45,11 @@ fn command_list_roundtrip(#[case] input: &str) {
     );
 
     let mut pcrs = HashMap::new();
-    pcrs.insert(TpmAlgId::Sha256, HashMap::new());
+    let mut bank_map = HashMap::new();
+    for i in 0..24 {
+        bank_map.insert(i, Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap());
+    }
+    pcrs.insert(TpmAlgId::Sha256, bank_map);
 
     let policy_state = TpmPolicyState::new(names, pcrs).unwrap();
     let original_ast = TpmPolicyExpression::new(input, &policy_state).unwrap();
@@ -80,7 +84,11 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     );
 
     let mut pcrs = HashMap::new();
-    pcrs.insert(TpmAlgId::Sha256, HashMap::new());
+    let mut bank_map = HashMap::new();
+    for i in 0..24 {
+        bank_map.insert(i, Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap());
+    }
+    pcrs.insert(TpmAlgId::Sha256, bank_map);
 
     let policy_state = TpmPolicyState::new(names, pcrs).unwrap();
 

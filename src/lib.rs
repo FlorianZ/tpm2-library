@@ -72,9 +72,9 @@ impl TpmPolicyState {
         }
 
         Ok(Self {
-            pcrs,
             names,
-            pcr_count: 0,
+            pcrs,
+            pcr_count,
         })
     }
 
