@@ -115,8 +115,8 @@ impl TpmKeyBuilder {
     }
 
     #[must_use]
-    pub fn with_rsa_parent(mut self, rsa_parent: bool) -> Self {
-        self.rsa_parent = Some(rsa_parent);
+    pub fn with_rsa_parent(mut self) -> Self {
+        self.rsa_parent = Some(true);
         self
     }
 
