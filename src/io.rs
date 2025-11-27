@@ -67,7 +67,6 @@ fn write_data(
 ) -> Result<(), CommandError> {
     if let Some(path) = output_path {
         fs::write(path, data)?;
-        writeln!(writer, "file:{}", path.to_string_lossy())?;
     } else {
         writer.write_all(data)?;
     }
