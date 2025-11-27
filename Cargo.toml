@@ -8,7 +8,7 @@ name = "tpm2-protocol"
 readme = "README.md"
 repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol.git"
 rust-version = "1.81"
-version = "0.16.2"
+version = "0.16.3"
 
 [[test]]
 name = "return_code"
