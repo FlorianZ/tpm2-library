@@ -929,7 +929,7 @@ impl TpmPolicySession {
     /// Returns [`MalformedData`](crate::TpmDeviceError::MalformedData) if a command
     /// structure is not recognized as a supported policy command.
     /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from transmission.
-    pub fn apply_policy(
+    pub fn run(
         &self,
         device: &mut TpmDevice,
         commands: Vec<(TpmCommand, TpmAuthCommands)>,
