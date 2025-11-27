@@ -20,3 +20,4 @@ tracing = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 rstest = "0.21"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

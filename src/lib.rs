@@ -26,8 +26,8 @@ use tpm2_protocol::{
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bName, TpmAlgId, TpmCap, TpmCc, TpmEccCurve, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt,
-        TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsPcrSelection,
-        TpmtPublic, TpmuCapabilities,
+        TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsPcrSelect,
+        TpmsPcrSelection, TpmtPublic, TpmuCapabilities,
     },
     frame::{
         tpm_marshal_command, tpm_unmarshal_response, TpmAuthResponses, TpmContextLoadCommand,
@@ -36,7 +36,7 @@ use tpm2_protocol::{
     },
     TpmWriter,
 };
-use tracing::trace;
+use tracing::{debug, trace};
 
 /// Errors that can occur when talking to a TPM device.
 #[derive(Debug, Error)]
@@ -63,8 +63,8 @@ pub enum TpmDeviceError {
     OperationFailed,
     #[error("PCR banks not available")]
     PcrBanksNotAvailable,
-    #[error("PCR bank size mismatch")]
-    PcrBankSizeMismatch,
+    #[error("PCR bank selection mismatch")]
+    PcrBankSelectionMismatch,
 
     /// The TPM response did not match the expected command code.
     #[error("response mismatch: {0}")]
@@ -465,7 +465,7 @@ impl TpmDevice {
         )
     }
 
-    /// Retrieves the list of active PCR banks and the bank size.
+    /// Retrieves the list of active PCR banks and the bank selection mask.
     ///
     /// # Errors
     ///
@@ -476,10 +476,12 @@ impl TpmDevice {
     /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
     /// TPM does not report PCRs.
     /// Returns [`PcrBanksNotAvailable`](crate::TpmDeviceError::PcrBanksNotAvailable)
-    /// if the list of banks is empty.
-    /// Returns [`PcrBankSizeMismatch`](crate::TpmDeviceError::PcrBankSizeMismatch)
-    /// if bank sizes are inconsistent.
-    pub fn fetch_pcr_bank_list(&mut self) -> Result<(usize, Vec<TpmAlgId>), TpmDeviceError> {
+    /// if the list of banks is empty or if no banks have allocated PCRs.
+    /// Returns [`PcrBankSelectionMismatch`](crate::TpmDeviceError::PcrBankSelectionMismatch)
+    /// if the PCR selection mask is not identical across all active banks.
+    pub fn fetch_pcr_bank_list(
+        &mut self,
+    ) -> Result<(Vec<TpmAlgId>, TpmsPcrSelect), TpmDeviceError> {
         let pcrs: Vec<TpmsPcrSelection> = self.get_capability(
             TpmCap::Pcrs,
             0,
@@ -495,22 +497,33 @@ impl TpmDevice {
             return Err(TpmDeviceError::PcrBanksNotAvailable);
         }
 
-        let mut count = 0;
+        let mut common_select: Option<TpmsPcrSelect> = None;
         let mut algs = Vec::with_capacity(pcrs.len());
 
         for bank in pcrs {
-            let next_count = bank.pcr_select.len();
-            if count == 0 {
-                count = next_count;
+            if bank.pcr_select.iter().all(|&b| b == 0) {
+                debug!(
+                    "skipping unallocated bank {:?} (mask: {})",
+                    bank.hash,
+                    hex::encode(&*bank.pcr_select)
+                );
+                continue;
             }
-            if next_count != count {
-                return Err(TpmDeviceError::PcrBankSizeMismatch);
+
+            if let Some(ref select) = common_select {
+                if bank.pcr_select != *select {
+                    return Err(TpmDeviceError::PcrBankSelectionMismatch);
+                }
+            } else {
+                common_select = Some(bank.pcr_select);
             }
             algs.push(bank.hash);
         }
 
+        let select = common_select.ok_or(TpmDeviceError::PcrBanksNotAvailable)?;
+
         algs.sort();
-        Ok((count, algs))
+        Ok((algs, select))
     }
 
     /// Fetches and returns one page of capabilities of a certain type from the
