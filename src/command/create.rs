@@ -171,7 +171,7 @@ impl Create {
             writer,
             &tpm_key,
             self.output_args.output.as_deref(),
-            self.output_encoding_args.output_encoding,
+            self.output_encoding_args.encoding,
         )
     }
 }

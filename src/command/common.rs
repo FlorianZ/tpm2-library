@@ -99,8 +99,8 @@ pub struct OutputArgs {
 #[derive(Args, Debug, Clone)]
 pub struct OutputEncodingArgs {
     /// Output encoding: pem or der
-    #[arg(long = "output-encoding", value_enum, default_value_t = OutputEncoding::default())]
-    pub output_encoding: OutputEncoding,
+    #[arg(short = 'e', long = "encoding", value_enum, default_value_t = OutputEncoding::default())]
+    pub encoding: OutputEncoding,
 }
 
 #[derive(Args, Debug, Clone)]

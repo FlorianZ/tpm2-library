@@ -46,7 +46,13 @@ pub fn write_key_data(
     output: Option<&Path>,
     encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
-    let output_bytes = match encoding {
+    let effective_encoding = if output.is_none() {
+        OutputEncoding::Pem
+    } else {
+        encoding
+    };
+
+    let output_bytes = match effective_encoding {
         OutputEncoding::Der => tpm_key.to_der().map_err(CommandError::from)?,
         OutputEncoding::Pem => tpm_key.to_pem().map_err(CommandError::from)?.into_bytes(),
     };
