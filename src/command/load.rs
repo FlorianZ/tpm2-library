@@ -105,7 +105,7 @@ impl Task for Load {
                 };
 
                 let object_context = device.save_context(object_handle)?;
-                let vhandle = task_state.cache.save_key(
+                let vhandle = task_state.cache.save_transient(
                     object_context,
                     &public.inner,
                     &parent_public.inner,

@@ -33,7 +33,7 @@ tpm2-device = "0.5.4"
 tpm2-policy-language = "0.10.5"
 tpm2-protocol = "0.16.3"
 tpm2-tpmkey = "0.10.8"
-tpm2-vtpm = "0.5.2"
+tpm2-vtpm = "0.6.1"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "tracing-log"] }
 

@@ -83,7 +83,7 @@ impl Task for CreatePrimary {
             let object_handle = resp.handles[0];
             task_state.track(object_handle)?;
             let object_context = device.save_context(object_handle)?;
-            let vhandle = task_state.cache.save_key(
+            let vhandle = task_state.cache.save_transient(
                 object_context,
                 &resp.out_public.inner,
                 &Tpm2bPublic::default().inner,
