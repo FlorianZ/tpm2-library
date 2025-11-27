@@ -134,11 +134,11 @@ impl TpmKeyBuilder {
 
         TpmKeyFile {
             kind,
-            empty_auth: None,
-            policy: None,
-            secret: None,
-            auth_policy: None,
-            description: None,
+            empty_auth: self.empty_auth,
+            policy: self.policy,
+            secret: self.secret,
+            auth_policy: self.auth_policy,
+            description: self.description,
             public,
             private,
             parent,
