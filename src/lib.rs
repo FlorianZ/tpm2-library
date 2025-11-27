@@ -9,6 +9,7 @@ use nix::{
     fcntl,
     poll::{poll, PollFd, PollFlags},
 };
+use rand::{thread_rng, RngCore};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -21,18 +22,21 @@ use std::{
 };
 
 use thiserror::Error;
+use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
-        Tpm2bName, TpmAlgId, TpmCap, TpmCc, TpmEccCurve, TpmHt, TpmPt, TpmRc, TpmRcBase, TpmSt,
-        TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsPcrSelect,
-        TpmsPcrSelection, TpmtPublic, TpmuCapabilities,
+        Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCap, TpmCc, TpmEccCurve, TpmHt,
+        TpmPt, TpmRc, TpmRcBase, TpmRh, TpmSe, TpmSt, TpmaSession, TpmsAlgProperty,
+        TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsPcrSelect, TpmsPcrSelection,
+        TpmtPublic, TpmtSymDefObject, TpmuCapabilities,
     },
     frame::{
-        tpm_marshal_command, tpm_unmarshal_response, TpmAuthResponses, TpmContextLoadCommand,
-        TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame, TpmGetCapabilityCommand,
-        TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponse,
+        tpm_marshal_command, tpm_unmarshal_response, TpmAuthCommands, TpmAuthResponses, TpmCommand,
+        TpmContextLoadCommand, TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame,
+        TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponse,
+        TpmStartAuthSessionCommand,
     },
     TpmWriter,
 };
@@ -53,6 +57,9 @@ pub enum TpmDeviceError {
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("malformed data")]
+    MalformedData,
+
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmProtocolError),
@@ -61,6 +68,8 @@ pub enum TpmDeviceError {
     NotAvailable,
     #[error("operation failed")]
     OperationFailed,
+    #[error("out of memory")]
+    OutOfMemory,
     #[error("PCR banks not available")]
     PcrBanksNotAvailable,
     #[error("PCR bank selection mismatch")]
@@ -753,5 +762,203 @@ impl TpmDevice {
             Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => Ok(false),
             Err(e) => Err(e),
         }
+    }
+}
+
+/// A builder for creating a TPM policy session.
+pub struct TpmPolicySessionBuilder {
+    bind: TpmHandle,
+    tpm_key: TpmHandle,
+    nonce_caller: Option<Tpm2bNonce>,
+    encrypted_salt: Option<Tpm2bEncryptedSecret>,
+    session_type: TpmSe,
+    symmetric: TpmtSymDefObject,
+    auth_hash: TpmAlgId,
+}
+
+impl Default for TpmPolicySessionBuilder {
+    fn default() -> Self {
+        Self {
+            bind: (TpmRh::Null as u32).into(),
+            tpm_key: (TpmRh::Null as u32).into(),
+            nonce_caller: None,
+            encrypted_salt: None,
+            session_type: TpmSe::Policy,
+            symmetric: TpmtSymDefObject::default(),
+            auth_hash: TpmAlgId::Sha256,
+        }
+    }
+}
+
+impl TpmPolicySessionBuilder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn with_bind(mut self, bind: TpmHandle) -> Self {
+        self.bind = bind;
+        self
+    }
+
+    #[must_use]
+    pub fn with_tpm_key(mut self, tpm_key: TpmHandle) -> Self {
+        self.tpm_key = tpm_key;
+        self
+    }
+
+    #[must_use]
+    pub fn with_nonce_caller(mut self, nonce: Tpm2bNonce) -> Self {
+        self.nonce_caller = Some(nonce);
+        self
+    }
+
+    #[must_use]
+    pub fn with_encrypted_salt(mut self, salt: Tpm2bEncryptedSecret) -> Self {
+        self.encrypted_salt = Some(salt);
+        self
+    }
+
+    #[must_use]
+    pub fn with_session_type(mut self, session_type: TpmSe) -> Self {
+        self.session_type = session_type;
+        self
+    }
+
+    #[must_use]
+    pub fn with_symmetric(mut self, symmetric: TpmtSymDefObject) -> Self {
+        self.symmetric = symmetric;
+        self
+    }
+
+    #[must_use]
+    pub fn with_auth_hash(mut self, auth_hash: TpmAlgId) -> Self {
+        self.auth_hash = auth_hash;
+        self
+    }
+
+    /// Opens the policy session on the provided device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfMemory`](crate::TpmDeviceError::OutOfMemory) if nonce generation fails.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) if the TPM response is unexpected.
+    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from transmission.
+    pub fn open(self, device: &mut TpmDevice) -> Result<TpmPolicySession, TpmDeviceError> {
+        let nonce_caller = if let Some(nonce) = self.nonce_caller {
+            nonce
+        } else {
+            let digest_len = TpmHash::from(self.auth_hash).size();
+            let mut nonce_bytes = vec![0; digest_len];
+            thread_rng().fill_bytes(&mut nonce_bytes);
+            Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TpmDeviceError::OutOfMemory)?
+        };
+
+        let cmd = TpmStartAuthSessionCommand {
+            nonce_caller,
+            encrypted_salt: self.encrypted_salt.unwrap_or_default(),
+            session_type: self.session_type,
+            symmetric: self.symmetric,
+            auth_hash: self.auth_hash,
+            handles: [self.tpm_key, self.bind],
+        };
+
+        let (resp, _) = device.transmit(&cmd, TpmDevice::NO_SESSIONS)?;
+        let start_resp = resp
+            .StartAuthSession()
+            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::StartAuthSession))?;
+
+        Ok(TpmPolicySession {
+            handle: start_resp.handles[0],
+            attributes: TpmaSession::CONTINUE_SESSION,
+            hash_alg: self.auth_hash,
+            nonce_tpm: start_resp.nonce_tpm,
+        })
+    }
+}
+
+/// Represents an active TPM policy session.
+#[derive(Debug, Clone)]
+pub struct TpmPolicySession {
+    handle: TpmHandle,
+    attributes: TpmaSession,
+    hash_alg: TpmAlgId,
+    nonce_tpm: Tpm2bNonce,
+}
+
+impl TpmPolicySession {
+    /// Creates a new builder for `TpmPolicySession`.
+    #[must_use]
+    pub fn builder() -> TpmPolicySessionBuilder {
+        TpmPolicySessionBuilder::new()
+    }
+
+    /// Returns the session handle.
+    #[must_use]
+    pub fn handle(&self) -> TpmHandle {
+        self.handle
+    }
+
+    /// Returns the session attributes.
+    #[must_use]
+    pub fn attributes(&self) -> TpmaSession {
+        self.attributes
+    }
+
+    /// Returns the hash algorithm used by the session.
+    #[must_use]
+    pub fn hash_alg(&self) -> TpmAlgId {
+        self.hash_alg
+    }
+
+    /// Returns the nonce generated by the TPM.
+    #[must_use]
+    pub fn nonce_tpm(&self) -> &Tpm2bNonce {
+        &self.nonce_tpm
+    }
+
+    /// Applies a list of policy commands to this session.
+    ///
+    /// This method iterates through the provided commands, updates the first handle
+    /// of each command (or second for `PolicySecret`) to point to this session,
+    /// and transmits them to the device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MalformedData`](crate::TpmDeviceError::MalformedData) if a command
+    /// structure is not recognized as a supported policy command.
+    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from transmission.
+    pub fn apply_policy(
+        &self,
+        device: &mut TpmDevice,
+        commands: Vec<(TpmCommand, TpmAuthCommands)>,
+    ) -> Result<(), TpmDeviceError> {
+        for (mut command_body, auth_sessions) in commands {
+            match &mut command_body {
+                TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = self.handle,
+                TpmCommand::PolicyOr(cmd) => cmd.handles[0] = self.handle,
+                TpmCommand::PolicyRestart(cmd) => {
+                    cmd.handles[0] = self.handle;
+                }
+                TpmCommand::PolicySecret(cmd) => {
+                    cmd.handles[1] = self.handle;
+                }
+                _ => {
+                    return Err(TpmDeviceError::MalformedData);
+                }
+            }
+            device.transmit(&command_body, auth_sessions.as_ref())?;
+        }
+        Ok(())
+    }
+
+    /// Flushes the session context from the TPM.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from [`flush_context`](TpmDevice::flush_context).
+    pub fn flush(&self, device: &mut TpmDevice) -> Result<(), TpmDeviceError> {
+        device.flush_context(self.handle)
     }
 }
