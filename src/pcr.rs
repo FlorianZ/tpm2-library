@@ -42,17 +42,14 @@ pub enum PcrError {
 pub fn read_all_pcrs(
     device: &mut TpmDevice,
 ) -> Result<HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>, PcrError> {
-    let (select_size, algs) = device.fetch_pcr_bank_list()?;
+    let (algs, common_mask) = device.fetch_pcr_bank_list()?;
     let mut remaining_selection = TpmlPcrSelection::new();
 
     for alg in &algs {
-        let mask = vec![0xFF; select_size];
-
         remaining_selection
             .try_push(TpmsPcrSelection {
                 hash: *alg,
-                pcr_select: TpmsPcrSelect::try_from(mask.as_slice())
-                    .map_err(|_| PcrError::CapacityExceeded)?,
+                pcr_select: common_mask,
             })
             .map_err(|_| PcrError::CapacityExceeded)?;
     }
@@ -121,8 +118,7 @@ fn update_remaining_selection(
             }
         }
 
-        let new_select = TpmsPcrSelect::try_from(mask_bytes.as_slice())
-            .map_err(|_| PcrError::CapacityExceeded)?;
+        let new_select = TpmsPcrSelect::try_from(mask_bytes.as_slice()).unwrap();
 
         new_list
             .try_push(TpmsPcrSelection {

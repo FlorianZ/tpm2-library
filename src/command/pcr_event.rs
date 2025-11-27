@@ -45,7 +45,7 @@ impl Task for PcrEvent {
         _is_tty: bool,
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
-            let (_, banks) = device.fetch_pcr_bank_list()?;
+            let (banks, _) = device.fetch_pcr_bank_list()?;
             let handles = [self.pcr_index.0];
 
             let data_bytes = read_file_input(self.input_args.input.as_deref())?;
