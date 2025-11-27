@@ -665,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2-device"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "hex",
  "log",
