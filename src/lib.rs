@@ -91,26 +91,26 @@ impl TpmKeyBuilder {
     }
 
     #[must_use]
-    pub fn with_policy(mut self, policy: TpmKeyPolicy) -> Self {
-        self.policy = Some(policy);
+    pub fn with_policy(mut self, policy: Option<TpmKeyPolicy>) -> Self {
+        self.policy = policy;
         self
     }
 
     #[must_use]
-    pub fn with_secret(mut self, secret: Vec<u8>) -> Self {
-        self.secret = Some(secret);
+    pub fn with_secret(mut self, secret: Option<Vec<u8>>) -> Self {
+        self.secret = secret;
         self
     }
 
     #[must_use]
-    pub fn with_auth_policy(mut self, auth_policy: Vec<TpmKeyPolicy>) -> Self {
-        self.auth_policy = Some(auth_policy);
+    pub fn with_auth_policy(mut self, auth_policy: Option<Vec<TpmKeyPolicy>>) -> Self {
+        self.auth_policy = auth_policy;
         self
     }
 
     #[must_use]
-    pub fn with_description(mut self, description: String) -> Self {
-        self.description = Some(description);
+    pub fn with_description(mut self, description: Option<String>) -> Self {
+        self.description = description;
         self
     }
 
