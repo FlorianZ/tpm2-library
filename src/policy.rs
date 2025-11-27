@@ -194,6 +194,49 @@ fn vtpm_marshal_command_parameters(command: &TpmCommand) -> Result<Vec<u8>, Vtpm
     Ok(buf)
 }
 
+pub(crate) fn vtpm_marshal_policy_list(
+    policies: &[Box<dyn VtpmPolicyCommand>],
+    writer: &mut TpmWriter,
+) -> Result<(), VtpmError> {
+    let count = u32::try_from(policies.len()).map_err(|_| VtpmError::OperationFailed)?;
+    count.marshal(writer).map_err(VtpmError::Marshal)?;
+
+    for command in policies {
+        command.cc().marshal(writer).map_err(VtpmError::Marshal)?;
+
+        let body = command.body();
+        let body_len = u32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
+        body_len.marshal(writer).map_err(VtpmError::Marshal)?;
+        writer.write_bytes(&body).map_err(VtpmError::Marshal)?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn vtpm_unmarshal_policy_list(
+    buffer: &[u8],
+) -> Result<(Vec<Box<dyn VtpmPolicyCommand>>, &[u8]), VtpmError> {
+    let (count, mut tail) = TpmUint32::unmarshal(buffer).map_err(VtpmError::Unmarshal)?;
+    let mut policy = Vec::new();
+
+    for _ in 0..count.value() {
+        let (cc, tail_next) = TpmCc::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+        let (len_u32, tail_next) = TpmUint32::unmarshal(tail_next).map_err(VtpmError::Unmarshal)?;
+        let len = len_u32.value() as usize;
+
+        if tail_next.len() < len {
+            return Err(VtpmError::UnexpectedEnd);
+        }
+
+        let (body, tail_next) = tail_next.split_at(len);
+        tail = tail_next;
+
+        policy.push(vtpm_policy_command_from_parts(cc, body)?);
+    }
+
+    Ok((policy, tail))
+}
+
 /// A generic policy command with an uninterpreted body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VtpmPolicyDefaultCommand {

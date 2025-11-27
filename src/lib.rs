@@ -21,7 +21,7 @@ use tpm2_crypto::tpm_make_name;
 use tpm2_protocol::{
     basic::{TpmBuffer, TpmHandle, TpmUint32, TpmUint64},
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmsContext, TpmtPublic},
+    data::{Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmsContext, TpmtPublic},
     TpmMarshal, TpmUnmarshal, TpmWriter,
 };
 
@@ -78,25 +78,8 @@ impl VtpmKey {
         let (public, tail) = TpmtPublic::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
         let (parent, tail) = TpmtPublic::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
         let (context, tail) = TpmsContext::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
-        let (count, mut tail) = TpmUint32::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
 
-        let mut policy = Vec::new();
-
-        for _ in 0..count.value() {
-            let (cc, tail_next) = TpmCc::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
-            let (len_u32, tail_next) =
-                TpmUint32::unmarshal(tail_next).map_err(VtpmError::Unmarshal)?;
-            let len = len_u32.value() as usize;
-
-            if tail_next.len() < len {
-                return Err(VtpmError::UnexpectedEnd);
-            }
-
-            let (body, tail_next) = tail_next.split_at(len);
-            tail = tail_next;
-
-            policy.push(vtpm_policy_command_from_parts(cc, body)?);
-        }
+        let (policy, tail) = vtpm_unmarshal_policy_list(tail)?;
 
         if !tail.is_empty() {
             log::warn!("trailing data");
@@ -132,20 +115,7 @@ impl VtpmKey {
                 .marshal(&mut writer)
                 .map_err(VtpmError::Marshal)?;
 
-            let count = u32::try_from(self.policy.len()).map_err(|_| VtpmError::OperationFailed)?;
-            count.marshal(&mut writer).map_err(VtpmError::Marshal)?;
-
-            for command in &self.policy {
-                command
-                    .cc()
-                    .marshal(&mut writer)
-                    .map_err(VtpmError::Marshal)?;
-
-                let body = command.body();
-                let body_len = u32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
-                body_len.marshal(&mut writer).map_err(VtpmError::Marshal)?;
-                writer.write_bytes(&body).map_err(VtpmError::Marshal)?;
-            }
+            vtpm_marshal_policy_list(&self.policy, &mut writer)?;
             writer.len()
         };
 
