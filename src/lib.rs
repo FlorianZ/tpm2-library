@@ -741,28 +741,6 @@ impl TpmDevice {
             Err(e) => Err(e),
         }
     }
-
-    /// Refreshes a key context. Returns `true` if the context is still valid,
-    /// and `false` if it is stale.
-    ///
-    /// # Errors
-    ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`load_context`](TpmDevice::load_context) or
-    /// [`flush_context`](TpmDevice::flush_context) except for TPM reference
-    /// errors with base
-    /// [`ReferenceH0`](tpm2_protocol::data::TpmRcBase::ReferenceH0), which are
-    /// treated as a stale context and reported as `Ok(false)`.
-    pub fn refresh_key(&mut self, context: TpmsContext) -> Result<bool, TpmDeviceError> {
-        match self.load_context(context) {
-            Ok(handle) => match self.flush_context(handle) {
-                Ok(()) => Ok(true),
-                Err(e) => Err(e),
-            },
-            Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => Ok(false),
-            Err(e) => Err(e),
-        }
-    }
 }
 
 /// A builder for creating a TPM policy session.
