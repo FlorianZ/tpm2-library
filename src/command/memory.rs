@@ -15,9 +15,9 @@ use tabled::Tabled;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv},
     frame::{TpmNvReadCommand, TpmNvReadPublicCommand},
-    TpmHandle,
 };
 
 const EK_CERT_RANGE: std::ops::RangeInclusive<u32> = 0x01C0_0000..=0x01C0_FFFF;
@@ -90,8 +90,8 @@ impl Memory {
         let mut handles_to_remove = Vec::new();
 
         for &vhandle in &vhandles {
-            if let Some(key) = task_state.cache.find_by_handle(TpmHandle(vhandle)) {
-                match device.refresh_key(key.context.clone()) {
+            if let Some(key) = task_state.cache.find_by_handle(TpmUint32(vhandle)) {
+                match device.refresh_key(key.context().clone()) {
                     Ok(true) => {
                         task_state.cache.mark_dirty(vhandle);
                     }
@@ -177,7 +177,7 @@ impl Memory {
             } else {
                 Self::refresh_cache(session, device)?;
                 for (_, key) in session.cache.key_iter() {
-                    let hierarchy = match key.context.hierarchy {
+                    let hierarchy = match key.context().hierarchy {
                         TpmRh::Owner => "owner",
                         TpmRh::Platform => "platform",
                         TpmRh::Endorsement => "endorsement",
@@ -185,13 +185,13 @@ impl Memory {
                         _ => "unknown",
                     };
 
-                    let details = public_to_template(&key.public).map_or_else(
-                        |_| TpmHash::from(key.public.object_type).to_string(),
+                    let details = public_to_template(key.public()).map_or_else(
+                        |_| TpmHash::from(key.public().object_type).to_string(),
                         |a| a.to_string(),
                     );
 
                     rows.push(MemoryRow {
-                        handle: format!("{:08x}", key.handle.0),
+                        handle: format!("{:08x}", key.handle().0),
                         class: "transient".to_string(),
                         details: format!("{hierarchy}:{details}"),
                     });
@@ -206,7 +206,7 @@ impl Memory {
                 MemoryHandleType::Session,
                 auth_args,
                 |_, _, handle, _| {
-                    let TpmHandle(handle) = handle;
+                    let TpmUint32(handle) = handle;
                     let ht = (handle >> 24) as u8;
 
                     let detail = if ht == TpmHt::HmacSession as u8 {
@@ -265,9 +265,11 @@ impl Memory {
         handle: u32,
         auth_args: &AuthArgs,
     ) -> Result<Vec<u8>, CommandError> {
-        let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax).unwrap_or(0) as usize;
+        let max_read_size = device
+            .get_tpm_property(TpmPt::NvBufferMax)
+            .unwrap_or(TpmUint32(0));
 
-        if max_read_size == 0 {
+        if max_read_size.value() == 0 {
             return Ok(Vec::new());
         }
 
@@ -279,31 +281,34 @@ impl Memory {
             .NvReadPublic()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::NvReadPublic))?;
         let nv_public = read_public_resp.nv_public;
-        let data_size = nv_public.data_size as usize;
+        let data_size = nv_public.data_size;
 
-        if data_size == 0 {
+        if data_size.value() == 0 {
             return Ok(Vec::new());
         }
 
         let auth_handle_val = Self::resolve_nv_auth(nv_public.attributes, handle);
 
-        let mut cert_bytes = Vec::with_capacity(data_size);
-        let mut offset = 0;
+        let mut cert_bytes = Vec::with_capacity(data_size.value() as usize);
+        let mut offset: usize = 0;
 
         let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
         let auth_map = auth_args.build_auth_map();
         let auth = auth_map
-            .get(&TpmHandle(auth_handle_val))
+            .get(&TpmUint32(auth_handle_val))
             .cloned()
             .unwrap_or_default();
         let effective_auths: &[TaskAuth] = if needs_auth { &[auth] } else { &[] };
 
-        while offset < data_size {
-            let chunk_size = std::cmp::min(max_read_size, data_size - offset);
+        while offset < data_size.value() as usize {
+            let chunk_size = std::cmp::min(
+                max_read_size.value() as usize,
+                data_size.value() as usize - offset,
+            );
             let nv_read_cmd = TpmNvReadCommand {
-                size: u16::try_from(chunk_size)?,
-                offset: u16::try_from(offset)?,
+                size: TpmUint16(u16::try_from(chunk_size)?),
+                offset: TpmUint16(u16::try_from(offset)?),
                 handles: [auth_handle_val.into(), handle.into()],
             };
 
@@ -362,7 +367,7 @@ impl Memory {
         ) -> Result<Option<String>, CommandError>,
     {
         for handle in device.fetch_handles(class)? {
-            let TpmHandle(handle_val) = handle;
+            let TpmUint32(handle_val) = handle;
 
             match get_details(session, device, handle, auth_args) {
                 Ok(Some(details)) => {
@@ -385,7 +390,7 @@ impl Memory {
         handle: TpmHandle,
         auth_args: &AuthArgs,
     ) -> Result<Option<String>, CommandError> {
-        let TpmHandle(handle_val) = handle;
+        let TpmUint32(handle_val) = handle;
         if !EK_CERT_RANGE.contains(&handle_val) {
             return Ok(None);
         }
@@ -409,7 +414,7 @@ impl Memory {
 
     fn fetch_details(device: &mut TpmDevice, handle: TpmHandle) -> Result<String, CommandError> {
         let (public, _) = device.read_public(handle)?;
-        let TpmHandle(handle) = handle;
+        let TpmUint32(handle) = handle;
 
         let details = public_to_template(&public)?;
 

@@ -67,7 +67,12 @@ fn auth_with_value() {
     )
     .pipe(tpm2sh(
         cache_path,
-        &["load", "--auth", parent_auth_arg.as_str()],
+        &[
+            "load",
+            primary_handle_str,
+            "--auth",
+            parent_auth_arg.as_str(),
+        ],
     ))
     .read()
     .expect("Failed to create native child");
@@ -104,7 +109,12 @@ fn auth_with_value() {
     .stdin_bytes(rsa_pem)
     .pipe(tpm2sh(
         cache_path,
-        &["load", "--auth", parent_auth_arg.as_str()],
+        &[
+            "load",
+            primary_handle_str,
+            "--auth",
+            parent_auth_arg.as_str(),
+        ],
     ))
     .read()
     .expect("Failed to import external key");
@@ -136,7 +146,7 @@ fn auth_policy_secret_with_value() {
     let sealed_output = tpm2sh(cache_path, &create_args)
         .pipe(tpm2sh(
             cache_path,
-            &["load", "--auth", parent_auth.as_str()],
+            &["load", primary_handle_str, "--auth", parent_auth.as_str()],
         ))
         .read()
         .expect("Failed to create and load policy-protected object");
@@ -178,7 +188,7 @@ fn auth_with_policy() {
     ];
 
     let sealed_output = tpm2sh(cache_path, &create_args)
-        .pipe(tpm2sh(cache_path, &["load"]))
+        .pipe(tpm2sh(cache_path, &["load", primary_handle_str]))
         .read()
         .unwrap();
     let sealed_handle = sealed_output.trim().to_string();
@@ -200,7 +210,7 @@ fn auth_with_policy() {
     ];
 
     let sealed_pcr_output = tpm2sh(cache_path, &create_pcr_args)
-        .pipe(tpm2sh(cache_path, &["load"]))
+        .pipe(tpm2sh(cache_path, &["load", primary_handle_str]))
         .read()
         .unwrap();
     let sealed_handle_pcr = sealed_pcr_output.trim().to_string();
@@ -253,7 +263,7 @@ fn load_external_key(#[case] openssl_args: &str) {
     ];
 
     let load_output = tpm2sh(cache_path, &convert_args)
-        .pipe(tpm2sh(cache_path, &["load"]))
+        .pipe(tpm2sh(cache_path, &["load", primary_handle_str]))
         .read()
         .expect("Failed to convert and load key");
 
@@ -270,7 +280,7 @@ fn load_multi_level_hierarchy() {
     let l1_handle = l1.as_str();
 
     let l2_output = tpm2sh(cache_path, &["create", l1_handle, "rsa-2048:sha256"])
-        .pipe(tpm2sh(cache_path, &["load"]))
+        .pipe(tpm2sh(cache_path, &["load", l1_handle]))
         .read()
         .unwrap();
     let l2_handle = l2_output.trim().to_string();
@@ -287,7 +297,7 @@ fn load_multi_level_hierarchy() {
             &deep_data,
         ],
     )
-    .pipe(tpm2sh(cache_path, &["load"]))
+    .pipe(tpm2sh(cache_path, &["load", l2_handle.as_str()]))
     .read()
     .unwrap();
     let l3_handle = l3_output.trim().to_string();

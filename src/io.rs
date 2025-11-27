@@ -74,7 +74,7 @@ fn write_data(
 ///
 /// Returns a `TpmError` if the object cannot be serialized into the buffer.
 pub fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);
         obj.marshal(&mut writer)?;

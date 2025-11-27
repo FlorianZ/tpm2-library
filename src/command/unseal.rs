@@ -8,7 +8,7 @@ use crate::{
 };
 use clap::Args;
 use tpm2_device::with_device;
-use tpm2_protocol::{data::TpmCc, frame::TpmUnsealCommand, TpmHandle};
+use tpm2_protocol::{basic::TpmUint32, data::TpmCc, frame::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
@@ -35,7 +35,7 @@ impl Task for Unseal {
         with_device(task_state.device.clone(), |device| {
             let (item_handle, _, auth) = task_state.resolve_auth(
                 device,
-                TpmHandle(handle),
+                TpmUint32(handle),
                 &self.auth_args.build_auth_map(),
             )?;
 

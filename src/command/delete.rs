@@ -9,7 +9,7 @@ use crate::{
 };
 use clap::Args;
 use tpm2_device::with_device;
-use tpm2_protocol::{data::TpmHt, TpmHandle};
+use tpm2_protocol::{basic::TpmUint32, data::TpmHt};
 
 /// Deletes active and cached objects.
 #[derive(Args, Debug)]
@@ -57,13 +57,13 @@ fn delete_tpm_handles(
 
                 match class {
                     TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
-                        dev.flush_context(TpmHandle(handle))?;
+                        dev.flush_context(TpmUint32(handle))?;
                         if class == TpmHt::Transient {
-                            task_state.untrack(TpmHandle(handle));
+                            task_state.untrack(TpmUint32(handle));
                         }
                     }
                     TpmHt::Persistent => {
-                        let persistent_handle = TpmHandle(handle);
+                        let persistent_handle = TpmUint32(handle);
                         task_state.evict_control(
                             dev,
                             persistent_handle,

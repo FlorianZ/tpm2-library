@@ -27,7 +27,7 @@ use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use indicatif::ProgressBar;
 use tpm2_device::TpmDevice;
-use tpm2_protocol::{data::Tpm2bName, TpmHandle};
+use tpm2_protocol::{basic::TpmHandle, data::Tpm2bName};
 use tpm2_vtpm::VtpmCache;
 use tracing_subscriber::EnvFilter;
 

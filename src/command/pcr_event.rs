@@ -11,14 +11,14 @@ use clap::Args;
 use tpm2_crypto::TpmHash;
 use tpm2_device::with_device;
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmUint32},
     data::{Tpm2bEvent, TpmCc, TpmuHa},
     frame::TpmPcrEventCommand,
-    TpmHandle,
 };
 
 fn parse_pcr_index(handle_str: &str) -> Result<TpmHandle, String> {
     parse_u32(handle_str)
-        .map(TpmHandle)
+        .map(TpmUint32)
         .map_err(|_| "malformed value".to_string())
 }
 

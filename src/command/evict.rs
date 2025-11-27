@@ -9,7 +9,7 @@ use crate::{
 };
 use clap::Args;
 use tpm2_device::with_device;
-use tpm2_protocol::{data::TpmHt, TpmHandle};
+use tpm2_protocol::{basic::TpmUint32, data::TpmHt};
 
 /// Create persistent object from transient object.
 #[derive(Args, Debug)]
@@ -54,9 +54,9 @@ impl Task for Evict {
         with_device(
             task_state.device.clone(),
             |dev| -> Result<(), CommandError> {
-                let persistent_handle = TpmHandle(output_handle);
+                let persistent_handle = TpmUint32(output_handle);
                 let transient_handle =
-                    task_state.load_key_by_handle(dev, TpmHandle(input_handle))?;
+                    task_state.load_key_by_handle(dev, TpmUint32(input_handle))?;
                 task_state.evict_control(
                     dev,
                     transient_handle,

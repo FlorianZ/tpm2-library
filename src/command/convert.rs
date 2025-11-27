@@ -20,6 +20,7 @@ use tpm2_crypto::{
 };
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
@@ -27,7 +28,7 @@ use tpm2_protocol::{
         TpmCc, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmImportCommand},
-    TpmHandle, TpmMarshal, TpmWriter,
+    TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKeyFile;
 
@@ -68,7 +69,7 @@ impl Task for Convert {
         with_device(task_state.device.clone(), |device| {
             let (parent_handle, name_alg, auth) = task_state.resolve_auth(
                 device,
-                TpmHandle(parent),
+                TpmUint32(parent),
                 &self.auth_args.build_auth_map(),
             )?;
 
@@ -202,7 +203,7 @@ impl Convert {
             .map_err(CommandError::Crypto)?;
 
         let duplicate_blob = {
-            let mut duplicate_blob_buf = [0u8; TPM_MAX_COMMAND_SIZE as usize];
+            let mut duplicate_blob_buf = [0u8; TPM_MAX_COMMAND_SIZE];
             let len = {
                 let mut writer = TpmWriter::new(&mut duplicate_blob_buf);
                 Tpm2bDigest::try_from(final_mac.as_slice())
@@ -368,19 +369,13 @@ impl Convert {
             inner: public.clone(),
         };
 
-        let empty_auth = if user_auth.is_empty() {
-            Some(true)
-        } else {
-            None
-        };
-
         task_state
             .build_tpm_key_file(
                 device,
                 tpm_public_2b,
                 out_private,
                 parent_handle,
-                empty_auth,
+                user_auth.is_empty(),
                 policy_commands,
             )
             .map_err(CommandError::from)

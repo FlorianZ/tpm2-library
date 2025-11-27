@@ -18,12 +18,12 @@ use clap::Args;
 use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmUint32},
     data::{
         Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc,
         TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
-    TpmHandle,
 };
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
@@ -104,7 +104,7 @@ impl Create {
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
-    ) -> Result<(TpmCreateCommand, Option<PolicyCommands>, Option<bool>), CommandError> {
+    ) -> Result<(TpmCreateCommand, Option<PolicyCommands>, bool), CommandError> {
         let (object_attributes, user_auth) = self.creation_args.parse(&self.algorithm)?;
         let sensitive_data = self.get_sensitive_data()?;
 
@@ -134,13 +134,7 @@ impl Create {
             handles: [parent_handle.0.into()],
         };
 
-        let empty_auth = if user_auth.is_empty() {
-            Some(true)
-        } else {
-            None
-        };
-
-        Ok((create_cmd, policy_commands, empty_auth))
+        Ok((create_cmd, policy_commands, user_auth.is_empty()))
     }
 
     fn create_object(
@@ -154,7 +148,7 @@ impl Create {
         };
 
         let (parent_phys_handle, _, auth) =
-            task_state.resolve_auth(device, TpmHandle(parent), &self.auth_args.build_auth_map())?;
+            task_state.resolve_auth(device, TpmUint32(parent), &self.auth_args.build_auth_map())?;
 
         let (create_cmd, policy_commands, empty_auth) =
             self.build_create_command(task_state, device, parent_phys_handle)?;

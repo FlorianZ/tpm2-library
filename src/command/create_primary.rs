@@ -11,12 +11,12 @@ use clap::Args;
 use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::with_device;
 use tpm2_protocol::{
+    basic::TpmUint32,
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc,
         TpmRh, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::TpmCreatePrimaryCommand,
-    TpmHandle,
 };
 
 /// Creates a new primary key in a specified hierarchy.
@@ -68,11 +68,9 @@ impl Task for CreatePrimary {
                 handles: [(primary_handle as u32).into()],
             };
 
-            let empty_auth = user_auth.is_empty();
-
             let auth_map = self.auth_args.build_auth_map();
             let auth = auth_map
-                .get(&TpmHandle(primary_handle as u32))
+                .get(&TpmUint32(primary_handle as u32))
                 .cloned()
                 .unwrap_or_default();
 
@@ -89,7 +87,6 @@ impl Task for CreatePrimary {
                 object_context,
                 &resp.out_public.inner,
                 &Tpm2bPublic::default().inner,
-                empty_auth,
                 &None,
             )?;
             writeln!(writer, "{vhandle:08x}")?;

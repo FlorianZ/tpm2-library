@@ -96,7 +96,10 @@ pub fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate, Comm
     match public.object_type {
         TpmAlgId::Rsa => {
             if let TpmuPublicParms::Rsa(parms) = &public.parameters {
-                Ok(TpmPublicTemplate::new_rsa(parms.key_bits, public.name_alg))
+                Ok(TpmPublicTemplate::new_rsa(
+                    parms.key_bits.value(),
+                    public.name_alg,
+                ))
             } else {
                 Err(CommandError::InvalidRsaParameters)
             }

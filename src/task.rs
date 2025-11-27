@@ -16,6 +16,7 @@ use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
 use tpm2_device::{TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmInt32, TpmUint32},
     data::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, Tpm2bPrivate,
         Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSe, TpmaSession, TpmsAuthCommand,
@@ -25,9 +26,9 @@ use tpm2_protocol::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
         TpmResponse, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
     },
-    TpmHandle, TpmUnmarshal,
+    TpmUnmarshal,
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand};
 use tpm2_vtpm::{
     vtpm_policy_command_from, VtpmCache, VtpmError, VtpmPolicyCommand, VtpmPolicySecretCommand,
 };
@@ -249,34 +250,13 @@ impl<'a> TaskState<'a> {
         public: Tpm2bPublic,
         private: Tpm2bPrivate,
         parent_handle: TpmHandle,
-        empty_auth: Option<bool>,
+        empty_auth: bool,
         policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
     ) -> Result<TpmKeyFile, TaskError> {
-        let (parent_public_data, _) = device.read_public(parent_handle)?;
-        let parent_public = Tpm2bPublic {
-            inner: parent_public_data,
-        };
-
-        let tpm_key_policy = self.build_key_policy(device, policy_commands)?;
-
-        let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
-            TpmKeyType::SealedData
-        } else {
-            TpmKeyType::Loadable
-        };
-
-        Ok(TpmKeyFile {
-            public,
-            private,
-            parent_handle,
-            parent_public: Some(parent_public),
-            empty_auth,
-            policy: tpm_key_policy,
-            auth_policy: None,
-            secret: None,
-            description: None,
-            kind,
-        })
+        Ok(TpmKeyFile::builder()
+            .with_policy(self.build_key_policy(device, policy_commands)?)
+            .with_empty_auth(empty_auth)
+            .build(public, private, parent_handle))
     }
 
     /// Loads a TPM context from a handle, recursively loading its ancestors
@@ -313,13 +293,13 @@ impl<'a> TaskState<'a> {
             return Ok(phandle);
         }
 
-        let chain = self.cache.fetch_ancestor_chain(TpmHandle(target_vhandle))?;
+        let chain = self.cache.fetch_ancestors(TpmUint32(target_vhandle))?;
 
         if chain.is_empty() {
-            return Err(TaskError::HandleNotFound(TpmHandle(target_vhandle)));
+            return Err(TaskError::HandleNotFound(TpmUint32(target_vhandle)));
         }
 
-        let mut last_phandle = TpmHandle(0);
+        let mut last_phandle = TpmUint32(0);
         for handle in chain {
             last_phandle = self.load_key_context(device, handle)?;
         }
@@ -348,8 +328,8 @@ impl<'a> TaskState<'a> {
         name: &Tpm2bName,
     ) -> Result<TpmHandle, TaskError> {
         if let Some(key) = self.cache.find_by_name(name) {
-            let vhandle = key.handle.0;
-            return self.load_key_by_handle(device, TpmHandle(vhandle));
+            let vhandle = key.handle().0;
+            return self.load_key_by_handle(device, TpmUint32(vhandle));
         }
 
         Err(TaskError::HandleNameNotFound(*name))
@@ -387,9 +367,9 @@ impl<'a> TaskState<'a> {
             let vhandle = handle.0;
             let key = self
                 .cache
-                .find_by_handle(TpmHandle(vhandle))
-                .ok_or(TaskError::HandleNotFound(TpmHandle(vhandle)))?;
-            Ok((phys_handle, key.policy.clone(), key.public.name_alg))
+                .find_by_handle(TpmUint32(vhandle))
+                .ok_or(TaskError::HandleNotFound(TpmUint32(vhandle)))?;
+            Ok((phys_handle, key.policy().clone(), key.public().name_alg))
         } else {
             let (public, _) = device.read_public(phys_handle)?;
             Ok((phys_handle, Vec::new(), public.name_alg))
@@ -426,8 +406,8 @@ impl<'a> TaskState<'a> {
                 TaskAuth::Session(vhandle) => {
                     let session = self
                         .sessions
-                        .get(&TpmHandle(*vhandle))
-                        .ok_or(TaskError::HandleNotFound(TpmHandle(*vhandle)))?;
+                        .get(&TpmUint32(*vhandle))
+                        .ok_or(TaskError::HandleNotFound(TpmUint32(*vhandle)))?;
                     let nonce_size = TpmHash::from(session.hash_alg).size();
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
@@ -510,7 +490,7 @@ impl<'a> TaskState<'a> {
         for (cmd, _) in commands {
             let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
                 if let Some(key) = self.cache.find_by_handle(inner.handles[0]) {
-                    tpm_make_name(&key.public)?
+                    tpm_make_name(key.public())?
                 } else {
                     let (_, name) = device.read_public(inner.handles[0])?;
                     name
@@ -628,7 +608,7 @@ impl<'a> TaskState<'a> {
         let ht = TpmHt::try_from(ht_byte).map_err(|_| TaskError::InvalidHandleType(ht_byte))?;
 
         if ht == TpmHt::Persistent {
-            return Ok(TpmHandle(handle_val));
+            return Ok(TpmUint32(handle_val));
         }
 
         if let Some(&phandle) = self.live_handles.get(&handle_val) {
@@ -637,9 +617,9 @@ impl<'a> TaskState<'a> {
 
         let key = self
             .cache
-            .find_by_handle(TpmHandle(handle_val))
-            .ok_or(TaskError::HandleNotFound(TpmHandle(handle_val)))?;
-        let loaded_phandle = device.load_context(key.context.clone())?;
+            .find_by_handle(TpmUint32(handle_val))
+            .ok_or(TaskError::HandleNotFound(TpmUint32(handle_val)))?;
+        let loaded_phandle = device.load_context(key.context().clone())?;
         self.track(loaded_phandle)?;
         self.live_handles.insert(handle_val, loaded_phandle);
         Ok(loaded_phandle)
@@ -683,8 +663,8 @@ impl<'a> TaskState<'a> {
                         nonce_tpm: Tpm2bNonce::default(),
                         cp_hash_a: Tpm2bDigest::default(),
                         policy_ref: vtpm_secret_cmd.policy_ref,
-                        expiration: 0,
-                        handles: [live_handle, TpmHandle(0)],
+                        expiration: TpmInt32(0),
+                        handles: [live_handle, TpmUint32(0)],
                     });
 
                 let vhandle = if vtpm_secret_cmd.object_name.is_empty() {
@@ -692,7 +672,7 @@ impl<'a> TaskState<'a> {
                 } else {
                     self.cache
                         .find_by_name(&vtpm_secret_cmd.object_name)
-                        .map(|k| TpmHandle(k.handle.0))
+                        .map(|k| TpmUint32(k.handle().0))
                 };
 
                 let task_auth = vhandle

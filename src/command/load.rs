@@ -9,13 +9,13 @@ use crate::{
     task::{TaskAuth, TaskState},
 };
 use clap::Args;
-use tpm2_crypto::tpm_make_name;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPublic, TpmCc, TpmHt},
     frame::TpmLoadCommand,
-    TpmHandle, TpmMarshal, TpmWriter,
+    TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKeyFile;
 use tpm2_vtpm::{vtpm_policy_command_from_parts, VtpmPolicyCommand};
@@ -31,8 +31,7 @@ pub struct Load {
     pub input_args: InputArgs,
 
     /// Parent's TPM handle as an eight characters hex string.
-    #[arg(short = 'P', long = "parent")]
-    pub parent: Option<crate::handle::Handle>,
+    pub parent: crate::handle::Handle,
 }
 
 impl Task for Load {
@@ -53,18 +52,11 @@ impl Task for Load {
                 let tpm_key = TpmKeyFile::from_pem(&input_bytes)
                     .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;
 
-                let (parent_public, parent_handle_ref) = if let Some(parent_public) =
-                    tpm_key.parent_public().cloned()
-                {
-                    let parent_handle_ref = Self::fetch_parent(task_state, device, &parent_public)?;
-                    (parent_public, parent_handle_ref)
-                } else if let Some(parent) = self.parent {
-                    let Some(parent) = parent.value() else {
-                        return Err(CommandError::PatternNotAllowed(parent.to_string()));
+                let (parent_public, parent_handle_ref) = {
+                    let Some(parent) = self.parent.value() else {
+                        return Err(CommandError::PatternNotAllowed(self.parent.to_string()));
                     };
-                    Self::parent_from_handle(task_state, device, TpmHandle(parent))?
-                } else {
-                    return Err(CommandError::ParentMissing);
+                    Self::parent_from_handle(task_state, device, TpmUint32(parent))?
                 };
 
                 let (parent_handle, _, auth) = task_state.resolve_auth(
@@ -82,8 +74,8 @@ impl Task for Load {
                     &[auth],
                 )?;
 
-                let policy_blob = if let Some(policy) = &tpm_key.policy {
-                    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE as usize];
+                let policy_blob = if let Some(policy) = &tpm_key.policy() {
+                    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
                     let len = {
                         let mut writer = TpmWriter::new(&mut buf);
                         let count = u32::try_from(policy.policy.len())?;
@@ -117,7 +109,6 @@ impl Task for Load {
                     object_context,
                     &public.inner,
                     &parent_public.inner,
-                    tpm_key.empty_auth.is_some(),
                     &policy_blob,
                 )?;
 
@@ -129,29 +120,6 @@ impl Task for Load {
 }
 
 impl Load {
-    fn fetch_parent(
-        task_state: &mut TaskState,
-        device: &mut TpmDevice,
-        parent_public: &Tpm2bPublic,
-    ) -> Result<TpmHandle, CommandError> {
-        let name = tpm_make_name(&parent_public.inner)?;
-        if let Some(phandle) = device.find_persistent(&name)? {
-            return Ok(TpmHandle(phandle.0));
-        }
-
-        let vhandle_opt = task_state
-            .cache
-            .key_iter()
-            .find(|(_, key)| key.public == parent_public.inner)
-            .map(|(vhandle, _)| *vhandle);
-
-        if let Some(vhandle) = vhandle_opt {
-            return Ok(TpmHandle(vhandle));
-        }
-
-        Err(CommandError::UnknownParent)
-    }
-
     fn parent_from_handle(
         task_state: &mut TaskState,
         device: &mut TpmDevice,
@@ -163,16 +131,16 @@ impl Load {
         let ht = TpmHt::try_from(ht_byte).map_err(|_| CommandError::InvalidHandleType(ht_byte))?;
 
         if ht == TpmHt::Persistent {
-            let (public, _) = device.read_public(TpmHandle(value))?;
+            let (public, _) = device.read_public(TpmUint32(value))?;
             Ok((Tpm2bPublic { inner: public }, parent))
         } else {
             let key = task_state
                 .cache
-                .find_by_handle(TpmHandle(value))
+                .find_by_handle(TpmUint32(value))
                 .ok_or(CommandError::ParentMissing)?;
             Ok((
                 Tpm2bPublic {
-                    inner: key.public.clone(),
+                    inner: key.public().clone(),
                 },
                 parent,
             ))

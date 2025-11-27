@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
+    basic::TpmUint16,
     data::{TpmAlgId, TpmRcBase, TpmsRsaParms, TpmtPublicParms, TpmuPublicParms},
     frame::TpmTestParmsCommand,
 };
@@ -21,6 +22,7 @@ pub struct Algorithm;
 impl Algorithm {
     /// Checks if the TPM supports a given set of RSA parameters.
     fn test_rsa_parms(device: &mut TpmDevice, key_bits: u16) -> Result<(), TpmDeviceError> {
+        let key_bits = TpmUint16(key_bits);
         let cmd = TpmTestParmsCommand {
             parameters: TpmtPublicParms {
                 object_type: TpmAlgId::Rsa,

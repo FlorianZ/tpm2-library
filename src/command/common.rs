@@ -16,22 +16,22 @@ use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
+    basic::{TpmHandle, TpmUint32},
     data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmaObject},
     frame::{TpmAuthCommands, TpmCommand},
-    TpmHandle,
 };
 
 fn parse_handle_target(s: &str) -> Result<TpmHandle, String> {
     match s {
-        "owner" => Ok(TpmHandle(TpmRh::Owner as u32)),
-        "platform" => Ok(TpmHandle(TpmRh::Platform as u32)),
-        "endorsement" => Ok(TpmHandle(TpmRh::Endorsement as u32)),
-        "null" => Ok(TpmHandle(TpmRh::Null as u32)),
-        "lockout" => Ok(TpmHandle(TpmRh::Lockout as u32)),
+        "owner" => Ok(TpmUint32(TpmRh::Owner as u32)),
+        "platform" => Ok(TpmUint32(TpmRh::Platform as u32)),
+        "endorsement" => Ok(TpmUint32(TpmRh::Endorsement as u32)),
+        "null" => Ok(TpmUint32(TpmRh::Null as u32)),
+        "lockout" => Ok(TpmUint32(TpmRh::Lockout as u32)),
         _ => {
             let handle = Handle::from_str(s).map_err(|e| e.to_string())?;
             let value = handle.value().ok_or("handle pattern not allowed here")?;
-            Ok(TpmHandle(value))
+            Ok(TpmUint32(value))
         }
     }
 }
@@ -178,17 +178,9 @@ pub fn build_policy_command_list(
 ) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
     if let Some(expression) = &creation_args.policy_expression {
         let pcrs = read_all_pcrs(device)?;
-        let (pcr_select_size, _) = device.fetch_pcr_bank_list()?;
-        let pcr_count = pcr_select_size * 8;
-
         let names = fetch_handle_names(task_state, device)?;
 
-        let policy_context = TpmPolicyState {
-            pcr_count,
-            names,
-            pcrs,
-        };
-
+        let policy_context = TpmPolicyState::new(names, pcrs)?;
         let ast = TpmPolicyExpression::new(expression, &policy_context)?;
         let (commands, final_digest) = ast.to_command_list(name_alg, &policy_context)?;
 
@@ -206,14 +198,14 @@ fn fetch_handle_names(
     let mut map = HashMap::new();
 
     for (vhandle, key) in state.cache.key_iter() {
-        let name = tpm_make_name(&key.public)?;
-        map.insert(TpmHandle(*vhandle), name);
+        let name = tpm_make_name(key.public())?;
+        map.insert(TpmUint32(*vhandle), name);
     }
 
     let handles = device.fetch_handles(TpmHt::Persistent)?;
     for h in handles {
         if let Ok((_, name)) = device.read_public(h) {
-            map.insert(TpmHandle(h.0), name);
+            map.insert(TpmUint32(h.0), name);
         }
     }
 
