@@ -19,9 +19,9 @@ use std::{
 use thiserror::Error;
 use tpm2_crypto::tpm_make_name;
 use tpm2_protocol::{
-    basic::{TpmHandle, TpmUint32},
+    basic::{TpmBuffer, TpmHandle, TpmUint32, TpmUint64},
     constant::TPM_MAX_COMMAND_SIZE,
-    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmsContext, TpmtPublic},
+    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmsContext, TpmtPublic},
     TpmMarshal, TpmUnmarshal, TpmWriter,
 };
 
@@ -497,6 +497,52 @@ impl<'a> VtpmCache<'a> {
         Err(VtpmError::NoHandles)
     }
 
+    /// Caches metadata for a persistent key.
+    ///
+    /// The context is initialized to defaults, as persistent keys reside
+    /// in the TPM's NVRAM.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidHandleType`](crate::VtpmError::InvalidHandleType)
+    /// if `handle` is not a persistent handle.
+    /// Returns [`OperationFailed`](crate::VtpmError::OperationFailed) if name
+    /// calculation fails.
+    pub fn save_persistent_key(
+        &mut self,
+        handle: TpmHandle,
+        public: &TpmtPublic,
+        parent_public: &TpmtPublic,
+        policy: &Option<Vec<Box<dyn VtpmPolicyCommand>>>,
+    ) -> Result<(), VtpmError> {
+        let ht = (handle.0 >> 24) as u8;
+        if ht != TpmHt::Persistent as u8 {
+            return Err(VtpmError::InvalidHandleType(ht));
+        }
+
+        let key = VtpmKey {
+            version: TpmUint32(VERSION),
+            handle,
+            public: public.clone(),
+            parent: parent_public.clone(),
+            context: TpmsContext {
+                sequence: TpmUint64(0),
+                saved_handle: TpmHandle::default(),
+                hierarchy: TpmRh::Owner,
+                context_blob: TpmBuffer::default(),
+            },
+            policy: policy.clone().unwrap_or_default(),
+        };
+
+        let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
+
+        self.contexts.insert(handle.0, key);
+        self.handles.insert(name, handle);
+        self.dirty.insert(handle.0);
+
+        Ok(())
+    }
+
     /// Marks a context as dirty.
     pub fn mark_dirty(&mut self, virtual_handle: u32) {
         self.dirty.insert(virtual_handle);
@@ -528,7 +574,7 @@ impl<'a> VtpmCache<'a> {
             };
 
             let ht = (virtual_handle >> 24) as u8;
-            if ht == TpmHt::Transient as u8 {
+            if ht == TpmHt::Transient as u8 || ht == TpmHt::Persistent as u8 {
                 match VtpmKey::load(&path) {
                     Ok(key) => {
                         let name =

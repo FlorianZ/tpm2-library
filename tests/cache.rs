@@ -353,4 +353,46 @@ mod tests {
 
         assert_eq!(*key.policy(), policy);
     }
+
+    /// Test 9: `save_persistent_key` roundtrip
+    #[rstest]
+    fn persistent_key_policy_roundtrip(
+        cache_dir: TempDir,
+        test_data: (TpmtPublic, TpmtPublic, TpmsContext, TpmtPublic),
+    ) {
+        let (parent_public, _, _, null_parent) = test_data;
+        let cache_path = cache_dir.path();
+        let persistent_handle = TpmUint32(0x8100_0001);
+
+        let policy_auth = VtpmPolicyDefaultCommand {
+            cc: TpmCc::PolicyAuthValue,
+            body: Vec::new(),
+        };
+        let policy: Vec<Box<dyn VtpmPolicyCommand>> = vec![Box::new(policy_auth)];
+
+        let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+
+        cache
+            .save_persistent_key(
+                persistent_handle,
+                &parent_public,
+                &null_parent,
+                &Some(policy.clone()),
+            )
+            .unwrap();
+
+        cache.flush().unwrap();
+        drop(cache);
+
+        let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
+
+        let key = cache.find_by_handle(persistent_handle).unwrap();
+        assert_eq!(*key.public(), parent_public);
+        assert_eq!(*key.policy(), policy);
+        assert_eq!(key.context().sequence.0, 0);
+
+        let name = tpm_make_name(&parent_public).unwrap();
+        let cached_handle = cache.find_by_name(&name).unwrap().handle();
+        assert_eq!(*cached_handle, persistent_handle);
+    }
 }
