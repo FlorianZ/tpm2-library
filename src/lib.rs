@@ -443,14 +443,15 @@ impl<'a> VtpmCache<'a> {
         }
     }
 
-    /// Creates a new [`VtpmKey`](crate::VtpmKey) instance and saves the given
-    /// context to the cache together with its associated metadata.
+    /// Creates a new [`VtpmKey`](crate::VtpmKey) instance for a transient key,
+    /// and saves the given context to the cache together with its associated
+    /// metadata.
     ///
     /// # Errors
     ///
     /// Returns [`NoHandles`](crate::VtpmError::NoHandles) when no free VTPM
     /// handle slot is found.
-    pub fn save_key(
+    pub fn save_transient_key(
         &mut self,
         context: TpmsContext,
         public: &TpmtPublic,

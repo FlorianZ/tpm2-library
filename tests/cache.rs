@@ -82,7 +82,7 @@ mod tests {
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
         let parent_vhandle = cache
-            .save_key(
+            .save_transient_key(
                 TpmsContext {
                     sequence: TpmUint64(0),
                     saved_handle: TpmHandle::default(),
@@ -96,7 +96,7 @@ mod tests {
             .unwrap();
 
         let child_vhandle = cache
-            .save_key(
+            .save_transient_key(
                 child_context.clone(),
                 &child_public,
                 &parent_public,
@@ -161,7 +161,7 @@ mod tests {
         assert!(matches!(err, VtpmError::HandleNotFound(_)));
 
         let h1 = cache
-            .save_key(
+            .save_transient_key(
                 TpmsContext {
                     sequence: TpmUint64(0),
                     saved_handle: TpmHandle::default(),
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(h1, 0x8000_0000);
 
         let h2 = cache
-            .save_key(
+            .save_transient_key(
                 TpmsContext {
                     sequence: TpmUint64(0),
                     saved_handle: TpmHandle::default(),
@@ -194,7 +194,7 @@ mod tests {
         assert!(cache.find_by_handle(TpmUint32(h1)).is_none(),);
 
         let h3 = cache
-            .save_key(
+            .save_transient_key(
                 TpmsContext {
                     sequence: TpmUint64(0),
                     saved_handle: TpmHandle::default(),
@@ -269,7 +269,7 @@ mod tests {
         let mut cache = VtpmCache::new(cache_path, persistent_keys).unwrap();
 
         let child_vhandle = cache
-            .save_key(child_context, &child_public, &parent_public, &None)
+            .save_transient_key(child_context, &child_public, &parent_public, &None)
             .unwrap();
 
         if has_persistent_parent {
@@ -337,7 +337,7 @@ mod tests {
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
         let child_vhandle = cache
-            .save_key(
+            .save_transient_key(
                 child_context,
                 &child_public,
                 &null_parent,
