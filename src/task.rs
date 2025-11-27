@@ -14,17 +14,16 @@ use hex;
 use rand::{thread_rng, RngCore};
 use thiserror::Error;
 use tpm2_crypto::{tpm_make_name, TpmCryptoError, TpmHash};
-use tpm2_device::{TpmDevice, TpmDeviceError};
+use tpm2_device::{TpmDevice, TpmDeviceError, TpmPolicySession};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmInt32, TpmUint32},
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, Tpm2bPrivate,
-        Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmSe, TpmaSession, TpmsAuthCommand,
-        TpmtSymDefObject,
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bNonce, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc,
+        TpmHt, TpmRh, TpmaSession, TpmsAuthCommand,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
-        TpmResponse, TpmStartAuthSessionCommand, TpmStartAuthSessionResponse,
+        TpmResponse,
     },
     TpmUnmarshal,
 };
@@ -39,114 +38,6 @@ type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 pub trait TaskStateProgress {
     fn start(&self);
     fn stop(&self);
-}
-
-/// Manages the state of an active authorization session.
-#[derive(Debug, Clone)]
-pub struct PolicySession {
-    pub handle: TpmHandle,
-    pub attributes: TpmaSession,
-    pub hash_alg: TpmAlgId,
-}
-
-impl PolicySession {
-    /// Creates a new policy session, initializing it on the TPM and applying the policy.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TaskError`] if starting the session or applying policy commands fails.
-    pub fn new(
-        device: &mut TpmDevice,
-        hash_alg: TpmAlgId,
-        commands: Vec<(TpmCommand, TpmAuthCommands)>,
-    ) -> Result<Self, TaskError> {
-        let (resp, _) =
-            Self::start_session(device, TpmSe::Policy, hash_alg, (TpmRh::Null as u32).into())?;
-
-        let session = Self {
-            handle: resp.handles[0],
-            attributes: TpmaSession::CONTINUE_SESSION,
-            hash_alg,
-        };
-
-        if let Err(e) = session.apply_policy(device, commands) {
-            let _ = session.delete(device);
-            return Err(e);
-        }
-
-        Ok(session)
-    }
-
-    /// Returns the VTPM handle.
-    #[must_use]
-    pub fn handle(&self) -> TpmHandle {
-        self.handle
-    }
-
-    /// Deletes a context.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Device`](crate::task::TaskError::Device) when the TPM
-    /// transmission fails.
-    pub fn delete(&self, device: &mut TpmDevice) -> Result<(), TaskError> {
-        device.flush_context(self.handle).map_err(TaskError::Device)
-    }
-
-    fn start_session(
-        device: &mut TpmDevice,
-        session_type: TpmSe,
-        auth_hash: TpmAlgId,
-        bind: TpmHandle,
-    ) -> Result<(TpmStartAuthSessionResponse, Tpm2bNonce), TaskError> {
-        let digest_len = TpmHash::from(auth_hash).size();
-        let mut nonce_bytes = vec![0; digest_len];
-        thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce_caller =
-            Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TaskError::OutOfMemory)?;
-
-        let cmd = TpmStartAuthSessionCommand {
-            nonce_caller,
-            encrypted_salt: Tpm2bEncryptedSecret::default(),
-            session_type,
-            symmetric: TpmtSymDefObject::default(),
-            auth_hash,
-            handles: [(TpmRh::Null as u32).into(), bind],
-        };
-        let sessions = vec![];
-
-        let (response_body, _) = device.transmit(&cmd, &sessions)?;
-
-        let resp = response_body
-            .StartAuthSession()
-            .map_err(|_| TaskError::ResponseMismatch(TpmCc::StartAuthSession))?;
-
-        Ok((resp, nonce_caller))
-    }
-
-    fn apply_policy(
-        &self,
-        device: &mut TpmDevice,
-        commands: TpmCommandList,
-    ) -> Result<(), TaskError> {
-        for (mut command_body, auth_sessions) in commands {
-            match &mut command_body {
-                TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = self.handle.0.into(),
-                TpmCommand::PolicyOr(cmd) => cmd.handles[0] = self.handle.0.into(),
-                TpmCommand::PolicyRestart(cmd) => {
-                    cmd.handles[0] = self.handle.0.into();
-                }
-                TpmCommand::PolicySecret(cmd) => {
-                    cmd.handles[1] = self.handle.0.into();
-                }
-                _ => {
-                    return Err(TaskError::MalformedData);
-                }
-            }
-            device.transmit(&command_body, auth_sessions.as_ref())?;
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,7 +93,7 @@ pub struct TaskState<'a> {
     pub cache: VtpmCache<'a>,
     pub progress: Option<Box<dyn TaskStateProgress>>,
     /// Holds all temporary sessions, indexed by their vhandle.
-    pub sessions: HashMap<TpmHandle, PolicySession>,
+    pub sessions: HashMap<TpmHandle, TpmPolicySession>,
     /// Live handles (virtual handle -> physical handle).
     pub live_handles: HashMap<u32, TpmHandle>,
     /// All tracked handles (physical) for cleanup.
@@ -244,7 +135,7 @@ impl<'a> TaskState<'a> {
             .sessions
             .remove(&vhandle)
             .ok_or(TaskError::HandleNotFound(vhandle))?;
-        session.delete(device)
+        session.flush(device).map_err(TaskError::Device)
     }
 
     /// Tracks a transient handle for automatic cleanup.
@@ -305,7 +196,13 @@ impl<'a> TaskState<'a> {
 
         if let Some(commands) = self.load_policy(device, &policy, auth_map)? {
             if !commands.is_empty() {
-                let session = PolicySession::new(device, name_alg, commands)?;
+                let session = TpmPolicySession::builder()
+                    .with_auth_hash(name_alg)
+                    .open(device)?;
+                if let Err(e) = session.apply_policy(device, commands) {
+                    let _ = session.flush(device);
+                    return Err(e.into());
+                }
                 let vhandle = session.handle();
                 self.sessions.insert(vhandle, session);
                 return Ok((phys_handle, name_alg, TaskAuth::Session(vhandle.0)));
@@ -484,7 +381,7 @@ impl<'a> TaskState<'a> {
                         .sessions
                         .get(&TpmUint32(*vhandle))
                         .ok_or(TaskError::HandleNotFound(TpmUint32(*vhandle)))?;
-                    let nonce_size = TpmHash::from(session.hash_alg).size();
+                    let nonce_size = TpmHash::from(session.hash_alg()).size();
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce = Tpm2bNonce::try_from(nonce_bytes.as_slice())
@@ -493,7 +390,7 @@ impl<'a> TaskState<'a> {
                     TpmsAuthCommand {
                         session_handle: session.handle(),
                         nonce,
-                        session_attributes: session.attributes,
+                        session_attributes: session.attributes(),
                         hmac: Tpm2bAuth::default(),
                     }
                 }
@@ -709,7 +606,7 @@ impl Drop for TaskState<'_> {
                     }
                 }
                 for session in self.sessions.values() {
-                    if let Err(e) = session.delete(&mut dev) {
+                    if let Err(e) = session.flush(&mut dev) {
                         log::error!("{:08x}: {e}", session.handle());
                     }
                 }
