@@ -48,20 +48,16 @@ fn parse_auth(s: &str) -> Result<(TpmHandle, TaskAuth), String> {
         .ok_or_else(|| "format must be <handle>:<value>".to_string())?;
 
     let handle = parse_handle_target(handle_str)?;
+    let auth = hex::decode(auth_str)
+        .map(TaskAuth::Password)
+        .map_err(|e| e.to_string())?;
 
-    let auth = if auth_str == "empty" {
-        TaskAuth::Password(Vec::new())
-    } else {
-        hex::decode(auth_str)
-            .map(TaskAuth::Password)
-            .map_err(|e| e.to_string())?
-    };
     Ok((handle, auth))
 }
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct AuthArgs {
-    /// List of authentication values in the format '<handle>:<hex string|empty>'.
+    /// List of authentication values in the format '<handle>:<hex string>'.
     #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = parse_auth)]
     pub auth: Vec<(TpmHandle, TaskAuth)>,
 }
