@@ -421,7 +421,7 @@ impl<'a> VtpmCache<'a> {
     ///
     /// Returns [`NoHandles`](crate::VtpmError::NoHandles) when no free VTPM
     /// handle slot is found.
-    pub fn save_transient_key(
+    pub fn save_transient(
         &mut self,
         context: TpmsContext,
         public: &TpmtPublic,
@@ -478,7 +478,7 @@ impl<'a> VtpmCache<'a> {
     /// if `handle` is not a persistent handle.
     /// Returns [`OperationFailed`](crate::VtpmError::OperationFailed) if name
     /// calculation fails.
-    pub fn save_persistent_key(
+    pub fn save_persistent(
         &mut self,
         handle: TpmHandle,
         public: &TpmtPublic,
