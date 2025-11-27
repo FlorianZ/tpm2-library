@@ -538,33 +538,37 @@ impl<'a> TaskState<'a> {
         self.sessions.insert(vhandle, temp_session);
         let policy_phandle = resp.handles[0];
 
-        let execution_result: Result<(), TaskError> = (|| {
-            for (mut command_body, auth_sessions) in commands {
-                match &mut command_body {
-                    TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
-                    TpmCommand::PolicyOr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
-                    TpmCommand::PolicyRestart(cmd) => {
-                        cmd.handles[0] = policy_phandle.0.into();
-                    }
-                    TpmCommand::PolicySecret(cmd) => {
-                        cmd.handles[1] = policy_phandle.0.into();
-                    }
-                    _ => {
-                        return Err(TaskError::MalformedData);
-                    }
-                }
-                device.transmit(&command_body, auth_sessions.as_ref())?;
-            }
-            Ok(())
-        })();
-
-        match execution_result {
+        match Self::run_policy(device, policy_phandle, commands) {
             Ok(()) => Ok(Some(TaskAuth::Session(vhandle.0))),
             Err(e) => {
                 let _ = self.remove_session(device, policy_phandle);
                 Err(e)
             }
         }
+    }
+
+    fn run_policy(
+        device: &mut TpmDevice,
+        policy_phandle: TpmHandle,
+        commands: TpmCommandList,
+    ) -> Result<(), TaskError> {
+        for (mut command_body, auth_sessions) in commands {
+            match &mut command_body {
+                TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
+                TpmCommand::PolicyOr(cmd) => cmd.handles[0] = policy_phandle.0.into(),
+                TpmCommand::PolicyRestart(cmd) => {
+                    cmd.handles[0] = policy_phandle.0.into();
+                }
+                TpmCommand::PolicySecret(cmd) => {
+                    cmd.handles[1] = policy_phandle.0.into();
+                }
+                _ => {
+                    return Err(TaskError::MalformedData);
+                }
+            }
+            device.transmit(&command_body, auth_sessions.as_ref())?;
+        }
+        Ok(())
     }
 
     fn start_session(
