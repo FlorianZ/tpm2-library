@@ -42,7 +42,6 @@ struct MemoryRow {
     details: String,
 }
 
-/// Internal representation used while collecting rows.
 struct MemoryRowData {
     handle: String,
     class: String,
@@ -419,11 +418,7 @@ impl Memory {
             let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
             writeln!(writer, "{pem_cert}")?;
         } else {
-            writeln!(
-                writer,
-                "NV Index contains {} bytes of data",
-                cert_bytes.len()
-            )?;
+            writeln!(writer, "{}", hex::encode(&cert_bytes))?;
         }
 
         Ok(())
