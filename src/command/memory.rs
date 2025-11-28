@@ -42,12 +42,6 @@ struct MemoryRow {
     details: String,
 }
 
-struct MemoryRowData {
-    handle: String,
-    class: String,
-    details: String,
-}
-
 /// Lists active TPM objects or inspects a single handle.
 #[derive(Args, Debug)]
 #[command(about = "Lists objects inside TPM memory or inspects a single handle.")]
@@ -178,7 +172,6 @@ impl Memory {
         })
     }
 
-    #[allow(clippy::too_many_lines)]
     fn list_all_memory(
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
@@ -187,133 +180,178 @@ impl Memory {
         no_cache: bool,
     ) -> Result<(), CommandError> {
         with_device(session.device.clone(), |device| {
-            let mut rows: Vec<MemoryRowData> = Vec::new();
+            let mut rows: Vec<MemoryRow> = Vec::new();
 
-            Self::fetch_rows(
-                session,
-                device,
-                &mut rows,
-                TpmHt::Persistent,
-                MemoryHandleType::Persistent,
-                auth_args,
-                |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
-            )?;
+            Self::fetch_persistent_rows(device, &mut rows)?;
 
             if no_cache {
-                Self::fetch_rows(
-                    session,
-                    device,
-                    &mut rows,
-                    TpmHt::Transient,
-                    MemoryHandleType::Transient,
-                    auth_args,
-                    |_, device, handle, _| Self::fetch_details(device, handle).map(Some),
-                )?;
+                Self::fetch_device_transient_rows(device, &mut rows)?;
             } else {
-                Self::refresh_cache(session, device)?;
-
-                let mut name_to_handle: HashMap<Tpm2bName, String> = HashMap::new();
-                if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
-                    for handle in handles {
-                        if let Ok((_, name)) = device.read_public(handle) {
-                            name_to_handle.insert(name, format!("{:08x}", handle.0));
-                        }
-                    }
-                }
-                for (vhandle, key) in session.cache.key_iter() {
-                    if let Ok(name) = tpm_make_name(key.public()) {
-                        name_to_handle.insert(name, format!("{vhandle:08x}"));
-                    }
-                }
-
-                for (_, key) in session.cache.key_iter() {
-                    let parent = key.parent();
-                    let parent_str = if parent.object_type == TpmAlgId::Null {
-                        match key.context().hierarchy {
-                            TpmRh::Owner => "owner".to_string(),
-                            TpmRh::Platform => "platform".to_string(),
-                            TpmRh::Endorsement => "endorsement".to_string(),
-                            TpmRh::Null => "null".to_string(),
-                            _ => "unknown".to_string(),
-                        }
-                    } else {
-                        match tpm_make_name(parent) {
-                            Ok(pname) => name_to_handle
-                                .get(&pname)
-                                .cloned()
-                                .unwrap_or_else(|| "unknown".to_string()),
-                            Err(_) => "error".to_string(),
-                        }
-                    };
-
-                    let details = public_to_template(key.public()).map_or_else(
-                        |_| TpmHash::from(key.public().object_type).to_string(),
-                        |a| a.to_string(),
-                    );
-
-                    rows.push(MemoryRowData {
-                        handle: format!("{:08x}", key.handle().0),
-                        class: "transient".to_string(),
-                        details: format!("{parent_str}:{details}"),
-                    });
-                }
+                Self::fetch_cached_transient_rows(session, device, &mut rows)?;
             }
 
-            Self::fetch_rows(
-                session,
-                device,
-                &mut rows,
-                TpmHt::LoadedSession,
-                MemoryHandleType::Session,
-                auth_args,
-                |_, _, handle, _| {
-                    let TpmUint32(handle) = handle;
-                    let ht = (handle >> 24) as u8;
-
-                    let detail = if ht == TpmHt::HmacSession as u8 {
-                        "hmac"
-                    } else {
-                        "policy"
-                    };
-
-                    Ok(Some(detail.to_string()))
-                },
-            )?;
-
-            Self::fetch_rows(
-                session,
-                device,
-                &mut rows,
-                TpmHt::SavedSession,
-                MemoryHandleType::Session,
-                auth_args,
-                |_, _, _, _| Ok(Some("saved".to_string())),
-            )?;
-
-            Self::fetch_rows(
-                session,
-                device,
-                &mut rows,
-                TpmHt::NvIndex,
-                MemoryHandleType::NvIndex,
-                auth_args,
-                |s, d, h, a| Ok(Some(Self::fetch_nv_details(s, d, h, a))),
-            )?;
+            Self::fetch_session_rows(device, &mut rows)?;
+            Self::fetch_saved_session_rows(device, &mut rows)?;
+            Self::fetch_nv_rows(session, device, auth_args, &mut rows)?;
 
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
-
-            let rows_final: Vec<MemoryRow> = rows
-                .into_iter()
-                .map(|r| MemoryRow {
-                    handle: r.handle,
-                    class: r.class,
-                    details: r.details,
-                })
-                .collect();
-            print_table(&rows_final, writer, is_tty)?;
+            print_table(&rows, writer, is_tty)?;
 
             Ok(())
         })
+    }
+
+    fn fetch_persistent_rows(
+        device: &mut TpmDevice,
+        rows: &mut Vec<MemoryRow>,
+    ) -> Result<(), CommandError> {
+        for handle in device.fetch_handles(TpmHt::Persistent)? {
+            let TpmUint32(handle_val) = handle;
+            let (public, _) = device.read_public(handle)?;
+            let details = public_to_template(&public)?;
+
+            let hierarchy = if handle_val >= 0x8180_0000 {
+                "platform"
+            } else {
+                "owner"
+            };
+
+            rows.push(MemoryRow {
+                handle: format!("{handle_val:08x}"),
+                class: MemoryHandleType::Persistent.to_string(),
+                details: format!("{hierarchy}:{details}"),
+            });
+        }
+        Ok(())
+    }
+
+    fn fetch_device_transient_rows(
+        device: &mut TpmDevice,
+        rows: &mut Vec<MemoryRow>,
+    ) -> Result<(), CommandError> {
+        for handle in device.fetch_handles(TpmHt::Transient)? {
+            let TpmUint32(handle_val) = handle;
+            let (public, _) = device.read_public(handle)?;
+            let details = public_to_template(&public)?;
+
+            rows.push(MemoryRow {
+                handle: format!("{handle_val:08x}"),
+                class: MemoryHandleType::Transient.to_string(),
+                details: details.to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn fetch_cached_transient_rows(
+        session: &mut TaskState,
+        device: &mut TpmDevice,
+        rows: &mut Vec<MemoryRow>,
+    ) -> Result<(), CommandError> {
+        Self::refresh_cache(session, device)?;
+
+        let mut name_to_handle: HashMap<Tpm2bName, String> = HashMap::new();
+        if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
+            for handle in handles {
+                if let Ok((_, name)) = device.read_public(handle) {
+                    name_to_handle.insert(name, format!("{:08x}", handle.0));
+                }
+            }
+        }
+        for (vhandle, key) in session.cache.key_iter() {
+            if let Ok(name) = tpm_make_name(key.public()) {
+                name_to_handle.insert(name, format!("{vhandle:08x}"));
+            }
+        }
+
+        for (_, key) in session.cache.key_iter() {
+            let parent = key.parent();
+            let parent_str = if parent.object_type == TpmAlgId::Null {
+                match key.context().hierarchy {
+                    TpmRh::Owner => "owner".to_string(),
+                    TpmRh::Platform => "platform".to_string(),
+                    TpmRh::Endorsement => "endorsement".to_string(),
+                    TpmRh::Null => "null".to_string(),
+                    _ => "unknown".to_string(),
+                }
+            } else {
+                match tpm_make_name(parent) {
+                    Ok(pname) => name_to_handle
+                        .get(&pname)
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    Err(_) => "error".to_string(),
+                }
+            };
+
+            let details = public_to_template(key.public()).map_or_else(
+                |_| TpmHash::from(key.public().object_type).to_string(),
+                |a| a.to_string(),
+            );
+
+            rows.push(MemoryRow {
+                handle: format!("{:08x}", key.handle().0),
+                class: MemoryHandleType::Transient.to_string(),
+                details: format!("{parent_str}:{details}"),
+            });
+        }
+        Ok(())
+    }
+
+    fn fetch_session_rows(
+        device: &mut TpmDevice,
+        rows: &mut Vec<MemoryRow>,
+    ) -> Result<(), CommandError> {
+        for handle in device.fetch_handles(TpmHt::LoadedSession)? {
+            let TpmUint32(handle_val) = handle;
+            let ht = (handle_val >> 24) as u8;
+
+            let detail = if ht == TpmHt::HmacSession as u8 {
+                "hmac"
+            } else {
+                "policy"
+            };
+
+            rows.push(MemoryRow {
+                handle: format!("{handle_val:08x}"),
+                class: MemoryHandleType::Session.to_string(),
+                details: detail.to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn fetch_saved_session_rows(
+        device: &mut TpmDevice,
+        rows: &mut Vec<MemoryRow>,
+    ) -> Result<(), CommandError> {
+        for handle in device.fetch_handles(TpmHt::SavedSession)? {
+            let TpmUint32(handle_val) = handle;
+            rows.push(MemoryRow {
+                handle: format!("{handle_val:08x}"),
+                class: MemoryHandleType::Session.to_string(),
+                details: "saved".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn fetch_nv_rows(
+        session: &mut TaskState,
+        device: &mut TpmDevice,
+        auth_args: &AuthArgs,
+        rows: &mut Vec<MemoryRow>,
+    ) -> Result<(), CommandError> {
+        for handle in device.fetch_handles(TpmHt::NvIndex)? {
+            let TpmUint32(handle_val) = handle;
+            let details = Self::fetch_nv_details(session, device, handle, auth_args);
+            rows.push(MemoryRow {
+                handle: format!("{handle_val:08x}"),
+                class: MemoryHandleType::NvIndex.to_string(),
+                details,
+            });
+        }
+        Ok(())
     }
 
     /// Determines the correct handle to use for authorization based on NV
@@ -424,41 +462,6 @@ impl Memory {
         Ok(())
     }
 
-    fn fetch_rows<F>(
-        session: &mut TaskState,
-        device: &mut TpmDevice,
-        rows: &mut Vec<MemoryRowData>,
-        class: TpmHt,
-        display_type: MemoryHandleType,
-        auth_args: &AuthArgs,
-        mut get_details: F,
-    ) -> Result<(), CommandError>
-    where
-        F: FnMut(
-            &mut TaskState,
-            &mut TpmDevice,
-            TpmHandle,
-            &AuthArgs,
-        ) -> Result<Option<String>, CommandError>,
-    {
-        for handle in device.fetch_handles(class)? {
-            let TpmUint32(handle_val) = handle;
-
-            match get_details(session, device, handle, auth_args) {
-                Ok(Some(details)) => {
-                    rows.push(MemoryRowData {
-                        handle: format!("{handle_val:08x}"),
-                        class: display_type.to_string(),
-                        details,
-                    });
-                }
-                Ok(None) => {}
-                Err(e) => log::debug!("{handle_val:08x}: {e}"),
-            }
-        }
-        Ok(())
-    }
-
     fn fetch_nv_details(
         session: &mut TaskState,
         device: &mut TpmDevice,
@@ -476,24 +479,6 @@ impl Memory {
         }
 
         Memory::fetch_alg_name(&cert_bytes).unwrap_or_default()
-    }
-
-    fn fetch_details(device: &mut TpmDevice, handle: TpmHandle) -> Result<String, CommandError> {
-        let (public, _) = device.read_public(handle)?;
-        let TpmUint32(handle) = handle;
-
-        let details = public_to_template(&public)?;
-
-        if (handle & 0xFF00_0000) == (TpmHt::Persistent as u32) << 24 {
-            let hierarchy = if handle >= 0x8180_0000 {
-                "platform"
-            } else {
-                "owner"
-            };
-            Ok(format!("{hierarchy}:{details}"))
-        } else {
-            Ok(details.to_string())
-        }
     }
 
     fn fetch_hash_alg(oid_nid: Nid) -> Result<TpmHash, CommandError> {
