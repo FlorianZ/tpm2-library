@@ -74,7 +74,7 @@ fn delete_tpm_handles(
                     _ => {}
                 }
 
-                writeln!(writer, "{handle}")?;
+                writeln!(writer, "{handle:08x}")?;
             }
         }
         Ok(())
