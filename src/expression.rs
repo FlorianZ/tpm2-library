@@ -55,7 +55,7 @@ impl fmt::Display for TpmPolicyExpression {
                     })
                     .collect();
 
-                write!(f, "pcr({})", selection_strings.join("+"))?;
+                write!(f, "pcr({}", selection_strings.join("+"))?;
 
                 if let Some(d) = digest {
                     write!(f, ":{}", hex::encode(d.as_ref()))?;
