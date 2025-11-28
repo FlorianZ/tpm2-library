@@ -10,19 +10,18 @@ use crate::{
 use clap::Args;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
+use std::collections::HashMap;
 use strum::Display;
 use tabled::Tabled;
-use tpm2_crypto::{TpmEllipticCurve, TpmHash};
+use tpm2_crypto::{tpm_make_name, TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
-    data::{TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
+    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
     frame::{TpmAuthCommands, TpmCommand, TpmNvReadCommand, TpmNvReadPublicCommand},
 };
 use tpm2_vtpm::VtpmPolicyCommand;
-
-const EK_CERT_RANGE: std::ops::RangeInclusive<u32> = 0x01C0_0000..=0x01C0_FFFF;
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[strum(serialize_all = "kebab-case")]
@@ -30,7 +29,7 @@ enum MemoryHandleType {
     Transient,
     Persistent,
     Session,
-    Certificate,
+    NvIndex,
 }
 
 #[derive(Tabled)]
@@ -43,25 +42,11 @@ struct MemoryRow {
     details: String,
 }
 
-#[derive(Tabled)]
-struct MemoryRowWithPolicy {
-    #[tabled(rename = "HANDLE")]
-    handle: String,
-    #[tabled(rename = "CLASS")]
-    class: String,
-    #[tabled(rename = "DETAILS")]
-    details: String,
-    #[tabled(rename = "POLICY")]
-    policy: String,
-}
-
-/// Internal representation used while collecting rows, before deciding whether
-/// to print the POLICY column.
+/// Internal representation used while collecting rows.
 struct MemoryRowData {
     handle: String,
     class: String,
     details: String,
-    policy: Option<String>,
 }
 
 /// Lists active TPM objects or inspects a single handle.
@@ -75,7 +60,7 @@ pub struct Memory {
     #[arg(long)]
     pub no_cache: bool,
 
-    /// Show reconstructed policy column.
+    /// Show policy expression for the given handle.
     #[arg(short = 'p', long = "policy")]
     pub policy: bool,
 
@@ -100,16 +85,10 @@ impl Task for Memory {
                 handle_val,
                 handle.to_string(),
                 &self.auth_args,
-            )
-        } else {
-            Self::list_all_memory(
-                session,
-                writer,
-                &self.auth_args,
-                is_tty,
-                self.no_cache,
                 self.policy,
             )
+        } else {
+            Self::list_all_memory(session, writer, &self.auth_args, is_tty, self.no_cache)
         }
     }
 }
@@ -170,10 +149,21 @@ impl Memory {
         handle_val: u32,
         handle_str: String,
         auth_args: &AuthArgs,
+        show_policy: bool,
     ) -> Result<(), CommandError> {
         with_device(session.device.clone(), |device| {
-            if EK_CERT_RANGE.contains(&handle_val) {
-                Self::fetch_certificate(session, device, writer, handle_val, auth_args)
+            if (handle_val >> 24) == (TpmHt::NvIndex as u32) {
+                Self::inspect_nv_index(session, device, writer, handle_val, auth_args)
+            } else if show_policy {
+                let key = session
+                    .cache
+                    .find_by_handle(TpmUint32(handle_val))
+                    .ok_or(CommandError::UnknownHandle(handle_str))?;
+
+                if let Some(policy_str) = Self::format_policy(key.policy()) {
+                    writeln!(writer, "{policy_str}")?;
+                }
+                Ok(())
             } else {
                 match device.read_public(handle_val.into()) {
                     Ok(_) => Ok(()),
@@ -196,7 +186,6 @@ impl Memory {
         auth_args: &AuthArgs,
         is_tty: bool,
         no_cache: bool,
-        show_policy: bool,
     ) -> Result<(), CommandError> {
         with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRowData> = Vec::new();
@@ -223,13 +212,39 @@ impl Memory {
                 )?;
             } else {
                 Self::refresh_cache(session, device)?;
+
+                let mut name_to_handle: HashMap<Tpm2bName, String> = HashMap::new();
+                if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
+                    for handle in handles {
+                        if let Ok((_, name)) = device.read_public(handle) {
+                            name_to_handle.insert(name, format!("{:08x}", handle.0));
+                        }
+                    }
+                }
+                for (vhandle, key) in session.cache.key_iter() {
+                    if let Ok(name) = tpm_make_name(key.public()) {
+                        name_to_handle.insert(name, format!("{vhandle:08x}"));
+                    }
+                }
+
                 for (_, key) in session.cache.key_iter() {
-                    let hierarchy = match key.context().hierarchy {
-                        TpmRh::Owner => "owner",
-                        TpmRh::Platform => "platform",
-                        TpmRh::Endorsement => "endorsement",
-                        TpmRh::Null => "null",
-                        _ => "unknown",
+                    let parent = key.parent();
+                    let parent_str = if parent.object_type == TpmAlgId::Null {
+                        match key.context().hierarchy {
+                            TpmRh::Owner => "owner".to_string(),
+                            TpmRh::Platform => "platform".to_string(),
+                            TpmRh::Endorsement => "endorsement".to_string(),
+                            TpmRh::Null => "null".to_string(),
+                            _ => "unknown".to_string(),
+                        }
+                    } else {
+                        match tpm_make_name(parent) {
+                            Ok(pname) => name_to_handle
+                                .get(&pname)
+                                .cloned()
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            Err(_) => "error".to_string(),
+                        }
                     };
 
                     let details = public_to_template(key.public()).map_or_else(
@@ -237,17 +252,10 @@ impl Memory {
                         |a| a.to_string(),
                     );
 
-                    let policy_str = Self::format_policy(key.policy()).unwrap_or_else(String::new);
-
                     rows.push(MemoryRowData {
                         handle: format!("{:08x}", key.handle().0),
                         class: "transient".to_string(),
-                        details: format!("{hierarchy}:{details}"),
-                        policy: if policy_str.is_empty() {
-                            None
-                        } else {
-                            Some(policy_str)
-                        },
+                        details: format!("{parent_str}:{details}"),
                     });
                 }
             }
@@ -288,35 +296,22 @@ impl Memory {
                 device,
                 &mut rows,
                 TpmHt::NvIndex,
-                MemoryHandleType::Certificate,
+                MemoryHandleType::NvIndex,
                 auth_args,
-                Self::fetch_certificate_details,
+                |s, d, h, a| Ok(Some(Self::fetch_nv_details(s, d, h, a))),
             )?;
 
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
-            if show_policy {
-                let rows_with_policy: Vec<MemoryRowWithPolicy> = rows
-                    .into_iter()
-                    .map(|r| MemoryRowWithPolicy {
-                        handle: r.handle,
-                        class: r.class,
-                        details: r.details,
-                        policy: r.policy.unwrap_or_default(),
-                    })
-                    .collect();
-                print_table(&rows_with_policy, writer, is_tty)?;
-            } else {
-                let rows_no_policy: Vec<MemoryRow> = rows
-                    .into_iter()
-                    .map(|r| MemoryRow {
-                        handle: r.handle,
-                        class: r.class,
-                        details: r.details,
-                    })
-                    .collect();
-                print_table(&rows_no_policy, writer, is_tty)?;
-            }
+            let rows_final: Vec<MemoryRow> = rows
+                .into_iter()
+                .map(|r| MemoryRow {
+                    handle: r.handle,
+                    class: r.class,
+                    details: r.details,
+                })
+                .collect();
+            print_table(&rows_final, writer, is_tty)?;
 
             Ok(())
         })
@@ -406,7 +401,7 @@ impl Memory {
         Ok(cert_bytes)
     }
 
-    fn fetch_certificate(
+    fn inspect_nv_index(
         session: &mut TaskState,
         device: &mut TpmDevice,
         writer: &mut dyn std::io::Write,
@@ -416,12 +411,20 @@ impl Memory {
         let cert_bytes = Self::read_nv_index(session, device, handle, auth_args)?;
 
         if cert_bytes.is_empty() {
-            log::warn!("{handle:08x}: no certificate");
+            log::warn!("{handle:08x}: empty");
             return Ok(());
         }
 
-        let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
-        writeln!(writer, "{pem_cert}")?;
+        if cert_bytes[0] == 0x30 {
+            let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
+            writeln!(writer, "{pem_cert}")?;
+        } else {
+            writeln!(
+                writer,
+                "NV Index contains {} bytes of data",
+                cert_bytes.len()
+            )?;
+        }
 
         Ok(())
     }
@@ -452,7 +455,6 @@ impl Memory {
                         handle: format!("{handle_val:08x}"),
                         class: display_type.to_string(),
                         details,
-                        policy: None,
                     });
                 }
                 Ok(None) => {}
@@ -462,32 +464,23 @@ impl Memory {
         Ok(())
     }
 
-    fn fetch_certificate_details(
+    fn fetch_nv_details(
         session: &mut TaskState,
         device: &mut TpmDevice,
         handle: TpmHandle,
         auth_args: &AuthArgs,
-    ) -> Result<Option<String>, CommandError> {
+    ) -> String {
         let TpmUint32(handle_val) = handle;
-        if !EK_CERT_RANGE.contains(&handle_val) {
-            return Ok(None);
-        }
 
-        let cert_bytes = match Self::read_nv_index(session, device, handle_val, auth_args) {
-            Ok(bytes) => bytes,
-            Err(CommandError::Device(TpmDeviceError::TpmRc(_))) => {
-                return Ok(None);
-            }
-            Err(e) => return Err(e),
+        let Ok(cert_bytes) = Self::read_nv_index(session, device, handle_val, auth_args) else {
+            return String::new();
         };
 
         if cert_bytes.is_empty() || u32::from(cert_bytes[0]) != 0x30 {
-            return Ok(None);
+            return String::new();
         }
-        Ok(Some(format!(
-            "endorsement:{}",
-            Memory::fetch_alg_name(&cert_bytes)?
-        )))
+
+        Memory::fetch_alg_name(&cert_bytes).unwrap_or_default()
     }
 
     fn fetch_details(device: &mut TpmDevice, handle: TpmHandle) -> Result<String, CommandError> {
