@@ -14,11 +14,13 @@ use strum::Display;
 use tabled::Tabled;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
+use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
-    frame::{TpmNvReadCommand, TpmNvReadPublicCommand},
+    frame::{TpmAuthCommands, TpmCommand, TpmNvReadCommand, TpmNvReadPublicCommand},
 };
+use tpm2_vtpm::VtpmPolicyCommand;
 
 const EK_CERT_RANGE: std::ops::RangeInclusive<u32> = 0x01C0_0000..=0x01C0_FFFF;
 
@@ -41,6 +43,27 @@ struct MemoryRow {
     details: String,
 }
 
+#[derive(Tabled)]
+struct MemoryRowWithPolicy {
+    #[tabled(rename = "HANDLE")]
+    handle: String,
+    #[tabled(rename = "CLASS")]
+    class: String,
+    #[tabled(rename = "DETAILS")]
+    details: String,
+    #[tabled(rename = "POLICY")]
+    policy: String,
+}
+
+/// Internal representation used while collecting rows, before deciding whether
+/// to print the POLICY column.
+struct MemoryRowData {
+    handle: String,
+    class: String,
+    details: String,
+    policy: Option<String>,
+}
+
 /// Lists active TPM objects or inspects a single handle.
 #[derive(Args, Debug)]
 #[command(about = "Lists objects inside TPM memory or inspects a single handle.")]
@@ -51,6 +74,10 @@ pub struct Memory {
     /// Do not use cache. Show physical handles in transient range.
     #[arg(long)]
     pub no_cache: bool,
+
+    /// Show reconstructed policy column.
+    #[arg(short = 'p', long = "policy")]
+    pub policy: bool,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -75,7 +102,14 @@ impl Task for Memory {
                 &self.auth_args,
             )
         } else {
-            Self::list_all_memory(session, writer, &self.auth_args, is_tty, self.no_cache)
+            Self::list_all_memory(
+                session,
+                writer,
+                &self.auth_args,
+                is_tty,
+                self.no_cache,
+                self.policy,
+            )
         }
     }
 }
@@ -155,15 +189,17 @@ impl Memory {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     fn list_all_memory(
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
         auth_args: &AuthArgs,
         is_tty: bool,
         no_cache: bool,
+        show_policy: bool,
     ) -> Result<(), CommandError> {
         with_device(session.device.clone(), |device| {
-            let mut rows: Vec<MemoryRow> = Vec::new();
+            let mut rows: Vec<MemoryRowData> = Vec::new();
 
             Self::fetch_rows(
                 session,
@@ -201,10 +237,17 @@ impl Memory {
                         |a| a.to_string(),
                     );
 
-                    rows.push(MemoryRow {
+                    let policy_str = Self::format_policy(key.policy()).unwrap_or_else(String::new);
+
+                    rows.push(MemoryRowData {
                         handle: format!("{:08x}", key.handle().0),
                         class: "transient".to_string(),
                         details: format!("{hierarchy}:{details}"),
+                        policy: if policy_str.is_empty() {
+                            None
+                        } else {
+                            Some(policy_str)
+                        },
                     });
                 }
             }
@@ -249,9 +292,32 @@ impl Memory {
                 auth_args,
                 Self::fetch_certificate_details,
             )?;
+
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
 
-            print_table(&rows, writer, is_tty)?;
+            if show_policy {
+                let rows_with_policy: Vec<MemoryRowWithPolicy> = rows
+                    .into_iter()
+                    .map(|r| MemoryRowWithPolicy {
+                        handle: r.handle,
+                        class: r.class,
+                        details: r.details,
+                        policy: r.policy.unwrap_or_default(),
+                    })
+                    .collect();
+                print_table(&rows_with_policy, writer, is_tty)?;
+            } else {
+                let rows_no_policy: Vec<MemoryRow> = rows
+                    .into_iter()
+                    .map(|r| MemoryRow {
+                        handle: r.handle,
+                        class: r.class,
+                        details: r.details,
+                    })
+                    .collect();
+                print_table(&rows_no_policy, writer, is_tty)?;
+            }
+
             Ok(())
         })
     }
@@ -363,7 +429,7 @@ impl Memory {
     fn fetch_rows<F>(
         session: &mut TaskState,
         device: &mut TpmDevice,
-        rows: &mut Vec<MemoryRow>,
+        rows: &mut Vec<MemoryRowData>,
         class: TpmHt,
         display_type: MemoryHandleType,
         auth_args: &AuthArgs,
@@ -382,10 +448,11 @@ impl Memory {
 
             match get_details(session, device, handle, auth_args) {
                 Ok(Some(details)) => {
-                    rows.push(MemoryRow {
+                    rows.push(MemoryRowData {
                         handle: format!("{handle_val:08x}"),
                         class: display_type.to_string(),
                         details,
+                        policy: None,
                     });
                 }
                 Ok(None) => {}
@@ -485,6 +552,30 @@ impl Memory {
                 Ok(format!("ecc-{curve}:{sig_alg_str}"))
             }
             _ => Err(CommandError::UnsupportedKeyAlgorithm),
+        }
+    }
+
+    fn format_policy(policy: &[Box<dyn VtpmPolicyCommand>]) -> Option<String> {
+        if policy.is_empty() {
+            return None;
+        }
+
+        let mut command_list: Vec<(TpmCommand, TpmAuthCommands)> = Vec::with_capacity(policy.len());
+
+        for vtpm_cmd in policy {
+            match vtpm_cmd.to_command() {
+                Ok(cmd) => {
+                    command_list.push((cmd, TpmAuthCommands::new()));
+                }
+                Err(_) => {
+                    return None;
+                }
+            }
+        }
+
+        match TpmPolicyExpression::from_command_list(&command_list) {
+            Ok(expr) => Some(expr.to_string()),
+            Err(_) => None,
         }
     }
 }
