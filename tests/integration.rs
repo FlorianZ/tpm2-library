@@ -170,7 +170,7 @@ fn auth_with_policy() {
     let temp_dir = new_cache_dir();
     let cache_path = temp_dir.path();
 
-    tpm2sh(cache_path, &["delete", "*"]).run().unwrap();
+    tpm2sh(cache_path, &["delete", "80*"]).run().unwrap();
 
     let primary_handle = create_primary_ecc_sha256(cache_path, None);
     let primary_handle_str = primary_handle.as_str();
@@ -221,7 +221,7 @@ fn auth_with_policy() {
 
     assert_eq!(unseal_pcr_output.trim(), SEALED_DATA);
 
-    let delete_output = tpm2sh(cache_path, &["delete", "*"]).read().unwrap();
+    let delete_output = tpm2sh(cache_path, &["delete", "80*"]).read().unwrap();
 
     assert!(delete_output.contains(
         primary_handle_str
