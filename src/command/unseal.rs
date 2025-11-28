@@ -6,17 +6,9 @@ use crate::{
     command::{AuthArgs, CommandError, OutputArgs},
     task::TaskState,
 };
-use clap::{Args, ValueEnum};
+use clap::Args;
 use tpm2_device::with_device;
 use tpm2_protocol::{basic::TpmUint32, data::TpmCc, frame::TpmUnsealCommand};
-
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-#[clap(rename_all = "kebab-case")]
-pub enum UnsealEncoding {
-    #[default]
-    Hex,
-    Binary,
-}
 
 /// Retrieves data from a sealed data object.
 #[derive(Args, Debug)]
@@ -30,10 +22,6 @@ pub struct Unseal {
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
-
-    /// Output encoding (only applies to file output).
-    #[arg(short = 'e', long, value_enum, default_value_t = UnsealEncoding::default())]
-    pub encoding: UnsealEncoding,
 }
 
 impl Task for Unseal {
@@ -68,11 +56,7 @@ impl Task for Unseal {
                 .out_data;
 
             if let Some(path) = &self.output_args.output {
-                let bytes = match self.encoding {
-                    UnsealEncoding::Hex => hex::encode(out_data.as_ref()).into_bytes(),
-                    UnsealEncoding::Binary => out_data.to_vec(),
-                };
-                std::fs::write(path, bytes)?;
+                std::fs::write(path, out_data.as_ref())?;
             } else {
                 writeln!(writer, "{}", hex::encode(out_data.as_ref()))?;
             }

@@ -10,7 +10,11 @@ use crate::{
     task::{Auth, TaskState},
 };
 use clap::{Args, ValueEnum};
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use strum::{Display, EnumString};
 use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
@@ -200,12 +204,16 @@ pub fn build_policy_command_list(
 }
 
 /// Resolves and validates sensitive data based on the algorithm and input
-/// string.
+/// sources.
+///
+/// - If `data_hex` is provided, it is treated as a hex string.
+/// - If `input_path` is provided, it is read as raw binary.
 ///
 /// # Errors
 ///
 /// Returns [`InvalidSensitiveData`](CommandError::InvalidSensitiveData)
 /// when the hex string is malformed.
+/// Returns [`Io`](CommandError::Io) if reading the input file fails.
 /// Returns [`SensitiveDataMissing`](CommandError::SensitiveDataMissing)
 /// when the sensitive data is empty or missing for a keyed hash or symmetric
 /// key.
@@ -217,21 +225,30 @@ pub fn build_policy_command_list(
 /// when the algorithm is not supported.
 pub fn resolve_sensitive_data(
     data_hex: Option<&str>,
+    input_path: Option<&Path>,
     alg: TpmAlgId,
 ) -> Result<Tpm2bSensitiveData, CommandError> {
-    match (data_hex, alg) {
-        (Some(hex_data), TpmAlgId::KeyedHash | TpmAlgId::SymCipher) => {
-            let bytes = hex::decode(hex_data).map_err(|_| CommandError::InvalidSensitiveData)?;
+    let bytes = if let Some(hex_str) = data_hex {
+        hex::decode(hex_str).map_err(|_| CommandError::InvalidSensitiveData)?
+    } else if let Some(path) = input_path {
+        std::fs::read(path)?
+    } else {
+        Vec::new()
+    };
+
+    match alg {
+        TpmAlgId::KeyedHash | TpmAlgId::SymCipher => {
             if bytes.is_empty() {
                 return Err(CommandError::SensitiveDataMissing);
             }
             Tpm2bSensitiveData::try_from(bytes.as_slice())
                 .map_err(|_| CommandError::CapacityExceeded)
         }
-        (None, TpmAlgId::Rsa | TpmAlgId::Ecc) => Ok(Tpm2bSensitiveData::default()),
-        (Some(_), TpmAlgId::Rsa | TpmAlgId::Ecc) => Err(CommandError::SensitiveDataDenied),
-        (None, TpmAlgId::KeyedHash | TpmAlgId::SymCipher) => {
-            Err(CommandError::SensitiveDataMissing)
+        TpmAlgId::Rsa | TpmAlgId::Ecc => {
+            if !bytes.is_empty() {
+                return Err(CommandError::SensitiveDataDenied);
+            }
+            Ok(Tpm2bSensitiveData::default())
         }
         _ => Err(CommandError::UnsupportedKeyAlgorithm),
     }

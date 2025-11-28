@@ -11,6 +11,7 @@ use crate::{
     task::TaskState,
 };
 use clap::Args;
+use std::path::PathBuf;
 use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::with_device;
 use tpm2_protocol::{
@@ -34,8 +35,12 @@ pub struct CreatePrimary {
     pub algorithm: TpmPublicTemplate,
 
     /// Sensitive data: hex string
-    #[arg(long = "data")]
+    #[arg(long = "data", conflicts_with = "input")]
     pub data: Option<String>,
+
+    /// Sensitive data: input file (read as binary)
+    #[arg(short = 'I', long, conflicts_with = "data")]
+    pub input: Option<PathBuf>,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -56,8 +61,11 @@ impl Task for CreatePrimary {
 
             let user_auth = self.creation_args.parse_password()?;
             let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
-            let sensitive_data =
-                resolve_sensitive_data(self.data.as_deref(), self.algorithm.object_type)?;
+            let sensitive_data = resolve_sensitive_data(
+                self.data.as_deref(),
+                self.input.as_deref(),
+                self.algorithm.object_type,
+            )?;
 
             let (auth_policy_digest, policy_commands) = build_policy_command_list(
                 &self.creation_args,
