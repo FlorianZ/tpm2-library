@@ -153,6 +153,6 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
         None
     };
 
-    let mut job = TaskState::new(shared_device, cache, progress);
+    let mut job = TaskState::new(shared_device, cache, progress)?;
     cli.command.run(&mut job, &mut stdout, is_tty)
 }

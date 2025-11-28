@@ -101,21 +101,91 @@ pub struct TaskState<'a> {
 }
 
 impl<'a> TaskState<'a> {
-    /// Creates a new `Session`.
-    #[must_use]
+    /// Creates a new `TaskState` and performs initial cache sanitization.
+    ///
+    /// If a TPM device is available, this scans persistent entries in the vTPM
+    /// cache and drops those that no longer exist in the TPM or whose public
+    /// area has changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TaskError::Device`] if reading public areas from the TPM
+    /// fails, or [`TaskError::Crypto`] if computing a name for a cached key
+    /// fails. May also return [`TaskError::Vtpm`] if a cache operation fails.
     pub fn new(
         device: Option<Rc<RefCell<TpmDevice>>>,
         cache: VtpmCache<'a>,
         progress: Option<Box<dyn TaskStateProgress>>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, TaskError> {
+        let mut state = Self {
             device,
             cache,
             progress,
             sessions: HashMap::new(),
             live_handles: HashMap::new(),
             tracked_handles: HashSet::new(),
+        };
+
+        let device_opt = state.device.clone();
+        if let Some(device_rc) = device_opt {
+            let mut dev = device_rc.borrow_mut();
+            state.validate_persistent_handles(&mut dev)?;
         }
+
+        Ok(state)
+    }
+
+    /// Best-effort validation of persistent handles in the vTPM cache.
+    ///
+    /// For each cached entry whose vhandle is in the persistent handle range,
+    /// this:
+    ///   * checks whether the TPM still has an object at that handle
+    ///   * compares the cached public area against the TPM's view by name
+    ///     (`Tpm2bName`)
+    ///   * removes the cache entry when the handle is gone or the name changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TaskError::Device`] if `read_public` fails in a way that
+    /// cannot be handled gracefully, or [`TaskError::Crypto`] if computing the
+    /// cached name fails. May also return [`TaskError::Vtpm`] if removing an
+    /// entry from the cache fails.
+    fn validate_persistent_handles(&mut self, device: &mut TpmDevice) -> Result<(), TaskError> {
+        let mut persistent_vhandles = Vec::new();
+        for (vhandle, _) in self.cache.key_iter() {
+            let handle_val = *vhandle;
+            let ht_byte = (handle_val >> 24) as u8;
+            if let Ok(TpmHt::Persistent) = TpmHt::try_from(ht_byte) {
+                persistent_vhandles.push(handle_val);
+            }
+        }
+
+        for vhandle in persistent_vhandles {
+            let tpm_handle = TpmUint32(vhandle);
+
+            let Some(key) = self.cache.find_by_handle(tpm_handle) else {
+                continue;
+            };
+
+            match device.read_public(tpm_handle) {
+                Ok((_public, name_on_tpm)) => {
+                    let cached_name = tpm_make_name(key.public())?;
+
+                    if cached_name != name_on_tpm {
+                        log::debug!("dropping stale persistent entry {vhandle:08x}: name mismatch");
+                        self.cache.remove(vhandle)?;
+                    }
+                }
+                Err(e) => {
+                    log::debug!(
+                        "dropping stale persistent entry {vhandle:08x}: read_public failed: {e}"
+                    );
+                    self.cache.remove(vhandle)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Removes a session from the task's state and flushes it from the TPM.
