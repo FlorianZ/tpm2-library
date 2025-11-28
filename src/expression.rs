@@ -80,7 +80,7 @@ impl fmt::Display for TpmPolicyExpression {
                 let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
                 write!(f, "({})", s.join(" or "))
             }
-            TpmPolicyExpression::Handle(handle) => write!(f, "{handle}"),
+            TpmPolicyExpression::Handle(handle) => write!(f, "{handle:08x}"),
         }
     }
 }
