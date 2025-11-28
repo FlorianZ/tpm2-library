@@ -236,6 +236,55 @@ fn auth_with_policy() {
     ));
 }
 
+#[test]
+fn create_primary_valid_policy() {
+    let temp_dir = new_cache_dir();
+    let cache_path = temp_dir.path();
+
+    let output = tpm2sh(
+        cache_path,
+        &[
+            "create-primary",
+            "-H",
+            "owner",
+            "ecc-nist-p256:sha256",
+            "--policy",
+            "pcr(sha256:7)",
+        ],
+    )
+    .read()
+    .expect("Failed to create primary key with valid policy");
+
+    let handle = output.trim();
+    assert!(handle.starts_with("80"));
+}
+
+#[test]
+fn create_primary_invalid_policy() {
+    let temp_dir = new_cache_dir();
+    let cache_path = temp_dir.path();
+
+    let output = tpm2sh(
+        cache_path,
+        &[
+            "create-primary",
+            "-H",
+            "owner",
+            "ecc-nist-p256:sha256",
+            "--policy",
+            "pcr(7:sha256)",
+        ],
+    )
+    .stderr_capture()
+    .unchecked()
+    .run()
+    .expect("Failed to run command");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("policy: invalid PCR digest algorithm"));
+}
+
 #[rstest]
 #[case::rsa("genrsa -out private.pem 2048")]
 #[case::ecc("ecparam -name prime256v1 -genkey -noout -out private.pem")]

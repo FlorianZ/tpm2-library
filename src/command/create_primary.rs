@@ -4,20 +4,24 @@
 
 use crate::{
     cli::Task,
-    command::{deny_keyedhash, AuthArgs, CommandError, CreationArgs, HierarchyArgs},
+    command::{
+        common::build_policy_command_list, deny_keyedhash, AuthArgs, CommandError, CreationArgs,
+        HierarchyArgs,
+    },
     task::TaskState,
 };
 use clap::Args;
-use tpm2_crypto::TpmPublicTemplate;
+use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::with_device;
 use tpm2_protocol::{
     basic::TpmUint32,
     data::{
-        Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc,
-        TpmRh, TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
+        TpmlPcrSelection, TpmsSensitiveCreate,
     },
-    frame::TpmCreatePrimaryCommand,
+    frame::{TpmCommand, TpmCreatePrimaryCommand},
 };
+use tpm2_vtpm::{vtpm_policy_command_from, VtpmPolicyCommand};
 
 /// Creates a new primary key in a specified hierarchy.
 #[derive(Args, Debug, Clone)]
@@ -50,9 +54,17 @@ impl Task for CreatePrimary {
 
             let user_auth = self.creation_args.parse_password()?;
             let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
+
+            let (auth_policy_digest, policy_commands) = build_policy_command_list(
+                &self.creation_args,
+                task_state,
+                device,
+                self.algorithm.name_alg,
+            )?;
+
             let public_template = self
                 .algorithm
-                .to_public(Tpm2bDigest::default(), object_attributes);
+                .to_public(auth_policy_digest, object_attributes);
 
             let cmd = TpmCreatePrimaryCommand {
                 in_sensitive: Tpm2bSensitiveCreate {
@@ -84,11 +96,32 @@ impl Task for CreatePrimary {
             let object_handle = resp.handles[0];
             task_state.track(object_handle)?;
             let object_context = device.save_context(object_handle)?;
+
+            let policy_blob = if let Some(cmds) = policy_commands {
+                let mut blob: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
+                for (cmd, _) in cmds {
+                    let name = if let TpmCommand::PolicySecret(inner) = &cmd {
+                        if let Some(key) = task_state.cache.find_by_handle(inner.handles[0]) {
+                            tpm_make_name(key.public())?
+                        } else {
+                            let (_, name) = device.read_public(inner.handles[0])?;
+                            name
+                        }
+                    } else {
+                        Tpm2bName::default()
+                    };
+                    blob.push(vtpm_policy_command_from(&cmd, &name)?);
+                }
+                Some(blob)
+            } else {
+                None
+            };
+
             let vhandle = task_state.cache.save_transient(
                 object_context,
                 &resp.out_public.inner,
                 &Tpm2bPublic::default().inner,
-                &None,
+                &policy_blob,
             )?;
             writeln!(writer, "{vhandle:08x}")?;
             Ok(())
