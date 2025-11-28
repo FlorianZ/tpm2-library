@@ -249,8 +249,6 @@ impl<'a> TaskState<'a> {
     /// Returns [`Crypto`](crate::TaskError::Crypto) when name calculation fails.
     /// Returns [`HandleNameNotFound`](crate::TaskError::HandleNameNotFound) when
     /// a policy secret handle cannot be found.
-    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
-    /// loaded key's parent is incorrect.
     #[allow(clippy::type_complexity)]
     pub fn resolve_auth(
         &mut self,
@@ -302,25 +300,16 @@ impl<'a> TaskState<'a> {
             .build(public, private, parent_handle))
     }
 
-    /// Loads a TPM context from a handle, recursively loading its ancestors
-    /// first.
+    /// Loads a TPM context from a handle.
     ///
     /// # Errors
     ///
     /// Returns [`Device`](crate::task::TaskError::Device) when a TPM command
     /// fails.
     /// Returns [`HandleNotFound`](crate::task::TaskError::HandleNotFound) when
-    /// the target handle or a parent handle cannot be found.
+    /// the target handle cannot be found.
     /// Returns [`Vtpm`](crate::task::TaskError::Vtpm) when tracking the loaded
     /// handle fails.
-    /// Returns [`InvalidParent`](crate::task::TaskError::InvalidParent) when a
-    /// loaded key's parent does not match the expected parent in the chain.
-    /// Returns [`InvalidAuth`](crate::task::TaskError::InvalidAuth) when the
-    /// target `TpmHandle` is invalid.
-    /// Returns [`Crypto`](crate::task::TaskError::Crypto) when name calculation
-    /// fails.
-    /// Returns [`Marshal`](crate::task::TaskError::Marshal) when marshaling
-    /// fails during persistent key lookup.
     /// Returns
     /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
     /// if a loaded handle
@@ -336,18 +325,26 @@ impl<'a> TaskState<'a> {
             return Ok(phandle);
         }
 
-        let chain = self.cache.fetch_ancestors(TpmUint32(target_vhandle))?;
+        let handle_val = target.0;
+        let ht_byte = (handle_val >> 24) as u8;
+        let ht = TpmHt::try_from(ht_byte).map_err(|_| TaskError::InvalidHandleType(ht_byte))?;
 
-        if chain.is_empty() {
-            return Err(TaskError::HandleNotFound(TpmUint32(target_vhandle)));
+        if ht == TpmHt::Persistent {
+            return Ok(TpmUint32(handle_val));
         }
 
-        let mut last_phandle = TpmUint32(0);
-        for handle in chain {
-            last_phandle = self.load_key_context(device, handle)?;
+        if let Some(&phandle) = self.live_handles.get(&handle_val) {
+            return Ok(phandle);
         }
 
-        Ok(last_phandle)
+        let key = self
+            .cache
+            .find_by_handle(TpmUint32(handle_val))
+            .ok_or(TaskError::HandleNotFound(TpmUint32(handle_val)))?;
+        let loaded_phandle = device.load_context(key.context().clone())?;
+        self.track(loaded_phandle)?;
+        self.live_handles.insert(handle_val, loaded_phandle);
+        Ok(loaded_phandle)
     }
 
     /// Loads a TPM context from a `Tpm2bName`, recursively loading its ancestors first
@@ -363,8 +360,6 @@ impl<'a> TaskState<'a> {
     /// `TpmHandle` is invalid.
     /// Returns [`HandleNotFound`](crate::TaskError::HandleNotFound) when a VTPM
     /// handle is not in the cache.
-    /// Returns [`InvalidParent`](crate::TaskError::InvalidParent) when the
-    /// loaded key's parent is incorrect.
     pub fn load_key_by_name(
         &mut self,
         device: &mut TpmDevice,
@@ -635,33 +630,6 @@ impl<'a> TaskState<'a> {
             .map_err(|_| TaskError::OutOfMemory)?;
 
         Ok((tpm_cmd, auths))
-    }
-
-    fn load_key_context(
-        &mut self,
-        device: &mut TpmDevice,
-        handle: TpmHandle,
-    ) -> Result<TpmHandle, TaskError> {
-        let handle_val = handle.0;
-        let ht_byte = (handle_val >> 24) as u8;
-        let ht = TpmHt::try_from(ht_byte).map_err(|_| TaskError::InvalidHandleType(ht_byte))?;
-
-        if ht == TpmHt::Persistent {
-            return Ok(TpmUint32(handle_val));
-        }
-
-        if let Some(&phandle) = self.live_handles.get(&handle_val) {
-            return Ok(phandle);
-        }
-
-        let key = self
-            .cache
-            .find_by_handle(TpmUint32(handle_val))
-            .ok_or(TaskError::HandleNotFound(TpmUint32(handle_val)))?;
-        let loaded_phandle = device.load_context(key.context().clone())?;
-        self.track(loaded_phandle)?;
-        self.live_handles.insert(handle_val, loaded_phandle);
-        Ok(loaded_phandle)
     }
 }
 
