@@ -98,7 +98,7 @@ impl Task for CreatePrimary {
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
 
             let object_handle = resp.handles[0];
-            task_state.track(object_handle)?;
+            task_state.track(device, object_handle)?;
             let object_context = device.save_context(object_handle)?;
 
             let policy_blob = if let Some(cmds) = policy_commands {

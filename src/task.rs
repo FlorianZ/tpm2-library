@@ -210,13 +210,17 @@ impl<'a> TaskState<'a> {
 
     /// Tracks a transient handle for automatic cleanup.
     ///
+    /// If the handle is already tracked, the new instance (which is presumed
+    /// to be active on the TPM) is flushed immediately to prevent a resource leak.
+    ///
     /// # Errors
     ///
     /// Returns
     /// [`HandleAlreadyTracked`](crate::task::TaskError::HandleAlreadyTracked)
     /// if the handle is already being tracked.
-    pub fn track(&mut self, handle: TpmHandle) -> Result<(), TaskError> {
+    pub fn track(&mut self, device: &mut TpmDevice, handle: TpmHandle) -> Result<(), TaskError> {
         if self.tracked_handles.contains(&handle) {
+            let _ = device.flush_context(handle);
             return Err(TaskError::HandleAlreadyTracked(handle));
         }
         self.tracked_handles.insert(handle);
@@ -342,7 +346,7 @@ impl<'a> TaskState<'a> {
             .find_by_handle(TpmUint32(handle_val))
             .ok_or(TaskError::HandleNotFound(TpmUint32(handle_val)))?;
         let loaded_phandle = device.load_context(key.context().clone())?;
-        self.track(loaded_phandle)?;
+        self.track(device, loaded_phandle)?;
         self.live_handles.insert(handle_val, loaded_phandle);
         Ok(loaded_phandle)
     }

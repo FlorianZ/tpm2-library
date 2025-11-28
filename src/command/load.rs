@@ -167,7 +167,7 @@ impl Load {
             .Load()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Load))?;
 
-        task_state.track(resp.handles[0])?;
+        task_state.track(device, resp.handles[0])?;
         Ok((resp.handles[0], in_public.clone()))
     }
 }
