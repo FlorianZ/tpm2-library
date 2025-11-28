@@ -21,22 +21,6 @@ fn new_cache_dir() -> TempDir {
     TempDir::new().expect("Failed to create temp dir")
 }
 
-fn create_primary_ecc_sha256(cache_dir: &Path, password_hex: Option<&str>) -> String {
-    let mut args = vec!["create-primary", "-H", "owner", "ecc-nist-p256:sha256"];
-
-    if let Some(password) = password_hex {
-        args.push("--password");
-        args.push(password);
-    }
-
-    let output = tpm2sh(cache_dir, &args)
-        .read()
-        .expect("Failed to create primary key");
-    let handle = output.trim().to_string();
-    assert!(handle.starts_with("80"));
-    handle
-}
-
 fn handle_auth_arg(handle: &str, password_hex: &str) -> String {
     format!("{handle}:{password_hex}")
 }
@@ -283,6 +267,51 @@ fn create_primary_invalid_policy() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("policy: invalid PCR digest algorithm"));
+}
+
+fn create_primary_ecc_sha256(cache_dir: &Path, password_hex: Option<&str>) -> String {
+    let mut args = vec!["create-primary", "-H", "owner", "ecc-nist-p256:sha256"];
+
+    if let Some(password) = password_hex {
+        args.push("--password");
+        args.push(password);
+    }
+
+    let output = tpm2sh(cache_dir, &args)
+        .read()
+        .expect("Failed to create primary key");
+    let handle = output.trim().to_string();
+    assert!(handle.starts_with("80"));
+    handle
+}
+
+#[test]
+fn create_primary_keyedhash() {
+    let temp_dir = new_cache_dir();
+    let cache_path = temp_dir.path();
+
+    let primary_handle_output = tpm2sh(
+        cache_path,
+        &[
+            "create-primary",
+            "-H",
+            "owner",
+            "keyedhash:sha256",
+            "--data",
+            SEALED_DATA,
+        ],
+    )
+    .read()
+    .expect("Failed to create primary keyedhash object");
+
+    let primary_handle = primary_handle_output.trim();
+    assert!(primary_handle.starts_with("80"));
+
+    let output = tpm2sh(cache_path, &["unseal", primary_handle])
+        .read()
+        .expect("Failed to unseal primary keyedhash object");
+
+    assert_eq!(output.trim(), SEALED_DATA);
 }
 
 #[rstest]

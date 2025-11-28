@@ -5,8 +5,8 @@
 use crate::{
     cli::Task,
     command::{
-        common::build_policy_command_list, deny_keyedhash, AuthArgs, CommandError, CreationArgs,
-        HierarchyArgs,
+        common::{build_policy_command_list, resolve_sensitive_data},
+        AuthArgs, CommandError, CreationArgs, HierarchyArgs,
     },
     task::TaskState,
 };
@@ -16,8 +16,8 @@ use tpm2_device::with_device;
 use tpm2_protocol::{
     basic::TpmUint32,
     data::{
-        Tpm2bData, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
-        TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, TpmCc, TpmRh, TpmlPcrSelection,
+        TpmsSensitiveCreate,
     },
     frame::{TpmCommand, TpmCreatePrimaryCommand},
 };
@@ -32,6 +32,10 @@ pub struct CreatePrimary {
     /// Key algorithm
     #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
     pub algorithm: TpmPublicTemplate,
+
+    /// Sensitive data: hex string
+    #[arg(long = "data")]
+    pub data: Option<String>,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -48,12 +52,12 @@ impl Task for CreatePrimary {
         _is_tty: bool,
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
-            deny_keyedhash(&self.algorithm)?;
-
             let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
 
             let user_auth = self.creation_args.parse_password()?;
             let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
+            let sensitive_data =
+                resolve_sensitive_data(self.data.as_deref(), self.algorithm.object_type)?;
 
             let (auth_policy_digest, policy_commands) = build_policy_command_list(
                 &self.creation_args,
@@ -70,7 +74,7 @@ impl Task for CreatePrimary {
                 in_sensitive: Tpm2bSensitiveCreate {
                     inner: TpmsSensitiveCreate {
                         user_auth,
-                        data: Tpm2bSensitiveData::default(),
+                        data: sensitive_data,
                     },
                 },
                 in_public: Tpm2bPublic {

@@ -7,8 +7,8 @@
 use crate::{
     cli::Task,
     command::{
-        common::build_policy_command_list, AuthArgs, CommandError, CreationArgs, OutputArgs,
-        OutputEncodingArgs,
+        common::{build_policy_command_list, resolve_sensitive_data},
+        AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs,
     },
     io::write_key_data,
     task::TaskState,
@@ -20,8 +20,7 @@ use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc,
-        TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, TpmCc, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -74,25 +73,6 @@ impl Task for Create {
 }
 
 impl Create {
-    fn get_sensitive_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
-        match (&self.data, self.algorithm.object_type) {
-            (Some(hex_data), TpmAlgId::KeyedHash) => {
-                let bytes =
-                    hex::decode(hex_data).map_err(|_| CommandError::InvalidSensitiveData)?;
-                if bytes.is_empty() {
-                    Err(CommandError::SensitiveDataMissing)
-                } else {
-                    Ok(Tpm2bSensitiveData::try_from(bytes.as_slice())
-                        .map_err(|_| CommandError::CapacityExceeded)?)
-                }
-            }
-            (None, TpmAlgId::Rsa | TpmAlgId::Ecc) => Ok(Tpm2bSensitiveData::default()),
-            (Some(_), _) => Err(CommandError::SensitiveDataDenied),
-            (None, TpmAlgId::KeyedHash) => Err(CommandError::SensitiveDataMissing),
-            _ => Err(CommandError::UnsupportedKeyAlgorithm),
-        }
-    }
-
     /// Builds the TPM2_Create command by parsing arguments and resolving policies.
     ///
     /// # Errors
@@ -107,7 +87,8 @@ impl Create {
     ) -> Result<(TpmCreateCommand, Option<PolicyCommands>, bool), CommandError> {
         let user_auth = self.creation_args.parse_password()?;
         let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
-        let sensitive_data = self.get_sensitive_data()?;
+        let sensitive_data =
+            resolve_sensitive_data(self.data.as_deref(), self.algorithm.object_type)?;
 
         let (auth_policy_digest, policy_commands) = build_policy_command_list(
             &self.creation_args,

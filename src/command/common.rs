@@ -17,7 +17,9 @@ use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
-    data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmaObject},
+    data::{
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bSensitiveData, TpmAlgId, TpmHt, TpmRh, TpmaObject,
+    },
     frame::{TpmAuthCommands, TpmCommand},
 };
 
@@ -40,8 +42,8 @@ fn parse_handle_target(s: &str) -> Result<TpmHandle, String> {
 ///
 /// # Errors
 ///
-/// Returns an error if the string is not formatted correctly, the handle is invalid,
-/// or the hex value is malformed.
+/// Returns an error when the string is not formatted correctly, the handle is
+/// invalid, or the hex value is malformed.
 fn parse_auth(s: &str) -> Result<(TpmHandle, Auth), String> {
     let (handle_str, auth_str) = s
         .split_once(':')
@@ -126,8 +128,9 @@ impl CreationArgs {
     ///
     /// # Errors
     ///
-    /// Returns [`CommandError::InvalidPassword`] when the hex string is malformed,
-    /// or [`CommandError::CapacityExceeded`] when the password is too long.
+    /// Returns [`CommandError::InvalidPassword`] when the hex string is
+    /// malformed, or [`CommandError::CapacityExceeded`] when the password is
+    /// too long.
     pub fn parse_password(&self) -> Result<Tpm2bAuth, CommandError> {
         match &self.password {
             Some(hex_str) => Tpm2bAuth::try_from(
@@ -144,7 +147,7 @@ impl CreationArgs {
     ///
     /// # Errors
     ///
-    /// Returns [`CommandError`] if attribute construction fails.
+    /// Returns [`CommandError`] when attribute construction fails.
     pub fn parse_attributes(&self, alg: &TpmPublicTemplate) -> Result<TpmaObject, CommandError> {
         let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
 
@@ -168,11 +171,13 @@ impl CreationArgs {
     }
 }
 
-/// Resolves the policy expression (if any) into a policy digest and a list of commands.
+/// Resolves the policy expression (if any) into a policy digest and a list of
+/// commands.
 ///
 /// # Errors
 ///
-/// Returns [`CommandError`] if policy parsing, name resolution, or PCR reading fails.
+/// Returns [`CommandError`] when policy parsing, name resolution, or PCR
+/// reading fails.
 #[allow(clippy::type_complexity)]
 pub fn build_policy_command_list(
     creation_args: &CreationArgs,
@@ -191,6 +196,44 @@ pub fn build_policy_command_list(
         Ok((final_digest, Some(commands)))
     } else {
         Ok((Tpm2bDigest::default(), None))
+    }
+}
+
+/// Resolves and validates sensitive data based on the algorithm and input
+/// string.
+///
+/// # Errors
+///
+/// Returns [`InvalidSensitiveData`](CommandError::InvalidSensitiveData)
+/// when the hex string is malformed.
+/// Returns [`SensitiveDataMissing`](CommandError::SensitiveDataMissing)
+/// when the sensitive data is empty or missing for a keyed hash or symmetric
+/// key.
+/// Returns [`CapacityExceeded`](CommandError::CapacityExceeded) when
+/// the sensitive data exceeds the maximum allowed size.
+/// Returns [`SensitiveDataDenied`](CommandError::SensitiveDataDenied)
+/// when sensitive data is provided for an asymmetric key.
+/// Returns [`UnsupportedKeyAlgorithm`](CommandError::UnsupportedKeyAlgorithm)
+/// when the algorithm is not supported.
+pub fn resolve_sensitive_data(
+    data_hex: Option<&str>,
+    alg: TpmAlgId,
+) -> Result<Tpm2bSensitiveData, CommandError> {
+    match (data_hex, alg) {
+        (Some(hex_data), TpmAlgId::KeyedHash | TpmAlgId::SymCipher) => {
+            let bytes = hex::decode(hex_data).map_err(|_| CommandError::InvalidSensitiveData)?;
+            if bytes.is_empty() {
+                return Err(CommandError::SensitiveDataMissing);
+            }
+            Tpm2bSensitiveData::try_from(bytes.as_slice())
+                .map_err(|_| CommandError::CapacityExceeded)
+        }
+        (None, TpmAlgId::Rsa | TpmAlgId::Ecc) => Ok(Tpm2bSensitiveData::default()),
+        (Some(_), TpmAlgId::Rsa | TpmAlgId::Ecc) => Err(CommandError::SensitiveDataDenied),
+        (None, TpmAlgId::KeyedHash | TpmAlgId::SymCipher) => {
+            Err(CommandError::SensitiveDataMissing)
+        }
+        _ => Err(CommandError::UnsupportedKeyAlgorithm),
     }
 }
 

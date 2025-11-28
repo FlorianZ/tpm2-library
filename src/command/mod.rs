@@ -71,20 +71,6 @@ where
     Ok(())
 }
 
-/// Returns an error if the provided algorithm is `KeyedHash`.
-///
-/// # Errors
-///
-/// Returns [`UnsupportedKeyAlgorithm`](crate::command::CommandError::UnsupportedKeyAlgorithm)
-/// if the algorithm is keyedhash.
-pub fn deny_keyedhash(algorithm: &TpmPublicTemplate) -> Result<(), CommandError> {
-    if algorithm.object_type == TpmAlgId::KeyedHash {
-        Err(CommandError::UnsupportedKeyAlgorithm)
-    } else {
-        Ok(())
-    }
-}
-
 /// Converts a `TpmtPublic` structure to a `TpmPublicTemplate`.
 ///
 /// # Errors
