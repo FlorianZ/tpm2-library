@@ -57,12 +57,30 @@ impl Task for Evict {
                 let persistent_handle = TpmUint32(output_handle);
                 let transient_handle =
                     task_state.load_key_by_handle(dev, TpmUint32(input_handle))?;
+
+                let (public, parent, policy) = {
+                    let key = task_state
+                        .cache
+                        .find_by_handle(TpmUint32(input_handle))
+                        .ok_or(CommandError::UnknownHandle(self.input.to_string()))?;
+                    (
+                        key.public().clone(),
+                        key.parent().clone(),
+                        Some(key.policy().clone()),
+                    )
+                };
+
                 task_state.evict_control(
                     dev,
                     transient_handle,
                     persistent_handle,
                     &self.auth_args.build_auth_map(),
                 )?;
+
+                task_state
+                    .cache
+                    .save_persistent(persistent_handle, &public, &parent, &policy)?;
+
                 task_state.cache.remove(input_handle)?;
                 task_state.untrack(transient_handle);
                 Ok(())
