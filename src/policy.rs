@@ -68,6 +68,14 @@ impl PartialEq for Box<dyn VtpmPolicyCommand> {
 
 impl Eq for Box<dyn VtpmPolicyCommand> {}
 
+impl std::convert::TryInto<TpmCommand> for Box<dyn VtpmPolicyCommand> {
+    type Error = VtpmError;
+
+    fn try_into(self) -> Result<TpmCommand, Self::Error> {
+        self.to_command()
+    }
+}
+
 /// Creates a `VtpmPolicyCommand` from a command code and raw body.
 ///
 /// # Errors
