@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2sh"
-version = "0.16.9"
+version = "0.16.10"
 dependencies = [
  "assert_cmd",
  "clap",
