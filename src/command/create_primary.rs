@@ -12,17 +12,16 @@ use crate::{
 };
 use clap::Args;
 use std::path::PathBuf;
-use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
+use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::with_device;
 use tpm2_protocol::{
     basic::{TpmUint16, TpmUint32},
     data::{
-        Tpm2bData, Tpm2bName, Tpm2bPublic, Tpm2bSensitiveCreate, TpmAlgId, TpmCc, TpmRh,
-        TpmlPcrSelection, TpmsSensitiveCreate, TpmtSymDefObject, TpmuSymKeyBits, TpmuSymMode,
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, TpmAlgId, TpmCc, TpmRh, TpmlPcrSelection,
+        TpmsSensitiveCreate, TpmtSymDefObject, TpmuSymKeyBits, TpmuSymMode,
     },
-    frame::{TpmCommand, TpmCreatePrimaryCommand},
+    frame::TpmCreatePrimaryCommand,
 };
-use tpm2_vtpm::{vtpm_policy_command_from, VtpmPolicyCommand};
 
 /// Creates a new primary key in a specified hierarchy.
 #[derive(Args, Debug, Clone)]
@@ -118,25 +117,7 @@ impl Task for CreatePrimary {
             task_state.track(device, object_handle)?;
             let object_context = device.save_context(object_handle)?;
 
-            let policy_blob = if let Some(cmds) = policy_commands {
-                let mut blob: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
-                for (cmd, _) in cmds {
-                    let name = if let TpmCommand::PolicySecret(inner) = &cmd {
-                        if let Some(key) = task_state.cache.find_by_handle(inner.handles[0]) {
-                            tpm_make_name(key.public())?
-                        } else {
-                            let (_, name) = device.read_public(inner.handles[0])?;
-                            name
-                        }
-                    } else {
-                        Tpm2bName::default()
-                    };
-                    blob.push(vtpm_policy_command_from(&cmd, &name)?);
-                }
-                Some(blob)
-            } else {
-                None
-            };
+            let policy_blob = task_state.save_policy(device, policy_commands)?;
 
             let vhandle = task_state.cache.save_transient(
                 object_context,

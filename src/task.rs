@@ -521,16 +521,22 @@ impl<'a> TaskState<'a> {
         Ok(())
     }
 
-    fn build_key_policy(
+    /// Converts an ephemeral list of TPM policy commands into a storable vTPM policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TaskError`] if reading a public area, computing a name, or
+    /// creating a vTPM policy command fails.
+    pub(crate) fn save_policy(
         &self,
         device: &mut TpmDevice,
         commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-    ) -> Result<Option<TpmKeyPolicy>, TaskError> {
+    ) -> Result<Option<Vec<Box<dyn VtpmPolicyCommand>>>, TaskError> {
         let Some(commands) = commands else {
             return Ok(None);
         };
 
-        let mut vtpm_policy: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
+        let mut vtpm_policy = Vec::with_capacity(commands.len());
         for (cmd, _) in commands {
             let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
                 if let Some(key) = self.cache.find_by_handle(inner.handles[0]) {
@@ -542,16 +548,30 @@ impl<'a> TaskState<'a> {
             } else {
                 Tpm2bName::default()
             };
+
             vtpm_policy.push(vtpm_policy_command_from(&cmd, &object_name)?);
         }
 
-        let mut policy = Vec::new();
+        Ok(Some(vtpm_policy))
+    }
+
+    fn build_key_policy(
+        &self,
+        device: &mut TpmDevice,
+        commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
+    ) -> Result<Option<TpmKeyPolicy>, TaskError> {
+        let Some(vtpm_policy) = self.save_policy(device, commands)? else {
+            return Ok(None);
+        };
+
+        let mut policy = Vec::with_capacity(vtpm_policy.len());
         for cmd in vtpm_policy {
             policy.push(TpmKeyPolicyCommand {
                 cc: cmd.cc(),
                 body: cmd.body(),
             });
         }
+
         Ok(Some(TpmKeyPolicy { name: None, policy }))
     }
 
