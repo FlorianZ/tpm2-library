@@ -9,8 +9,9 @@ use core::{
     convert::TryFrom,
     fmt::Debug,
     hash::{Hash, Hasher},
-    mem::size_of,
+    mem::{size_of, MaybeUninit},
     ops::Deref,
+    slice,
 };
 
 /// A buffer in the TPM2B wire format.
@@ -20,7 +21,7 @@ use core::{
 #[derive(Clone, Copy)]
 pub struct TpmBuffer<const CAPACITY: usize> {
     size: u16,
-    data: [u8; CAPACITY],
+    data: [MaybeUninit<u8>; CAPACITY],
 }
 
 impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
@@ -29,7 +30,7 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
     pub const fn new() -> Self {
         Self {
             size: 0,
-            data: [0; CAPACITY],
+            data: [const { MaybeUninit::uninit() }; CAPACITY],
         }
     }
 
@@ -43,7 +44,7 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
         if (self.size as usize) >= CAPACITY || self.size == u16::MAX {
             return Err(TpmProtocolError::BufferOverflow);
         }
-        self.data[self.size as usize] = byte;
+        self.data[self.size as usize].write(byte);
         self.size += 1;
         Ok(())
     }
@@ -65,17 +66,28 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
         }
 
         self.size = u16::try_from(new_len).map_err(|_| TpmProtocolError::BufferOverflow)?;
-        self.data[current_len..new_len].copy_from_slice(slice);
+
+        for (dest, src) in self.data[current_len..new_len].iter_mut().zip(slice) {
+            dest.write(*src);
+        }
         Ok(())
     }
 }
 
+#[allow(unsafe_code)]
 impl<const CAPACITY: usize> Deref for TpmBuffer<CAPACITY> {
     type Target = [u8];
 
+    /// # Safety
+    ///
+    /// This implementation uses `unsafe` to provide a view into the initialized
+    /// portion of the buffer. The caller can rely on this being safe because:
+    /// 1. The first `self.size` bytes are guaranteed to be initialized by the
+    ///    `try_push` and `try_extend_from_slice` methods.
+    /// 2. `MaybeUninit<u8>` is guaranteed to have the same memory layout as `u8`.
     fn deref(&self) -> &Self::Target {
         let size = self.size as usize;
-        &self.data[..size]
+        unsafe { slice::from_raw_parts(self.data.as_ptr().cast::<u8>(), size) }
     }
 }
 
@@ -109,7 +121,7 @@ impl<const CAPACITY: usize> TpmSized for TpmBuffer<CAPACITY> {
 impl<const CAPACITY: usize> TpmMarshal for TpmBuffer<CAPACITY> {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         TpmUint16::from(self.size).marshal(writer)?;
-        writer.write_bytes(&self.data[..self.size as usize])
+        writer.write_bytes(self)
     }
 }
 
@@ -128,7 +140,14 @@ impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
 
         let mut buffer = Self::new();
         buffer.size = native_size.into();
-        buffer.data[..size_usize].copy_from_slice(&remainder[..size_usize]);
+
+        for (dest, src) in buffer.data[..size_usize]
+            .iter_mut()
+            .zip(&remainder[..size_usize])
+        {
+            dest.write(*src);
+        }
+
         Ok((buffer, &remainder[size_usize..]))
     }
 }
@@ -143,7 +162,11 @@ impl<'a, const CAPACITY: usize> TryFrom<&'a [u8]> for TpmBuffer<CAPACITY> {
         let mut buffer = Self::new();
         let len_u16 = u16::try_from(slice.len()).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
         buffer.size = len_u16;
-        buffer.data[..slice.len()].copy_from_slice(slice);
+
+        for (dest, src) in buffer.data[..slice.len()].iter_mut().zip(slice) {
+            dest.write(*src);
+        }
+
         Ok(buffer)
     }
 }
