@@ -12,10 +12,8 @@ use clap::Args;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
-    constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bPublic, TpmCc, TpmHt},
     frame::TpmLoadCommand,
-    TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKeyFile;
 use tpm2_vtpm::{vtpm_policy_command_from_parts, VtpmPolicyCommand};
@@ -75,26 +73,6 @@ impl Task for Load {
                 )?;
 
                 let policy_blob = if let Some(policy) = &tpm_key.policy() {
-                    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
-                    let len = {
-                        let mut writer = TpmWriter::new(&mut buf);
-                        let count = TpmUint32::try_from(policy.policy.len())?;
-                        count.marshal(&mut writer).map_err(CommandError::Marshal)?;
-
-                        for cmd in &policy.policy {
-                            cmd.cc.marshal(&mut writer).map_err(CommandError::Marshal)?;
-
-                            let body = cmd.body.clone();
-                            let body_len = TpmUint32::try_from(body.len())?;
-
-                            body_len
-                                .marshal(&mut writer)
-                                .map_err(CommandError::Marshal)?;
-                            writer.write_bytes(&body).map_err(CommandError::Marshal)?;
-                        }
-                        writer.len()
-                    };
-                    buf.truncate(len);
                     let mut policy_vec: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
                     for cmd in &policy.policy {
                         policy_vec.push(vtpm_policy_command_from_parts(cmd.cc, &cmd.body)?);
