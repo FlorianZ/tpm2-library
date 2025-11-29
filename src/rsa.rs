@@ -193,7 +193,11 @@ impl TpmRsaExternalKey {
 
         let n = BigNum::from_slice(self.public_key.as_ref())
             .map_err(|_| TpmCryptoError::OutOfMemory)?;
-        let e = BigNum::from_u32(self.exponent.value()).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let exponent_value = match self.exponent.value() {
+            0 => 65537,
+            value => value,
+        };
+        let e = BigNum::from_u32(exponent_value).map_err(|_| TpmCryptoError::OutOfMemory)?;
         let rsa = Rsa::from_public_components(n, e).map_err(|_| TpmCryptoError::OperationFailed)?;
         let pkey = PKey::from_rsa(rsa).map_err(|_| TpmCryptoError::OperationFailed)?;
 
