@@ -289,14 +289,14 @@ impl<'a> TaskState<'a> {
     /// # Errors
     ///
     /// Returns [`CommandError`] if reading the parent public area or building the key policy fails.
-    pub fn build_tpm_key_file(
+    pub fn save_key(
         &self,
         device: &mut TpmDevice,
         public: Tpm2bPublic,
         private: Tpm2bPrivate,
         parent_handle: TpmHandle,
         empty_auth: bool,
-        policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
+        commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
     ) -> Result<TpmKeyFile, TaskError> {
         let mut file = TpmKeyFile::new()
             .with_empty_auth(empty_auth)
@@ -304,8 +304,15 @@ impl<'a> TaskState<'a> {
             .with_private(private)
             .with_parent(parent_handle);
 
-        if let Some(policy) = self.build_key_policy(device, policy_commands)? {
-            file = file.with_policy(policy);
+        if let Some(vtpm_policy) = self.save_policy(device, commands)? {
+            let mut policy = Vec::with_capacity(vtpm_policy.len());
+            for cmd in vtpm_policy {
+                policy.push(TpmKeyPolicyCommand {
+                    cc: cmd.cc(),
+                    body: cmd.body(),
+                });
+            }
+            file = file.with_policy(TpmKeyPolicy { name: None, policy });
         }
 
         Ok(file)
@@ -558,26 +565,6 @@ impl<'a> TaskState<'a> {
         }
 
         Ok(Some(vtpm_policy))
-    }
-
-    fn build_key_policy(
-        &self,
-        device: &mut TpmDevice,
-        commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-    ) -> Result<Option<TpmKeyPolicy>, TaskError> {
-        let Some(vtpm_policy) = self.save_policy(device, commands)? else {
-            return Ok(None);
-        };
-
-        let mut policy = Vec::with_capacity(vtpm_policy.len());
-        for cmd in vtpm_policy {
-            policy.push(TpmKeyPolicyCommand {
-                cc: cmd.cc(),
-                body: cmd.body(),
-            });
-        }
-
-        Ok(Some(TpmKeyPolicy { name: None, policy }))
     }
 
     fn load_policy(

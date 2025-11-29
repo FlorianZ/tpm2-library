@@ -161,7 +161,7 @@ impl Create {
             .Create()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
 
-        let tpm_key = task_state.build_tpm_key_file(
+        let tpm_key = task_state.save_key(
             device,
             resp.out_public,
             resp.out_private,

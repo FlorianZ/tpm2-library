@@ -398,7 +398,7 @@ impl Convert {
         };
 
         task_state
-            .build_tpm_key_file(
+            .save_key(
                 device,
                 tpm_public_2b,
                 out_private,
