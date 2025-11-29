@@ -19,9 +19,10 @@ use std::path::PathBuf;
 use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
-    basic::{TpmHandle, TpmUint32},
+    basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, TpmCc, TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, TpmAlgId, TpmCc, TpmlPcrSelection,
+        TpmsSensitiveCreate, TpmtSymDefObject, TpmuSymKeyBits, TpmuSymMode,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -95,19 +96,28 @@ impl Create {
         let sensitive_data = resolve_sensitive_data(
             self.data.as_deref(),
             self.input.as_deref(),
-            self.algorithm.object_type,
+            self.algorithm.object_type(),
         )?;
 
         let (auth_policy_digest, policy_commands) = build_policy_command_list(
             &self.creation_args,
             task_state,
             device,
-            self.algorithm.name_alg,
+            self.algorithm.name_alg(),
         )?;
 
-        let public_template = self
+        let symmetric = TpmtSymDefObject {
+            algorithm: TpmAlgId::Aes,
+            key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
+            mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
+        };
+
+        let template = self
             .algorithm
-            .to_public(auth_policy_digest, object_attributes);
+            .clone()
+            .with_object_attributes(object_attributes)
+            .with_auth_policy(auth_policy_digest)
+            .with_symmetric(symmetric);
 
         let create_cmd = TpmCreateCommand {
             in_sensitive: Tpm2bSensitiveCreate {
@@ -117,7 +127,7 @@ impl Create {
                 },
             },
             in_public: Tpm2bPublic {
-                inner: public_template,
+                inner: template.try_into()?,
             },
             outside_info: Tpm2bData::default(),
             creation_pcr: TpmlPcrSelection::default(),

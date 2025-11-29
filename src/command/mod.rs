@@ -41,9 +41,9 @@ use tabled::{
     Table, Tabled,
 };
 use thiserror::Error;
-use tpm2_crypto::{TpmCryptoError, TpmPublicTemplate};
+use tpm2_crypto::TpmCryptoError;
 use tpm2_device::TpmDeviceError;
-use tpm2_protocol::data::{TpmAlgId, TpmCc, TpmRcBase, TpmtPublic, TpmuPublicParms};
+use tpm2_protocol::data::{TpmCc, TpmRcBase};
 use tpm2_vtpm::VtpmError;
 
 /// Creates, styles, and prints a table from a vector of `Tabled` items.
@@ -69,37 +69,6 @@ where
 
     writeln!(writer, "{table}").map_err(CommandError::Io)?;
     Ok(())
-}
-
-/// Converts a `TpmtPublic` structure to a `TpmPublicTemplate`.
-///
-/// # Errors
-///
-/// Returns [`UnsupportedKeyAlgorithm`](CommandError::UnsupportedKeyAlgorithm) if the object type
-/// is not RSA, ECC, or KeyedHash.
-/// Returns [`InvalidInput`](CommandError::InvalidInput) if the parameters do not match the object type.
-pub fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate, CommandError> {
-    match public.object_type {
-        TpmAlgId::Rsa => {
-            if let TpmuPublicParms::Rsa(parms) = &public.parameters {
-                Ok(TpmPublicTemplate::new_rsa(
-                    parms.key_bits.value(),
-                    public.name_alg,
-                ))
-            } else {
-                Err(CommandError::InvalidRsaParameters)
-            }
-        }
-        TpmAlgId::Ecc => {
-            if let TpmuPublicParms::Ecc(parms) = &public.parameters {
-                Ok(TpmPublicTemplate::new_ecc(parms.curve_id, public.name_alg))
-            } else {
-                Err(CommandError::InvalidEccParameters)
-            }
-        }
-        TpmAlgId::KeyedHash => Ok(TpmPublicTemplate::new_keyedhash(public.name_alg)),
-        _ => Err(CommandError::UnsupportedKeyAlgorithm),
-    }
 }
 
 #[derive(Debug, Error)]

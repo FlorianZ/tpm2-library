@@ -159,7 +159,7 @@ impl CreationArgs {
             attributes |= TpmaObject::NO_DA;
         }
 
-        if alg.object_type != TpmAlgId::KeyedHash {
+        if alg.object_type() != TpmAlgId::KeyedHash {
             attributes |=
                 TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
         }

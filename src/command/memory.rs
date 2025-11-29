@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{print_table, public_to_template, AuthArgs, CommandError},
+    command::{print_table, AuthArgs, CommandError},
     task::{Auth, TaskState},
 };
 use clap::Args;
@@ -13,12 +13,15 @@ use pem;
 use std::collections::HashMap;
 use strum::Display;
 use tabled::Tabled;
-use tpm2_crypto::{tpm_make_name, TpmEllipticCurve, TpmHash};
+use tpm2_crypto::{tpm_make_name, TpmEllipticCurve, TpmHash, TpmPublicTemplate};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
-    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsContext},
+    data::{
+        Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsContext,
+        TpmtPublic, TpmuPublicParms,
+    },
     frame::{TpmAuthCommands, TpmCommand, TpmNvReadCommand, TpmNvReadPublicCommand},
 };
 use tpm2_vtpm::VtpmPolicyCommand;
@@ -208,7 +211,7 @@ impl Memory {
         for handle in device.fetch_handles(TpmHt::Persistent)? {
             let TpmUint32(handle_val) = handle;
             let (public, _) = device.read_public(handle)?;
-            let details = public_to_template(&public)?;
+            let details: String = public_to_template(&public)?.try_into()?;
 
             let hierarchy = if handle_val >= 0x8180_0000 {
                 "platform"
@@ -232,12 +235,12 @@ impl Memory {
         for handle in device.fetch_handles(TpmHt::Transient)? {
             let TpmUint32(handle_val) = handle;
             let (public, _) = device.read_public(handle)?;
-            let details = public_to_template(&public)?;
+            let details: String = public_to_template(&public)?.try_into()?;
 
             rows.push(MemoryRow {
                 handle: format!("{handle_val:08x}"),
                 class: MemoryHandleType::Transient.to_string(),
-                details: details.to_string(),
+                details: details.clone(),
             });
         }
         Ok(())
@@ -285,9 +288,9 @@ impl Memory {
             };
 
             let details = public_to_template(key.public()).map_or_else(
-                |_| TpmHash::from(key.public().object_type).to_string(),
-                |a| a.to_string(),
-            );
+                |_| Ok(TpmHash::from(key.public().object_type).to_string()),
+                String::try_from,
+            )?;
 
             rows.push(MemoryRow {
                 handle: format!("{:08x}", key.handle().0),
@@ -550,5 +553,34 @@ impl Memory {
             Ok(expr) => Some(expr.to_string()),
             Err(_) => None,
         }
+    }
+}
+
+fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate, CommandError> {
+    match public.object_type {
+        TpmAlgId::Rsa => {
+            if let TpmuPublicParms::Rsa(parms) = &public.parameters {
+                Ok(TpmPublicTemplate::new()
+                    .with_object_type(TpmAlgId::Rsa)
+                    .with_key_bits(parms.key_bits)
+                    .with_name_alg(public.name_alg))
+            } else {
+                Err(CommandError::InvalidRsaParameters)
+            }
+        }
+        TpmAlgId::Ecc => {
+            if let TpmuPublicParms::Ecc(parms) = &public.parameters {
+                Ok(TpmPublicTemplate::new()
+                    .with_object_type(TpmAlgId::Ecc)
+                    .with_curve_id(parms.curve_id)
+                    .with_name_alg(public.name_alg))
+            } else {
+                Err(CommandError::InvalidEccParameters)
+            }
+        }
+        TpmAlgId::KeyedHash => Ok(TpmPublicTemplate::new()
+            .with_object_type(TpmAlgId::KeyedHash)
+            .with_name_alg(public.name_alg)),
+        _ => Err(CommandError::UnsupportedKeyAlgorithm),
     }
 }

@@ -15,8 +15,8 @@ use clap::Args;
 use openssl::symm::{encrypt, Cipher};
 use rand;
 use tpm2_crypto::{
-    tpm_make_name, TpmCryptoError, TpmEccExternalKey, TpmExternalKey, TpmHash, TpmRsaExternalKey,
-    KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
+    tpm_make_name, TpmCryptoError, TpmEccExternalKey, TpmExternalKey, TpmHash, TpmPublicTemplate,
+    TpmRsaExternalKey, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
@@ -286,17 +286,21 @@ impl Convert {
             .unwrap_or_else(|| input_bytes.to_vec());
 
         let symmetric = TpmtSymDefObject::default();
+        let template = TpmPublicTemplate::new()
+            .with_name_alg(name_alg)
+            .with_object_attributes(object_attributes)
+            .with_symmetric(symmetric);
 
         match TpmRsaExternalKey::from_der(&der_bytes) {
             Ok((public_key, sensitive)) => {
-                let mut public = public_key.to_public(name_alg, object_attributes, symmetric);
+                let mut public = public_key.to_public(&template);
                 public.auth_policy = auth_policy;
                 Ok((public, sensitive))
             }
             Err(TpmCryptoError::InvalidRsaParameters) => {
                 let (public_key, sensitive) =
                     TpmEccExternalKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
-                let mut public = public_key.to_public(name_alg, object_attributes, symmetric);
+                let mut public = public_key.to_public(&template);
                 public.auth_policy = auth_policy;
                 Ok((public, sensitive))
             }
