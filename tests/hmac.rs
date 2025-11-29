@@ -61,3 +61,31 @@ fn sm3_digest() {
     let output = alg.digest(&[&input]).expect("digest ok");
     assert_eq!(output, expected);
 }
+
+#[test]
+fn sha3_512_digest_abc() {
+    let input = b"abc";
+    let expected = hex_to_bytes(
+        "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e
+         10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0",
+    );
+    let alg = TpmHash::Sha3_512;
+    let output = alg.digest(&[input.as_ref()]).expect("digest ok");
+    assert_eq!(output.len(), 64);
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn sm3_and_sha3_512_differ() {
+    let input = b"abc";
+    let sm3 = TpmHash::Sm3_256
+        .digest(&[input.as_ref()])
+        .expect("sm3 digest ok");
+    let sha3 = TpmHash::Sha3_512
+        .digest(&[input.as_ref()])
+        .expect("sha3-512 digest ok");
+
+    assert_eq!(sm3.len(), 32);
+    assert_eq!(sha3.len(), 64);
+    assert_ne!(sm3, sha3);
+}

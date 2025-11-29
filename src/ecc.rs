@@ -137,7 +137,7 @@ pub struct TpmEccExternalKey {
 }
 
 impl TpmEccExternalKey {
-    #[must_use] 
+    #[must_use]
     pub fn new(curve: TpmEllipticCurve, unique: TpmsEccPoint) -> Self {
         Self { curve, unique }
     }

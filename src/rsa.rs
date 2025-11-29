@@ -32,7 +32,7 @@ pub struct TpmRsaExternalKey {
 }
 
 impl TpmRsaExternalKey {
-    #[must_use] 
+    #[must_use]
     pub fn new(public_key: Tpm2bPublicKeyRsa, exponent: TpmUint32, key_bits: TpmUint16) -> Self {
         Self {
             public_key,
