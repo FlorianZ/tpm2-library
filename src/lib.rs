@@ -168,7 +168,21 @@ impl TpmKeyFile {
 
     #[must_use]
     pub fn with_public(mut self, public: Tpm2bPublic) -> Self {
+        let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
+            TpmKeyType::SealedData
+        } else {
+            TpmKeyType::Loadable
+        };
+
+        let rsa_parent = if public.inner.object_type == TpmAlgId::Rsa {
+            Some(true)
+        } else {
+            None
+        };
+
+        self.kind = kind;
         self.public = public;
+        self.rsa_parent = rsa_parent;
         self
     }
 
