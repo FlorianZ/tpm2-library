@@ -26,9 +26,9 @@ use tpm2_protocol::{
 /// RSA public key parameters.
 #[derive(Debug, Clone)]
 pub struct TpmRsaExternalKey {
-    pub n: Tpm2bPublicKeyRsa,
-    pub e: u32,
-    pub key_bits: u16,
+    pub public_key: Tpm2bPublicKeyRsa,
+    pub exponent: TpmUint32,
+    pub key_bits: TpmUint16,
 }
 
 impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
@@ -50,16 +50,16 @@ impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
         }?;
 
         let exponent_u32 = u32::from(params.exponent);
-        let e = if exponent_u32 == 0 {
-            65537
+        let e = if exponent_u32 == 65537 {
+            0
         } else {
             exponent_u32
         };
 
         Ok(Self {
-            n,
-            e,
-            key_bits: u16::from(params.key_bits),
+            public_key: n,
+            exponent: TpmUint32(e),
+            key_bits: params.key_bits,
         })
     }
 }
@@ -82,11 +82,16 @@ impl TryFrom<&PKey<Private>> for TpmRsaExternalKey {
         let mut e_buf = [0u8; 4];
         e_buf[4 - e_bytes.len()..].copy_from_slice(&e_bytes);
         let e = u32::from_be_bytes(e_buf);
+        let e = if e == 65537 { 0 } else { e };
 
         let key_bits =
             u16::try_from(rsa.size() * 8).map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
 
-        Ok(Self { n, e, key_bits })
+        Ok(Self {
+            public_key: n,
+            exponent: TpmUint32(e),
+            key_bits: TpmUint16(key_bits),
+        })
     }
 }
 
@@ -116,14 +121,10 @@ impl TpmExternalKey for TpmRsaExternalKey {
                         hash_alg: template.name_alg(),
                     }),
                 },
-                key_bits: TpmUint16::from(self.key_bits),
-                exponent: if self.e == 65537 {
-                    TpmUint32::from(0)
-                } else {
-                    TpmUint32::from(self.e)
-                },
+                key_bits: self.key_bits,
+                exponent: self.exponent,
             }),
-            unique: TpmuPublicId::Rsa(self.n),
+            unique: TpmuPublicId::Rsa(self.public_key),
         }
     }
 
@@ -161,8 +162,9 @@ impl TpmRsaExternalKey {
 
         let oaep_md = Md::from_nid(md.type_()).ok_or(TpmCryptoError::OperationFailed)?;
 
-        let n = BigNum::from_slice(self.n.as_ref()).map_err(|_| TpmCryptoError::OutOfMemory)?;
-        let e = BigNum::from_u32(self.e).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let n = BigNum::from_slice(self.public_key.as_ref())
+            .map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let e = BigNum::from_u32(self.exponent.value()).map_err(|_| TpmCryptoError::OutOfMemory)?;
         let rsa = Rsa::from_public_components(n, e).map_err(|_| TpmCryptoError::OperationFailed)?;
         let pkey = PKey::from_rsa(rsa).map_err(|_| TpmCryptoError::OperationFailed)?;
 

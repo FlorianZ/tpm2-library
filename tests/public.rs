@@ -9,9 +9,12 @@
 
 use rstest::rstest;
 use tpm2_crypto::{TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmRsaExternalKey};
-use tpm2_protocol::data::{
-    Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsEccPoint, TpmtSymDefObject,
-    TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+use tpm2_protocol::{
+    basic::TpmUint32,
+    data::{
+        Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsEccPoint, TpmtSymDefObject,
+        TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+    },
 };
 
 const TEST_MODULUS: [u8; 256] = [1; 256];
@@ -21,11 +24,11 @@ const TEST_COORD: [u8; 32] = [2; 32];
 #[case(TpmAlgId::Sha256, 2048)]
 #[case(TpmAlgId::Sha384, 3072)]
 fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
-    let n = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
+    let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
     let rsa_key = TpmRsaExternalKey {
-        n,
-        e: 65537,
-        key_bits,
+        public_key,
+        exponent: TpmUint32(0),
+        key_bits: key_bits.into(),
     };
     let symmetric = TpmtSymDefObject::default();
 
