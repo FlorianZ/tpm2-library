@@ -45,33 +45,46 @@ use tracing::{debug, trace};
 /// Errors that can occur when talking to a TPM device.
 #[derive(Debug, Error)]
 pub enum TpmDeviceError {
+    /// The TPM device is already mutably borrowed.
     #[error("device is already borrowed")]
     AlreadyBorrowed,
+
+    /// The requested capability is not available from the TPM.
     #[error("capability not found: {0}")]
     CapabilityMissing(TpmCap),
+
     #[error("operation interrupted by user")]
     Interrupted,
+
+    /// An invalid command code was used.
+    #[error("invalid CC: {0}")]
+    InvalidCc(tpm2_protocol::data::TpmCc),
+
+    /// The TPM returned an invalid or malformed response.
     #[error("invalid response")]
     InvalidResponse,
 
+    /// An I/O error occurred when accessing the TPM device.
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-
-    #[error("malformed data")]
-    MalformedData,
 
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmProtocolError),
 
+    /// No TPM device is available.
     #[error("device not available")]
     NotAvailable,
+
+    /// The requested operation could not be completed.
     #[error("operation failed")]
     OperationFailed,
-    #[error("out of memory")]
-    OutOfMemory,
+
+    /// No PCR banks are available on the TPM.
     #[error("PCR banks not available")]
     PcrBanksNotAvailable,
+
+    /// The PCR selection masks differ between active banks.
     #[error("PCR bank selection mismatch")]
     PcrBankSelectionMismatch,
 
@@ -79,15 +92,23 @@ pub enum TpmDeviceError {
     #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
 
+    /// The TPM command timed out.
     #[error("TPM command timed out")]
     Timeout,
+
+    /// The TPM returned an error code.
     #[error("TPM return code: {0}")]
     TpmRc(TpmRc),
+
+    /// Trailing data after the response.
+    #[error("trailing data")]
+    TrailingData,
 
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmProtocolError),
 
+    /// An unexpected end-of-file was encountered.
     #[error("unexpected EOF")]
     UnexpectedEof,
 }
@@ -112,10 +133,12 @@ impl From<nix::Error> for TpmDeviceError {
 /// # Errors
 ///
 /// Returns [`NotAvailable`](crate::TpmDeviceError::NotAvailable) when no device
-/// is present and [`AlreadyBorrowed`](crate::TpmDeviceError::AlreadyBorrowed)
-/// when the device is already mutably borrowed, both converted into the caller's
-/// error type `E`. Propagates any error returned by the closure `f`.
-pub fn with_device<F, T, E>(device: Option<Rc<RefCell<TpmDevice>>>, f: F) -> Result<T, E>
+/// is present.
+/// Returns [`AlreadyBorrowed`](crate::TpmDeviceError::AlreadyBorrowed) when the
+/// device is already mutably borrowed.
+/// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants depending
+/// on function.
+pub fn with_device<F, T, E>(device: Option<Rc<RefCell<TpmDevice>>>, function: F) -> Result<T, E>
 where
     F: FnOnce(&mut TpmDevice) -> Result<T, E>,
     E: From<TpmDeviceError>,
@@ -124,7 +147,7 @@ where
     let mut device_guard = device_rc
         .try_borrow_mut()
         .map_err(|_| TpmDeviceError::AlreadyBorrowed)?;
-    f(&mut device_guard)
+    function(&mut device_guard)
 }
 
 /// A builder for constructing a `TpmDevice`.
@@ -268,19 +291,17 @@ impl TpmDevice {
     ///
     /// Returns [`Interrupted`](crate::TpmDeviceError::Interrupted) when the
     /// interrupt callback requests cancellation.
-    /// Returns [`Timeout`](crate::TpmDeviceError::Timeout) when the TPM does
-    /// not respond within the configured timeout.
     /// Returns [`Io`](crate::TpmDeviceError::Io) when a write, flush, or read
     /// operation on the device file fails, or when polling the device file
     /// descriptor fails.
-    /// Returns [`InvalidResponse`](crate::TpmDeviceError::InvalidResponse) or
-    /// [`UnexpectedEof`](crate::TpmDeviceError::UnexpectedEof) when the TPM
-    /// reply is malformed, truncated, or longer than the announced size.
-    /// Returns [`Marshal`](crate::TpmDeviceError::Marshal) or
-    /// [`Unmarshal`](crate::TpmDeviceError::Unmarshal) when encoding the
-    /// command or decoding the response fails.
+    /// Returns [`Marshal`](crate::TpmDeviceError::Marshal) when marshal
+    /// operation on TPM protocol compliant data fails.
+    /// Returns [`Timeout`](crate::TpmDeviceError::Timeout) when the TPM does
+    /// not respond within the configured timeout.
     /// Returns [`TpmRc`](crate::TpmDeviceError::TpmRc) when the TPM returns an
     /// error code.
+    /// Returns [`Unmarshal`](crate::TpmDeviceError::Unmarshal) when unmarshal
+    /// operation on TPM protocol compliant data fails.
     pub fn transmit<C: TpmFrame>(
         &mut self,
         command: &C,
@@ -312,11 +333,11 @@ impl TpmDevice {
 
             if total_size.is_none() && self.response.len() >= 10 {
                 let Ok(size_bytes): Result<[u8; 4], _> = self.response[2..6].try_into() else {
-                    return Err(TpmDeviceError::InvalidResponse);
+                    return Err(TpmDeviceError::OperationFailed);
                 };
                 let size = u32::from_be_bytes(size_bytes) as usize;
                 if !(10..={ TPM_MAX_COMMAND_SIZE }).contains(&size) {
-                    return Err(TpmDeviceError::InvalidResponse);
+                    return Err(TpmDeviceError::OperationFailed);
                 }
                 total_size = Some(size);
             }
@@ -326,7 +347,7 @@ impl TpmDevice {
                     break;
                 }
                 if self.response.len() > size {
-                    return Err(TpmDeviceError::InvalidResponse);
+                    return Err(TpmDeviceError::TrailingData);
                 }
             }
         }
@@ -367,9 +388,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) returned by
-    /// [`get_capability_page`](TpmDevice::get_capability_page) or by the
-    /// `extract` closure.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     fn get_capability<T, F, N>(
         &mut self,
         cap: TpmCap,
@@ -408,12 +430,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`OperationFailed`](crate::TpmDeviceError::OperationFailed) when
-    /// the handle count cannot be represented as `u32`. Propagates any
-    /// [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`get_capability`](TpmDevice::get_capability), including
-    /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
-    /// TPM does not report algorithm properties.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn fetch_algorithm_properties(&mut self) -> Result<Vec<TpmsAlgProperty>, TpmDeviceError> {
         self.get_capability(
             TpmCap::Algs,
@@ -431,12 +451,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`OperationFailed`](crate::TpmDeviceError::OperationFailed) when
-    /// the handle count cannot be represented as `u32`. Propagates any
-    /// [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`get_capability`](TpmDevice::get_capability), including
-    /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
-    /// TPM does not report handles of the requested class.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn fetch_handles(&mut self, class: TpmHt) -> Result<Vec<TpmHandle>, TpmDeviceError> {
         self.get_capability(
             TpmCap::Handles,
@@ -455,12 +473,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`OperationFailed`](crate::TpmDeviceError::OperationFailed) when
-    /// the handle count cannot be represented as `u32`. Propagates any
-    /// [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`get_capability`](TpmDevice::get_capability), including
-    /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
-    /// TPM does not report ECC curves.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn fetch_ecc_curves(&mut self) -> Result<Vec<TpmEccCurve>, TpmDeviceError> {
         self.get_capability(
             TpmCap::EccCurves,
@@ -478,16 +494,16 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`OperationFailed`](crate::TpmDeviceError::OperationFailed) when
-    /// the handle count cannot be represented as `u32`. Propagates any
-    /// [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`get_capability`](TpmDevice::get_capability), including
-    /// [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing) when the
-    /// TPM does not report PCRs.
-    /// Returns [`PcrBanksNotAvailable`](crate::TpmDeviceError::PcrBanksNotAvailable)
-    /// if the list of banks is empty or if no banks have allocated PCRs.
-    /// Returns [`PcrBankSelectionMismatch`](crate::TpmDeviceError::PcrBankSelectionMismatch)
-    /// if the PCR selection mask is not identical across all active banks.
+    /// Returns
+    /// [`PcrBanksNotAvailable`](crate::TpmDeviceError::PcrBanksNotAvailable)
+    /// when no PCR banks are available.
+    /// Return
+    /// [`PcrBankSelectionMismatch`](crate::TpmDeviceError::PcrBankSelectionMismatch)
+    /// when the PCR selection masks differ between active banks.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn fetch_pcr_bank_list(
         &mut self,
     ) -> Result<(Vec<TpmAlgId>, TpmsPcrSelect), TpmDeviceError> {
@@ -540,10 +556,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`transmit`](TpmDevice::transmit). Returns
-    /// [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) when the
-    /// TPM response does not contain `TPM2_GetCapability` data.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     fn get_capability_page(
         &mut self,
         cap: TpmCap,
@@ -573,10 +589,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Returns [`CapabilityMissing`](crate::TpmDeviceError::CapabilityMissing)
-    /// when the TPM does not report the requested property. Propagates any
-    /// [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`get_capability_page`](TpmDevice::get_capability_page).
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<TpmUint32, TpmDeviceError> {
         let (_, cap_data) = self.get_capability_page(
             TpmCap::TpmProperties,
@@ -599,10 +615,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`transmit`](TpmDevice::transmit). Returns
-    /// [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) when the
-    /// TPM response does not contain `TPM2_ReadPublic` data.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn read_public(
         &mut self,
         handle: TpmHandle,
@@ -629,13 +645,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`fetch_handles`](TpmDevice::fetch_handles) and
-    /// [`read_public`](TpmDevice::read_public), except for TPM reference and
-    /// handle errors with base
-    /// [`ReferenceH0`](tpm2_protocol::data::TpmRcBase::ReferenceH0) or
-    /// [`Handle`](tpm2_protocol::data::TpmRcBase::Handle), which are treated as
-    /// invalid handles and skipped.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn find_persistent(
         &mut self,
         target_name: &Tpm2bName,
@@ -664,10 +677,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`transmit`](TpmDevice::transmit). Returns
-    /// [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) when the
-    /// TPM response does not contain `TPM2_ContextSave` data.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn save_context(&mut self, save_handle: TpmHandle) -> Result<TpmsContext, TpmDeviceError> {
         let cmd = TpmContextSaveCommand {
             handles: [save_handle],
@@ -683,10 +696,10 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`transmit`](TpmDevice::transmit). Returns
-    /// [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) when the
-    /// TPM response does not contain `TPM2_ContextLoad` data.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch)
+    /// when receiving unepected TPM response.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn load_context(&mut self, context: TpmsContext) -> Result<TpmHandle, TpmDeviceError> {
         let cmd = TpmContextLoadCommand {
             context,
@@ -704,8 +717,8 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`transmit`](TpmDevice::transmit).
+    /// Returns [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn flush_context(&mut self, handle: TpmHandle) -> Result<(), TpmDeviceError> {
         self.name_cache.remove(&handle.0);
         let cmd = TpmFlushContextCommand {
@@ -720,13 +733,8 @@ impl TpmDevice {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from
-    /// [`load_context`](TpmDevice::load_context) or
-    /// [`flush_context`](TpmDevice::flush_context) except for TPM reference
-    /// errors with base
-    /// [`ReferenceH0`](tpm2_protocol::data::TpmRcBase::ReferenceH0) or
-    /// [`Handle`](tpm2_protocol::data::TpmRcBase::Handle), which are treated as
-    /// a successful no-op.
+    /// Returns [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn flush_session(&mut self, context: TpmsContext) -> Result<(), TpmDeviceError> {
         match self.load_context(context) {
             Ok(handle) => self.flush_context(handle),
@@ -820,9 +828,12 @@ impl TpmPolicySessionBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`OutOfMemory`](crate::TpmDeviceError::OutOfMemory) if nonce generation fails.
-    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) if the TPM response is unexpected.
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from transmission.
+    /// Returns [`ResponseMismatch`](crate::TpmDeviceError::ResponseMismatch) if
+    /// the TPM response is unexpected.
+    /// Returns [`Unmarshal`](crate::TpmDeviceError::Unmarshal) when unmarshal
+    /// operation on TPM protocol compliant data fails.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants depending
+    /// on function.
     pub fn open(self, device: &mut TpmDevice) -> Result<TpmPolicySession, TpmDeviceError> {
         let nonce_caller = if let Some(nonce) = self.nonce_caller {
             nonce
@@ -830,7 +841,7 @@ impl TpmPolicySessionBuilder {
             let digest_len = TpmHash::from(self.auth_hash).size();
             let mut nonce_bytes = vec![0; digest_len];
             thread_rng().fill_bytes(&mut nonce_bytes);
-            Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| TpmDeviceError::OutOfMemory)?
+            Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(TpmDeviceError::Unmarshal)?
         };
 
         let cmd = TpmStartAuthSessionCommand {
@@ -904,9 +915,10 @@ impl TpmPolicySession {
     ///
     /// # Errors
     ///
-    /// Returns [`MalformedData`](crate::TpmDeviceError::MalformedData) if a command
-    /// structure is not recognized as a supported policy command.
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from transmission.
+    /// Returns [`InvalidCc`](crate::TpmDeviceError::InvalidCc) when a command is not
+    /// a supported policy command.
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn run(
         &self,
         device: &mut TpmDevice,
@@ -923,7 +935,7 @@ impl TpmPolicySession {
                     cmd.handles[1] = self.handle;
                 }
                 _ => {
-                    return Err(TpmDeviceError::MalformedData);
+                    return Err(TpmDeviceError::InvalidCc(command_body.cc()));
                 }
             }
             device.transmit(&command_body, auth_sessions.as_ref())?;
@@ -935,7 +947,8 @@ impl TpmPolicySession {
     ///
     /// # Errors
     ///
-    /// Propagates any [`TpmDeviceError`](crate::TpmDeviceError) from [`flush_context`](TpmDevice::flush_context).
+    /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
+    /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn flush(&self, device: &mut TpmDevice) -> Result<(), TpmDeviceError> {
         device.flush_context(self.handle)
     }
