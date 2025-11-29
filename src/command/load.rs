@@ -78,14 +78,14 @@ impl Task for Load {
                     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
                     let len = {
                         let mut writer = TpmWriter::new(&mut buf);
-                        let count = u32::try_from(policy.policy.len())?;
+                        let count = TpmUint32::try_from(policy.policy.len())?;
                         count.marshal(&mut writer).map_err(CommandError::Marshal)?;
 
                         for cmd in &policy.policy {
                             cmd.cc.marshal(&mut writer).map_err(CommandError::Marshal)?;
 
                             let body = cmd.body.clone();
-                            let body_len = u32::try_from(body.len())?;
+                            let body_len = TpmUint32::try_from(body.len())?;
 
                             body_len
                                 .marshal(&mut writer)
