@@ -112,6 +112,8 @@ pub enum CommandError {
     CapacityExceeded,
     #[error("crypto: {0}")]
     Crypto(#[from] TpmCryptoError),
+    #[error("delete failed")]
+    DeleteFailed,
     #[error("device: {0}")]
     Device(TpmDeviceError),
     #[error("dictionary attack lockout is active")]

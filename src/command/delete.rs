@@ -28,8 +28,10 @@ impl Task for Delete {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<(), CommandError> {
-        delete_tpm_handles(task_state, writer, self.handle, &self.auth_args)?;
-        delete_vtpm_handles(task_state, writer, self.handle)
+        let tpm_result = delete_tpm_handles(task_state, writer, self.handle, &self.auth_args);
+        let vtpm_result = delete_vtpm_handles(task_state, writer, self.handle);
+
+        tpm_result.and(vtpm_result)
     }
 }
 
@@ -41,13 +43,17 @@ fn delete_tpm_handles(
     auth_args: &AuthArgs,
 ) -> Result<(), CommandError> {
     with_device(task_state.device.clone(), |dev| {
+        let mut failed = false;
+
         for class in [
             TpmHt::HmacSession,
             TpmHt::PolicySession,
             TpmHt::Transient,
             TpmHt::Persistent,
         ] {
-            let handles = dev.fetch_handles(class)?;
+            let Ok(handles) = dev.fetch_handles(class) else {
+                continue;
+            };
 
             for handle in handles {
                 let handle = handle.into();
@@ -55,29 +61,48 @@ fn delete_tpm_handles(
                     continue;
                 }
 
-                match class {
-                    TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => {
-                        dev.flush_context(TpmUint32(handle))?;
-                        if class == TpmHt::Transient {
-                            task_state.untrack(TpmUint32(handle));
-                        }
-                    }
+                let result = match class {
+                    TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => dev
+                        .flush_context(TpmUint32(handle))
+                        .map_err(CommandError::from)
+                        .map(|()| {
+                            if class == TpmHt::Transient {
+                                task_state.untrack(TpmUint32(handle));
+                            }
+                        }),
                     TpmHt::Persistent => {
                         let persistent_handle = TpmUint32(handle);
-                        task_state.evict_control(
-                            dev,
-                            persistent_handle,
-                            persistent_handle,
-                            &auth_args.build_auth_map(),
-                        )?;
+                        task_state
+                            .evict_control(
+                                dev,
+                                persistent_handle,
+                                persistent_handle,
+                                &auth_args.build_auth_map(),
+                            )
+                            .map_err(CommandError::from)
                     }
-                    _ => {}
-                }
+                    _ => Ok(()),
+                };
 
-                writeln!(writer, "{handle:08x}")?;
+                match result {
+                    Ok(()) => {
+                        if let Err(e) = writeln!(writer, "{handle:08x}") {
+                            return Err(CommandError::Io(e));
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("{handle:08x}: {e}");
+                        failed = true;
+                    }
+                }
             }
         }
-        Ok(())
+
+        if failed {
+            Err(CommandError::DeleteFailed)
+        } else {
+            Ok(())
+        }
     })
 }
 
@@ -98,11 +123,27 @@ fn delete_vtpm_handles(
         return Ok(());
     }
 
+    let mut failed = false;
+
     for vhandle in matched_handles {
-        let all_deleted_handles = task_state.cache.remove(vhandle)?;
-        for deleted_vhandle in all_deleted_handles {
-            writeln!(writer, "{deleted_vhandle:08x}")?;
+        match task_state.cache.remove(vhandle) {
+            Ok(all_deleted_handles) => {
+                for deleted_vhandle in all_deleted_handles {
+                    if let Err(e) = writeln!(writer, "{deleted_vhandle:08x}") {
+                        return Err(CommandError::Io(e));
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("{vhandle:08x}: {e}");
+                failed = true;
+            }
         }
     }
-    Ok(())
+
+    if failed {
+        Err(CommandError::DeleteFailed)
+    } else {
+        Ok(())
+    }
 }
