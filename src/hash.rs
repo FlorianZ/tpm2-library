@@ -95,12 +95,17 @@ impl TpmHash {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
-    /// when the hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
+    /// hash algorithm is not recognized.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
     /// when the digest computation fails.
-    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
     pub fn digest(&self, data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
+        if *self == TpmHash::Null {
+            return Err(TpmCryptoError::InvalidHash);
+        }
+
         let md = (*self).into();
         let mut hasher = Hasher::new(md).map_err(|_| TpmCryptoError::OutOfMemory)?;
         for chunk in data_chunks {
@@ -118,13 +123,18 @@ impl TpmHash {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
-    /// when the hash algorithm is not recognized.
-    /// Returns [`KeyIsEmpty`](crate::Error::KeyIsEmpty) when the provided key is empty.
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
+    /// hash algorithm is not recognized.
+    /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
+    /// provided key is empty.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
     /// when the HMAC computation fails.
-    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
     pub fn hmac(&self, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
+        if *self == TpmHash::Null {
+            return Err(TpmCryptoError::InvalidHash);
+        }
         if key.is_empty() {
             return Err(TpmCryptoError::KeyIsEmpty);
         }
@@ -145,13 +155,14 @@ impl TpmHash {
     ///
     /// # Errors
     ///
-    /// Returns [`PermissionDenied`](crate::Error::PermissionDenied)
+    /// Returns [`PermissionDenied`](crate::TpmCryptoError::PermissionDenied)
     /// when the HMAC does not match the expected value.
-    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
-    /// when the hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
+    /// hash algorithm is not recognized.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
     /// when the HMAC computation fails.
-    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
     pub fn hmac_verify(
         &self,
         key: &[u8],
@@ -166,16 +177,19 @@ impl TpmHash {
         }
     }
 
-    /// Implements the `KDFa` key derivation function from the TPM specification.
+    /// Implements the `KDFa` key derivation function from the TPM
+    /// specification.
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
-    /// when the hash algorithm is not recognized.
-    /// Returns [`KeyIsEmpty`](crate::Error::KeyIsEmpty) when the provided key is empty.
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
+    /// hash algorithm is not recognized.
+    /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
+    /// provided key is empty.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
     /// when the HMAC computation fails.
-    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
     pub fn kdfa(
         &self,
         hmac_key: &[u8],
@@ -184,6 +198,9 @@ impl TpmHash {
         context_b: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
+        if *self == TpmHash::Null {
+            return Err(TpmCryptoError::InvalidHash);
+        }
         if hmac_key.is_empty() {
             return Err(TpmCryptoError::KeyIsEmpty);
         }
@@ -232,11 +249,12 @@ impl TpmHash {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
-    /// when the hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
+    /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
+    /// hash algorithm is not recognized.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
     /// when the digest computation fails.
-    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
     pub fn kdfe(
         &self,
         z: &[u8],
@@ -245,6 +263,10 @@ impl TpmHash {
         context_v: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
+        if *self == TpmHash::Null {
+            return Err(TpmCryptoError::InvalidHash);
+        }
+
         let key_bytes = (key_bits as usize).div_ceil(8);
         let mut key_stream = Vec::with_capacity(key_bytes);
 

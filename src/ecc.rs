@@ -4,6 +4,7 @@
 
 //! TPM 2.0 ECC curves and cryptographic operations.
 
+use super::TpmPublicTemplate;
 use crate::{TpmCryptoError, TpmExternalKey, TpmHash, KDF_LABEL_DUPLICATE};
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::ops::bytes::ToBytes;
@@ -19,9 +20,9 @@ use strum::{Display, EnumString};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmaObject,
-        TpmsEccParms, TpmsEccPoint, TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic,
-        TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmsEccParms,
+        TpmsEccPoint, TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmuAsymScheme,
+        TpmuPublicId, TpmuPublicParms,
     },
     TpmMarshal, TpmWriter,
 };
@@ -169,6 +170,10 @@ impl TryFrom<&PKey<Private>> for TpmEccExternalKey {
             .ok_or(TpmCryptoError::InvalidEccParameters)?;
         let curve = TpmEllipticCurve::from(nid);
 
+        if curve == TpmEllipticCurve::None {
+            return Err(TpmCryptoError::InvalidEccCurve);
+        }
+
         let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
         let (x, y) = crate::tpm_make_point(ec_key.public_key(), group, &mut ctx)?;
 
@@ -188,22 +193,19 @@ impl TpmExternalKey for TpmEccExternalKey {
         Ok((public_key, sensitive))
     }
 
-    fn to_public(
-        &self,
-        hash_alg: TpmAlgId,
-        object_attributes: TpmaObject,
-        symmetric: TpmtSymDefObject,
-    ) -> TpmtPublic {
-        tpm2_protocol::data::TpmtPublic {
+    fn to_public(&self, template: &TpmPublicTemplate) -> TpmtPublic {
+        TpmtPublic {
             object_type: TpmAlgId::Ecc,
-            name_alg: hash_alg,
-            object_attributes,
+            name_alg: template.name_alg(),
+            object_attributes: template.object_attributes(),
             auth_policy: Tpm2bDigest::default(),
             parameters: TpmuPublicParms::Ecc(TpmsEccParms {
-                symmetric,
+                symmetric: template.symmetric(),
                 scheme: TpmtEccScheme {
                     scheme: TpmAlgId::Ecdh,
-                    details: TpmuAsymScheme::Hash(TpmsSchemeHash { hash_alg }),
+                    details: TpmuAsymScheme::Hash(TpmsSchemeHash {
+                        hash_alg: template.name_alg(),
+                    }),
                 },
                 curve_id: self.curve.into(),
                 kdf: TpmtKdfScheme::default(),
@@ -240,18 +242,19 @@ impl TpmExternalKey for TpmEccExternalKey {
 }
 
 impl TpmEccExternalKey {
-    /// Performs ECDH and derives a seed using `KDFe` key derivation function from
-    /// TCG TPM 2.0 Architecture specification.
+    /// Performs ECDH and derives a seed using `KDFe` key derivation function
+    /// from TCG TPM 2.0 Architecture specification.
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidEccCurve`](crate::Error::InvalidEccCurve)
+    /// Returns [`InvalidEccCurve`](crate::TpmCryptoError::InvalidEccCurve)
     /// when the curve is not supported.
-    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
+    /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash)
     /// when the hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed) when an internal
-    /// cryptographic operation fails.
-    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation fails.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
+    /// when an internal cryptographic operation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory)
+    /// when an allocation fails.
     fn ecdh(
         &self,
         name_alg: TpmHash,

@@ -20,10 +20,7 @@ use openssl::{
 use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     constant::MAX_DIGEST_SIZE,
-    data::{
-        Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmAlgId, TpmaObject, TpmtPublic,
-        TpmtSymDefObject,
-    },
+    data::{Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmtPublic},
     TpmMarshal, TpmSized, TpmWriter,
 };
 
@@ -32,6 +29,10 @@ pub use error::*;
 pub use hash::*;
 pub use rsa::*;
 pub use template::*;
+
+pub const KDF_LABEL_DUPLICATE: &str = "DUPLICATE";
+pub const KDF_LABEL_INTEGRITY: &str = "INTEGRITY";
+pub const KDF_LABEL_STORAGE: &str = "STORAGE";
 
 const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
@@ -46,28 +47,34 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed)
-    /// when the DER parsing or key extraction fails.
-    /// Returns [`InvalidRsaParameters`](crate::Error::InvalidRsaParameters)
-    /// when the key is not a valid RSA key.
-    /// Returns [`InvalidEccParameters`](crate::Error::InvalidEccParameters)
+    /// Returns
+    /// [`InvalidEccParameters`](crate::TpmCryptoError::InvalidEccParameters)
     /// when the key is not a valid ECC key.
+    /// Returns
+    /// [`InvalidRsaParameters`](crate::TpmCryptoError::InvalidRsaParameters)
+    /// when the key is not a valid RSA key.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) when
+    /// the parsing fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when memory
+    /// allocation for the key data fails.
     fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError>;
 
-    /// Converts the public key to a `TpmtPublic` structure.
-    fn to_public(
-        &self,
-        hash_alg: TpmAlgId,
-        object_attributes: TpmaObject,
-        symmetric: TpmtSymDefObject,
-    ) -> TpmtPublic;
+    /// Converts the public key to a `TpmtPublic` structure. Populates
+    /// `objectAttributes` `nameALg` and `symmetric` fields from the provided
+    /// template.
+    fn to_public(&self, template: &TpmPublicTemplate) -> TpmtPublic;
 
-    /// Creates a seed and an encrypted seed (inSymSeed) for `TPM2_Import`.
+    /// Creates a seed and an encrypted seed (aka `inSymSeed`) for
+    /// `TPM2_Import`.
     ///
     /// # Errors
     ///
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed) if the seed
-    /// generation or encryption fails.
+    /// Returns [`Marshal`](crate::TpmCryptoError::Marshal) when marshal
+    /// operation on TPM protocol compliant data fails.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) when
+    /// the seed generation fails.
+    /// Returns [`Unmarshal`](crate::TpmCryptoError::Unmarshal) when unmarshal
+    /// operation on TPM protocol compliant data fails.
     fn to_seed(
         &self,
         name_alg: TpmHash,
@@ -75,20 +82,20 @@ where
     ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError>;
 }
 
-pub const KDF_LABEL_DUPLICATE: &str = "DUPLICATE";
-pub const KDF_LABEL_INTEGRITY: &str = "INTEGRITY";
-pub const KDF_LABEL_STORAGE: &str = "STORAGE";
-
 /// Calculates the cryptographics name of a transient or persistent TPM object.
 ///
 /// # Errors
 ///
-/// Returns [`InvalidHash`](crate::Error::InvalidHash) when the hash algorithm
-/// is not recognized.
-/// Returns [`OperationFailed`](crate::Error::OperationFailed) when an internal
-/// cryptographic operation fails.
-/// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when memory allocation
-/// for temporary data fails.
+/// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the hash
+/// algorithm is not recognized.
+/// Returns [`Marshal`](crate::TpmCryptoError::Marshal) when marshal operation
+/// on TPM protocol compliant data fails.
+/// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) when an
+/// internal cryptographic operation fails.
+/// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when memory
+/// allocation for temporary data fails.
+/// Returns [`Unmarshal`](crate::TpmCryptoError::Unmarshal) when unmarshal
+/// operation on TPM protocol compliant data fails.
 pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, TpmCryptoError> {
     let name_alg = TpmHash::from(public.name_alg);
     let alg_bytes = (public.name_alg as u16).to_be_bytes();
@@ -103,15 +110,11 @@ pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, TpmCryptoError> {
     let digest = name_alg.digest(&[&public_bytes])?;
     let digest_len = digest.len();
 
-    if digest_len > MAX_DIGEST_SIZE {
-        return Err(TpmCryptoError::OperationFailed);
-    }
-
     let mut final_buf = [0u8; MAX_DIGEST_SIZE + 2];
     final_buf[..2].copy_from_slice(&alg_bytes);
     final_buf[2..2 + digest_len].copy_from_slice(&digest);
 
-    Tpm2bName::try_from(&final_buf[..2 + digest_len]).map_err(|_| TpmCryptoError::OperationFailed)
+    Tpm2bName::try_from(&final_buf[..2 + digest_len]).map_err(TpmCryptoError::Unmarshal)
 }
 
 /// Converts an OpenSSL `EcPoint` to TPM `(x, y)` coordinate buffers.
@@ -120,9 +123,10 @@ pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, TpmCryptoError> {
 ///
 /// # Errors
 ///
-/// Returns [`OperationFailed`](crate::Error::OperationFailed) if the OpenSSL
-/// operation fails or the point format is invalid.
-/// Returns [`OutOfMemory`](crate::Error::OutOfMemory) if allocation fails.
+/// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) if the
+/// OpenSSL operation fails or the point format is invalid.
+/// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) if allocation
+/// fails.
 fn tpm_make_point(
     point: &EcPointRef,
     group: &EcGroupRef,
@@ -138,9 +142,9 @@ fn tpm_make_point(
 
     let coord_len = (pub_bytes.len() - 1) / 2;
     let x = Tpm2bEccParameter::try_from(&pub_bytes[1..=coord_len])
-        .map_err(|_| TpmCryptoError::OperationFailed)?;
+        .map_err(TpmCryptoError::Unmarshal)?;
     let y = Tpm2bEccParameter::try_from(&pub_bytes[1 + coord_len..])
-        .map_err(|_| TpmCryptoError::OperationFailed)?;
+        .map_err(TpmCryptoError::Unmarshal)?;
 
     Ok((x, y))
 }

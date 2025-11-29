@@ -29,11 +29,12 @@ fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
     };
     let symmetric = TpmtSymDefObject::default();
 
-    let public = rsa_key.to_public(
-        hash_alg,
-        TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT,
-        symmetric,
-    );
+    let template = tpm2_crypto::TpmPublicTemplate::new()
+        .with_name_alg(hash_alg)
+        .with_object_attributes(TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT)
+        .with_symmetric(symmetric);
+
+    let public = rsa_key.to_public(&template);
     let default_attr = TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT;
 
     assert_eq!(public.object_type, TpmAlgId::Rsa);
@@ -76,12 +77,18 @@ fn test_ecc_to_public(
     let ecc_key = TpmEccExternalKey { curve, x, y };
     let symmetric = TpmtSymDefObject::default();
 
-    let default_attr = TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT;
-    let public = ecc_key.to_public(hash_alg, default_attr, symmetric);
+    let template = tpm2_crypto::TpmPublicTemplate::new()
+        .with_name_alg(hash_alg)
+        .with_object_attributes(TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT)
+        .with_symmetric(symmetric);
+    let public = ecc_key.to_public(&template);
 
     assert_eq!(public.object_type, TpmAlgId::Ecc);
     assert_eq!(public.name_alg, hash_alg);
-    assert_eq!(public.object_attributes, default_attr);
+    assert_eq!(
+        public.object_attributes,
+        TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT
+    );
     assert_eq!(public.auth_policy.len(), 0);
 
     if let TpmuPublicParms::Ecc(params) = public.parameters {

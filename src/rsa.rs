@@ -3,6 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 //! TPM 2.0 RSA cryptographic operations.
 
+use super::TpmPublicTemplate;
 use crate::{TpmCryptoError, TpmExternalKey, TpmHash};
 use openssl::{
     bn::BigNum,
@@ -17,9 +18,8 @@ use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     basic::{TpmUint16, TpmUint32},
     data::{
-        Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsRsaParms,
-        TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject, TpmuAsymScheme, TpmuPublicId,
-        TpmuPublicParms,
+        Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmsRsaParms,
+        TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
     },
 };
 
@@ -102,22 +102,19 @@ impl TpmExternalKey for TpmRsaExternalKey {
         Ok((public_key, sensitive))
     }
 
-    fn to_public(
-        &self,
-        hash_alg: TpmAlgId,
-        object_attributes: TpmaObject,
-        symmetric: TpmtSymDefObject,
-    ) -> TpmtPublic {
+    fn to_public(&self, template: &TpmPublicTemplate) -> TpmtPublic {
         TpmtPublic {
             object_type: TpmAlgId::Rsa,
-            name_alg: hash_alg,
-            object_attributes,
+            name_alg: template.name_alg(),
+            object_attributes: template.object_attributes(),
             auth_policy: Tpm2bDigest::default(),
             parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
-                symmetric,
+                symmetric: template.symmetric(),
                 scheme: TpmtRsaScheme {
                     scheme: TpmAlgId::Oaep,
-                    details: TpmuAsymScheme::Hash(TpmsSchemeHash { hash_alg }),
+                    details: TpmuAsymScheme::Hash(TpmsSchemeHash {
+                        hash_alg: template.name_alg(),
+                    }),
                 },
                 key_bits: TpmUint16::from(self.key_bits),
                 exponent: if self.e == 65537 {
@@ -153,12 +150,12 @@ impl TpmRsaExternalKey {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidHash`](crate::Error::InvalidHash)
+    /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash)
     /// when the hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::Error::OperationFailed) when an
-    /// internal cryptographic operation fails.
-    /// Returns [`OutOfMemory`](crate::Error::OutOfMemory) when an allocation
-    /// fails.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
+    /// when an internal cryptographic operation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
     fn oaep(&self, name_alg: TpmHash, seed: &[u8]) -> Result<Vec<u8>, TpmCryptoError> {
         let md = Into::<MessageDigest>::into(name_alg);
 
