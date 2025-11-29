@@ -11,7 +11,6 @@ use openssl::{
     md::Md,
     pkey::{PKey, Private},
     pkey_ctx::PkeyCtx,
-    rand::rand_bytes,
     rsa::{Padding, Rsa},
 };
 use rand::{CryptoRng, RngCore};
@@ -160,11 +159,11 @@ impl TpmExternalKey for TpmRsaExternalKey {
     fn to_seed(
         &self,
         name_alg: TpmHash,
-        _rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError> {
         let seed_size = name_alg.size();
         let mut seed = vec![0u8; seed_size];
-        rand_bytes(&mut seed).map_err(|_| TpmCryptoError::OperationFailed)?;
+        rng.fill_bytes(&mut seed);
 
         let encrypted_seed_bytes = self.oaep(name_alg, &seed)?;
 
