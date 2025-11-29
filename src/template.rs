@@ -100,7 +100,7 @@ impl TpmPublicTemplate {
         self.object_type
     }
 
-    /// Returns the object type.
+    /// Returns the name algorithm.
     #[must_use]
     pub const fn name_alg(&self) -> TpmAlgId {
         self.name_alg
@@ -176,7 +176,7 @@ impl TryFrom<TpmPublicTemplate> for TpmtPublic {
                     TpmuPublicId::Ecc(tpm2_protocol::data::TpmsEccPoint::default()),
                 )
             }
-            _ => (
+            TpmAlgId::KeyedHash => (
                 TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
                     scheme: TpmtKeyedhashScheme {
                         scheme: TpmAlgId::Null,
@@ -185,6 +185,7 @@ impl TryFrom<TpmPublicTemplate> for TpmtPublic {
                 }),
                 TpmuPublicId::KeyedHash(TpmBuffer::default()),
             ),
+            _ => return Err(TpmCryptoError::InvalidObjectType),
         };
 
         Ok(TpmtPublic {

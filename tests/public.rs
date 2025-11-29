@@ -10,10 +10,11 @@
 use rstest::rstest;
 use tpm2_crypto::{TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmRsaExternalKey};
 use tpm2_protocol::{
-    basic::TpmUint32,
+    basic::{TpmUint16, TpmUint32},
     data::{
-        Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsEccPoint, TpmtSymDefObject,
-        TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+        Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsEccPoint, TpmtPublic,
+        TpmtSymDefObject, TpmuAsymScheme, TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms,
+        TpmuSymKeyBits, TpmuSymMode,
     },
 };
 
@@ -109,5 +110,70 @@ fn test_ecc_to_public(
         assert_eq!(point.y.as_ref(), y_bytes);
     } else {
         panic!("Incorrect unique ID type: expected ECC");
+    }
+}
+
+#[test]
+fn keyedhash_template_to_public() {
+    let template = tpm2_crypto::TpmPublicTemplate::new()
+        .with_object_type(TpmAlgId::KeyedHash)
+        .with_name_alg(TpmAlgId::Sha256);
+
+    let public = TpmtPublic::try_from(template).expect("template to public");
+
+    assert_eq!(public.object_type, TpmAlgId::KeyedHash);
+    assert_eq!(public.name_alg, TpmAlgId::Sha256);
+    assert_eq!(public.auth_policy.len(), 0);
+
+    if let TpmuPublicParms::KeyedHash(params) = public.parameters {
+        assert_eq!(params.scheme.scheme, TpmAlgId::Null);
+        assert!(matches!(params.scheme.details, TpmuKeyedhashScheme::Null));
+    } else {
+        panic!("Incorrect parameters type: expected KEYEDHASH");
+    }
+
+    if let TpmuPublicId::KeyedHash(buf) = public.unique {
+        assert_eq!(buf.len(), 0);
+    } else {
+        panic!("Incorrect unique ID type: expected KEYEDHASH");
+    }
+}
+
+#[test]
+fn invalid_object_type_rejected() {
+    let template = tpm2_crypto::TpmPublicTemplate::new()
+        .with_object_type(TpmAlgId::Sha1)
+        .with_name_alg(TpmAlgId::Sha256);
+
+    let result = TpmtPublic::try_from(template);
+
+    assert!(matches!(
+        result,
+        Err(tpm2_crypto::TpmCryptoError::InvalidObjectType)
+    ));
+}
+
+#[test]
+fn rsa_to_public_with_aes_symmetric() {
+    let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
+    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32(0), TpmUint16::from(2048));
+
+    let symmetric = TpmtSymDefObject {
+        algorithm: TpmAlgId::Aes,
+        key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
+        mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
+    };
+
+    let template = tpm2_crypto::TpmPublicTemplate::new()
+        .with_name_alg(TpmAlgId::Sha256)
+        .with_object_attributes(TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT)
+        .with_symmetric(symmetric);
+
+    let public = rsa_key.to_public(&template);
+
+    if let TpmuPublicParms::Rsa(params) = public.parameters {
+        assert_eq!(params.symmetric, symmetric);
+    } else {
+        panic!("Incorrect parameters type: expected RSA");
     }
 }
