@@ -13,13 +13,6 @@ mod hash;
 mod rsa;
 mod template;
 
-use rand::{CryptoRng, RngCore};
-use tpm2_protocol::{
-    constant::MAX_DIGEST_SIZE,
-    data::{Tpm2bEncryptedSecret, Tpm2bName, TpmtPublic},
-    TpmMarshal, TpmSized, TpmWriter,
-};
-
 pub use ecc::*;
 pub use error::*;
 pub use hash::*;
@@ -56,7 +49,7 @@ where
     /// Converts the public key to a `TpmtPublic` structure. Populates
     /// `objectAttributes` `nameALg` and `symmetric` fields from the provided
     /// template.
-    fn to_public(&self, template: &TpmPublicTemplate) -> TpmtPublic;
+    fn to_public(&self, template: &TpmPublicTemplate) -> tpm2_protocol::data::TpmtPublic;
 
     /// Creates a seed and an encrypted seed (aka `inSymSeed`) for
     /// `TPM2_Import`.
@@ -72,8 +65,8 @@ where
     fn to_seed(
         &self,
         name_alg: TpmHash,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError>;
+        rng: &mut (impl rand::RngCore + rand::CryptoRng),
+    ) -> Result<(Vec<u8>, tpm2_protocol::data::Tpm2bEncryptedSecret), TpmCryptoError>;
 }
 
 /// Calculates the cryptographics name of a transient or persistent TPM object.
@@ -90,13 +83,17 @@ where
 /// allocation for temporary data fails.
 /// Returns [`Unmarshal`](crate::TpmCryptoError::Unmarshal) when unmarshal
 /// operation on TPM protocol compliant data fails.
-pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, TpmCryptoError> {
+pub fn tpm_make_name(
+    public: &tpm2_protocol::data::TpmtPublic,
+) -> Result<tpm2_protocol::data::Tpm2bName, TpmCryptoError> {
+    use tpm2_protocol::{TpmMarshal, TpmSized};
+
     let name_alg = TpmHash::from(public.name_alg);
     let alg_bytes = (public.name_alg as u16).to_be_bytes();
 
     let len = public.len();
     let mut public_bytes = vec![0u8; len];
-    let mut writer = TpmWriter::new(&mut public_bytes);
+    let mut writer = tpm2_protocol::TpmWriter::new(&mut public_bytes);
     public
         .marshal(&mut writer)
         .map_err(TpmCryptoError::Marshal)?;
@@ -104,9 +101,10 @@ pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, TpmCryptoError> {
     let digest = name_alg.digest(&[&public_bytes])?;
     let digest_len = digest.len();
 
-    let mut final_buf = [0u8; MAX_DIGEST_SIZE + 2];
+    let mut final_buf = [0u8; tpm2_protocol::constant::MAX_DIGEST_SIZE + 2];
     final_buf[..2].copy_from_slice(&alg_bytes);
     final_buf[2..2 + digest_len].copy_from_slice(&digest);
 
-    Tpm2bName::try_from(&final_buf[..2 + digest_len]).map_err(TpmCryptoError::Unmarshal)
+    tpm2_protocol::data::Tpm2bName::try_from(&final_buf[..2 + digest_len])
+        .map_err(TpmCryptoError::Unmarshal)
 }
