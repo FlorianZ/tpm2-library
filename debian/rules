@@ -1,5 +1,0 @@
-#!/usr/bin/make -f
-export DH_CARGO_ARGS=--locked
-
-%:
-	dh $@ --buildsystem cargo
