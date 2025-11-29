@@ -73,80 +73,6 @@ use tpm2_protocol::{
     TpmUnmarshal,
 };
 
-#[derive(Default)]
-pub struct TpmKeyBuilder {
-    empty_auth: Option<bool>,
-    policy: Option<TpmKeyPolicy>,
-    secret: Option<Vec<u8>>,
-    auth_policy: Option<Vec<TpmKeyPolicy>>,
-    description: Option<String>,
-}
-
-impl TpmKeyBuilder {
-    #[must_use]
-    pub fn with_empty_auth(mut self, empty_auth: bool) -> Self {
-        self.empty_auth = Some(empty_auth);
-        self
-    }
-
-    #[must_use]
-    pub fn with_policy(mut self, policy: Option<TpmKeyPolicy>) -> Self {
-        self.policy = policy;
-        self
-    }
-
-    #[must_use]
-    pub fn with_secret(mut self, secret: Option<Vec<u8>>) -> Self {
-        self.secret = secret;
-        self
-    }
-
-    #[must_use]
-    pub fn with_auth_policy(mut self, auth_policy: Option<Vec<TpmKeyPolicy>>) -> Self {
-        self.auth_policy = auth_policy;
-        self
-    }
-
-    #[must_use]
-    pub fn with_description(mut self, description: Option<String>) -> Self {
-        self.description = description;
-        self
-    }
-
-    #[must_use]
-    pub fn build(
-        self,
-        public: Tpm2bPublic,
-        private: Tpm2bPrivate,
-        parent: TpmHandle,
-    ) -> TpmKeyFile {
-        let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
-            TpmKeyType::SealedData
-        } else {
-            TpmKeyType::Loadable
-        };
-
-        let rsa_parent = if public.inner.object_type == TpmAlgId::Rsa {
-            Some(true)
-        } else {
-            None
-        };
-
-        TpmKeyFile {
-            kind,
-            empty_auth: self.empty_auth,
-            policy: self.policy,
-            secret: self.secret,
-            auth_policy: self.auth_policy,
-            description: self.description,
-            public,
-            private,
-            parent,
-            rsa_parent,
-        }
-    }
-}
-
 /// A single policy command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmKeyPolicyCommand {
@@ -187,10 +113,75 @@ pub struct TpmKeyFile {
     rsa_parent: Option<bool>,
 }
 
+impl Default for TpmKeyFile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TpmKeyFile {
     #[must_use]
-    pub fn builder() -> TpmKeyBuilder {
-        TpmKeyBuilder::default()
+    pub fn new() -> Self {
+        TpmKeyFile {
+            kind: TpmKeyType::Loadable,
+            empty_auth: None,
+            policy: None,
+            secret: None,
+            auth_policy: None,
+            description: None,
+            public: Tpm2bPublic::default(),
+            private: Tpm2bPrivate::default(),
+            parent: TpmHandle::from(0),
+            rsa_parent: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_empty_auth(mut self, empty_auth: bool) -> Self {
+        self.empty_auth = Some(empty_auth);
+        self
+    }
+
+    #[must_use]
+    pub fn with_policy(mut self, policy: Option<TpmKeyPolicy>) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_secret(mut self, secret: Option<Vec<u8>>) -> Self {
+        self.secret = secret;
+        self
+    }
+
+    #[must_use]
+    pub fn with_auth_policy(mut self, auth_policy: Option<Vec<TpmKeyPolicy>>) -> Self {
+        self.auth_policy = auth_policy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_description(mut self, description: Option<String>) -> Self {
+        self.description = description;
+        self
+    }
+
+    #[must_use]
+    pub fn with_public(mut self, public: Tpm2bPublic) -> Self {
+        self.public = public;
+        self
+    }
+
+    #[must_use]
+    pub fn with_private(mut self, private: Tpm2bPrivate) -> Self {
+        self.private = private;
+        self
+    }
+
+    #[must_use]
+    pub fn with_parent(mut self, parent: TpmHandle) -> Self {
+        self.parent = parent;
+        self
     }
 
     #[must_use]
