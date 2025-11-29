@@ -110,6 +110,10 @@ impl Memory {
         let mut handles_to_remove = Vec::new();
 
         for &vhandle in &vhandles {
+            if (vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+                continue;
+            }
+
             if let Some(key) = task_state.cache.find_by_handle(TpmUint32(vhandle)) {
                 match Memory::refresh_key(device, key.context().clone()) {
                     Ok(true) => {
@@ -267,7 +271,11 @@ impl Memory {
             }
         }
 
-        for (_, key) in session.cache.key_iter() {
+        for (vhandle, key) in session.cache.key_iter() {
+            if (vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+                continue;
+            }
+
             let parent = key.parent();
             let parent_str = if parent.object_type == TpmAlgId::Null {
                 match key.context().hierarchy {

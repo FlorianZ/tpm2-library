@@ -60,7 +60,7 @@ pub enum TaskError {
     Device(#[from] TpmDeviceError),
     #[error("handle already tracked: {0}")]
     HandleAlreadyTracked(TpmHandle),
-    #[error("handle not found: {0}")]
+    #[error("handle not found: {0:08x}")]
     HandleNotFound(TpmHandle),
     #[error("handle name not found: {}", hex::encode(.0.as_ref()))]
     HandleNameNotFound(Tpm2bName),
