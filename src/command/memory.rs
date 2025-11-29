@@ -90,13 +90,27 @@ impl Task for Memory {
 }
 
 impl Memory {
-    fn refresh_key(device: &mut TpmDevice, context: TpmsContext) -> Result<bool, TpmDeviceError> {
+    fn refresh_key(
+        device: &mut TpmDevice,
+        vhandle: u32,
+        context: TpmsContext,
+    ) -> Result<bool, TpmDeviceError> {
         match device.load_context(context) {
             Ok(handle) => match device.flush_context(handle) {
                 Ok(()) => Ok(true),
                 Err(e) => Err(e),
             },
-            Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::ReferenceH0 => Ok(false),
+            Err(TpmDeviceError::TpmRc(rc)) => match rc.base() {
+                TpmRcBase::ReferenceH0
+                | TpmRcBase::Integrity
+                | TpmRcBase::Hierarchy
+                | TpmRcBase::Value
+                | TpmRcBase::Handle => {
+                    log::debug!("{vhandle:08x}: {rc}");
+                    Ok(false)
+                }
+                _ => Err(TpmDeviceError::TpmRc(rc)),
+            },
             Err(e) => Err(e),
         }
     }
@@ -115,7 +129,7 @@ impl Memory {
             }
 
             if let Some(key) = task_state.cache.find_by_handle(TpmUint32(vhandle)) {
-                match Memory::refresh_key(device, key.context().clone()) {
+                match Memory::refresh_key(device, vhandle, key.context().clone()) {
                     Ok(true) => {
                         task_state.cache.mark_dirty(vhandle);
                     }
