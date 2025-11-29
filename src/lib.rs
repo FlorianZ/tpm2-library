@@ -12,7 +12,6 @@ use nix::{
 use rand::{thread_rng, RngCore};
 use std::{
     cell::RefCell,
-    collections::HashMap,
     fs::{File, OpenOptions},
     io::{Read, Write},
     os::fd::{AsFd, AsRawFd},
@@ -213,7 +212,6 @@ impl TpmDeviceBuilder {
 
         Ok(TpmDevice {
             file,
-            name_cache: HashMap::new(),
             interrupted: self.interrupted,
             timeout: self.timeout,
             command: Vec::with_capacity(TPM_MAX_COMMAND_SIZE),
@@ -224,7 +222,6 @@ impl TpmDeviceBuilder {
 
 pub struct TpmDevice {
     file: File,
-    name_cache: HashMap<u32, (TpmtPublic, Tpm2bName)>,
     interrupted: Box<dyn Fn() -> bool>,
     timeout: Duration,
     command: Vec<u8>,
@@ -235,7 +232,6 @@ impl std::fmt::Debug for TpmDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Device")
             .field("file", &self.file)
-            .field("name_cache", &self.name_cache)
             .field("timeout", &self.timeout)
             .finish_non_exhaustive()
     }
@@ -623,21 +619,13 @@ impl TpmDevice {
         &mut self,
         handle: TpmHandle,
     ) -> Result<(TpmtPublic, Tpm2bName), TpmDeviceError> {
-        if let Some(cached) = self.name_cache.get(&handle.0) {
-            return Ok(cached.clone());
-        }
-
         let cmd = TpmReadPublicCommand { handles: [handle] };
         let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
-
         let read_public_resp = resp
             .ReadPublic()
             .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ReadPublic))?;
-
         let public = read_public_resp.out_public.inner;
         let name = read_public_resp.name;
-
-        self.name_cache.insert(handle.0, (public.clone(), name));
         Ok((public, name))
     }
 
@@ -720,7 +708,6 @@ impl TpmDevice {
     /// Returns [`TpmDeviceError`](crate::TpmDeviceError) variants when
     /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn flush_context(&mut self, handle: TpmHandle) -> Result<(), TpmDeviceError> {
-        self.name_cache.remove(&handle.0);
         let cmd = TpmFlushContextCommand {
             flush_handle: handle,
             handles: [],
