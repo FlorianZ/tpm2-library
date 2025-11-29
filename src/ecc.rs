@@ -132,8 +132,26 @@ impl From<Nid> for TpmEllipticCurve {
 /// ECC public key parameters.
 #[derive(Debug, Clone)]
 pub struct TpmEccExternalKey {
-    pub curve: TpmEllipticCurve,
-    pub unique: TpmsEccPoint,
+    curve: TpmEllipticCurve,
+    unique: TpmsEccPoint,
+}
+
+impl TpmEccExternalKey {
+    #[must_use] 
+    pub fn new(curve: TpmEllipticCurve, unique: TpmsEccPoint) -> Self {
+        Self { curve, unique }
+    }
+
+    /// Returns the curve of the ECC key.
+    #[must_use]
+    pub fn curve(&self) -> TpmEllipticCurve {
+        self.curve
+    }
+    /// Returns the unique point of the ECC key.
+    #[must_use]
+    pub fn unique(&self) -> &TpmsEccPoint {
+        &self.unique
+    }
 }
 
 impl TryFrom<&TpmtPublic> for TpmEccExternalKey {

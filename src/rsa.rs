@@ -26,9 +26,38 @@ use tpm2_protocol::{
 /// RSA public key parameters.
 #[derive(Debug, Clone)]
 pub struct TpmRsaExternalKey {
-    pub public_key: Tpm2bPublicKeyRsa,
-    pub exponent: TpmUint32,
-    pub key_bits: TpmUint16,
+    public_key: Tpm2bPublicKeyRsa,
+    exponent: TpmUint32,
+    key_bits: TpmUint16,
+}
+
+impl TpmRsaExternalKey {
+    #[must_use] 
+    pub fn new(public_key: Tpm2bPublicKeyRsa, exponent: TpmUint32, key_bits: TpmUint16) -> Self {
+        Self {
+            public_key,
+            exponent,
+            key_bits,
+        }
+    }
+
+    /// Returns the public key modulus.
+    #[must_use]
+    pub fn public_key(&self) -> &Tpm2bPublicKeyRsa {
+        &self.public_key
+    }
+
+    /// Returns the public exponent.
+    #[must_use]
+    pub fn exponent(&self) -> TpmUint32 {
+        self.exponent
+    }
+
+    /// Returns the key size in bits.
+    #[must_use]
+    pub fn key_bits(&self) -> TpmUint16 {
+        self.key_bits
+    }
 }
 
 impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {

@@ -25,11 +25,7 @@ const TEST_COORD: [u8; 32] = [2; 32];
 #[case(TpmAlgId::Sha384, 3072)]
 fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
-    let rsa_key = TpmRsaExternalKey {
-        public_key,
-        exponent: TpmUint32(0),
-        key_bits: key_bits.into(),
-    };
+    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32(0), key_bits.into());
     let symmetric = TpmtSymDefObject::default();
 
     let template = tpm2_crypto::TpmPublicTemplate::new()
@@ -78,7 +74,7 @@ fn test_ecc_to_public(
     let x = Tpm2bEccParameter::try_from(x_bytes).unwrap();
     let y = Tpm2bEccParameter::try_from(y_bytes).unwrap();
     let unique = TpmsEccPoint { x, y };
-    let ecc_key = TpmEccExternalKey { curve, unique };
+    let ecc_key = TpmEccExternalKey::new(curve, unique);
     let symmetric = TpmtSymDefObject::default();
 
     let template = tpm2_crypto::TpmPublicTemplate::new()
