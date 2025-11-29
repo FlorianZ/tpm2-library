@@ -298,12 +298,17 @@ impl<'a> TaskState<'a> {
         empty_auth: bool,
         policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
     ) -> Result<TpmKeyFile, TaskError> {
-        Ok(TpmKeyFile::new()
-            .with_policy(self.build_key_policy(device, policy_commands)?)
+        let mut file = TpmKeyFile::new()
             .with_empty_auth(empty_auth)
             .with_public(public)
             .with_private(private)
-            .with_parent(parent_handle))
+            .with_parent(parent_handle);
+
+        if let Some(policy) = self.build_key_policy(device, policy_commands)? {
+            file = file.with_policy(policy);
+        }
+
+        Ok(file)
     }
 
     /// Loads a TPM context from a handle.
