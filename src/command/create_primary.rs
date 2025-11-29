@@ -102,7 +102,7 @@ impl Task for CreatePrimary {
                 handles: [(primary_handle as u32).into()],
             };
 
-            let auth_map = self.auth_args.build_auth_map();
+            let auth_map = self.auth_args.build_auth_map()?;
             let auth = auth_map
                 .get(&TpmUint32(primary_handle as u32))
                 .cloned()

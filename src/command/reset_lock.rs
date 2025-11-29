@@ -35,7 +35,7 @@ impl Task for ResetLock {
                 handles: [lock_handle],
             };
 
-            let auth_map = self.auth_args.build_auth_map();
+            let auth_map = self.auth_args.build_auth_map()?;
             let auth = auth_map
                 .get(&TpmUint32(lock_handle.into()))
                 .cloned()

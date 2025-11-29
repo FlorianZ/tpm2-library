@@ -57,7 +57,7 @@ impl Task for PcrEvent {
                 handles: [handles[0].into()],
             };
 
-            let auth_map = self.auth_args.build_auth_map();
+            let auth_map = self.auth_args.build_auth_map()?;
             let auth = auth_map.get(&self.pcr_index).cloned().unwrap_or_default();
 
             let (resp, _) = task_state.execute(device, &command, &[auth])?;

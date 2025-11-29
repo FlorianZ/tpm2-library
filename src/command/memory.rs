@@ -428,7 +428,7 @@ impl Memory {
 
         let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
-        let auth_map = auth_args.build_auth_map();
+        let auth_map = auth_args.build_auth_map()?;
         let auth = auth_map
             .get(&TpmUint32(auth_handle_val))
             .cloned()

@@ -60,7 +60,7 @@ impl Task for Load {
                 let (parent_handle, _, auth) = task_state.resolve_auth(
                     device,
                     parent_handle_ref,
-                    &self.auth_args.build_auth_map(),
+                    &self.auth_args.build_auth_map()?,
                 )?;
 
                 let (object_handle, public) = Self::run_load(

@@ -39,7 +39,7 @@ impl Task for Unseal {
             let (item_handle, _, auth) = task_state.resolve_auth(
                 device,
                 TpmUint32(handle),
-                &self.auth_args.build_auth_map(),
+                &self.auth_args.build_auth_map()?,
             )?;
 
             let unseal_cmd = TpmUnsealCommand {

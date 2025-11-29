@@ -77,7 +77,7 @@ fn delete_tpm_handles(
                                 dev,
                                 persistent_handle,
                                 persistent_handle,
-                                &auth_args.build_auth_map(),
+                                &auth_args.build_auth_map()?,
                             )
                             .map_err(CommandError::from)
                     }

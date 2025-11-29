@@ -70,9 +70,29 @@ pub struct AuthArgs {
 
 impl AuthArgs {
     /// Builds a map of handle-specific authorizations.
-    #[must_use]
-    pub fn build_auth_map(&self) -> HashMap<TpmHandle, Auth> {
-        self.auth.iter().cloned().collect()
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError::InvalidInput`] if the `TPM2SH_AUTH` environment
+    /// variable contains malformed authentication entries.
+    pub fn build_auth_map(&self) -> Result<HashMap<TpmHandle, Auth>, CommandError> {
+        let mut map = HashMap::new();
+
+        if let Ok(env_str) = std::env::var("TPM2SH_AUTH") {
+            for s in env_str.split(',') {
+                if s.trim().is_empty() {
+                    continue;
+                }
+                let (handle, auth) = parse_auth(s).map_err(CommandError::InvalidInput)?;
+                map.insert(handle, auth);
+            }
+        }
+
+        for (handle, auth) in &self.auth {
+            map.insert(*handle, auth.clone());
+        }
+
+        Ok(map)
     }
 }
 

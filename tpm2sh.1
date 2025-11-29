@@ -1,4 +1,4 @@
-.TH TPM2SH 1 "2025-11-22" "tpm2sh 0.15.23" "User Commands"
+.TH TPM2SH 1 "2025-11-29" "tpm2sh 0.16.13" "User Commands"
 .SH NAME
 tpm2sh \- a command-line tool for accessing TPM 2.0 devices
 .SH SYNOPSIS
@@ -90,6 +90,11 @@ Retrieves data from a sealed data object.
 .B TPM2SH_CACHE_PATH
 Overrides the default per-user cache directory used to store virtual TPM
 state. When unset, a system-appropriate per-user cache directory is used.
+.TP
+.B TPM2SH_AUTH
+A comma-separated list of handle authentication values in the format
+<handle>:<hex>. This allows providing passwords without exposing them in the
+process argument list. Values provided via \-\-auth take precedence.
 
 .SH BUGS
 Please report bugs to the project's mailing list at tpm-protocol@lists.linux.dev.

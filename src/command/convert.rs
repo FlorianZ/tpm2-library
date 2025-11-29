@@ -71,7 +71,7 @@ impl Task for Convert {
             let (parent_handle, name_alg, auth) = task_state.resolve_auth(
                 device,
                 TpmUint32(parent),
-                &self.auth_args.build_auth_map(),
+                &self.auth_args.build_auth_map()?,
             )?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
