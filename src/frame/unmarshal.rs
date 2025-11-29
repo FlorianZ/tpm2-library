@@ -7,11 +7,11 @@ use super::{
     TPM_HEADER_SIZE,
 };
 use crate::{
-    basic::{TpmUint16, TpmUint32},
+    basic::TpmUint32,
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     TpmProtocolError, TpmResult, TpmUnmarshal,
 };
-use core::{convert::TryFrom, mem::size_of};
+use core::mem::size_of;
 
 /// A unified struct holding all dispatch info for a given Command Code.
 #[doc(hidden)]
@@ -43,10 +43,9 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
     }
     let buf_len = buf.len();
 
-    let (tag_raw, buf) = TpmUint16::unmarshal(buf)?;
-    let tag = TpmSt::try_from(u16::from(tag_raw))?;
+    let (tag, buf) = TpmSt::unmarshal(buf)?;
     let (size, buf) = TpmUint32::unmarshal(buf)?;
-    let (cc_raw, body_buf) = TpmUint32::unmarshal(buf)?;
+    let (cc, body_buf) = TpmCc::unmarshal(buf)?;
 
     let size_usize = u32::from(size) as usize;
     if buf_len < size_usize {
@@ -55,7 +54,6 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
         return Err(TpmProtocolError::TrailingData);
     }
 
-    let cc = TpmCc::try_from(u32::from(cc_raw))?;
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
@@ -124,9 +122,9 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
         return Err(TpmProtocolError::UnexpectedEnd);
     }
 
-    let (tag_raw, remainder) = TpmUint16::unmarshal(buf)?;
+    let (tag, remainder) = TpmSt::unmarshal(buf)?;
     let (size, remainder) = TpmUint32::unmarshal(remainder)?;
-    let (code, body_buf) = TpmUint32::unmarshal(remainder)?;
+    let (rc, body_buf) = TpmRc::unmarshal(remainder)?;
 
     let size_usize = u32::from(size) as usize;
     if buf.len() < size_usize {
@@ -135,12 +133,9 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseRes
         return Err(TpmProtocolError::TrailingData);
     }
 
-    let rc = TpmRc::try_from(u32::from(code))?;
     if !matches!(rc, TpmRc::Fmt0(TpmRcBase::Success)) {
         return Ok(Err(rc));
     }
-
-    let tag = TpmSt::try_from(u16::from(tag_raw))?;
 
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)

@@ -4,7 +4,7 @@
 
 use super::{TpmFrame, TPM_HEADER_SIZE};
 use crate::{
-    basic::{TpmUint16, TpmUint32},
+    basic::TpmUint32,
     data::{TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
     TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
 };
@@ -49,9 +49,9 @@ where
     let command_size =
         TpmUint32::try_from(command_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
 
-    TpmUint16::from(tag as u16).marshal(writer)?;
+    tag.marshal(writer)?;
     command_size.marshal(writer)?;
-    TpmUint32::from(command.cc() as u32).marshal(writer)?;
+    command.cc().marshal(writer)?;
 
     command.marshal_handles(writer)?;
 
@@ -82,9 +82,9 @@ where
     R: TpmFrame,
 {
     if !matches!(rc, TpmRc::Fmt0(TpmRcBase::Success)) {
-        TpmUint16::from(TpmSt::NoSessions as u16).marshal(writer)?;
+        TpmSt::NoSessions.marshal(writer)?;
         TpmUint32::from(TPM_HEADER_SIZE).marshal(writer)?;
-        TpmUint32::from(rc.value()).marshal(writer)?;
+        rc.marshal(writer)?;
         return Ok(());
     }
 
@@ -117,9 +117,9 @@ where
     let response_size =
         TpmUint32::try_from(response_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
 
-    TpmUint16::from(tag as u16).marshal(writer)?;
+    tag.marshal(writer)?;
     response_size.marshal(writer)?;
-    TpmUint32::from(rc.value()).marshal(writer)?;
+    rc.marshal(writer)?;
 
     response.marshal_handles(writer)?;
 

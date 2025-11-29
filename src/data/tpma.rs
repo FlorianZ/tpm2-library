@@ -6,7 +6,7 @@ use crate::tpm_bitflags;
 tpm_bitflags! {
     /// `TPMA_ALGORITHM`
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct TpmaAlgorithm(u32) {
+    pub struct TpmaAlgorithm(TpmUint32) {
         const ASYMMETRIC = 0x0000_0001, "ASYMMETRIC";
         const SYMMETRIC = 0x0000_0002, "SYMMETRIC";
         const HASH = 0x0000_0004, "HASH";
@@ -20,7 +20,7 @@ tpm_bitflags! {
 tpm_bitflags! {
     /// `TPMA_CC` (Table 37)
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct TpmaCc(u32) {
+    pub struct TpmaCc(TpmUint32) {
         const COMMAND_INDEX = 0x0000_FFFF, "COMMAND_INDEX";
         const NV = 0x0040_0000, "NV";
         const EXTENSIVE = 0x0080_0000, "EXTENSIVE";
@@ -34,7 +34,7 @@ tpm_bitflags! {
 tpm_bitflags! {
     /// `TPMA_LOCALITY` (Table 41)
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct TpmaLocality(u8) {
+    pub struct TpmaLocality(TpmUint8) {
         const TPM_LOC_ZERO = 0x01, "LOC_ZERO";
         const TPM_LOC_ONE = 0x02, "LOC_ONE";
         const TPM_LOC_TWO = 0x04, "LOC_TWO";
@@ -47,7 +47,7 @@ tpm_bitflags! {
 tpm_bitflags! {
     /// `TPMA_NV` (Table 233)
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct TpmaNv(u32) {
+    pub struct TpmaNv(TpmUint32) {
         const PPWRITE = 0x0000_0001, "PPWRITE";
         const OWNERWRITE = 0x0000_0002, "OWNERWRITE";
         const AUTHWRITE = 0x0000_0004, "AUTHWRITE";
@@ -78,7 +78,7 @@ tpm_bitflags! {
 tpm_bitflags! {
     /// `TPMA_NV_EXP` (Table 234)
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct TpmaNvExp(u64) {
+    pub struct TpmaNvExp(TpmUint64) {
         const ENCRYPTION = 0x0000_0001_0000_0000, "ENCRYPTION";
         const INTEGRITY = 0x0000_0002_0000_0000, "INTEGRITY";
         const ANTIROLLBACK = 0x0000_0004_0000_0000, "ANTIROLLBACK";
@@ -88,7 +88,7 @@ tpm_bitflags! {
 tpm_bitflags! {
     /// `TPMA_OBJECT`
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct TpmaObject(u32) {
+    pub struct TpmaObject(TpmUint32) {
         const FIXED_TPM = 0x0000_0002, "FIXED_TPM";
         const ST_CLEAR = 0x0000_0004, "ST_CLEAR";
         const FIXED_PARENT = 0x0000_0010, "FIXED_PARENT";
@@ -106,7 +106,7 @@ tpm_bitflags! {
 tpm_bitflags! {
     /// `TPMA_SESSION`
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct TpmaSession(u8) {
+    pub struct TpmaSession(TpmUint8) {
         const CONTINUE_SESSION = 0x01, "CONTINUE_SESSION";
         const AUDIT_EXCLUSIVE = 0x02, "AUDIT_EXCLUSIVE";
         const AUDIT_RESET = 0x04, "AUDIT_RESET";

@@ -97,32 +97,5 @@ macro_rules! integer {
                 <$raw>::try_from(value).map(Self)
             }
         }
-
-        impl $crate::TpmSized for $raw {
-            const SIZE: usize = core::mem::size_of::<$raw>();
-            fn len(&self) -> usize {
-                Self::SIZE
-            }
-        }
-
-        impl $crate::TpmMarshal for $raw {
-            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                writer.write_bytes(&self.to_be_bytes())
-            }
-        }
-
-        impl $crate::TpmUnmarshal for $raw {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let size = core::mem::size_of::<$raw>();
-                let bytes = buf
-                    .get(..size)
-                    .ok_or($crate::TpmProtocolError::UnexpectedEnd)?;
-                let array = bytes
-                    .try_into()
-                    .map_err(|_| $crate::TpmProtocolError::UnexpectedEnd)?;
-                let val = <$raw>::from_be_bytes(array);
-                Ok((val, &buf[size..]))
-            }
-        }
     };
 }

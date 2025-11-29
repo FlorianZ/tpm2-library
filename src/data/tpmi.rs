@@ -14,7 +14,7 @@ tpm_bool! {
 
 tpm_enum! {
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash, Default)]
-    pub enum TpmiEccKeyExchange(u16) {
+    pub enum TpmiEccKeyExchange(TpmUint16) {
         #[default]
         (None, 0x0000, "TPM_ECC_NONE"),
         (Ecdh, 0x0019, "TPM_ALG_ECDH"),

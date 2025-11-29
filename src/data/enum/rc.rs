@@ -38,7 +38,7 @@ impl Display for TpmRcIndex {
 tpm_enum! {
     #[derive(Debug, PartialEq, Eq, Copy, Clone)]
     #[allow(clippy::upper_case_acronyms)]
-    pub enum TpmRcBase(u32) {
+    pub enum TpmRcBase(TpmUint32) {
         (Success, 0x0000, "TPM_RC_SUCCESS"),
         (BadTag, 0x001E, "TPM_RC_BAD_TAG"),
         (Initialize, TPM_RC_VER1, "TPM_RC_INITIALIZE"),

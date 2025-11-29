@@ -259,3 +259,88 @@ macro_rules! tpm_struct {
         }
     };
 }
+
+#[macro_export]
+macro_rules! tpm2b {
+    ($name:ident, $capacity:expr) => {
+        pub type $name = $crate::basic::TpmBuffer<$capacity>;
+    };
+}
+
+#[macro_export]
+macro_rules! tpm2b_struct {
+    (
+        $(#[$meta:meta])*
+        $wrapper_ty:ident, $inner_ty:ty) => {
+        $(#[$meta])*
+        pub struct $wrapper_ty {
+            pub inner: $inner_ty,
+        }
+
+        impl $crate::TpmSized for $wrapper_ty {
+            const SIZE: usize = $crate::basic::TpmUint16::SIZE + <$inner_ty>::SIZE;
+            fn len(&self) -> usize {
+                $crate::basic::TpmUint16::SIZE + $crate::TpmSized::len(&self.inner)
+            }
+        }
+
+        impl $crate::TpmMarshal for $wrapper_ty
+        where
+            $inner_ty: $crate::TpmSized,
+        {
+            fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                let inner_len = $crate::TpmSized::len(&self.inner);
+                let len_field = <$crate::basic::TpmUint16>::try_from(inner_len)
+                    .map_err(|_| $crate::TpmProtocolError::IntegerTooLarge)?;
+                len_field.marshal(writer)?;
+                $crate::TpmMarshal::marshal(&self.inner, writer)
+            }
+        }
+
+        impl $crate::TpmUnmarshal for $wrapper_ty {
+            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                let (size, buf_after_size) = <$crate::basic::TpmUint16 as $crate::TpmUnmarshal>::unmarshal(buf)?;
+                let size = u16::from(size) as usize;
+
+                if buf_after_size.len() < size {
+                    return Err($crate::TpmProtocolError::UnexpectedEnd);
+                }
+                let (inner_bytes, rest) = buf_after_size.split_at(size);
+
+                let (inner_val, tail) = <$inner_ty>::unmarshal(inner_bytes)?;
+
+                if !tail.is_empty() {
+                    return Err($crate::TpmProtocolError::TrailingData);
+                }
+
+                Ok((Self { inner: inner_val }, rest))
+            }
+        }
+
+        impl From<$inner_ty> for $wrapper_ty {
+            fn from(inner: $inner_ty) -> Self {
+                Self { inner }
+            }
+        }
+
+        impl core::ops::Deref for $wrapper_ty {
+            type Target = $inner_ty;
+            fn deref(&self) -> &Self::Target {
+                &self.inner
+            }
+        }
+
+        impl core::ops::DerefMut for $wrapper_ty {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.inner
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! tpml {
+    ($name:ident, $inner_ty:ty, $capacity:expr) => {
+        pub type $name = $crate::basic::TpmList<$inner_ty, $capacity>;
+    };
+}

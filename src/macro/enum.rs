@@ -8,15 +8,12 @@
 
 #[macro_export]
 macro_rules! tpm_enum {
-    (
-        $(#[$enum_meta:meta])*
-        $vis:vis enum $name:ident($repr:ty) {
-            $(
-                $(#[$variant_meta:meta])*
-                ($variant:ident, $value:expr, $display:literal)
-            ),* $(,)?
-        }
-    ) => {
+    (@impl $(#[$enum_meta:meta])* $vis:vis enum $name:ident($wrapper:ty, $repr:ty) {
+        $(
+            $(#[$variant_meta:meta])*
+            ($variant:ident, $value:expr, $display:literal)
+        ),* $(,)?
+    }) => {
         $(#[$enum_meta])*
         #[repr($repr)]
         $vis enum $name {
@@ -58,17 +55,37 @@ macro_rules! tpm_enum {
 
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
-                let value: $repr = *self as $repr;
+                let value = <$wrapper>::from(*self as $repr);
                 $crate::TpmMarshal::marshal(&value, writer)
             }
         }
 
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = <$repr as $crate::TpmUnmarshal>::unmarshal(buf)?;
-                let enum_val = Self::try_from(val)?;
+                let (val, buf) = <$wrapper as $crate::TpmUnmarshal>::unmarshal(buf)?;
+                let raw: $repr = val.into();
+                let enum_val = Self::try_from(raw)?;
                 Ok((enum_val, buf))
             }
         }
+    };
+
+    ($(#[$meta:meta])* $vis:vis enum $name:ident(TpmUint8) { $($rest:tt)* }) => {
+        tpm_enum!(@impl $(#[$meta])* $vis enum $name($crate::basic::TpmUint8, u8) { $($rest)* });
+    };
+    ($(#[$meta:meta])* $vis:vis enum $name:ident(TpmInt8) { $($rest:tt)* }) => {
+        tpm_enum!(@impl $(#[$meta])* $vis enum $name($crate::basic::TpmInt8, i8) { $($rest)* });
+    };
+    ($(#[$meta:meta])* $vis:vis enum $name:ident(TpmUint16) { $($rest:tt)* }) => {
+        tpm_enum!(@impl $(#[$meta])* $vis enum $name($crate::basic::TpmUint16, u16) { $($rest)* });
+    };
+    ($(#[$meta:meta])* $vis:vis enum $name:ident(TpmUint32) { $($rest:tt)* }) => {
+        tpm_enum!(@impl $(#[$meta])* $vis enum $name($crate::basic::TpmUint32, u32) { $($rest)* });
+    };
+    ($(#[$meta:meta])* $vis:vis enum $name:ident(TpmInt32) { $($rest:tt)* }) => {
+        tpm_enum!(@impl $(#[$meta])* $vis enum $name($crate::basic::TpmInt32, i32) { $($rest)* });
+    };
+    ($(#[$meta:meta])* $vis:vis enum $name:ident(TpmUint64) { $($rest:tt)* }) => {
+        tpm_enum!(@impl $(#[$meta])* $vis enum $name($crate::basic::TpmUint64, u64) { $($rest)* });
     };
 }
