@@ -107,8 +107,8 @@ pub enum CommandError {
     InvalidPassword,
     #[error("invalid policy expression: {0}")]
     InvalidPolicyExpression(String),
-    #[error("invalid public key")]
-    InvalidPublicKey,
+    #[error("invalid certificate")]
+    InvalidCertificate,
     #[error("invalid RSA parameters")]
     InvalidRsaParameters,
     #[error("sensitive data is not a valid hex string")]

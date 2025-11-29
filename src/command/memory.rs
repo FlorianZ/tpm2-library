@@ -527,7 +527,7 @@ impl Memory {
 
         let pkey = cert
             .public_key()
-            .map_err(|_| CommandError::InvalidPublicKey)?;
+            .map_err(|_| CommandError::InvalidCertificate)?;
         match pkey.id() {
             PKeyId::RSA => {
                 let rsa = pkey.rsa().map_err(|_| CommandError::InvalidRsaParameters)?;

@@ -25,7 +25,8 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
-        TpmCc, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuSensitiveComposite,
+        TpmCc, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuPublicParms,
+        TpmuSensitiveComposite, TpmuSymKeyBits,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmImportCommand},
     TpmMarshal, TpmWriter,
@@ -79,12 +80,10 @@ impl Task for Convert {
             }
 
             let user_auth = match &self.creation_args.password {
-                Some(hex_str) => Tpm2bAuth::try_from(
-                    hex::decode(hex_str)
-                        .map_err(|_| CommandError::InvalidPassword)?
-                        .as_slice(),
-                )
-                .map_err(|_| CommandError::CapacityExceeded)?,
+                Some(hex_str) => {
+                    let auth = hex::decode(hex_str).map_err(|_| CommandError::InvalidPassword)?;
+                    Tpm2bAuth::try_from(auth.as_slice()).map_err(CommandError::Unmarshal)?
+                }
                 None => Tpm2bAuth::default(),
             };
 
@@ -128,13 +127,29 @@ impl Task for Convert {
 }
 
 impl Convert {
+    fn public_to_sym_key_bits(parent_public: &TpmtPublic) -> Result<u16, CommandError> {
+        let sym_def = match &parent_public.parameters {
+            TpmuPublicParms::Rsa(parms) => &parms.symmetric,
+            TpmuPublicParms::Ecc(parms) => &parms.symmetric,
+            _ => return Err(CommandError::InvalidParentType),
+        };
+
+        match sym_def.key_bits {
+            TpmuSymKeyBits::Aes(bits)
+            | TpmuSymKeyBits::Camellia(bits)
+            | TpmuSymKeyBits::Sm4(bits) => Ok(bits.value()),
+            _ => Err(CommandError::InvalidParentType),
+        }
+    }
+
     fn create_import_keys(
         parent_name_alg: TpmAlgId,
         seed: &[u8],
         object_name: &Tpm2bName,
+        key_bits: u16,
     ) -> Result<(Vec<u8>, Vec<u8>), CommandError> {
         let sym_key = TpmHash::from(parent_name_alg)
-            .kdfa(seed, KDF_LABEL_STORAGE, object_name.as_ref(), &[], 128)
+            .kdfa(seed, KDF_LABEL_STORAGE, object_name.as_ref(), &[], key_bits)
             .map_err(CommandError::Crypto)?;
 
         let key_bits = TpmHash::from(parent_name_alg).size() * 8;
@@ -152,30 +167,26 @@ impl Convert {
         private_bytes: &[u8],
         sym_key: &[u8],
         auth_value: Tpm2bAuth,
+        key_bits: u16,
     ) -> Result<Vec<u8>, CommandError> {
         let object_key_type = object_public.object_type;
+
         let sensitive_composite = match object_key_type {
             TpmAlgId::Rsa => TpmuSensitiveComposite::Rsa(
-                Tpm2bSensitiveData::try_from(private_bytes)
-                    .map_err(|_| CommandError::CapacityExceeded)?,
+                Tpm2bSensitiveData::try_from(private_bytes).map_err(CommandError::Unmarshal)?,
             ),
             TpmAlgId::Ecc => TpmuSensitiveComposite::Ecc(
-                Tpm2bEccParameter::try_from(private_bytes)
-                    .map_err(|_| CommandError::CapacityExceeded)?,
+                Tpm2bEccParameter::try_from(private_bytes).map_err(CommandError::Unmarshal)?,
             ),
             TpmAlgId::KeyedHash => TpmuSensitiveComposite::Bits(
-                Tpm2bSensitiveData::try_from(private_bytes)
-                    .map_err(|_| CommandError::CapacityExceeded)?,
+                Tpm2bSensitiveData::try_from(private_bytes).map_err(CommandError::Unmarshal)?,
             ),
             TpmAlgId::SymCipher => TpmuSensitiveComposite::Sym(
-                Tpm2bSymKey::try_from(private_bytes).map_err(|_| CommandError::CapacityExceeded)?,
+                Tpm2bSymKey::try_from(private_bytes).map_err(CommandError::Unmarshal)?,
             ),
-            _ => {
-                return Err(CommandError::InvalidInput(format!(
-                    "Unsupported object type for import: {object_key_type}"
-                )))
-            }
+            _ => return Err(CommandError::UnsupportedKeyAlgorithm),
         };
+
         let sensitive = TpmtSensitive {
             sensitive_type: object_key_type,
             auth_value,
@@ -186,7 +197,13 @@ impl Convert {
         let enc_data_in = write_object(&sensitive_tpm2b).map_err(CommandError::Marshal)?;
         let iv = [0u8; 16];
 
-        let enc_data = encrypt(Cipher::aes_128_cfb128(), sym_key, Some(&iv), &enc_data_in)
+        let cipher = match key_bits {
+            128 => Cipher::aes_128_cfb128(),
+            256 => Cipher::aes_256_cfb128(),
+            _ => return Err(CommandError::InvalidParentType),
+        };
+
+        let enc_data = encrypt(cipher, sym_key, Some(&iv), &enc_data_in)
             .map_err(|_| CommandError::EncryptingDuplicateFailed)?;
 
         Ok(enc_data)
@@ -218,8 +235,7 @@ impl Convert {
             duplicate_blob_buf[..len].to_vec()
         };
 
-        Tpm2bPrivate::try_from(duplicate_blob.as_slice())
-            .map_err(|_| CommandError::CapacityExceeded)
+        Tpm2bPrivate::try_from(duplicate_blob.as_slice()).map_err(CommandError::Unmarshal)
     }
 
     fn create_import_blob(
@@ -246,9 +262,17 @@ impl Convert {
             }
             _ => return Err(CommandError::InvalidParentType),
         };
-        let (sym_key, hmac_key) = Self::create_import_keys(name_alg, &seed, object_name)?;
-        let sensitive =
-            Self::encrypt_sensitive_data(object_public, private_bytes, &sym_key, user_auth)?;
+
+        let key_bits = Self::public_to_sym_key_bits(parent_public)?;
+
+        let (sym_key, hmac_key) = Self::create_import_keys(name_alg, &seed, object_name, key_bits)?;
+        let sensitive = Self::encrypt_sensitive_data(
+            object_public,
+            private_bytes,
+            &sym_key,
+            user_auth,
+            key_bits,
+        )?;
         let duplicate = Self::create_private_blob(name_alg, &hmac_key, &sensitive, object_name)?;
         Ok((duplicate, in_sym_seed, Tpm2bData::default()))
     }
