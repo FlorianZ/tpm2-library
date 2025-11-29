@@ -206,14 +206,14 @@ pub(crate) fn vtpm_marshal_policy_list(
     policies: &[Box<dyn VtpmPolicyCommand>],
     writer: &mut TpmWriter,
 ) -> Result<(), VtpmError> {
-    let count = u32::try_from(policies.len()).map_err(|_| VtpmError::OperationFailed)?;
+    let count = TpmUint32::try_from(policies.len()).map_err(|_| VtpmError::OperationFailed)?;
     count.marshal(writer).map_err(VtpmError::Marshal)?;
 
     for command in policies {
         command.cc().marshal(writer).map_err(VtpmError::Marshal)?;
 
         let body = command.body();
-        let body_len = u32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
+        let body_len = TpmUint32::try_from(body.len()).map_err(|_| VtpmError::OperationFailed)?;
         body_len.marshal(writer).map_err(VtpmError::Marshal)?;
         writer.write_bytes(&body).map_err(VtpmError::Marshal)?;
     }
@@ -262,7 +262,7 @@ impl VtpmPolicyCommand for VtpmPolicyDefaultCommand {
     }
 
     fn len(&self) -> usize {
-        TpmCc::SIZE + u32::SIZE + self.body.len()
+        TpmCc::SIZE + TpmUint32::SIZE + self.body.len()
     }
 
     fn to_command(&self) -> Result<TpmCommand, VtpmError> {
@@ -365,7 +365,7 @@ impl VtpmPolicyCommand for VtpmPolicyAuthorizeCommand {
 
     fn len(&self) -> usize {
         TpmCc::SIZE
-            + u32::SIZE
+            + TpmUint32::SIZE
             + self.key_sign.len()
             + self.policy_ref.len()
             + self.policy_signature.len()
@@ -443,7 +443,7 @@ impl VtpmPolicyCommand for VtpmPolicySecretCommand {
 
     fn len(&self) -> usize {
         TpmCc::SIZE
-            + u32::SIZE
+            + TpmUint32::SIZE
             + self.object_handle_hint.len()
             + self.object_name.len()
             + self.policy_ref.len()

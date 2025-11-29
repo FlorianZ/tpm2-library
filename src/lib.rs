@@ -674,7 +674,7 @@ mod tests {
         let mut buffer = vec![0u8; std::mem::size_of::<u32>()];
         let len = {
             let mut writer = TpmWriter::new(&mut buffer);
-            let stale_version = VERSION + 1;
+            let stale_version = TpmUint32(VERSION + 1);
             stale_version.marshal(&mut writer).unwrap();
             writer.len()
         };
