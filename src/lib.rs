@@ -13,14 +13,10 @@ mod hash;
 mod rsa;
 mod template;
 
-use openssl::{
-    bn::BigNumContext,
-    ec::{EcGroupRef, EcPointRef, PointConversionForm},
-};
 use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     constant::MAX_DIGEST_SIZE,
-    data::{Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, TpmtPublic},
+    data::{Tpm2bEncryptedSecret, Tpm2bName, TpmtPublic},
     TpmMarshal, TpmSized, TpmWriter,
 };
 
@@ -33,8 +29,6 @@ pub use template::*;
 pub const KDF_LABEL_DUPLICATE: &str = "DUPLICATE";
 pub const KDF_LABEL_INTEGRITY: &str = "INTEGRITY";
 pub const KDF_LABEL_STORAGE: &str = "STORAGE";
-
-const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
 /// Trait for cryptographic public keys.
 pub trait TpmExternalKey
@@ -115,36 +109,4 @@ pub fn tpm_make_name(public: &TpmtPublic) -> Result<Tpm2bName, TpmCryptoError> {
     final_buf[2..2 + digest_len].copy_from_slice(&digest);
 
     Tpm2bName::try_from(&final_buf[..2 + digest_len]).map_err(TpmCryptoError::Unmarshal)
-}
-
-/// Converts an OpenSSL `EcPoint` to TPM `(x, y)` coordinate buffers.
-///
-/// This function handles the uncompressed point byte representation.
-///
-/// # Errors
-///
-/// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) if the
-/// OpenSSL operation fails or the point format is invalid.
-/// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) if allocation
-/// fails.
-fn tpm_make_point(
-    point: &EcPointRef,
-    group: &EcGroupRef,
-    ctx: &mut BigNumContext,
-) -> Result<(Tpm2bEccParameter, Tpm2bEccParameter), TpmCryptoError> {
-    let pub_bytes = point
-        .to_bytes(group, PointConversionForm::UNCOMPRESSED, ctx)
-        .map_err(|_| TpmCryptoError::OperationFailed)?;
-
-    if pub_bytes.is_empty() || pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
-        return Err(TpmCryptoError::InvalidEccParameters);
-    }
-
-    let coord_len = (pub_bytes.len() - 1) / 2;
-    let x = Tpm2bEccParameter::try_from(&pub_bytes[1..=coord_len])
-        .map_err(TpmCryptoError::Unmarshal)?;
-    let y = Tpm2bEccParameter::try_from(&pub_bytes[1 + coord_len..])
-        .map_err(TpmCryptoError::Unmarshal)?;
-
-    Ok((x, y))
 }

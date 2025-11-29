@@ -10,8 +10,8 @@
 use rstest::rstest;
 use tpm2_crypto::{TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmRsaExternalKey};
 use tpm2_protocol::data::{
-    Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmtSymDefObject, TpmuAsymScheme,
-    TpmuPublicId, TpmuPublicParms,
+    Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsEccPoint, TpmtSymDefObject,
+    TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
 };
 
 const TEST_MODULUS: [u8; 256] = [1; 256];
@@ -74,7 +74,8 @@ fn test_ecc_to_public(
 ) {
     let x = Tpm2bEccParameter::try_from(x_bytes).unwrap();
     let y = Tpm2bEccParameter::try_from(y_bytes).unwrap();
-    let ecc_key = TpmEccExternalKey { curve, x, y };
+    let unique = TpmsEccPoint { x, y };
+    let ecc_key = TpmEccExternalKey { curve, unique };
     let symmetric = TpmtSymDefObject::default();
 
     let template = tpm2_crypto::TpmPublicTemplate::new()

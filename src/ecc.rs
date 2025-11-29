@@ -11,7 +11,7 @@ use num_traits::ops::bytes::ToBytes;
 use openssl::{
     bn::{BigNum, BigNumContext},
     derive::Deriver,
-    ec::{EcGroup, EcKey, EcPoint},
+    ec::{EcGroup, EcGroupRef, EcKey, EcPoint, EcPointRef, PointConversionForm},
     nid::Nid,
     pkey::{PKey, Private},
 };
@@ -26,6 +26,8 @@ use tpm2_protocol::{
     },
     TpmMarshal, TpmWriter,
 };
+
+const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 
 /// TPM 2.0 ECC curves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
@@ -131,8 +133,7 @@ impl From<Nid> for TpmEllipticCurve {
 #[derive(Debug, Clone)]
 pub struct TpmEccExternalKey {
     pub curve: TpmEllipticCurve,
-    pub x: Tpm2bEccParameter,
-    pub y: Tpm2bEccParameter,
+    pub unique: TpmsEccPoint,
 }
 
 impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
@@ -151,8 +152,7 @@ impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
 
         Ok(Self {
             curve: params.curve_id.into(),
-            x,
-            y,
+            unique: TpmsEccPoint { x, y },
         })
     }
 }
@@ -175,9 +175,9 @@ impl TryFrom<&PKey<Private>> for TpmEccExternalKey {
         }
 
         let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
-        let (x, y) = crate::tpm_make_point(ec_key.public_key(), group, &mut ctx)?;
+        let unique = tpm_make_point(ec_key.public_key(), group, &mut ctx)?;
 
-        Ok(Self { curve, x, y })
+        Ok(Self { curve, unique })
     }
 }
 
@@ -210,10 +210,7 @@ impl TpmExternalKey for TpmEccExternalKey {
                 curve_id: self.curve.into(),
                 kdf: TpmtKdfScheme::default(),
             }),
-            unique: TpmuPublicId::Ecc(TpmsEccPoint {
-                x: self.x,
-                y: self.y,
-            }),
+            unique: TpmuPublicId::Ecc(self.unique),
         }
     }
 
@@ -268,9 +265,9 @@ impl TpmEccExternalKey {
         let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
 
         let parent_x =
-            BigNum::from_slice(self.x.as_ref()).map_err(|_| TpmCryptoError::OutOfMemory)?;
+            BigNum::from_slice(self.unique.x.as_ref()).map_err(|_| TpmCryptoError::OutOfMemory)?;
         let parent_y =
-            BigNum::from_slice(self.y.as_ref()).map_err(|_| TpmCryptoError::OutOfMemory)?;
+            BigNum::from_slice(self.unique.y.as_ref()).map_err(|_| TpmCryptoError::OutOfMemory)?;
         let parent_key = EcKey::from_public_key_affine_coordinates(&group, &parent_x, &parent_y)
             .map_err(|_| TpmCryptoError::OperationFailed)?;
         let parent_public_key =
@@ -306,21 +303,37 @@ impl TpmEccExternalKey {
             .derive_to_vec()
             .map_err(|_| TpmCryptoError::OperationFailed)?;
 
-        let (ephemeral_x, ephemeral_y) =
-            crate::tpm_make_point(&ephemeral_pub_point, &group, &mut ctx)?;
+        let ephemeral = tpm_make_point(&ephemeral_pub_point, &group, &mut ctx)?;
 
         let seed_bits =
             u16::try_from(name_alg.size() * 8).map_err(|_| TpmCryptoError::OperationFailed)?;
-        let context_u = ephemeral_x.as_ref();
-        let context_v = self.x.as_ref();
+        let context_u = ephemeral.x.as_ref();
+        let context_v = self.unique.x.as_ref();
 
         let seed = name_alg.kdfe(&z, KDF_LABEL_DUPLICATE, context_u, context_v, seed_bits)?;
 
-        let ephemeral_point_tpm = TpmsEccPoint {
-            x: ephemeral_x,
-            y: ephemeral_y,
-        };
-
-        Ok((seed, ephemeral_point_tpm))
+        Ok((seed, ephemeral))
     }
+}
+
+fn tpm_make_point(
+    point: &EcPointRef,
+    group: &EcGroupRef,
+    ctx: &mut BigNumContext,
+) -> Result<TpmsEccPoint, TpmCryptoError> {
+    let pub_bytes = point
+        .to_bytes(group, PointConversionForm::UNCOMPRESSED, ctx)
+        .map_err(|_| TpmCryptoError::OperationFailed)?;
+
+    if pub_bytes.is_empty() || pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
+        return Err(TpmCryptoError::InvalidEccParameters);
+    }
+
+    let coord_len = (pub_bytes.len() - 1) / 2;
+    let x = Tpm2bEccParameter::try_from(&pub_bytes[1..=coord_len])
+        .map_err(TpmCryptoError::Unmarshal)?;
+    let y = Tpm2bEccParameter::try_from(&pub_bytes[1 + coord_len..])
+        .map_err(TpmCryptoError::Unmarshal)?;
+
+    Ok(TpmsEccPoint { x, y })
 }
