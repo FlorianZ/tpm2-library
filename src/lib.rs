@@ -211,12 +211,8 @@ impl TpmKeyFile {
     }
 
     #[must_use]
-    pub fn description(&self) -> String {
-        if let Some(description) = self.description.clone() {
-            description.clone()
-        } else {
-            String::default()
-        }
+    pub fn description(&self) -> &Option<String> {
+        &self.description
     }
 
     #[must_use]
