@@ -48,6 +48,7 @@ mod error;
 mod policy;
 
 pub use error::*;
+pub use policy::*;
 
 use crate::asn1::{tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1};
 use pem::{EncodeConfig, LineEnding, Pem};
@@ -69,54 +70,9 @@ pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
 use std::convert::TryFrom;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
-    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc},
+    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
     TpmUnmarshal,
 };
-
-/// A single policy command.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TpmKeyPolicyCommand {
-    pub cc: TpmCc,
-    pub body: Vec<u8>,
-}
-
-/// A policy branch (used for `auth_policy` list).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TpmKeyPolicy {
-    name: Option<String>,
-    policy: Vec<TpmKeyPolicyCommand>,
-}
-
-impl TpmKeyPolicy {
-    #[must_use]
-    pub const fn new(name: Option<String>, policy: Vec<TpmKeyPolicyCommand>) -> Self {
-        TpmKeyPolicy { name, policy }
-    }
-
-    #[must_use]
-    pub const fn empty() -> Self {
-        TpmKeyPolicy {
-            name: None,
-            policy: Vec::new(),
-        }
-    }
-
-    #[must_use]
-    pub const fn name(&self) -> &Option<String> {
-        &self.name
-    }
-
-    #[must_use]
-    pub const fn policy(&self) -> &Vec<TpmKeyPolicyCommand> {
-        &self.policy
-    }
-}
-
-impl Default for TpmKeyPolicy {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
 
 /// The type of the TPM key as defined by the OID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -465,10 +421,7 @@ impl TryFrom<TpmAuthPolicyAsn1> for TpmKeyPolicy {
             .map(TpmKeyPolicyCommand::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Self {
-            name: val.name,
-            policy: cmds,
-        })
+        Ok(TpmKeyPolicy::new(val.name, cmds))
     }
 }
 
@@ -481,25 +434,22 @@ impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmKeyPolicy {
             .map(TpmKeyPolicyCommand::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Self {
-            name: None,
-            policy: cmds,
-        })
+        Ok(TpmKeyPolicy::new(None, cmds))
     }
 }
 
 impl From<&TpmKeyPolicy> for TpmAuthPolicyAsn1 {
     fn from(p: &TpmKeyPolicy) -> Self {
         Self {
-            name: p.name.as_deref().map(Utf8String::from),
-            policy: p.policy.iter().map(TpmKeyCommandAsn1::from).collect(),
+            name: p.name().as_deref().map(Utf8String::from),
+            policy: p.policy().iter().map(TpmKeyCommandAsn1::from).collect(),
         }
     }
 }
 
 impl From<&TpmKeyPolicy> for Vec<TpmKeyCommandAsn1> {
     fn from(p: &TpmKeyPolicy) -> Self {
-        p.policy.iter().map(TpmKeyCommandAsn1::from).collect()
+        p.policy().iter().map(TpmKeyCommandAsn1::from).collect()
     }
 }
 

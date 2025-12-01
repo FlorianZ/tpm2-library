@@ -2,8 +2,71 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{asn1::TpmKeyCommandAsn1, TpmKeyError, TpmKeyPolicyCommand};
+use crate::{asn1::TpmKeyCommandAsn1, TpmKeyError};
 use tpm2_protocol::data::TpmCc;
+
+/// A TPM policy command blob encoded according to the ASN.1 specification
+/// encoding rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TpmKeyPolicyCommand {
+    cc: TpmCc,
+    body: Vec<u8>,
+}
+
+impl TpmKeyPolicyCommand {
+    #[must_use]
+    pub const fn new(cc: TpmCc, body: Vec<u8>) -> Self {
+        TpmKeyPolicyCommand { cc, body }
+    }
+
+    #[must_use]
+    pub const fn cc(&self) -> TpmCc {
+        self.cc
+    }
+
+    #[must_use]
+    pub const fn body(&self) -> &Vec<u8> {
+        &self.body
+    }
+}
+
+/// A TPM key policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TpmKeyPolicy {
+    name: Option<String>,
+    policy: Vec<TpmKeyPolicyCommand>,
+}
+
+impl TpmKeyPolicy {
+    #[must_use]
+    pub const fn new(name: Option<String>, policy: Vec<TpmKeyPolicyCommand>) -> Self {
+        TpmKeyPolicy { name, policy }
+    }
+
+    #[must_use]
+    pub const fn empty() -> Self {
+        TpmKeyPolicy {
+            name: None,
+            policy: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub const fn name(&self) -> &Option<String> {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn policy(&self) -> &Vec<TpmKeyPolicyCommand> {
+        &self.policy
+    }
+}
+
+impl Default for TpmKeyPolicy {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
 
 impl TryFrom<TpmKeyCommandAsn1> for TpmKeyPolicyCommand {
     type Error = TpmKeyError;
