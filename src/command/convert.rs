@@ -25,10 +25,10 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
-        TpmCc, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuPublicParms,
+        TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuPublicParms,
         TpmuSensitiveComposite, TpmuSymKeyBits,
     },
-    frame::{TpmAuthCommands, TpmCommand, TpmImportCommand},
+    frame::{TpmAuthCommands, TpmCommand},
     TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::TpmKeyFile;
@@ -332,19 +332,6 @@ impl Convert {
         }
     }
 
-    fn run_import_command(
-        task_state: &mut TaskState,
-        device: &mut TpmDevice,
-        import_cmd: &TpmImportCommand,
-        auths: &[Auth],
-    ) -> Result<Tpm2bPrivate, CommandError> {
-        let (resp, _) = task_state.execute(device, import_cmd, auths)?;
-        let import_resp = resp
-            .Import()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::Import))?;
-        Ok(import_resp.out_private)
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn create_external_key(
         task_state: &mut TaskState,
@@ -380,27 +367,28 @@ impl Convert {
             user_auth,
         )?;
 
-        let import_cmd = TpmImportCommand {
-            encryption_key,
-            object_public: Tpm2bPublic {
-                inner: public.clone(),
-            },
-            duplicate,
-            in_sym_seed,
-            symmetric_alg: TpmtSymDefObject::default(),
-            handles: [parent_handle.0.into()],
-        };
-
-        let out_private = Self::run_import_command(task_state, device, &import_cmd, auths)?;
-
-        let tpm_public_2b = Tpm2bPublic {
+        let tpm_public = Tpm2bPublic {
             inner: public.clone(),
         };
+        let symmetric_alg = TpmtSymDefObject::default();
+
+        let out_private = task_state
+            .import_key(
+                device,
+                parent_handle,
+                &tpm_public,
+                &duplicate,
+                &in_sym_seed,
+                &encryption_key,
+                &symmetric_alg,
+                auths,
+            )
+            .map_err(CommandError::Task)?;
 
         task_state
             .save_key(
                 device,
-                tpm_public_2b,
+                tpm_public,
                 out_private,
                 parent_handle,
                 user_auth.is_empty(),

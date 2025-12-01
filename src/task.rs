@@ -18,12 +18,13 @@ use tpm2_device::{TpmDevice, TpmDeviceError, TpmPolicySession};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmInt32, TpmUint32},
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bNonce, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc,
-        TpmHt, TpmRh, TpmaSession, TpmsAuthCommand,
+        Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce,
+        Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaSession, TpmsAuthCommand,
+        TpmtSymDefObject,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
-        TpmResponse,
+        TpmImportCommand, TpmResponse,
     },
     TpmUnmarshal,
 };
@@ -139,10 +140,10 @@ impl<'a> TaskState<'a> {
     ///
     /// For each cached entry whose vhandle is in the persistent handle range,
     /// this:
-    ///   * checks whether the TPM still has an object at that handle
-    ///   * compares the cached public area against the TPM's view by name
-    ///     (`Tpm2bName`)
-    ///   * removes the cache entry when the handle is gone or the name changes.
+    ///    * checks whether the TPM still has an object at that handle
+    ///    * compares the cached public area against the TPM's view by name
+    ///      (`Tpm2bName`)
+    ///    * removes the cache entry when the handle is gone or the name changes.
     ///
     /// # Errors
     ///
@@ -313,6 +314,41 @@ impl<'a> TaskState<'a> {
         }
 
         Ok(file)
+    }
+
+    /// Runs the `TPM2_Import` command to load a duplicate blob into the TPM.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TaskError::Device`] if the TPM transaction fails.
+    /// Returns [`TaskError::ResponseMismatch`] if the TPM response tag is invalid.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_key(
+        &mut self,
+        device: &mut TpmDevice,
+        parent_handle: TpmHandle,
+        public: &Tpm2bPublic,
+        duplicate: &Tpm2bPrivate,
+        in_sym_seed: &Tpm2bEncryptedSecret,
+        encryption_key: &Tpm2bData,
+        symmetric_alg: &TpmtSymDefObject,
+        auth_list: &[Auth],
+    ) -> Result<Tpm2bPrivate, TaskError> {
+        let import_cmd = TpmImportCommand {
+            encryption_key: *encryption_key,
+            object_public: public.clone(),
+            duplicate: *duplicate,
+            in_sym_seed: *in_sym_seed,
+            symmetric_alg: *symmetric_alg,
+            handles: [parent_handle.0.into()],
+        };
+
+        let (resp, _) = self.execute(device, &import_cmd, auth_list)?;
+        let import_resp = resp
+            .Import()
+            .map_err(|_| TaskError::ResponseMismatch(TpmCc::Import))?;
+
+        Ok(import_resp.out_private)
     }
 
     /// Loads a TPM context from a handle.
