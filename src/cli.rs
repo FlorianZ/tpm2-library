@@ -6,7 +6,7 @@
 
 use crate::{
     command::{
-        Algorithm, CommandError, Convert, Create, CreatePrimary, Delete, Evict, Load, Memory,
+        Algorithm, CommandError, Create, CreatePrimary, Delete, Evict, Import, Load, Memory,
         PcrEvent, ResetLock, ReturnCode, Unseal,
     },
     task::TaskState,
@@ -61,11 +61,11 @@ pub struct TopLevel {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     Algorithm(Algorithm),
-    Convert(Convert),
     Create(Create),
     CreatePrimary(CreatePrimary),
     Delete(Delete),
     Evict(Evict),
+    Import(Import),
     Load(Load),
     Memory(Memory),
     PcrEvent(PcrEvent),
@@ -78,11 +78,11 @@ impl Command {
     fn as_task(&self) -> &dyn Task {
         match self {
             Self::Algorithm(cmd) => cmd,
-            Self::Convert(cmd) => cmd,
             Self::Create(cmd) => cmd,
             Self::CreatePrimary(cmd) => cmd,
             Self::Delete(cmd) => cmd,
             Self::Evict(cmd) => cmd,
+            Self::Import(cmd) => cmd,
             Self::Load(cmd) => cmd,
             Self::Memory(cmd) => cmd,
             Self::PcrEvent(cmd) => cmd,

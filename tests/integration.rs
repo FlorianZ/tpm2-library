@@ -82,7 +82,7 @@ fn auth_with_value() {
     let _ = tpm2sh(
         cache_path,
         &[
-            "convert",
+            "import",
             primary_handle_str,
             "--auth",
             parent_auth_arg.as_str(),
@@ -333,20 +333,36 @@ fn load_external_key(#[case] openssl_args: &str) {
     let primary_handle = create_primary_ecc_sha256(cache_path, None);
     let primary_handle_str = primary_handle.as_str();
 
-    let convert_args = [
-        "convert",
+    let import_args = [
+        "import",
         primary_handle_str,
         "-I",
         private_key_path.to_str().unwrap(),
     ];
 
-    let load_output = tpm2sh(cache_path, &convert_args)
+    let load_output_importable = tpm2sh(cache_path, &import_args)
         .pipe(tpm2sh(cache_path, &["load", primary_handle_str]))
         .read()
-        .expect("Failed to convert and load key");
+        .expect("Failed to import and load importable key");
 
-    let loaded_handle = load_output.trim();
-    assert!(loaded_handle.starts_with("80"));
+    let loaded_handle_importable = load_output_importable.trim();
+    assert!(loaded_handle_importable.starts_with("80"));
+
+    let import_loadable_args = [
+        "import",
+        "--loadable",
+        primary_handle_str,
+        "-I",
+        private_key_path.to_str().unwrap(),
+    ];
+
+    let load_output_loadable = tpm2sh(cache_path, &import_loadable_args)
+        .pipe(tpm2sh(cache_path, &["load", primary_handle_str]))
+        .read()
+        .expect("Failed to import and load loadable key");
+
+    let loaded_handle_loadable = load_output_loadable.trim();
+    assert!(loaded_handle_loadable.starts_with("80"));
 }
 
 #[test]

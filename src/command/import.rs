@@ -31,13 +31,17 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand},
     TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::TpmKeyFile;
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand};
 
-/// Convert external keys to TPM keys.
+/// Import external keys to TPM keys.
 #[derive(Args, Debug)]
-pub struct Convert {
+pub struct Import {
     /// Parent's TPM handle as an eight characters hex string.
     pub parent: crate::handle::Handle,
+
+    /// Create a loadable key instead of an importable key.
+    #[arg(long)]
+    pub loadable: bool,
 
     #[clap(flatten)]
     pub auth_args: AuthArgs,
@@ -55,7 +59,7 @@ pub struct Convert {
     pub creation_args: CreationArgs,
 }
 
-impl Task for Convert {
+impl Task for Import {
     fn run(
         &self,
         task_state: &mut TaskState,
@@ -103,6 +107,7 @@ impl Task for Convert {
             }
 
             let tpm_key_result = Self::create_external_key(
+                self.loadable,
                 task_state,
                 device,
                 parent_handle,
@@ -126,7 +131,7 @@ impl Task for Convert {
     }
 }
 
-impl Convert {
+impl Import {
     fn public_to_sym_key_bits(parent_public: &TpmtPublic) -> Result<u16, CommandError> {
         let sym_def = match &parent_public.parameters {
             TpmuPublicParms::Rsa(parms) => &parms.symmetric,
@@ -334,6 +339,7 @@ impl Convert {
 
     #[allow(clippy::too_many_arguments)]
     fn create_external_key(
+        loadable: bool,
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
@@ -372,28 +378,50 @@ impl Convert {
         };
         let symmetric_alg = TpmtSymDefObject::default();
 
-        let out_private = task_state
-            .import_key(
-                device,
-                parent_handle,
-                &tpm_public,
-                &duplicate,
-                &in_sym_seed,
-                &encryption_key,
-                &symmetric_alg,
-                auths,
-            )
-            .map_err(CommandError::Task)?;
+        if loadable {
+            let out_private = task_state
+                .import_key(
+                    device,
+                    parent_handle,
+                    &tpm_public,
+                    &duplicate,
+                    &in_sym_seed,
+                    &encryption_key,
+                    &symmetric_alg,
+                    auths,
+                )
+                .map_err(CommandError::Task)?;
 
-        task_state
-            .save_key(
-                device,
-                tpm_public,
-                out_private,
-                parent_handle,
-                user_auth.is_empty(),
-                policy_commands,
-            )
-            .map_err(CommandError::from)
+            task_state
+                .save_key(
+                    device,
+                    tpm_public,
+                    out_private,
+                    parent_handle,
+                    user_auth.is_empty(),
+                    policy_commands,
+                )
+                .map_err(CommandError::from)
+        } else {
+            let mut file = TpmKeyFile::new()
+                .with_empty_auth(user_auth.is_empty())
+                .with_public(tpm_public)
+                .with_private(duplicate)
+                .with_secret(in_sym_seed.as_ref().to_vec())
+                .with_parent(parent_handle);
+
+            if let Some(vtpm_policy) = task_state
+                .save_policy(device, policy_commands)
+                .map_err(CommandError::Task)?
+            {
+                let mut policy = Vec::with_capacity(vtpm_policy.len());
+                for cmd in vtpm_policy {
+                    policy.push(TpmKeyPolicyCommand::new(cmd.cc(), cmd.body()));
+                }
+                file = file.with_policy(TpmKeyPolicy::new(None, policy));
+            }
+
+            Ok(file)
+        }
     }
 }

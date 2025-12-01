@@ -12,7 +12,7 @@ use clap::Args;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
-    data::{Tpm2bPublic, TpmCc, TpmHt},
+    data::{Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPublic, TpmCc, TpmHt, TpmtSymDefObject},
     frame::TpmLoadCommand,
 };
 use tpm2_tpmkey::TpmKeyFile;
@@ -63,11 +63,31 @@ impl Task for Load {
                     &self.auth_args.build_auth_map()?,
                 )?;
 
+                let object_private = if let Some(secret) = tpm_key.secret() {
+                    let in_sym_seed = Tpm2bEncryptedSecret::try_from(secret.as_slice())
+                        .map_err(|_| CommandError::CapacityExceeded)?;
+
+                    task_state
+                        .import_key(
+                            device,
+                            parent_handle,
+                            tpm_key.public(),
+                            tpm_key.private(),
+                            &in_sym_seed,
+                            &Tpm2bData::default(),
+                            &TpmtSymDefObject::default(),
+                            std::slice::from_ref(&auth),
+                        )
+                        .map_err(CommandError::Task)?
+                } else {
+                    *tpm_key.private()
+                };
+
                 let (object_handle, public) = Self::run_load(
                     task_state,
                     device,
                     parent_handle,
-                    tpm_key.private(),
+                    &object_private,
                     tpm_key.public(),
                     &[auth],
                 )?;

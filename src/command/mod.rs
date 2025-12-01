@@ -6,11 +6,11 @@
 
 pub mod algorithm;
 pub mod common;
-pub mod convert;
 pub mod create;
 pub mod create_primary;
 pub mod delete;
 pub mod evict;
+pub mod import;
 pub mod load;
 pub mod memory;
 pub mod pcr_event;
@@ -20,11 +20,11 @@ pub mod unseal;
 
 pub use algorithm::*;
 pub use common::*;
-pub use convert::*;
 pub use create::*;
 pub use create_primary::*;
 pub use delete::*;
 pub use evict::*;
+pub use import::*;
 pub use load::*;
 pub use memory::*;
 pub use pcr_event::*;
