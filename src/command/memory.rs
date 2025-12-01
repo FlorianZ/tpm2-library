@@ -56,10 +56,6 @@ pub struct Memory {
     #[arg(long)]
     pub no_cache: bool,
 
-    /// Show policy expression for the given handle.
-    #[arg(short = 'p', long = "policy")]
-    pub policy: bool,
-
     #[clap(flatten)]
     pub auth_args: AuthArgs,
 }
@@ -81,7 +77,6 @@ impl Task for Memory {
                 handle_val,
                 handle.to_string(),
                 &self.auth_args,
-                self.policy,
             )
         } else {
             Self::list_all_memory(session, writer, &self.auth_args, is_tty, self.no_cache)
@@ -163,34 +158,125 @@ impl Memory {
         handle_val: u32,
         handle_str: String,
         auth_args: &AuthArgs,
-        show_policy: bool,
     ) -> Result<(), CommandError> {
-        with_device(session.device.clone(), |device| {
-            if (handle_val >> 24) == (TpmHt::NvIndex as u32) {
-                Self::inspect_nv_index(session, device, writer, handle_val, auth_args)
-            } else if show_policy {
-                let key = session
-                    .cache
-                    .find_by_handle(TpmUint32(handle_val))
-                    .ok_or(CommandError::UnknownHandle(handle_str))?;
+        with_device(
+            session.device.clone(),
+            |device| -> Result<(), CommandError> {
+                if (handle_val >> 24) == (TpmHt::NvIndex as u32) {
+                    Self::inspect_nv_index(session, device, writer, handle_val, auth_args)
+                } else {
+                    Self::inspect_object(session, device, writer, handle_val, handle_str)
+                }
+            },
+        )
+    }
 
-                if let Some(policy_str) = Self::format_policy(key.policy()) {
-                    writeln!(writer, "{policy_str}")?;
-                }
-                Ok(())
+    fn inspect_object(
+        session: &mut TaskState,
+        device: &mut TpmDevice,
+        writer: &mut dyn std::io::Write,
+        handle_val: u32,
+        handle_str: String,
+    ) -> Result<(), CommandError> {
+        let handle = TpmUint32(handle_val);
+
+        if let Some(key) = session.cache.find_by_handle(handle) {
+            let public = key.public();
+            let alg_str = public_to_template(public).map_or_else(
+                |_| format!("{:?}", public.object_type),
+                |t| t.try_into().unwrap_or_else(|_| "unknown".to_string()),
+            );
+
+            let hierarchy = match key.context().hierarchy {
+                TpmRh::Owner => "owner",
+                TpmRh::Platform => "platform",
+                TpmRh::Endorsement => "endorsement",
+                TpmRh::Null => "null",
+                _ => "unknown",
+            };
+
+            let parent_str = if key.parent().object_type == TpmAlgId::Null {
+                hierarchy.to_string()
             } else {
-                match device.read_public(handle_val.into()) {
-                    Ok(_) => Ok(()),
-                    Err(TpmDeviceError::TpmRc(rc))
-                        if rc.base() == TpmRcBase::Handle
-                            || rc.base() == TpmRcBase::ReferenceH0 =>
-                    {
-                        Err(CommandError::UnknownHandle(handle_str))
+                let mut name_to_handle = HashMap::new();
+                if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
+                    for h in handles {
+                        if let Ok((_, name)) = device.read_public(h) {
+                            name_to_handle.insert(name, format!("{:08x}", h.0));
+                        }
                     }
-                    Err(e) => Err(e.into()),
                 }
+                for (vhandle, k) in session.cache.key_iter() {
+                    if let Ok(name) = tpm_make_name(k.public()) {
+                        name_to_handle.insert(name, format!("{vhandle:08x}"));
+                    }
+                }
+
+                if let Ok(pname) = tpm_make_name(key.parent()) {
+                    name_to_handle
+                        .get(&pname)
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string())
+                } else {
+                    "error".to_string()
+                }
+            };
+
+            let policy_str = Self::format_policy(key.policy())
+                .unwrap_or_else(|| hex::encode(public.auth_policy));
+
+            writeln!(writer, "algorithm: {alg_str}")?;
+            writeln!(writer, "hierarchy: {hierarchy}")?;
+            writeln!(writer, "parent: {parent_str}")?;
+            writeln!(
+                writer,
+                "attributes: {:08x}",
+                public.object_attributes.bits()
+            )?;
+            if !policy_str.is_empty() {
+                writeln!(writer, "policy: {policy_str}")?;
             }
-        })
+            return Ok(());
+        }
+
+        match device.read_public(handle) {
+            Ok((public, _name)) => {
+                let alg_str = public_to_template(&public).map_or_else(
+                    |_| format!("{:?}", public.object_type),
+                    |t| t.try_into().unwrap_or_else(|_| "unknown".to_string()),
+                );
+
+                let hierarchy = if handle_val >= 0x8180_0000 {
+                    "platform"
+                } else if handle_val >= 0x8100_0000 {
+                    "owner"
+                } else {
+                    "unknown"
+                };
+
+                let parent_str = "unknown";
+
+                let policy_str = hex::encode(public.auth_policy);
+
+                writeln!(writer, "algorithm: {alg_str}")?;
+                writeln!(writer, "hierarchy: {hierarchy}")?;
+                writeln!(writer, "parent: {parent_str}")?;
+                writeln!(
+                    writer,
+                    "attributes: {:08x}",
+                    public.object_attributes.bits()
+                )?;
+                writeln!(writer, "policy: {policy_str}")?;
+
+                Ok(())
+            }
+            Err(TpmDeviceError::TpmRc(rc))
+                if rc.base() == TpmRcBase::Handle || rc.base() == TpmRcBase::ReferenceH0 =>
+            {
+                Err(CommandError::UnknownHandle(handle_str))
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn list_all_memory(
@@ -433,7 +519,11 @@ impl Memory {
             .get(&TpmUint32(auth_handle_val))
             .cloned()
             .unwrap_or_default();
-        let effective_auths: &[Auth] = if needs_auth { &[auth] } else { &[] };
+        let effective_auths: &[Auth] = if needs_auth {
+            std::slice::from_ref(&auth)
+        } else {
+            &[]
+        };
 
         while offset < data_size.value() as usize {
             let chunk_size = std::cmp::min(
