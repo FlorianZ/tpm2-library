@@ -74,8 +74,8 @@ impl Task for Load {
 
                 let policy_blob = if let Some(policy) = &tpm_key.policy() {
                     let mut policy_vec: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
-                    for cmd in &policy.policy {
-                        policy_vec.push(vtpm_policy_command_from_parts(cmd.cc, &cmd.body)?);
+                    for cmd in policy.policy() {
+                        policy_vec.push(vtpm_policy_command_from_parts(cmd.cc(), cmd.body())?);
                     }
                     Some(policy_vec)
                 } else {

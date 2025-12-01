@@ -307,12 +307,9 @@ impl<'a> TaskState<'a> {
         if let Some(vtpm_policy) = self.save_policy(device, commands)? {
             let mut policy = Vec::with_capacity(vtpm_policy.len());
             for cmd in vtpm_policy {
-                policy.push(TpmKeyPolicyCommand {
-                    cc: cmd.cc(),
-                    body: cmd.body(),
-                });
+                policy.push(TpmKeyPolicyCommand::new(cmd.cc(), cmd.body()));
             }
-            file = file.with_policy(TpmKeyPolicy { name: None, policy });
+            file = file.with_policy(TpmKeyPolicy::new(None, policy));
         }
 
         Ok(file)
