@@ -83,8 +83,39 @@ pub struct TpmKeyPolicyCommand {
 /// A policy branch (used for `auth_policy` list).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmKeyPolicy {
-    pub name: Option<String>,
-    pub policy: Vec<TpmKeyPolicyCommand>,
+    name: Option<String>,
+    policy: Vec<TpmKeyPolicyCommand>,
+}
+
+impl TpmKeyPolicy {
+    #[must_use]
+    pub const fn new(name: Option<String>, policy: Vec<TpmKeyPolicyCommand>) -> Self {
+        TpmKeyPolicy { name, policy }
+    }
+
+    #[must_use]
+    pub const fn empty() -> Self {
+        TpmKeyPolicy {
+            name: None,
+            policy: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub const fn name(&self) -> &Option<String> {
+        &self.name
+    }
+
+    #[must_use]
+    pub const fn policy(&self) -> &Vec<TpmKeyPolicyCommand> {
+        &self.policy
+    }
+}
+
+impl Default for TpmKeyPolicy {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 /// The type of the TPM key as defined by the OID.
