@@ -44,7 +44,7 @@ pub struct Import {
     pub loadable: bool,
 
     /// Description
-    #[arg(short = 'n', long)]
+    #[arg(short = 'd', long)]
     pub description: Option<String>,
 
     #[clap(flatten)]

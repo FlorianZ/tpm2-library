@@ -49,7 +49,7 @@ pub struct Create {
     pub input: Option<PathBuf>,
 
     /// Description
-    #[arg(short = 'n', long)]
+    #[arg(short = 'd', long)]
     pub description: Option<String>,
 
     #[clap(flatten)]
