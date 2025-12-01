@@ -44,8 +44,8 @@
 #![allow(clippy::no_effect_underscore_binding)]
 
 mod asn1;
-mod command;
 mod error;
+mod policy;
 
 pub use error::*;
 
