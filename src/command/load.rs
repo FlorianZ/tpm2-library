@@ -9,10 +9,13 @@ use crate::{
     task::{Auth, TaskState},
 };
 use clap::Args;
+use std::ffi::CString;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
-    data::{Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPublic, TpmCc, TpmHt, TpmtSymDefObject},
+    data::{
+        Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmtSymDefObject,
+    },
     frame::TpmLoadCommand,
 };
 use tpm2_tpmkey::TpmKeyFile;
@@ -30,6 +33,10 @@ pub struct Load {
 
     /// Parent's TPM handle as an eight characters hex string.
     pub parent: crate::handle::Handle,
+
+    /// Load to the kernel keyring as a trusted key.
+    #[arg(long)]
+    pub kernel: bool,
 }
 
 impl Task for Load {
@@ -39,17 +46,21 @@ impl Task for Load {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<(), CommandError> {
+        let input_bytes = read_file_input(self.input_args.input.as_deref())?;
+        if input_bytes.is_empty() {
+            return Ok(());
+        }
+
+        let tpm_key = TpmKeyFile::from_pem(&input_bytes)
+            .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;
+
+        if self.kernel {
+            return Self::load_kernel_key(&tpm_key, writer);
+        }
+
         with_device(
             task_state.device.clone(),
             |device| -> Result<(), CommandError> {
-                let input_bytes = read_file_input(self.input_args.input.as_deref())?;
-                if input_bytes.is_empty() {
-                    return Ok(());
-                }
-
-                let tpm_key = TpmKeyFile::from_pem(&input_bytes)
-                    .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;
-
                 let (parent_public, parent_handle_ref) = {
                     let Some(parent) = self.parent.value() else {
                         return Err(CommandError::PatternNotAllowed(self.parent.to_string()));
@@ -118,6 +129,45 @@ impl Task for Load {
 }
 
 impl Load {
+    fn load_kernel_key(
+        tpm_key: &TpmKeyFile,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), CommandError> {
+        if tpm_key.public().object_type != TpmAlgId::KeyedHash {
+            return Err(CommandError::UnsupportedKeyAlgorithm);
+        }
+
+        let description = tpm_key
+            .description()
+            .clone()
+            .ok_or(CommandError::KeyDescriptionMissing)?;
+
+        let der = tpm_key.to_der().map_err(CommandError::from)?;
+        let payload = format!("load {}", hex::encode(der));
+
+        let type_c = CString::new("trusted").map_err(|_| CommandError::OutOfMemory)?;
+        let desc_c = CString::new(description).map_err(|_| CommandError::OutOfMemory)?;
+        let payload_c = CString::new(payload).map_err(|_| CommandError::OutOfMemory)?;
+
+        let ret = unsafe {
+            libc::syscall(
+                libc::SYS_add_key,
+                type_c.as_ptr(),
+                desc_c.as_ptr(),
+                payload_c.as_ptr().cast::<libc::c_void>(),
+                payload_c.as_bytes().len(),
+                libc::KEY_SPEC_USER_KEYRING,
+            )
+        };
+
+        if ret < 0 {
+            return Err(CommandError::Io(std::io::Error::last_os_error()));
+        }
+
+        writeln!(writer, "{ret}")?;
+        Ok(())
+    }
+
     fn parent_from_handle(
         task_state: &mut TaskState,
         device: &mut TpmDevice,

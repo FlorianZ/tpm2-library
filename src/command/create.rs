@@ -48,6 +48,10 @@ pub struct Create {
     #[arg(short = 'I', long, conflicts_with = "data")]
     pub input: Option<PathBuf>,
 
+    /// Description
+    #[arg(short = 'n', long)]
+    pub description: Option<String>,
+
     #[clap(flatten)]
     pub auth_args: AuthArgs,
 
@@ -161,7 +165,7 @@ impl Create {
             .Create()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
 
-        let tpm_key = task_state.save_key(
+        let mut tpm_key = task_state.save_key(
             device,
             resp.out_public,
             resp.out_private,
@@ -169,6 +173,10 @@ impl Create {
             empty_auth,
             policy_commands,
         )?;
+
+        if let Some(name) = &self.description {
+            tpm_key = tpm_key.with_description(name.clone());
+        }
 
         write_key_data(
             writer,

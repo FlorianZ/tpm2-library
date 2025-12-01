@@ -117,8 +117,12 @@ pub enum CommandError {
     IntegerOverflow,
     #[error("key: {0}")]
     Key(#[from] tpm2_tpmkey::TpmKeyError),
+    #[error("key description missing")]
+    KeyDescriptionMissing,
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmProtocolError),
+    #[error("out of memory")]
+    OutOfMemory,
     #[error("handle pattern not allowed: {0}")]
     PatternNotAllowed(String),
     #[error("pcr: {0}")]

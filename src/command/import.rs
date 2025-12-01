@@ -43,6 +43,10 @@ pub struct Import {
     #[arg(long)]
     pub loadable: bool,
 
+    /// Description
+    #[arg(short = 'n', long)]
+    pub description: Option<String>,
+
     #[clap(flatten)]
     pub auth_args: AuthArgs,
 
@@ -108,6 +112,7 @@ impl Task for Import {
 
             let tpm_key_result = Self::create_external_key(
                 self.loadable,
+                self.description.as_deref(),
                 task_state,
                 device,
                 parent_handle,
@@ -340,6 +345,7 @@ impl Import {
     #[allow(clippy::too_many_arguments)]
     fn create_external_key(
         loadable: bool,
+        name: Option<&str>,
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
@@ -378,7 +384,7 @@ impl Import {
         };
         let symmetric_alg = TpmtSymDefObject::default();
 
-        if loadable {
+        let mut file = if loadable {
             let out_private = task_state
                 .import_key(
                     device,
@@ -401,7 +407,7 @@ impl Import {
                     user_auth.is_empty(),
                     policy_commands,
                 )
-                .map_err(CommandError::from)
+                .map_err(CommandError::from)?
         } else {
             let mut file = TpmKeyFile::new()
                 .with_empty_auth(user_auth.is_empty())
@@ -421,7 +427,13 @@ impl Import {
                 file = file.with_policy(TpmKeyPolicy::new(None, policy));
             }
 
-            Ok(file)
+            file
+        };
+
+        if let Some(n) = name {
+            file = file.with_description(n.to_string());
         }
+
+        Ok(file)
     }
 }
