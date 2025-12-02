@@ -10,20 +10,14 @@ use crate::{
     task::{Auth, TaskState},
 };
 use clap::{Args, ValueEnum};
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use strum::{Display, EnumString};
 use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
-    data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bSensitiveData, TpmAlgId, TpmHt, TpmRh, TpmaObject,
-    },
+    data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmaObject},
     frame::{TpmAuthCommands, TpmCommand},
 };
 
@@ -212,7 +206,7 @@ pub fn build_policy_command_list(
     task_state: &mut TaskState,
     device: &mut TpmDevice,
     name_alg: TpmAlgId,
-) -> Result<(Tpm2bDigest, Option<Vec<(TpmCommand, TpmAuthCommands)>>), CommandError> {
+) -> Result<(Tpm2bDigest, Vec<(TpmCommand, TpmAuthCommands)>), CommandError> {
     if let Some(expression) = &creation_args.policy_expression {
         let pcrs = read_all_pcrs(device)?;
         let names = fetch_handle_names(task_state, device)?;
@@ -221,60 +215,9 @@ pub fn build_policy_command_list(
         let ast = TpmPolicyExpression::new(expression, &policy_context)?;
         let (commands, final_digest) = ast.to_command_list(name_alg, &policy_context)?;
 
-        Ok((final_digest, Some(commands)))
+        Ok((final_digest, commands))
     } else {
-        Ok((Tpm2bDigest::default(), None))
-    }
-}
-
-/// Resolves and validates sensitive data based on the algorithm and input
-/// sources.
-///
-/// - If `data_hex` is provided, it is treated as a hex string.
-/// - If `input_path` is provided, it is read as raw binary.
-///
-/// # Errors
-///
-/// Returns [`InvalidSensitiveData`](CommandError::InvalidSensitiveData)
-/// when the hex string is malformed.
-/// Returns [`Io`](CommandError::Io) if reading the input file fails.
-/// Returns [`SensitiveDataMissing`](CommandError::SensitiveDataMissing)
-/// when the sensitive data is empty or missing for a keyed hash or symmetric
-/// key.
-/// Returns [`CapacityExceeded`](CommandError::CapacityExceeded) when
-/// the sensitive data exceeds the maximum allowed size.
-/// Returns [`SensitiveDataDenied`](CommandError::SensitiveDataDenied)
-/// when sensitive data is provided for an asymmetric key.
-/// Returns [`UnsupportedKeyAlgorithm`](CommandError::UnsupportedKeyAlgorithm)
-/// when the algorithm is not supported.
-pub fn resolve_sensitive_data(
-    data_hex: Option<&str>,
-    input_path: Option<&Path>,
-    alg: TpmAlgId,
-) -> Result<Tpm2bSensitiveData, CommandError> {
-    let bytes = if let Some(hex_str) = data_hex {
-        hex::decode(hex_str).map_err(|_| CommandError::InvalidSensitiveData)?
-    } else if let Some(path) = input_path {
-        std::fs::read(path)?
-    } else {
-        Vec::new()
-    };
-
-    match alg {
-        TpmAlgId::KeyedHash | TpmAlgId::SymCipher => {
-            if bytes.is_empty() {
-                return Err(CommandError::SensitiveDataMissing);
-            }
-            Tpm2bSensitiveData::try_from(bytes.as_slice())
-                .map_err(|_| CommandError::CapacityExceeded)
-        }
-        TpmAlgId::Rsa | TpmAlgId::Ecc => {
-            if !bytes.is_empty() {
-                return Err(CommandError::SensitiveDataDenied);
-            }
-            Ok(Tpm2bSensitiveData::default())
-        }
-        _ => Err(CommandError::UnsupportedKeyAlgorithm),
+        Ok((Tpm2bDigest::default(), Vec::new()))
     }
 }
 

@@ -16,6 +16,7 @@ pub mod memory;
 pub mod pcr_event;
 pub mod reset_lock;
 pub mod return_code;
+pub mod seal;
 pub mod unseal;
 
 pub use algorithm::*;
@@ -30,6 +31,7 @@ pub use memory::*;
 pub use pcr_event::*;
 pub use reset_lock::*;
 pub use return_code::*;
+pub use seal::*;
 pub use unseal::*;
 
 pub use crate::error::CommandError;

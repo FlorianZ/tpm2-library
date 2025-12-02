@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2025 Jarkko Sakkinen
 
@@ -38,9 +38,8 @@ fn auth_with_value() {
     let native_child_output = tpm2sh(
         cache_path,
         &[
-            "create",
+            "seal",
             primary_handle_str,
-            "keyedhash:sha256",
             "--data",
             SEALED_DATA,
             "--auth",
@@ -116,9 +115,8 @@ fn auth_policy_secret_with_value() {
     let policy_str = format!("secret({primary_handle_str})");
 
     let create_args = [
-        "create",
+        "seal",
         primary_handle_str,
-        "keyedhash:sha256",
         "--data",
         SEALED_DATA,
         "--auth",
@@ -162,9 +160,8 @@ fn auth_with_policy() {
     let policy_str = format!("secret({primary_handle_str})");
 
     let create_args = [
-        "create",
+        "seal",
         primary_handle_str,
-        "keyedhash:sha256",
         "--data",
         SEALED_DATA,
         "--policy",
@@ -184,9 +181,8 @@ fn auth_with_policy() {
     assert_eq!(unseal_output.trim(), SEALED_DATA);
 
     let create_pcr_args = [
-        "create",
+        "seal",
         primary_handle_str,
-        "keyedhash:sha256",
         "--data",
         SEALED_DATA,
         "--policy",
@@ -286,32 +282,12 @@ fn create_primary_ecc_sha256(cache_dir: &Path, password_hex: Option<&str>) -> St
 }
 
 #[test]
-fn create_primary_keyedhash() {
-    let temp_dir = new_cache_dir();
-    let cache_path = temp_dir.path();
-
-    let primary_handle_output = tpm2sh(
-        cache_path,
-        &[
-            "create-primary",
-            "-H",
-            "owner",
-            "keyedhash:sha256",
-            "--data",
-            SEALED_DATA,
-        ],
-    )
-    .read()
-    .expect("Failed to create primary keyedhash object");
-
-    let primary_handle = primary_handle_output.trim();
-    assert!(primary_handle.starts_with("80"));
-
-    let output = tpm2sh(cache_path, &["unseal", primary_handle])
-        .read()
-        .expect("Failed to unseal primary keyedhash object");
-
-    assert_eq!(output.trim(), SEALED_DATA);
+fn create_keyedhash_hmac() {
+    let temp = new_cache_dir();
+    let parent = create_primary_ecc_sha256(temp.path(), None);
+    tpm2sh(temp.path(), &["create", &parent, "keyedhash:sha256"])
+        .run()
+        .expect("Failed to create HMAC key");
 }
 
 #[rstest]
@@ -383,13 +359,7 @@ fn load_multi_level_hierarchy() {
 
     let l3_output = tpm2sh(
         cache_path,
-        &[
-            "create",
-            l2_handle.as_str(),
-            "keyedhash:sha256",
-            "--data",
-            &deep_data,
-        ],
+        &["seal", l2_handle.as_str(), "--data", &deep_data],
     )
     .pipe(tpm2sh(cache_path, &["load", l2_handle.as_str()]))
     .read()

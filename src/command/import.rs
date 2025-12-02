@@ -31,7 +31,7 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand},
     TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyType};
 
 /// Import external keys to TPM keys.
 #[derive(Args, Debug)]
@@ -351,7 +351,7 @@ impl Import {
         user_auth: Tpm2bAuth,
         auth_policy: Tpm2bDigest,
         object_attributes: TpmaObject,
-        policy_commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
+        policy_commands: Vec<(TpmCommand, TpmAuthCommands)>,
     ) -> Result<TpmKeyFile, CommandError> {
         let (parent_public, _) = device
             .read_public(parent_handle)
@@ -380,6 +380,7 @@ impl Import {
             inner: public.clone(),
         };
         let symmetric_alg = TpmtSymDefObject::default();
+        let policy = task_state.save_key_policy(device, policy_commands)?;
 
         let mut file = if loadable {
             let out_private = task_state.import_key(
@@ -393,32 +394,22 @@ impl Import {
                 auths,
             )?;
 
-            task_state.save_key(
-                device,
-                tpm_public,
-                out_private,
-                parent_handle,
-                user_auth.is_empty(),
-                policy_commands,
-            )?
+            TpmKeyFile::new()
+                .with_kind(TpmKeyType::Loadable)
+                .with_empty_auth(user_auth.is_empty())
+                .with_public(tpm_public)
+                .with_private(out_private)
+                .with_parent(parent_handle)
+                .with_policy(TpmKeyPolicy::new(None, policy))
         } else {
-            let mut file = TpmKeyFile::new()
+            TpmKeyFile::new()
                 .with_kind(TpmKeyType::Importable)
                 .with_empty_auth(user_auth.is_empty())
                 .with_public(tpm_public)
                 .with_private(duplicate)
                 .with_secret(in_sym_seed.as_ref().to_vec())
-                .with_parent(parent_handle);
-
-            if let Some(vtpm_policy) = task_state.save_policy(device, policy_commands)? {
-                let mut policy = Vec::with_capacity(vtpm_policy.len());
-                for cmd in vtpm_policy {
-                    policy.push(TpmKeyPolicyCommand::new(cmd.cc(), cmd.body()));
-                }
-                file = file.with_policy(TpmKeyPolicy::new(None, policy));
-            }
-
-            file
+                .with_parent(parent_handle)
+                .with_policy(TpmKeyPolicy::new(None, policy))
         };
 
         if let Some(n) = name {

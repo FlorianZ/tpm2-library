@@ -7,7 +7,7 @@
 use crate::{
     command::{
         Algorithm, CommandError, Create, CreatePrimary, Delete, Evict, Import, Load, Memory,
-        PcrEvent, ResetLock, ReturnCode, Unseal,
+        PcrEvent, ResetLock, ReturnCode, Seal, Unseal,
     },
     task::TaskState,
 };
@@ -71,6 +71,7 @@ pub enum Command {
     PcrEvent(PcrEvent),
     ReturnCode(ReturnCode),
     ResetLock(ResetLock),
+    Seal(Seal),
     Unseal(Unseal),
 }
 
@@ -88,6 +89,7 @@ impl Command {
             Self::PcrEvent(cmd) => cmd,
             Self::ReturnCode(cmd) => cmd,
             Self::ResetLock(cmd) => cmd,
+            Self::Seal(cmd) => cmd,
             Self::Unseal(cmd) => cmd,
         }
     }

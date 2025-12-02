@@ -26,7 +26,7 @@ use tpm2_protocol::{
         TpmImportCommand, TpmResponse,
     },
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
+use tpm2_tpmkey::TpmKeyPolicyCommand;
 use tpm2_vtpm::{vtpm_policy_command_from, VtpmCache, VtpmPolicyCommand, VtpmPolicySecretCommand};
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
@@ -243,42 +243,26 @@ impl<'a> TaskState<'a> {
         Ok((phys_handle, name_alg, Auth::default()))
     }
 
-    /// Constructs a `TpmKeyFile` from the given key components.
+    /// Constructs a [`TpmKeyPolicy`](tpm2_tpmkey::TpmKeyPolicy) instance from
+    /// the given sequence of policy commands.
     ///
     /// # Errors
     ///
-    /// Returns [`CommandError`] if reading the parent public area or building the key policy fails.
-    pub fn save_key(
+    /// Returns [`Device`](crate::CommandError::Device) when the TPM
+    /// transmission has failed.
+    /// Returns [`ResponseMismatch`](crate::CommandError::ResponseMismatch) if
+    /// the TPM response tag is not valid.
+    pub fn save_key_policy(
         &self,
         device: &mut TpmDevice,
-        public: Tpm2bPublic,
-        private: Tpm2bPrivate,
-        parent_handle: TpmHandle,
-        empty_auth: bool,
-        commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-    ) -> Result<TpmKeyFile, CommandError> {
-        let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
-            TpmKeyType::SealedData
-        } else {
-            TpmKeyType::Loadable
-        };
-
-        let mut file = TpmKeyFile::new()
-            .with_kind(kind)
-            .with_empty_auth(empty_auth)
-            .with_public(public)
-            .with_private(private)
-            .with_parent(parent_handle);
-
-        if let Some(vtpm_policy) = self.save_policy(device, commands)? {
-            let mut policy = Vec::with_capacity(vtpm_policy.len());
-            for cmd in vtpm_policy {
-                policy.push(TpmKeyPolicyCommand::new(cmd.cc(), cmd.body()));
-            }
-            file = file.with_policy(TpmKeyPolicy::new(None, policy));
+        commands: Vec<(TpmCommand, TpmAuthCommands)>,
+    ) -> Result<Vec<TpmKeyPolicyCommand>, CommandError> {
+        let vtpm_policy = self.save_vtpm_policy(device, commands)?;
+        let mut key_policy = Vec::with_capacity(vtpm_policy.len());
+        for cmd in vtpm_policy {
+            key_policy.push(TpmKeyPolicyCommand::new(cmd.cc(), cmd.body()));
         }
-
-        Ok(file)
+        Ok(key_policy)
     }
 
     /// Runs the `TPM2_Import` command to load a duplicate blob into the TPM.
@@ -537,14 +521,14 @@ impl<'a> TaskState<'a> {
     ///
     /// Returns [`CommandError`] if reading a public area, computing a name, or
     /// creating a vTPM policy command fails.
-    pub(crate) fn save_policy(
+    pub(crate) fn save_vtpm_policy(
         &self,
         device: &mut TpmDevice,
-        commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
-    ) -> Result<Option<Vec<Box<dyn VtpmPolicyCommand>>>, CommandError> {
-        let Some(commands) = commands else {
-            return Ok(None);
-        };
+        commands: Vec<(TpmCommand, TpmAuthCommands)>,
+    ) -> Result<Vec<Box<dyn VtpmPolicyCommand>>, CommandError> {
+        if commands.is_empty() {
+            return Ok(Vec::new());
+        }
 
         let mut vtpm_policy = Vec::with_capacity(commands.len());
         for (cmd, _) in commands {
@@ -562,7 +546,7 @@ impl<'a> TaskState<'a> {
             vtpm_policy.push(vtpm_policy_command_from(&cmd, &object_name)?);
         }
 
-        Ok(Some(vtpm_policy))
+        Ok(vtpm_policy)
     }
 
     fn load_policy(

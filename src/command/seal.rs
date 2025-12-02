@@ -2,8 +2,6 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-//! Handles the `create` command, which creates secondary keys or sealed objects.
-
 use crate::{
     cli::Task,
     command::{
@@ -13,16 +11,16 @@ use crate::{
     io::write_key_data,
     task::TaskState,
 };
-
 use clap::Args;
+use std::path::PathBuf;
 use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{
         Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc,
-        TpmaObject, TpmlPcrSelection, TpmsSchemeHash, TpmsSensitiveCreate, TpmtPublic,
-        TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
+        TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate, TpmtSymDefObject, TpmuSymKeyBits,
+        TpmuSymMode,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -30,16 +28,20 @@ use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyType};
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
-/// Creates secondary keys or sealed data objects.
+/// Creates a sealed data object (passive KeyedHash).
 #[derive(Args, Debug, Clone)]
-#[command(about = "Creates a secondary key or a sealed data object.")]
-pub struct Create {
+#[command(about = "Creates a sealed data object.")]
+pub struct Seal {
     /// Parent's TPM handle as an eight characters hex string.
     pub parent: crate::handle::Handle,
 
-    /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256'.
-    #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
-    pub algorithm: TpmPublicTemplate,
+    /// Data to seal (hex string)
+    #[arg(long = "data", conflicts_with = "input")]
+    pub data: Option<String>,
+
+    /// Data to seal (file path)
+    #[arg(short = 'I', long, conflicts_with = "data")]
+    pub input: Option<PathBuf>,
 
     /// Description
     #[arg(short = 'd', long)]
@@ -58,7 +60,7 @@ pub struct Create {
     pub creation_args: CreationArgs,
 }
 
-impl Task for Create {
+impl Task for Seal {
     fn run(
         &self,
         task_state: &mut TaskState,
@@ -70,18 +72,29 @@ impl Task for Create {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            self.create_object(task_state, writer, device)
+            self.create_sealed_object(task_state, writer, device)
         })
     }
 }
 
-impl Create {
-    /// Builds the TPM2_Create command by parsing arguments and resolving policies.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CommandError`] if parsing arguments, handling sensitive data,
-    /// or resolving the policy fails.
+impl Seal {
+    /// Resolves the sensitive data to be sealed.
+    fn resolve_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
+        let bytes = if let Some(hex_str) = &self.data {
+            hex::decode(hex_str).map_err(|_| CommandError::InvalidSensitiveData)?
+        } else if let Some(path) = &self.input {
+            std::fs::read(path)?
+        } else {
+            return Err(CommandError::SensitiveDataMissing);
+        };
+
+        if bytes.is_empty() {
+            return Err(CommandError::SensitiveDataMissing);
+        }
+
+        Tpm2bSensitiveData::try_from(bytes.as_slice()).map_err(|_| CommandError::CapacityExceeded)
+    }
+
     fn build_create_command(
         &self,
         task_state: &mut TaskState,
@@ -89,20 +102,23 @@ impl Create {
         parent_handle: TpmHandle,
     ) -> Result<(TpmCreateCommand, PolicyCommands, bool), CommandError> {
         let user_auth = self.creation_args.parse_password()?;
-        let mut object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
+        let sensitive_data = self.resolve_data()?;
 
-        object_attributes |= TpmaObject::SENSITIVE_DATA_ORIGIN;
-
-        if self.algorithm.object_type() == TpmAlgId::KeyedHash {
-            object_attributes |= TpmaObject::SIGN_ENCRYPT;
+        let mut object_attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
+        if !self.creation_args.lock {
+            object_attributes |= TpmaObject::NO_DA;
+        }
+        if self.creation_args.password.is_some() || self.creation_args.policy_expression.is_none() {
+            object_attributes |= TpmaObject::USER_WITH_AUTH;
+        }
+        if self.creation_args.policy_expression.is_some() {
+            object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
         }
 
-        let (auth_policy_digest, policy_commands) = build_policy_command_list(
-            &self.creation_args,
-            task_state,
-            device,
-            self.algorithm.name_alg(),
-        )?;
+        let name_alg = TpmAlgId::Sha256;
+
+        let (auth_policy_digest, policy_commands) =
+            build_policy_command_list(&self.creation_args, task_state, device, name_alg)?;
 
         let symmetric = TpmtSymDefObject {
             algorithm: TpmAlgId::Aes,
@@ -110,34 +126,23 @@ impl Create {
             mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
         };
 
-        let template = self
-            .algorithm
-            .clone()
+        let template = TpmPublicTemplate::new()
+            .with_object_type(TpmAlgId::KeyedHash)
+            .with_name_alg(name_alg)
             .with_object_attributes(object_attributes)
             .with_auth_policy(auth_policy_digest)
             .with_symmetric(symmetric);
-
-        let mut public_area: TpmtPublic = template.try_into()?;
-
-        if public_area.object_type == TpmAlgId::KeyedHash {
-            if let TpmuPublicParms::KeyedHash(parms) = &mut public_area.parameters {
-                if parms.scheme.scheme == TpmAlgId::Null {
-                    parms.scheme.scheme = TpmAlgId::Hmac;
-                    parms.scheme.details = TpmuKeyedhashScheme::Hmac(TpmsSchemeHash {
-                        hash_alg: public_area.name_alg,
-                    });
-                }
-            }
-        }
 
         let create_cmd = TpmCreateCommand {
             in_sensitive: Tpm2bSensitiveCreate {
                 inner: TpmsSensitiveCreate {
                     user_auth,
-                    data: Tpm2bSensitiveData::default(),
+                    data: sensitive_data,
                 },
             },
-            in_public: Tpm2bPublic { inner: public_area },
+            in_public: Tpm2bPublic {
+                inner: template.try_into()?,
+            },
             outside_info: Tpm2bData::default(),
             creation_pcr: TpmlPcrSelection::default(),
             handles: [parent_handle.0.into()],
@@ -146,7 +151,7 @@ impl Create {
         Ok((create_cmd, policy_commands, user_auth.is_empty()))
     }
 
-    fn create_object(
+    fn create_sealed_object(
         &self,
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
@@ -173,13 +178,13 @@ impl Create {
         let policy = task_state.save_key_policy(device, policy_commands)?;
 
         let tpm_key = TpmKeyFile::new()
-            .with_kind(TpmKeyType::Loadable)
+            .with_kind(TpmKeyType::SealedData)
             .with_empty_auth(empty_auth)
             .with_public(resp.out_public)
             .with_private(resp.out_private)
             .with_parent(parent_phys_handle)
-            .with_description(self.description.clone().unwrap_or_default().clone())
-            .with_policy(TpmKeyPolicy::new(None, policy));
+            .with_policy(TpmKeyPolicy::new(None, policy))
+            .with_description(self.description.clone().unwrap_or_default().clone());
 
         write_key_data(
             writer,
