@@ -31,7 +31,7 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand},
     TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
 
 /// Import external keys to TPM keys.
 #[derive(Args, Debug)]
@@ -403,6 +403,7 @@ impl Import {
             )?
         } else {
             let mut file = TpmKeyFile::new()
+                .with_kind(TpmKeyType::Importable)
                 .with_empty_auth(user_auth.is_empty())
                 .with_public(tpm_public)
                 .with_private(duplicate)

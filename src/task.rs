@@ -26,7 +26,7 @@ use tpm2_protocol::{
         TpmImportCommand, TpmResponse,
     },
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyPolicyCommand, TpmKeyType};
 use tpm2_vtpm::{vtpm_policy_command_from, VtpmCache, VtpmPolicyCommand, VtpmPolicySecretCommand};
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
@@ -257,7 +257,14 @@ impl<'a> TaskState<'a> {
         empty_auth: bool,
         commands: Option<Vec<(TpmCommand, TpmAuthCommands)>>,
     ) -> Result<TpmKeyFile, CommandError> {
+        let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
+            TpmKeyType::SealedData
+        } else {
+            TpmKeyType::Loadable
+        };
+
         let mut file = TpmKeyFile::new()
+            .with_kind(kind)
             .with_empty_auth(empty_auth)
             .with_public(public)
             .with_private(private)
