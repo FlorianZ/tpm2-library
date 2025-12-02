@@ -1,35 +1,18 @@
-// SPDX-License-Identifier: GPL-3-0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
-use std::collections::HashMap;
-use thiserror::Error;
+use crate::error::CommandError;
 
-use tpm2_crypto::TpmCryptoError;
-use tpm2_device::{TpmDevice, TpmDeviceError};
+use std::collections::HashMap;
+
+use tpm2_device::TpmDevice;
 use tpm2_protocol::{
     data::{Tpm2bDigest, TpmAlgId, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection},
     frame::TpmPcrReadCommand,
-    TpmProtocolError,
 };
-
-#[derive(Debug, Error)]
-pub enum PcrError {
-    #[error("crypto: {0}")]
-    Crypto(TpmCryptoError),
-    #[error("device: {0}")]
-    Device(TpmDeviceError),
-    #[error("capacity exceeded")]
-    CapacityExceeded,
-    #[error("invalid algorithm: {0:?}")]
-    InvalidAlgorithm(TpmAlgId),
-    #[error("PCR digest missing")]
-    PcrDigestMissing,
-    #[error("unmarshal: {0}")]
-    Unmarshal(TpmProtocolError),
-}
 
 /// Reads all PCRs from the active banks.
 ///
@@ -38,11 +21,11 @@ pub enum PcrError {
 ///
 /// # Errors
 ///
-/// Returns [`PcrError`] on device, capacity, or unmarshaling failure.
+/// Returns a [`CommandError`] on device, capacity, or unmarshaling failure.
 pub fn read_all_pcrs(
     device: &mut TpmDevice,
-) -> Result<HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>, PcrError> {
-    let (algs, common_mask) = device.fetch_pcr_bank_list().map_err(PcrError::Device)?;
+) -> Result<HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>, CommandError> {
+    let (algs, common_mask) = device.fetch_pcr_bank_list()?;
     let mut remaining_selection = TpmlPcrSelection::new();
 
     for alg in &algs {
@@ -51,7 +34,7 @@ pub fn read_all_pcrs(
                 hash: *alg,
                 pcr_select: common_mask,
             })
-            .map_err(|_| PcrError::CapacityExceeded)?;
+            .map_err(|_| CommandError::CapacityExceeded)?;
     }
 
     let mut results: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>> = HashMap::new();
@@ -65,23 +48,23 @@ pub fn read_all_pcrs(
             handles: [],
         };
 
-        let (resp, _) = device.transmit(&cmd, &[]).map_err(PcrError::Device)?;
+        let (resp, _) = device.transmit(&cmd, &[])?;
         let pcr_resp = resp
             .PcrRead()
-            .map_err(|_| PcrError::Device(TpmDeviceError::ResponseMismatch(TpmCc::PcrRead)))?;
+            .map_err(|_| CommandError::ResponseMismatch(TpmCc::PcrRead))?;
 
         let mut value_iter = pcr_resp.pcr_values.iter();
         for selection_out in pcr_resp.pcr_selection_out.iter() {
             let bank_store = results
                 .get_mut(&selection_out.hash)
-                .ok_or(PcrError::InvalidAlgorithm(selection_out.hash))?;
+                .ok_or(CommandError::InvalidAlgorithm(selection_out.hash))?;
 
             for (byte_idx, &byte) in selection_out.pcr_select.iter().enumerate() {
                 for bit_idx in 0..8 {
                     if (byte >> bit_idx) & 1 == 1 {
                         let pcr_idx = u32::try_from(byte_idx * 8 + bit_idx)
-                            .map_err(|_| PcrError::CapacityExceeded)?;
-                        let digest = value_iter.next().ok_or(PcrError::PcrDigestMissing)?;
+                            .map_err(|_| CommandError::CapacityExceeded)?;
+                        let digest = value_iter.next().ok_or(CommandError::PcrDigestMissing)?;
 
                         bank_store.insert(pcr_idx, *digest);
                     }
@@ -104,7 +87,7 @@ fn is_selection_empty(selection: &TpmlPcrSelection) -> bool {
 fn update_remaining_selection(
     remaining: &mut TpmlPcrSelection,
     read: &TpmlPcrSelection,
-) -> Result<(), PcrError> {
+) -> Result<(), CommandError> {
     let mut new_list = TpmlPcrSelection::new();
 
     for target_sel in remaining.iter() {
@@ -119,14 +102,14 @@ fn update_remaining_selection(
         }
 
         let new_select =
-            TpmsPcrSelect::try_from(mask_bytes.as_slice()).map_err(PcrError::Unmarshal)?;
+            TpmsPcrSelect::try_from(mask_bytes.as_slice()).map_err(CommandError::Unmarshal)?;
 
         new_list
             .try_push(TpmsPcrSelection {
                 hash: target_sel.hash,
                 pcr_select: new_select,
             })
-            .map_err(|_| PcrError::CapacityExceeded)?;
+            .map_err(|_| CommandError::CapacityExceeded)?;
     }
 
     *remaining = new_list;

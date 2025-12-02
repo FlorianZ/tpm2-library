@@ -7,6 +7,7 @@
 
 pub mod cli;
 pub mod command;
+pub mod error;
 pub mod handle;
 pub mod io;
 pub mod pcr;
