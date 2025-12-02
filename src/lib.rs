@@ -124,8 +124,14 @@ impl TpmKeyFile {
     }
 
     #[must_use]
+    pub fn with_kind(mut self, kind: TpmKeyType) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    #[must_use]
     pub fn with_empty_auth(mut self, empty_auth: bool) -> Self {
-        self.empty_auth = Some(empty_auth);
+        self.empty_auth = if empty_auth { Some(empty_auth) } else { None };
         self
     }
 
@@ -155,21 +161,7 @@ impl TpmKeyFile {
 
     #[must_use]
     pub fn with_public(mut self, public: Tpm2bPublic) -> Self {
-        let kind = if public.inner.object_type == TpmAlgId::KeyedHash {
-            TpmKeyType::SealedData
-        } else {
-            TpmKeyType::Loadable
-        };
-
-        let rsa_parent = if public.inner.object_type == TpmAlgId::Rsa {
-            Some(true)
-        } else {
-            None
-        };
-
-        self.kind = kind;
         self.public = public;
-        self.rsa_parent = rsa_parent;
         self
     }
 
@@ -182,6 +174,12 @@ impl TpmKeyFile {
     #[must_use]
     pub fn with_parent(mut self, parent: TpmHandle) -> Self {
         self.parent = parent;
+        self
+    }
+
+    #[must_use]
+    pub fn with_rsa_parent(mut self, rsa_parent: bool) -> Self {
+        self.rsa_parent = if rsa_parent { Some(rsa_parent) } else { None };
         self
     }
 
