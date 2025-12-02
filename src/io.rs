@@ -100,10 +100,14 @@ pub fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError>
 ///
 /// Returns an error if the string is not a valid number.
 pub fn parse_u32(s: &str) -> Result<u32, std::num::ParseIntError> {
-    if let Some(stripped) = s.strip_prefix("0x") {
+    let trimmed = s.trim();
+    if let Some(stripped) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
         u32::from_str_radix(stripped, 16)
     } else {
-        s.parse::<u32>()
+        trimmed.parse::<u32>()
     }
 }
 
@@ -118,6 +122,13 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         let result = read_file_input(Some(file.path()));
         assert!(matches!(result, Err(CommandError::UnexpectedEof)));
+    }
+
+    #[test]
+    fn parse_u32_accepts_variants() {
+        assert_eq!(parse_u32(" 42 ").unwrap(), 42);
+        assert_eq!(parse_u32("0x2a").unwrap(), 42);
+        assert_eq!(parse_u32("0X2A").unwrap(), 42);
     }
 
     #[test]

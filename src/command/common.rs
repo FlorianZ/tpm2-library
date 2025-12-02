@@ -53,6 +53,9 @@ fn parse_auth(s: &str) -> Result<(TpmHandle, Auth), String> {
         .split_once(':')
         .ok_or_else(|| "format must be <handle>:<value>".to_string())?;
 
+    let handle_str = handle_str.trim();
+    let auth_str = auth_str.trim();
+
     let handle = parse_handle_target(handle_str)?;
     let auth = hex::decode(auth_str)
         .map(Auth::Password)
@@ -83,7 +86,8 @@ impl AuthArgs {
                 if s.trim().is_empty() {
                     continue;
                 }
-                let (handle, auth) = parse_auth(s).map_err(CommandError::InvalidInput)?;
+                let (handle, auth) =
+                    parse_auth(s).map_err(|e| CommandError::InvalidInput(format!("{s}: {e}")))?;
                 map.insert(handle, auth);
             }
         }
@@ -294,4 +298,27 @@ fn fetch_handle_names(
     }
 
     Ok(map)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use tpm2_protocol::{basic::TpmUint32, data::TpmRh};
+
+    #[test]
+    fn parse_auth_trims_whitespace() {
+        let (handle, auth) = parse_auth(" owner : deadbeef ").unwrap();
+        assert_eq!(handle, TpmUint32(TpmRh::Owner as u32));
+        assert!(matches!(auth, Auth::Password(bytes) if bytes == hex::decode("deadbeef").unwrap()));
+    }
+
+    #[test]
+    fn build_auth_map_wraps_entry_in_error() {
+        env::set_var("TPM2SH_AUTH", "owner:not-hex");
+        let args = AuthArgs::default();
+        let err = args.build_auth_map().unwrap_err();
+        assert!(matches!(err, CommandError::InvalidInput(msg) if msg.contains("owner:not-hex")));
+        env::remove_var("TPM2SH_AUTH");
+    }
 }
