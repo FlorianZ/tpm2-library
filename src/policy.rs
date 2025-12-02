@@ -52,16 +52,6 @@ impl TpmKeyPolicy {
     }
 
     #[must_use]
-    pub const fn len(&self) -> usize {
-        self.policy.len()
-    }
-
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.policy.is_empty()
-    }
-
-    #[must_use]
     pub const fn name(&self) -> &Option<String> {
         &self.name
     }
@@ -69,6 +59,15 @@ impl TpmKeyPolicy {
     #[must_use]
     pub const fn policy(&self) -> &Vec<TpmKeyPolicyCommand> {
         &self.policy
+    }
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.policy.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.policy.is_empty()
     }
 }
 

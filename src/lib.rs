@@ -130,36 +130,6 @@ impl TpmKeyFile {
     }
 
     #[must_use]
-    pub fn with_empty_auth(mut self, empty_auth: bool) -> Self {
-        self.empty_auth = if empty_auth { Some(empty_auth) } else { None };
-        self
-    }
-
-    #[must_use]
-    pub fn with_policy(mut self, policy: TpmKeyPolicy) -> Self {
-        self.policy = Some(policy);
-        self
-    }
-
-    #[must_use]
-    pub fn with_secret(mut self, secret: Vec<u8>) -> Self {
-        self.secret = Some(secret);
-        self
-    }
-
-    #[must_use]
-    pub fn with_auth_policy(mut self, auth_policy: Vec<TpmKeyPolicy>) -> Self {
-        self.auth_policy = Some(auth_policy);
-        self
-    }
-
-    #[must_use]
-    pub fn with_description(mut self, description: String) -> Self {
-        self.description = Some(description);
-        self
-    }
-
-    #[must_use]
     pub fn with_public(mut self, public: Tpm2bPublic) -> Self {
         self.public = public;
         self
@@ -168,6 +138,52 @@ impl TpmKeyFile {
     #[must_use]
     pub fn with_private(mut self, private: Tpm2bPrivate) -> Self {
         self.private = private;
+        self
+    }
+
+    #[must_use]
+    pub fn with_empty_auth(mut self, empty_auth: bool) -> Self {
+        self.empty_auth = if empty_auth { Some(empty_auth) } else { None };
+        self
+    }
+
+    #[must_use]
+    pub fn with_policy(mut self, policy: TpmKeyPolicy) -> Self {
+        self.policy = if policy.is_empty() {
+            None
+        } else {
+            Some(policy)
+        };
+        self
+    }
+
+    #[must_use]
+    pub fn with_secret(mut self, secret: Vec<u8>) -> Self {
+        self.secret = if secret.is_empty() {
+            None
+        } else {
+            Some(secret)
+        };
+        self
+    }
+
+    #[must_use]
+    pub fn with_auth_policy(mut self, auth_policy: Vec<TpmKeyPolicy>) -> Self {
+        self.auth_policy = if auth_policy.is_empty() {
+            None
+        } else {
+            Some(auth_policy)
+        };
+        self
+    }
+
+    #[must_use]
+    pub fn with_description(mut self, description: String) -> Self {
+        self.description = if description.is_empty() {
+            None
+        } else {
+            Some(description)
+        };
         self
     }
 
