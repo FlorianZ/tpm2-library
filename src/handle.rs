@@ -153,3 +153,45 @@ impl TryFrom<Handle> for TpmHt {
         TpmHt::try_from(ht_byte).map_err(|_| HandleError::InvalidHandleType(ht_byte))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_exact_handle() {
+        let h = Handle::from_str("80000001").unwrap();
+        assert_eq!(h.value(), Some(0x8000_0001));
+    }
+
+    #[test]
+    fn parse_wildcard_handle() {
+        let h = Handle::from_str("*").unwrap();
+        assert!(h.value().is_none());
+        assert_eq!(h.to_string(), "*");
+    }
+
+    #[test]
+    fn reject_multiple_asterisks() {
+        let err = Handle::from_str("80**0001").unwrap_err();
+        assert!(matches!(err, HandleError::HandleHasTooManyAsterisks));
+    }
+
+    #[test]
+    fn reject_invalid_characters() {
+        let err = Handle::from_str("8000000g").unwrap_err();
+        assert!(matches!(err, HandleError::InvalidHandleCharacter('g')));
+    }
+
+    #[test]
+    fn reject_too_short() {
+        let err = Handle::from_str("123").unwrap_err();
+        assert!(matches!(err, HandleError::HandleTooShort));
+    }
+
+    #[test]
+    fn pattern_display_uses_question_marks() {
+        let h = Handle::from_str("80??0001").unwrap();
+        assert_eq!(h.to_string(), "80??0001");
+    }
+}
