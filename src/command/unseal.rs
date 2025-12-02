@@ -46,9 +46,7 @@ impl Task for Unseal {
                 handles: [item_handle.0.into()],
             };
 
-            let (resp, _) = task_state
-                .execute(device, &unseal_cmd, &[auth])
-                .map_err(Into::<CommandError>::into)?;
+            let (resp, _) = task_state.execute(device, &unseal_cmd, &[auth])?;
 
             let out_data = resp
                 .Unseal()

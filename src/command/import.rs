@@ -382,29 +382,25 @@ impl Import {
         let symmetric_alg = TpmtSymDefObject::default();
 
         let mut file = if loadable {
-            let out_private = task_state
-                .import_key(
-                    device,
-                    parent_handle,
-                    &tpm_public,
-                    &duplicate,
-                    &in_sym_seed,
-                    &encryption_key,
-                    &symmetric_alg,
-                    auths,
-                )
-                .map_err(CommandError::Task)?;
+            let out_private = task_state.import_key(
+                device,
+                parent_handle,
+                &tpm_public,
+                &duplicate,
+                &in_sym_seed,
+                &encryption_key,
+                &symmetric_alg,
+                auths,
+            )?;
 
-            task_state
-                .save_key(
-                    device,
-                    tpm_public,
-                    out_private,
-                    parent_handle,
-                    user_auth.is_empty(),
-                    policy_commands,
-                )
-                .map_err(CommandError::from)?
+            task_state.save_key(
+                device,
+                tpm_public,
+                out_private,
+                parent_handle,
+                user_auth.is_empty(),
+                policy_commands,
+            )?
         } else {
             let mut file = TpmKeyFile::new()
                 .with_empty_auth(user_auth.is_empty())
@@ -413,10 +409,7 @@ impl Import {
                 .with_secret(in_sym_seed.as_ref().to_vec())
                 .with_parent(parent_handle);
 
-            if let Some(vtpm_policy) = task_state
-                .save_policy(device, policy_commands)
-                .map_err(CommandError::Task)?
-            {
+            if let Some(vtpm_policy) = task_state.save_policy(device, policy_commands)? {
                 let mut policy = Vec::with_capacity(vtpm_policy.len());
                 for cmd in vtpm_policy {
                     policy.push(TpmKeyPolicyCommand::new(cmd.cc(), cmd.body()));

@@ -72,14 +72,12 @@ fn delete_tpm_handles(
                         }),
                     TpmHt::Persistent => {
                         let persistent_handle = TpmUint32(handle);
-                        task_state
-                            .evict_control(
-                                dev,
-                                persistent_handle,
-                                persistent_handle,
-                                &auth_args.build_auth_map()?,
-                            )
-                            .map_err(CommandError::from)
+                        task_state.evict_control(
+                            dev,
+                            persistent_handle,
+                            persistent_handle,
+                            &auth_args.build_auth_map()?,
+                        )
                     }
                     _ => Ok(()),
                 };

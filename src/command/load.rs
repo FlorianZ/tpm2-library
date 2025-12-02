@@ -75,18 +75,16 @@ impl Task for Load {
                     let in_sym_seed = Tpm2bEncryptedSecret::try_from(secret.as_slice())
                         .map_err(|_| CommandError::CapacityExceeded)?;
 
-                    task_state
-                        .import_key(
-                            device,
-                            parent_handle,
-                            tpm_key.public(),
-                            tpm_key.private(),
-                            &in_sym_seed,
-                            &Tpm2bData::default(),
-                            &TpmtSymDefObject::default(),
-                            std::slice::from_ref(&auth),
-                        )
-                        .map_err(CommandError::Task)?
+                    task_state.import_key(
+                        device,
+                        parent_handle,
+                        tpm_key.public(),
+                        tpm_key.private(),
+                        &in_sym_seed,
+                        &Tpm2bData::default(),
+                        &TpmtSymDefObject::default(),
+                        std::slice::from_ref(&auth),
+                    )?
                 } else {
                     *tpm_key.private()
                 };

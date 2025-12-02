@@ -2,13 +2,12 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::task::TaskError;
-
 use thiserror::Error;
 use tpm2_crypto::TpmCryptoError;
 use tpm2_device::TpmDeviceError;
 use tpm2_protocol::{
-    data::{TpmAlgId, TpmCc, TpmRcBase},
+    basic::TpmHandle,
+    data::{Tpm2bName, TpmAlgId, TpmCc, TpmRcBase},
     TpmProtocolError,
 };
 use tpm2_tpmkey::TpmKeyError;
@@ -32,10 +31,18 @@ pub enum CommandError {
     DictionaryAttackLocked,
     #[error("encrypting duplicate blob for external key failed")]
     EncryptingDuplicateFailed,
+    #[error("handle already tracked: {0}")]
+    HandleAlreadyTracked(TpmHandle),
+    #[error("handle not found: {0:08x}")]
+    HandleNotFound(TpmHandle),
+    #[error("handle name not found: {}", hex::encode(.0.as_ref()))]
+    HandleNameNotFound(Tpm2bName),
     #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("invalid algorithm: {0:?}")]
     InvalidAlgorithm(TpmAlgId),
+    #[error("invalid auth")]
+    InvalidAuth,
     #[error("invalid ECC parameters")]
     InvalidEccParameters,
     #[error("invalid handle")]
@@ -64,6 +71,8 @@ pub enum CommandError {
     Key(#[from] TpmKeyError),
     #[error("key description missing")]
     KeyDescriptionMissing,
+    #[error("malformed data")]
+    MalformedData,
     #[error("marshal: {0}")]
     Marshal(TpmProtocolError),
     #[error("out of memory")]
@@ -84,10 +93,10 @@ pub enum CommandError {
     SensitiveDataDenied,
     #[error("sensitive data missing")]
     SensitiveDataMissing,
-    #[error("task: {0}")]
-    Task(#[from] TaskError),
     #[error("unexpected eof")]
     UnexpectedEof,
+    #[error("too many auths")]
+    TooManyAuths,
     #[error("unknown handle: {0}")]
     UnknownHandle(String),
     #[error("unknown parent")]
