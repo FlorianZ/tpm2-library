@@ -83,9 +83,6 @@ impl Task for Import {
             )?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
-            if input_bytes.is_empty() {
-                return Ok(());
-            }
 
             let user_auth = match &self.creation_args.password {
                 Some(hex_str) => {

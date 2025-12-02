@@ -99,6 +99,8 @@ pub enum CommandError {
     InvalidHandleType(u8),
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    #[error("unexpected eof")]
+    UnexpectedEof,
     #[error("invalid parent handle")]
     InvalidParentHandle,
     #[error("invalid parent key type")]

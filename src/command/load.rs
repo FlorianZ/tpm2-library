@@ -47,9 +47,6 @@ impl Task for Load {
         _is_tty: bool,
     ) -> Result<(), CommandError> {
         let input_bytes = read_file_input(self.input_args.input.as_deref())?;
-        if input_bytes.is_empty() {
-            return Ok(());
-        }
 
         let tpm_key = TpmKeyFile::from_pem(&input_bytes)
             .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;

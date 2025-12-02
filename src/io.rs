@@ -17,8 +17,8 @@ use tpm2_tpmkey::TpmKeyFile;
 ///
 /// # Errors
 ///
-/// Returns a `std::io::Error` on failure.
-pub fn read_file_input(input: Option<&Path>) -> io::Result<Vec<u8>> {
+/// Returns `CommandError::UnexpectedEof` when no data is provided.
+pub fn read_file_input(input: Option<&Path>) -> Result<Vec<u8>, CommandError> {
     let mut input_bytes = Vec::new();
     match input {
         Some(path) => {
@@ -28,7 +28,12 @@ pub fn read_file_input(input: Option<&Path>) -> io::Result<Vec<u8>> {
             io::stdin().read_to_end(&mut input_bytes)?;
         }
     }
-    Ok(input_bytes)
+
+    if input_bytes.is_empty() {
+        Err(CommandError::UnexpectedEof)
+    } else {
+        Ok(input_bytes)
+    }
 }
 
 /// Handles the output of a `TpmKey`, choosing PEM or DER format based on the
@@ -99,5 +104,29 @@ pub fn parse_u32(s: &str) -> Result<u32, std::num::ParseIntError> {
         u32::from_str_radix(stripped, 16)
     } else {
         s.parse::<u32>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn read_file_input_errors_on_empty_file() {
+        let file = NamedTempFile::new().unwrap();
+        let result = read_file_input(Some(file.path()));
+        assert!(matches!(result, Err(CommandError::UnexpectedEof)));
+    }
+
+    #[test]
+    fn read_file_input_reads_non_empty_file() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, "abc").unwrap();
+        file.as_file().sync_all().unwrap();
+
+        let result = read_file_input(Some(file.path())).unwrap();
+        assert_eq!(result, b"abc");
     }
 }
