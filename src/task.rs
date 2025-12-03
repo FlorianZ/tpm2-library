@@ -12,14 +12,14 @@ use crate::error::CommandError;
 
 use rand::{thread_rng, RngCore};
 use tpm2_crypto::{tpm_make_name, TpmHash};
-use tpm2_device::{TpmDevice, TpmPolicySession};
+use tpm2_device::{TpmDevice, TpmDeviceError, TpmPolicySession};
 use tpm2_protocol::TpmUnmarshal;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmInt32, TpmUint32},
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce,
-        Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRh, TpmaSession, TpmsAuthCommand,
-        TpmtSymDefObject,
+        Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaSession,
+        TpmsAuthCommand, TpmsContext, TpmtSymDefObject,
     },
     frame::{
         TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
@@ -96,59 +96,6 @@ impl<'a> TaskState<'a> {
         Ok(state)
     }
 
-    /// Best-effort validation of persistent handles in the vTPM cache.
-    ///
-    /// For each cached entry whose vhandle is in the persistent handle range,
-    /// this:
-    ///    * checks whether the TPM still has an object at that handle
-    ///    * compares the cached public area against the TPM's view by name
-    ///      (`Tpm2bName`)
-    ///    * removes the cache entry when the handle is gone or the name changes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CommandError::Device`] if `read_public` fails in a way that
-    /// cannot be handled gracefully, or [`CommandError::Crypto`] if computing the
-    /// cached name fails. May also return [`CommandError::Vtpm`] if removing an
-    /// entry from the cache fails.
-    fn validate_persistent_handles(&mut self, device: &mut TpmDevice) -> Result<(), CommandError> {
-        let mut persistent_vhandles = Vec::new();
-        for (vhandle, _) in self.cache.key_iter() {
-            let handle_val = *vhandle;
-            let ht_byte = (handle_val >> 24) as u8;
-            if let Ok(TpmHt::Persistent) = TpmHt::try_from(ht_byte) {
-                persistent_vhandles.push(handle_val);
-            }
-        }
-
-        for vhandle in persistent_vhandles {
-            let tpm_handle = TpmUint32(vhandle);
-
-            let Some(key) = self.cache.find_by_handle(tpm_handle) else {
-                continue;
-            };
-
-            match device.read_public(tpm_handle) {
-                Ok((_public, name_on_tpm)) => {
-                    let cached_name = tpm_make_name(key.public())?;
-
-                    if cached_name != name_on_tpm {
-                        log::debug!("dropping stale persistent entry {vhandle:08x}: name mismatch");
-                        self.cache.remove(vhandle)?;
-                    }
-                }
-                Err(e) => {
-                    log::debug!(
-                        "dropping stale persistent entry {vhandle:08x}: read_public failed: {e}"
-                    );
-                    self.cache.remove(vhandle)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Removes a session from the task's state and flushes it from the TPM.
     ///
     /// # Errors
@@ -190,6 +137,53 @@ impl<'a> TaskState<'a> {
     pub fn untrack(&mut self, handle: TpmHandle) {
         self.tracked_handles.remove(&handle);
         self.live_handles.retain(|_, v| *v != handle);
+    }
+
+    /// Refreshes the cache by checking validity of the keys.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Device`](crate::CommandError::Device) when the TPM context
+    /// load or flush fails.
+    /// Returns [`Vtpm`](crate::CommandError::Vtpm) when removing a stale entry
+    /// from the cache fails.
+    pub fn refresh_cache(&mut self, device: &mut TpmDevice) -> Result<(), CommandError> {
+        let vhandles: Vec<u32> = self.cache.key_iter().map(|(h, _)| *h).collect();
+        let mut errors: Vec<CommandError> = Vec::new();
+        let mut handles_to_remove = Vec::new();
+
+        for &vhandle in &vhandles {
+            if (vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+                continue;
+            }
+
+            if let Some(key) = self.cache.find_by_handle(TpmUint32(vhandle)) {
+                match Self::refresh_key(device, vhandle, key.context().clone()) {
+                    Ok(true) => {
+                        self.cache.mark_dirty(vhandle);
+                    }
+                    Ok(false) => handles_to_remove.push(vhandle),
+                    Err(e) => {
+                        log::warn!("{vhandle:08x}: {e}");
+                        errors.push(e.into());
+                        handles_to_remove.push(vhandle);
+                    }
+                }
+            }
+        }
+
+        for vhandle in handles_to_remove {
+            if let Err(e) = self.cache.remove(vhandle) {
+                log::error!("{vhandle:08x}: {e}");
+                errors.push(e.into());
+            }
+        }
+
+        if let Some(err) = errors.into_iter().next() {
+            Err(err)
+        } else {
+            Ok(())
+        }
     }
 
     /// Resolves authorization for a given object.
@@ -373,47 +367,6 @@ impl<'a> TaskState<'a> {
         Err(CommandError::HandleNameNotFound(*name))
     }
 
-    /// Fetches policy details (policy blob, name algorithm, and empty auth
-    /// status) for a handle.
-    ///
-    /// This loads the context associated with the handle first.
-    ///
-    /// If the handle is a vTPM handle, details are fetched from the cache.
-    /// If it is a physical TPM handle, details are read from the device.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Vtpm`](CommandError::Vtpm) when a vTPM cache lookup
-    /// fails.
-    /// Returns [`Device`](CommandError::Device) when reading the
-    /// public area fails.
-    /// Returns [`InvalidAuth`](CommandError::InvalidAuth) when the
-    /// handle is invalid.
-    /// Returns [`HandleNotFound`](CommandError::HandleNotFound) when
-    /// the handle cannot be loaded.
-    #[allow(clippy::type_complexity)]
-    fn fetch_policy(
-        &mut self,
-        device: &mut TpmDevice,
-        handle: TpmHandle,
-    ) -> Result<(TpmHandle, Vec<Box<dyn VtpmPolicyCommand>>, TpmAlgId), CommandError> {
-        let phys_handle = self.load_key_by_handle(device, handle)?;
-        let ht_byte = (handle.0 >> 24) as u8;
-        let ht = TpmHt::try_from(ht_byte).map_err(|_| CommandError::InvalidHandleType(ht_byte))?;
-
-        if ht == TpmHt::Transient {
-            let vhandle = handle.0;
-            let key = self
-                .cache
-                .find_by_handle(TpmUint32(vhandle))
-                .ok_or(CommandError::HandleNotFound(TpmUint32(vhandle)))?;
-            Ok((phys_handle, key.policy().clone(), key.public().name_alg))
-        } else {
-            let (public, _) = device.read_public(phys_handle)?;
-            Ok((phys_handle, Vec::new(), public.name_alg))
-        }
-    }
-
     /// Executes a TPM command with full authorization session handling.
     ///
     /// # Errors
@@ -547,6 +500,125 @@ impl<'a> TaskState<'a> {
         }
 
         Ok(vtpm_policy)
+    }
+
+    /// Best-effort validation of persistent handles in the vTPM cache.
+    ///
+    /// For each cached entry whose vhandle is in the persistent handle range,
+    /// this:
+    ///    * checks whether the TPM still has an object at that handle
+    ///    * compares the cached public area against the TPM's view by name
+    ///      (`Tpm2bName`)
+    ///    * removes the cache entry when the handle is gone or the name changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError::Device`] if `read_public` fails in a way that
+    /// cannot be handled gracefully, or [`CommandError::Crypto`] if computing the
+    /// cached name fails. May also return [`CommandError::Vtpm`] if removing an
+    /// entry from the cache fails.
+    fn validate_persistent_handles(&mut self, device: &mut TpmDevice) -> Result<(), CommandError> {
+        let mut persistent_vhandles = Vec::new();
+        for (vhandle, _) in self.cache.key_iter() {
+            let handle_val = *vhandle;
+            let ht_byte = (handle_val >> 24) as u8;
+            if let Ok(TpmHt::Persistent) = TpmHt::try_from(ht_byte) {
+                persistent_vhandles.push(handle_val);
+            }
+        }
+
+        for vhandle in persistent_vhandles {
+            let tpm_handle = TpmUint32(vhandle);
+
+            let Some(key) = self.cache.find_by_handle(tpm_handle) else {
+                continue;
+            };
+
+            match device.read_public(tpm_handle) {
+                Ok((_public, name_on_tpm)) => {
+                    let cached_name = tpm_make_name(key.public())?;
+
+                    if cached_name != name_on_tpm {
+                        log::debug!("dropping stale persistent entry {vhandle:08x}: name mismatch");
+                        self.cache.remove(vhandle)?;
+                    }
+                }
+                Err(e) => {
+                    log::debug!(
+                        "dropping stale persistent entry {vhandle:08x}: read_public failed: {e}"
+                    );
+                    self.cache.remove(vhandle)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn refresh_key(
+        device: &mut TpmDevice,
+        vhandle: u32,
+        context: TpmsContext,
+    ) -> Result<bool, TpmDeviceError> {
+        match device.load_context(context) {
+            Ok(handle) => match device.flush_context(handle) {
+                Ok(()) => Ok(true),
+                Err(e) => Err(e),
+            },
+            Err(TpmDeviceError::TpmRc(rc)) => match rc.base() {
+                TpmRcBase::ReferenceH0
+                | TpmRcBase::Integrity
+                | TpmRcBase::Hierarchy
+                | TpmRcBase::Value
+                | TpmRcBase::Handle => {
+                    log::debug!("{vhandle:08x}: {rc}");
+                    Ok(false)
+                }
+                _ => Err(TpmDeviceError::TpmRc(rc)),
+            },
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Fetches policy details (policy blob, name algorithm, and empty auth
+    /// status) for a handle.
+    ///
+    /// This loads the context associated with the handle first.
+    ///
+    /// If the handle is a vTPM handle, details are fetched from the cache.
+    /// If it is a physical TPM handle, details are read from the device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Vtpm`](CommandError::Vtpm) when a vTPM cache lookup
+    /// fails.
+    /// Returns [`Device`](CommandError::Device) when reading the
+    /// public area fails.
+    /// Returns [`InvalidAuth`](CommandError::InvalidAuth) when the
+    /// handle is invalid.
+    /// Returns [`HandleNotFound`](CommandError::HandleNotFound) when
+    /// the handle cannot be loaded.
+    #[allow(clippy::type_complexity)]
+    fn fetch_policy(
+        &mut self,
+        device: &mut TpmDevice,
+        handle: TpmHandle,
+    ) -> Result<(TpmHandle, Vec<Box<dyn VtpmPolicyCommand>>, TpmAlgId), CommandError> {
+        let phys_handle = self.load_key_by_handle(device, handle)?;
+        let ht_byte = (handle.0 >> 24) as u8;
+        let ht = TpmHt::try_from(ht_byte).map_err(|_| CommandError::InvalidHandleType(ht_byte))?;
+
+        if ht == TpmHt::Transient {
+            let vhandle = handle.0;
+            let key = self
+                .cache
+                .find_by_handle(TpmUint32(vhandle))
+                .ok_or(CommandError::HandleNotFound(TpmUint32(vhandle)))?;
+            Ok((phys_handle, key.policy().clone(), key.public().name_alg))
+        } else {
+            let (public, _) = device.read_public(phys_handle)?;
+            Ok((phys_handle, Vec::new(), public.name_alg))
+        }
     }
 
     fn load_policy(

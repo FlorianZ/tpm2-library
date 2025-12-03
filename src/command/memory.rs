@@ -19,8 +19,8 @@ use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{
-        Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmsContext,
-        TpmtPublic, TpmuPublicParms,
+        Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmtPublic,
+        TpmuPublicParms,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmNvReadCommand, TpmNvReadPublicCommand},
 };
@@ -85,73 +85,6 @@ impl Task for Memory {
 }
 
 impl Memory {
-    fn refresh_key(
-        device: &mut TpmDevice,
-        vhandle: u32,
-        context: TpmsContext,
-    ) -> Result<bool, TpmDeviceError> {
-        match device.load_context(context) {
-            Ok(handle) => match device.flush_context(handle) {
-                Ok(()) => Ok(true),
-                Err(e) => Err(e),
-            },
-            Err(TpmDeviceError::TpmRc(rc)) => match rc.base() {
-                TpmRcBase::ReferenceH0
-                | TpmRcBase::Integrity
-                | TpmRcBase::Hierarchy
-                | TpmRcBase::Value
-                | TpmRcBase::Handle => {
-                    log::debug!("{vhandle:08x}: {rc}");
-                    Ok(false)
-                }
-                _ => Err(TpmDeviceError::TpmRc(rc)),
-            },
-            Err(e) => Err(e),
-        }
-    }
-
-    fn refresh_cache(
-        task_state: &mut TaskState,
-        device: &mut TpmDevice,
-    ) -> Result<(), CommandError> {
-        let vhandles: Vec<u32> = task_state.cache.key_iter().map(|(h, _)| *h).collect();
-        let mut errors: Vec<CommandError> = Vec::new();
-        let mut handles_to_remove = Vec::new();
-
-        for &vhandle in &vhandles {
-            if (vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
-                continue;
-            }
-
-            if let Some(key) = task_state.cache.find_by_handle(TpmUint32(vhandle)) {
-                match Memory::refresh_key(device, vhandle, key.context().clone()) {
-                    Ok(true) => {
-                        task_state.cache.mark_dirty(vhandle);
-                    }
-                    Ok(false) => handles_to_remove.push(vhandle),
-                    Err(e) => {
-                        log::warn!("{vhandle:08x}: {e}");
-                        errors.push(e.into());
-                        handles_to_remove.push(vhandle);
-                    }
-                }
-            }
-        }
-
-        for vhandle in handles_to_remove {
-            if let Err(e) = task_state.cache.remove(vhandle) {
-                log::error!("{vhandle:08x}: {e}");
-                errors.push(e.into());
-            }
-        }
-
-        if let Some(err) = errors.into_iter().next() {
-            Err(err)
-        } else {
-            Ok(())
-        }
-    }
-
     fn inspect_handle(
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
@@ -355,7 +288,7 @@ impl Memory {
         device: &mut TpmDevice,
         rows: &mut Vec<MemoryRow>,
     ) -> Result<(), CommandError> {
-        Self::refresh_cache(session, device)?;
+        session.refresh_cache(device)?;
 
         let mut name_to_handle: HashMap<Tpm2bName, String> = HashMap::new();
         if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
