@@ -16,8 +16,12 @@ use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
-    basic::{TpmHandle, TpmUint32},
-    data::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmaObject},
+    basic::{TpmHandle, TpmUint16, TpmUint32},
+    data::{
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmaObject, TpmsSchemeHash,
+        TpmtPublic, TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicParms, TpmuSymKeyBits,
+        TpmuSymMode,
+    },
     frame::{TpmAuthCommands, TpmCommand},
 };
 
@@ -219,6 +223,47 @@ pub fn build_policy_command_list(
     } else {
         Ok((Tpm2bDigest::default(), Vec::new()))
     }
+}
+
+/// Constructs a `TpmtPublic` structure from a template, attributes, and policy.
+///
+/// This function applies default symmetric parameters (AES-128-CFB) and ensures
+/// `KeyedHash` objects have a valid scheme (defaulting to HMAC if Null).
+///
+/// # Errors
+///
+/// Returns [`CommandError`] if the template conversion fails.
+pub fn resolve_public_template(
+    template: &TpmPublicTemplate,
+    attributes: TpmaObject,
+    auth_policy: Tpm2bDigest,
+) -> Result<TpmtPublic, CommandError> {
+    let symmetric = TpmtSymDefObject {
+        algorithm: TpmAlgId::Aes,
+        key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
+        mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
+    };
+
+    let template_with_attrs = template
+        .clone()
+        .with_object_attributes(attributes)
+        .with_auth_policy(auth_policy)
+        .with_symmetric(symmetric);
+
+    let mut public_area: TpmtPublic = template_with_attrs.try_into()?;
+
+    if public_area.object_type == TpmAlgId::KeyedHash {
+        if let TpmuPublicParms::KeyedHash(parms) = &mut public_area.parameters {
+            if parms.scheme.scheme == TpmAlgId::Null {
+                parms.scheme.scheme = TpmAlgId::Hmac;
+                parms.scheme.details = TpmuKeyedhashScheme::Hmac(TpmsSchemeHash {
+                    hash_alg: public_area.name_alg,
+                });
+            }
+        }
+    }
+
+    Ok(public_area)
 }
 
 /// Fetches a map of all available names (virtual and persistent).

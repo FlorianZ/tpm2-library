@@ -7,8 +7,8 @@
 use crate::{
     cli::Task,
     command::{
-        common::build_policy_command_list, AuthArgs, CommandError, CreationArgs, OutputArgs,
-        OutputEncodingArgs,
+        common::{build_policy_command_list, resolve_public_template},
+        AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs,
     },
     io::write_key_data,
     task::TaskState,
@@ -18,11 +18,10 @@ use clap::Args;
 use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
-    basic::{TpmHandle, TpmUint16, TpmUint32},
+    basic::{TpmHandle, TpmUint32},
     data::{
         Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc,
-        TpmaObject, TpmlPcrSelection, TpmsSchemeHash, TpmsSensitiveCreate, TpmtPublic,
-        TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
+        TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -104,31 +103,8 @@ impl Create {
             self.algorithm.name_alg(),
         )?;
 
-        let symmetric = TpmtSymDefObject {
-            algorithm: TpmAlgId::Aes,
-            key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
-            mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
-        };
-
-        let template = self
-            .algorithm
-            .clone()
-            .with_object_attributes(object_attributes)
-            .with_auth_policy(auth_policy_digest)
-            .with_symmetric(symmetric);
-
-        let mut public_area: TpmtPublic = template.try_into()?;
-
-        if public_area.object_type == TpmAlgId::KeyedHash {
-            if let TpmuPublicParms::KeyedHash(parms) = &mut public_area.parameters {
-                if parms.scheme.scheme == TpmAlgId::Null {
-                    parms.scheme.scheme = TpmAlgId::Hmac;
-                    parms.scheme.details = TpmuKeyedhashScheme::Hmac(TpmsSchemeHash {
-                        hash_alg: public_area.name_alg,
-                    });
-                }
-            }
-        }
+        let public_area =
+            resolve_public_template(&self.algorithm, object_attributes, auth_policy_digest)?;
 
         let create_cmd = TpmCreateCommand {
             in_sensitive: Tpm2bSensitiveCreate {
