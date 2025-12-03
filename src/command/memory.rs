@@ -497,7 +497,7 @@ impl Memory {
             return Ok(());
         }
 
-        if cert_bytes[0] == 0x30 {
+        if X509::from_der(&cert_bytes).is_ok() {
             let pem_cert = pem::encode(&pem::Pem::new("CERTIFICATE", cert_bytes));
             writeln!(writer, "{pem_cert}")?;
         } else {
