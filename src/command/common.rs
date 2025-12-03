@@ -175,15 +175,17 @@ impl CreationArgs {
     ///
     /// Returns [`CommandError`] when attribute construction fails.
     pub fn parse_attributes(&self, alg: &TpmPublicTemplate) -> Result<TpmaObject, CommandError> {
-        let mut attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
+        let mut attributes =
+            TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT | TpmaObject::SENSITIVE_DATA_ORIGIN;
 
         if !self.lock {
             attributes |= TpmaObject::NO_DA;
         }
 
-        if alg.object_type() != TpmAlgId::KeyedHash {
-            attributes |=
-                TpmaObject::SENSITIVE_DATA_ORIGIN | TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
+        if alg.object_type() == TpmAlgId::KeyedHash {
+            attributes |= TpmaObject::SIGN_ENCRYPT;
+        } else {
+            attributes |= TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
         }
 
         if self.password.is_some() || self.policy_expression.is_none() {
