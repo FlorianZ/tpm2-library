@@ -10,9 +10,9 @@ use tpm2_protocol::{
     basic::{TpmBuffer, TpmUint16, TpmUint32},
     data::{
         Tpm2bDigest, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms, TpmsKeyedhashParms,
-        TpmsRsaParms, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtPublic, TpmtRsaScheme,
-        TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms, TpmuSymKeyBits,
-        TpmuSymMode,
+        TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor, TpmtEccScheme, TpmtKdfScheme,
+        TpmtKeyedhashScheme, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject, TpmuKdfScheme,
+        TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
     },
 };
 
@@ -183,7 +183,12 @@ impl TryFrom<TpmPublicTemplate> for String {
                 }
                 Ok(format!("ecc-{curve_str}:{name_alg_str}"))
             }
-            TpmuPublicParms::KeyedHash(_) => Ok(format!("keyedhash:{name_alg_str}")),
+            TpmuPublicParms::KeyedHash(parms) => match parms.scheme.scheme {
+                TpmAlgId::Null => Ok(format!("keyedhash-null:{name_alg_str}")),
+                TpmAlgId::Xor => Ok(format!("keyedhash-xor:{name_alg_str}")),
+                TpmAlgId::Hmac => Ok(format!("keyedhash-hmac:{name_alg_str}")),
+                _ => Ok(format!("unknown:{name_alg_str}")),
+            },
             _ => Ok(format!("unknown:{name_alg_str}")),
         }
     }
@@ -197,8 +202,12 @@ impl FromStr for TpmPublicTemplate {
             parse_rsa(rest)
         } else if let Some(rest) = s.strip_prefix("ecc-") {
             parse_ecc(rest)
-        } else if let Some(name_alg_str) = s.strip_prefix("keyedhash:") {
-            parse_keyedhash(name_alg_str)
+        } else if let Some(name_alg_str) = s.strip_prefix("keyedhash-null:") {
+            parse_keyedhash(name_alg_str, TpmAlgId::Null)
+        } else if let Some(name_alg_str) = s.strip_prefix("keyedhash-xor:") {
+            parse_keyedhash(name_alg_str, TpmAlgId::Xor)
+        } else if let Some(name_alg_str) = s.strip_prefix("keyedhash-hmac:") {
+            parse_keyedhash(name_alg_str, TpmAlgId::Hmac)
         } else {
             Err(TpmCryptoError::InvalidObjectType)
         }
@@ -253,16 +262,26 @@ fn parse_ecc(suffix: &str) -> Result<TpmPublicTemplate, TpmCryptoError> {
         .map(|t| t.with_name_alg(name_alg))
 }
 
-fn parse_keyedhash(hash_alg: &str) -> Result<TpmPublicTemplate, TpmCryptoError> {
+fn parse_keyedhash(hash_alg: &str, scheme: TpmAlgId) -> Result<TpmPublicTemplate, TpmCryptoError> {
     let name_alg = TpmHash::from_str(hash_alg)
         .map_err(|_| TpmCryptoError::InvalidObjectType)?
         .into();
 
+    let details = match scheme {
+        TpmAlgId::Null => TpmuKeyedhashScheme::Null,
+        TpmAlgId::Xor => TpmuKeyedhashScheme::Xor(TpmsSchemeXor {
+            hash_alg: name_alg,
+            kdf: TpmtKdfScheme {
+                scheme: TpmAlgId::Kdf1Sp800_108,
+                details: TpmuKdfScheme::Null,
+            },
+        }),
+        TpmAlgId::Hmac => TpmuKeyedhashScheme::Hmac(TpmsSchemeHash { hash_alg: name_alg }),
+        _ => return Err(TpmCryptoError::InvalidObjectType),
+    };
+
     let parms = TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
-        scheme: TpmtKeyedhashScheme {
-            scheme: TpmAlgId::Null,
-            details: TpmuKeyedhashScheme::Null,
-        },
+        scheme: TpmtKeyedhashScheme { scheme, details },
     });
     let unique = TpmuPublicId::KeyedHash(TpmBuffer::default());
 

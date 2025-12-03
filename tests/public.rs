@@ -8,14 +8,16 @@
 #![deny(clippy::pedantic)]
 
 use rstest::rstest;
-use tpm2_crypto::{TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmRsaExternalKey};
+use std::str::FromStr;
+use tpm2_crypto::{
+    TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmPublicTemplate, TpmRsaExternalKey,
+};
 use tpm2_protocol::{
-    basic::{TpmBuffer, TpmUint16, TpmUint32},
+    basic::TpmUint32,
     data::{
-        Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms,
-        TpmsEccPoint, TpmsKeyedhashParms, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme,
+        Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccPoint,
         TpmtPublic, TpmtSymDefObject, TpmuAsymScheme, TpmuKeyedhashScheme, TpmuPublicId,
-        TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
+        TpmuPublicParms, TpmuSymMode,
     },
 };
 
@@ -114,49 +116,46 @@ fn test_ecc_to_public(
     }
 }
 
-#[test]
-fn keyedhash_template_to_public() {
-    let parms = TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
-        scheme: TpmtKeyedhashScheme {
-            scheme: TpmAlgId::Null,
-            details: TpmuKeyedhashScheme::Null,
-        },
-    });
-    let unique = TpmuPublicId::KeyedHash(TpmBuffer::default());
-
-    let template = tpm2_crypto::TpmPublicTemplate::new()
-        .with_public(unique, parms)
-        .expect("valid keyedhash components")
-        .with_name_alg(TpmAlgId::Sha256);
-
-    let public = TpmtPublic::try_from(template).expect("template to public");
+#[rstest]
+#[case("keyedhash-null:sha256", TpmAlgId::Null)]
+#[case("keyedhash-xor:sha256", TpmAlgId::Xor)]
+#[case("keyedhash-hmac:sha256", TpmAlgId::Hmac)]
+fn test_keyedhash_parsing(#[case] input: &str, #[case] expected_scheme: TpmAlgId) {
+    let template = TpmPublicTemplate::from_str(input).expect("parse failed");
+    let public = TpmtPublic::try_from(template.clone()).expect("template to public");
 
     assert_eq!(public.object_type, TpmAlgId::KeyedHash);
     assert_eq!(public.name_alg, TpmAlgId::Sha256);
-    assert_eq!(public.auth_policy.len(), 0);
 
     if let TpmuPublicParms::KeyedHash(params) = public.parameters {
-        assert_eq!(params.scheme.scheme, TpmAlgId::Null);
-        assert!(matches!(params.scheme.details, TpmuKeyedhashScheme::Null));
+        assert_eq!(params.scheme.scheme, expected_scheme);
+        match expected_scheme {
+            TpmAlgId::Null => assert!(matches!(params.scheme.details, TpmuKeyedhashScheme::Null)),
+            TpmAlgId::Xor => assert!(matches!(params.scheme.details, TpmuKeyedhashScheme::Xor(_))),
+            TpmAlgId::Hmac => {
+                assert!(matches!(
+                    params.scheme.details,
+                    TpmuKeyedhashScheme::Hmac(_)
+                ));
+            }
+            _ => panic!("Unexpected scheme"),
+        }
     } else {
         panic!("Incorrect parameters type: expected KEYEDHASH");
     }
 
-    if let TpmuPublicId::KeyedHash(buf) = public.unique {
-        assert_eq!(buf.len(), 0);
-    } else {
-        panic!("Incorrect unique ID type: expected KEYEDHASH");
-    }
+    let output_str: String = template.try_into().expect("to string failed");
+    assert_eq!(output_str, input);
 }
 
 #[test]
 fn mismatched_public_types_rejected() {
     let unique = TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default());
-    let parms = TpmuPublicParms::Ecc(TpmsEccParms {
+    let parms = TpmuPublicParms::Ecc(tpm2_protocol::data::TpmsEccParms {
         symmetric: TpmtSymDefObject::default(),
-        scheme: TpmtEccScheme::default(),
+        scheme: tpm2_protocol::data::TpmtEccScheme::default(),
         curve_id: TpmEccCurve::NistP256,
-        kdf: TpmtKdfScheme::default(),
+        kdf: tpm2_protocol::data::TpmtKdfScheme::default(),
     });
 
     let result = tpm2_crypto::TpmPublicTemplate::new().with_public(unique, parms);
@@ -170,11 +169,11 @@ fn mismatched_public_types_rejected() {
 #[test]
 fn rsa_to_public_with_aes_symmetric() {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
-    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32(0), TpmUint16::from(2048));
+    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32(0), 2048.into());
 
     let symmetric = TpmtSymDefObject {
         algorithm: TpmAlgId::Aes,
-        key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
+        key_bits: tpm2_protocol::data::TpmuSymKeyBits::Aes(128.into()),
         mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
     };
 
