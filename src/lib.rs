@@ -372,12 +372,14 @@ impl TpmKeyFile {
         let key_type = public.inner.object_type;
 
         let kind = if asn1.key_type == OID_LOADABLE_KEY {
-            if !(key_type == TpmAlgId::Rsa || key_type == TpmAlgId::Ecc) {
+            if key_type != TpmAlgId::Rsa && key_type != TpmAlgId::Ecc &&
+               key_type != TpmAlgId::KeyedHash {
                 return Err(TpmKeyError::InvalidLoadable(key_type));
             }
             TpmKeyType::Loadable
         } else if asn1.key_type == OID_IMPORTABLE_KEY {
-            if !(key_type == TpmAlgId::Rsa || key_type == TpmAlgId::Ecc) {
+            if key_type != TpmAlgId::Rsa && key_type != TpmAlgId::Ecc &&
+               key_type != TpmAlgId::KeyedHash {
                 return Err(TpmKeyError::InvalidImportable(key_type));
             }
             TpmKeyType::Importable
