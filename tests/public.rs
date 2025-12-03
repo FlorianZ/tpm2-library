@@ -10,11 +10,12 @@
 use rstest::rstest;
 use tpm2_crypto::{TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmRsaExternalKey};
 use tpm2_protocol::{
-    basic::{TpmUint16, TpmUint32},
+    basic::{TpmBuffer, TpmUint16, TpmUint32},
     data::{
-        Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmsEccPoint, TpmtPublic,
-        TpmtSymDefObject, TpmuAsymScheme, TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms,
-        TpmuSymKeyBits, TpmuSymMode,
+        Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms,
+        TpmsEccPoint, TpmsKeyedhashParms, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme,
+        TpmtPublic, TpmtSymDefObject, TpmuAsymScheme, TpmuKeyedhashScheme, TpmuPublicId,
+        TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
     },
 };
 
@@ -115,8 +116,17 @@ fn test_ecc_to_public(
 
 #[test]
 fn keyedhash_template_to_public() {
+    let parms = TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
+        scheme: TpmtKeyedhashScheme {
+            scheme: TpmAlgId::Null,
+            details: TpmuKeyedhashScheme::Null,
+        },
+    });
+    let unique = TpmuPublicId::KeyedHash(TpmBuffer::default());
+
     let template = tpm2_crypto::TpmPublicTemplate::new()
-        .with_object_type(TpmAlgId::KeyedHash)
+        .with_public(unique, parms)
+        .expect("valid keyedhash components")
         .with_name_alg(TpmAlgId::Sha256);
 
     let public = TpmtPublic::try_from(template).expect("template to public");
@@ -140,12 +150,16 @@ fn keyedhash_template_to_public() {
 }
 
 #[test]
-fn invalid_object_type_rejected() {
-    let template = tpm2_crypto::TpmPublicTemplate::new()
-        .with_object_type(TpmAlgId::Sha1)
-        .with_name_alg(TpmAlgId::Sha256);
+fn mismatched_public_types_rejected() {
+    let unique = TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default());
+    let parms = TpmuPublicParms::Ecc(TpmsEccParms {
+        symmetric: TpmtSymDefObject::default(),
+        scheme: TpmtEccScheme::default(),
+        curve_id: TpmEccCurve::NistP256,
+        kdf: TpmtKdfScheme::default(),
+    });
 
-    let result = TpmtPublic::try_from(template);
+    let result = tpm2_crypto::TpmPublicTemplate::new().with_public(unique, parms);
 
     assert!(matches!(
         result,
