@@ -1460,9 +1460,9 @@ checksum = "b7c48a6ed150f111bee570c182015e7c11eb29be1d1a1bceb09369ca74753512"
 
 [[package]]
 name = "tpm2-tpmkey"
-version = "0.11.7"
+version = "0.11.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43e8766afe7cc43f6a0b966edcbf4fdd82d86cc95054ea29c498d4528ff1feac"
+checksum = "834536a9f2a510ce6dfb3176c949f336af210b8f83e2733df42028f8d1eb48e8"
 dependencies = [
  "hex",
  "pem",
