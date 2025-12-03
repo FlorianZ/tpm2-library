@@ -34,9 +34,9 @@ pub struct Load {
     /// Parent's TPM handle as an eight characters hex string.
     pub parent: crate::handle::Handle,
 
-    /// Load to the kernel keyring as a trusted key.
-    #[arg(long)]
-    pub kernel: bool,
+    /// Load to the kernel keyring as a trusted key with the given name.
+    #[arg(long, value_name = "NAME")]
+    pub kernel: Option<String>,
 }
 
 impl Task for Load {
@@ -51,8 +51,8 @@ impl Task for Load {
         let tpm_key = TpmKeyFile::from_pem(&input_bytes)
             .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;
 
-        if self.kernel {
-            return Self::load_kernel_key(&tpm_key, writer);
+        if let Some(name) = &self.kernel {
+            return Self::load_kernel_key(&tpm_key, name, writer);
         }
 
         with_device(
@@ -126,23 +126,29 @@ impl Task for Load {
 impl Load {
     fn load_kernel_key(
         tpm_key: &TpmKeyFile,
+        name: &str,
         writer: &mut dyn std::io::Write,
     ) -> Result<(), CommandError> {
         if tpm_key.public().object_type != TpmAlgId::KeyedHash {
             return Err(CommandError::UnsupportedKeyAlgorithm);
         }
 
-        let description = tpm_key
-            .description()
-            .clone()
-            .ok_or(CommandError::KeyDescriptionMissing)?;
+        let trimmed_key = TpmKeyFile::new()
+            .with_kind(tpm_key.kind())
+            .with_empty_auth(tpm_key.empty_auth())
+            .with_parent(tpm_key.parent())
+            .with_public(tpm_key.public().clone())
+            .with_private(*tpm_key.private());
 
-        let der = tpm_key.to_der().map_err(CommandError::from)?;
+        let der = trimmed_key.to_der().map_err(CommandError::from)?;
         let payload = format!("load {}", hex::encode(der));
 
-        let type_c = CString::new("trusted").map_err(|_| CommandError::OutOfMemory)?;
-        let desc_c = CString::new(description).map_err(|_| CommandError::OutOfMemory)?;
-        let payload_c = CString::new(payload).map_err(|_| CommandError::OutOfMemory)?;
+        let type_c = CString::new("trusted")
+            .map_err(|_| CommandError::InvalidInput("type contains null byte".to_string()))?;
+        let desc_c = CString::new(name)
+            .map_err(|_| CommandError::InvalidInput("name contains null byte".to_string()))?;
+        let payload_c = CString::new(payload)
+            .map_err(|_| CommandError::InvalidInput("payload contains null byte".to_string()))?;
 
         let ret = unsafe {
             libc::syscall(
