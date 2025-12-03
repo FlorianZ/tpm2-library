@@ -3,9 +3,9 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{
-    Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmHt, TpmRh, TpmSt, TpmaObject, TpmuHa, TpmuKeyedhashScheme,
-    TpmuNvPublic2, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite, TpmuSigScheme,
-    TpmuSymKeyBits, TpmuSymMode,
+    Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmHt, TpmRh, TpmSt, TpmaObject, TpmuHa, TpmuKdfScheme,
+    TpmuKeyedhashScheme, TpmuNvPublic2, TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
+    TpmuSigScheme, TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
     constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal,
@@ -132,10 +132,20 @@ tpm_struct_tagged! {
     }
 }
 
-tpm_struct! {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+tpm_struct_tagged! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtKdfScheme {
         pub scheme: TpmAlgId,
+        pub details: TpmuKdfScheme,
+    }
+}
+
+impl Default for TpmtKdfScheme {
+    fn default() -> Self {
+        Self {
+            scheme: TpmAlgId::Null,
+            details: TpmuKdfScheme::Null,
+        }
     }
 }
 

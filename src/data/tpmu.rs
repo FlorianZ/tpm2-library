@@ -857,3 +857,66 @@ impl TpmUnmarshalTagged for TpmuNvPublic2 {
         }
     }
 }
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum TpmuKdfScheme {
+    Mgf1(TpmsSchemeHash),
+    Kdf1Sp800_56a(TpmsSchemeHash),
+    Kdf2(TpmsSchemeHash),
+    Kdf1Sp800_108(TpmsSchemeHash),
+    #[default]
+    Null,
+}
+
+impl TpmTagged for TpmuKdfScheme {
+    type Tag = TpmAlgId;
+    type Value = ();
+}
+
+impl TpmSized for TpmuKdfScheme {
+    const SIZE: usize = TPM_MAX_COMMAND_SIZE;
+    fn len(&self) -> usize {
+        match self {
+            Self::Mgf1(s) | Self::Kdf1Sp800_56a(s) | Self::Kdf2(s) | Self::Kdf1Sp800_108(s) => {
+                s.len()
+            }
+            Self::Null => 0,
+        }
+    }
+}
+
+impl TpmMarshal for TpmuKdfScheme {
+    fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        match self {
+            Self::Mgf1(s) | Self::Kdf1Sp800_56a(s) | Self::Kdf2(s) | Self::Kdf1Sp800_108(s) => {
+                s.marshal(writer)
+            }
+            Self::Null => Ok(()),
+        }
+    }
+}
+
+impl TpmUnmarshalTagged for TpmuKdfScheme {
+    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
+        match tag {
+            TpmAlgId::Mgf1 => {
+                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
+                Ok((Self::Mgf1(val), buf))
+            }
+            TpmAlgId::Kdf1Sp800_56A => {
+                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
+                Ok((Self::Kdf1Sp800_56a(val), buf))
+            }
+            TpmAlgId::Kdf2 => {
+                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
+                Ok((Self::Kdf2(val), buf))
+            }
+            TpmAlgId::Kdf1Sp800_108 => {
+                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
+                Ok((Self::Kdf1Sp800_108(val), buf))
+            }
+            TpmAlgId::Null => Ok((Self::Null, buf)),
+            _ => Err(TpmProtocolError::VariantNotAvailable),
+        }
+    }
+}
