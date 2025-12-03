@@ -45,7 +45,6 @@ impl Task for PcrEvent {
         _is_tty: bool,
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
-            let (banks, _) = device.fetch_pcr_bank_list()?;
             let handles = [self.pcr_index.0];
 
             let data_bytes = read_file_input(self.input_args.input.as_deref())?;
@@ -66,14 +65,14 @@ impl Task for PcrEvent {
                 .PcrEvent()
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::PcrEvent))?;
 
-            let clauses: Vec<String> = banks
+            let clauses: Vec<String> = pcr_resp
+                .digests
                 .iter()
-                .zip(pcr_resp.digests.iter())
-                .filter_map(|(alg, digest_struct)| {
-                    if let TpmuHa::Digest(bytes) = digest_struct.digest {
+                .filter_map(|digest_struct| {
+                    if let TpmuHa::Digest(bytes) = &digest_struct.digest {
                         Some(format!(
                             "{}:{}:{}",
-                            TpmHash::from(*alg),
+                            TpmHash::from(digest_struct.hash_alg),
                             self.pcr_index.0,
                             hex::encode(bytes)
                         ))
