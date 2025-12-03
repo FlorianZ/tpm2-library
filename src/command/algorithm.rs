@@ -9,7 +9,11 @@ use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_protocol::{
     basic::TpmUint16,
-    data::{TpmAlgId, TpmRcBase, TpmsRsaParms, TpmtPublicParms, TpmuPublicParms},
+    data::{
+        TpmAlgId, TpmRcBase, TpmsKeyedhashParms, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor,
+        TpmtKdfScheme, TpmtKeyedhashScheme, TpmtPublicParms, TpmuKdfScheme, TpmuKeyedhashScheme,
+        TpmuPublicParms,
+    },
     frame::TpmTestParmsCommand,
 };
 
@@ -35,6 +39,41 @@ impl Algorithm {
         };
         let sessions = vec![];
         device.transmit(&cmd, &sessions).map(|(_, _)| ())
+    }
+
+    /// Checks if the TPM supports a given set of KeyedHash parameters.
+    fn test_keyedhash_parms(
+        device: &mut TpmDevice,
+        scheme: TpmAlgId,
+        hash_alg: TpmAlgId,
+    ) -> Result<(), CommandError> {
+        let details = match scheme {
+            TpmAlgId::Null => TpmuKeyedhashScheme::Null,
+            TpmAlgId::Hmac => TpmuKeyedhashScheme::Hmac(TpmsSchemeHash { hash_alg }),
+            TpmAlgId::Xor => TpmuKeyedhashScheme::Xor(TpmsSchemeXor {
+                hash_alg,
+                kdf: TpmtKdfScheme {
+                    scheme: TpmAlgId::Kdf1Sp800_108,
+                    details: TpmuKdfScheme::Null,
+                },
+            }),
+            _ => return Err(CommandError::InvalidAlgorithm(scheme)),
+        };
+
+        let cmd = TpmTestParmsCommand {
+            parameters: TpmtPublicParms {
+                object_type: TpmAlgId::KeyedHash,
+                parameters: TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
+                    scheme: TpmtKeyedhashScheme { scheme, details },
+                }),
+            },
+            handles: [],
+        };
+        let sessions = vec![];
+        device
+            .transmit(&cmd, &sessions)
+            .map(|(_, _)| ())
+            .map_err(CommandError::from)
     }
 
     /// Identifies which RSA key sizes from the standard set are supported.
@@ -86,8 +125,19 @@ impl Algorithm {
         }
 
         if all_algs.contains(&TpmAlgId::KeyedHash) {
+            if Self::test_keyedhash_parms(device, TpmAlgId::Null, TpmAlgId::Null).is_ok() {
+                for &hash in &name_algs {
+                    results.push(format!("keyedhash-null:{}", TpmHash::from(hash)));
+                }
+            }
+
             for &hash in &name_algs {
-                results.push(format!("keyedhash:{}", TpmHash::from(hash)));
+                if Self::test_keyedhash_parms(device, TpmAlgId::Hmac, hash).is_ok() {
+                    results.push(format!("keyedhash-hmac:{}", TpmHash::from(hash)));
+                }
+                if Self::test_keyedhash_parms(device, TpmAlgId::Xor, hash).is_ok() {
+                    results.push(format!("keyedhash-xor:{}", TpmHash::from(hash)));
+                }
             }
         }
         Ok(results)

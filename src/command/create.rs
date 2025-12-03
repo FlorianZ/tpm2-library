@@ -36,7 +36,7 @@ pub struct Create {
     /// Parent's TPM handle as an eight characters hex string.
     pub parent: crate::handle::Handle,
 
-    /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash:sha256'.
+    /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash-hmac:sha256'.
     #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
     pub algorithm: TpmPublicTemplate,
 

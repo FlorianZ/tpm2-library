@@ -18,10 +18,7 @@ use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
-    data::{
-        Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmtPublic,
-        TpmuPublicParms,
-    },
+    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmtPublic},
     frame::{TpmAuthCommands, TpmCommand, TpmNvReadCommand, TpmNvReadPublicCommand},
 };
 use tpm2_vtpm::VtpmPolicyCommand;
@@ -602,30 +599,8 @@ impl Memory {
 }
 
 fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate, CommandError> {
-    match public.object_type {
-        TpmAlgId::Rsa => {
-            if let TpmuPublicParms::Rsa(parms) = &public.parameters {
-                Ok(TpmPublicTemplate::new()
-                    .with_object_type(TpmAlgId::Rsa)
-                    .with_key_bits(parms.key_bits)
-                    .with_name_alg(public.name_alg))
-            } else {
-                Err(CommandError::InvalidRsaParameters)
-            }
-        }
-        TpmAlgId::Ecc => {
-            if let TpmuPublicParms::Ecc(parms) = &public.parameters {
-                Ok(TpmPublicTemplate::new()
-                    .with_object_type(TpmAlgId::Ecc)
-                    .with_curve_id(parms.curve_id)
-                    .with_name_alg(public.name_alg))
-            } else {
-                Err(CommandError::InvalidEccParameters)
-            }
-        }
-        TpmAlgId::KeyedHash => Ok(TpmPublicTemplate::new()
-            .with_object_type(TpmAlgId::KeyedHash)
-            .with_name_alg(public.name_alg)),
-        _ => Err(CommandError::UnsupportedKeyAlgorithm),
-    }
+    TpmPublicTemplate::new()
+        .with_public(public.unique.clone(), public.parameters)
+        .map_err(CommandError::Crypto)
+        .map(|t| t.with_name_alg(public.name_alg))
 }

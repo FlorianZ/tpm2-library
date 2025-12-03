@@ -5,8 +5,10 @@
 use crate::{
     cli::Task,
     command::{
-        common::build_policy_command_list, AuthArgs, CommandError, CreationArgs, OutputArgs,
-        OutputEncodingArgs,
+        common::{
+            build_policy_command_list, AuthArgs, CreationArgs, OutputArgs, OutputEncodingArgs,
+        },
+        CommandError,
     },
     io::write_key_data,
     task::TaskState,
@@ -18,9 +20,10 @@ use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc,
-        TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate, TpmtSymDefObject, TpmuSymKeyBits,
-        TpmuSymMode,
+        Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
+        TpmCc, TpmaObject, TpmlPcrSelection, TpmsKeyedhashParms, TpmsSensitiveCreate,
+        TpmtKeyedhashScheme, TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms,
+        TpmuSymKeyBits, TpmuSymMode,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -126,8 +129,16 @@ impl Seal {
             mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
         };
 
+        let unique = TpmuPublicId::KeyedHash(Tpm2bDigest::default());
+        let parms = TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
+            scheme: TpmtKeyedhashScheme {
+                scheme: TpmAlgId::Null,
+                details: TpmuKeyedhashScheme::Null,
+            },
+        });
+
         let template = TpmPublicTemplate::new()
-            .with_object_type(TpmAlgId::KeyedHash)
+            .with_public(unique, parms)?
             .with_name_alg(name_alg)
             .with_object_attributes(object_attributes)
             .with_auth_policy(auth_policy_digest)

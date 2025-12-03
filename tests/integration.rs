@@ -285,7 +285,7 @@ fn create_primary_ecc_sha256(cache_dir: &Path, password_hex: Option<&str>) -> St
 fn create_keyedhash_hmac() {
     let temp = new_cache_dir();
     let parent = create_primary_ecc_sha256(temp.path(), None);
-    let output = tpm2sh(temp.path(), &["create", &parent, "keyedhash:sha256"])
+    let output = tpm2sh(temp.path(), &["create", &parent, "keyedhash-hmac:sha256"])
         .pipe(tpm2sh(temp.path(), &["load", &parent]))
         .read()
         .expect("Failed to create and load HMAC key");
