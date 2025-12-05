@@ -15,7 +15,7 @@ use crate::{
 };
 use clap::Args;
 use std::path::PathBuf;
-use tpm2_crypto::TpmPublicTemplate;
+use tpm2_crypto::{TpmHash, TpmPublicTemplate};
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
@@ -37,6 +37,9 @@ type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 pub struct Seal {
     /// Parent's TPM handle as an eight characters hex string.
     pub parent: crate::handle::Handle,
+
+    /// Hash algorithm
+    pub algorithm: TpmHash,
 
     /// Data to seal (hex string)
     #[arg(long = "data", conflicts_with = "input")]
@@ -118,7 +121,7 @@ impl Seal {
             object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
         }
 
-        let name_alg = TpmAlgId::Sha256;
+        let name_alg = TpmAlgId::from(self.algorithm);
 
         let (auth_policy_digest, policy_commands) =
             build_policy_command_list(&self.creation_args, task_state, device, name_alg)?;
