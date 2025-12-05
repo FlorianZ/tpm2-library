@@ -3,7 +3,7 @@
 
 use crate::{
     cli::Task,
-    command::{AuthArgs, CommandError, InputArgs},
+    command::{CommandError, InputArgs},
     io::{parse_u32, read_file_input},
     task::TaskState,
 };
@@ -31,9 +31,6 @@ pub struct PcrEvent {
     pub pcr_index: TpmHandle,
 
     #[clap(flatten)]
-    pub auth_args: AuthArgs,
-
-    #[clap(flatten)]
     pub input_args: InputArgs,
 }
 
@@ -56,8 +53,11 @@ impl Task for PcrEvent {
                 handles: [handles[0].into()],
             };
 
-            let auth_map = self.auth_args.build_auth_map()?;
-            let auth = auth_map.get(&self.pcr_index).cloned().unwrap_or_default();
+            let auth = task_state
+                .auth_map
+                .get(&self.pcr_index)
+                .cloned()
+                .unwrap_or_default();
 
             let (resp, _) = task_state.execute(device, &command, &[auth])?;
 

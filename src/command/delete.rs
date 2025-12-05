@@ -2,11 +2,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{
-    cli::Task,
-    command::{AuthArgs, CommandError},
-    task::TaskState,
-};
+use crate::{cli::Task, command::CommandError, task::TaskState};
 use clap::Args;
 use tpm2_device::with_device;
 use tpm2_protocol::{basic::TpmUint32, data::TpmHt};
@@ -16,9 +12,6 @@ use tpm2_protocol::{basic::TpmUint32, data::TpmHt};
 pub struct Delete {
     /// TPM handle as a eight characters hex string or wildcard pattern.
     pub handle: crate::handle::Handle,
-
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
 }
 
 impl Task for Delete {
@@ -28,7 +21,7 @@ impl Task for Delete {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<(), CommandError> {
-        let tpm_result = delete_tpm_handles(task_state, writer, self.handle, &self.auth_args);
+        let tpm_result = delete_tpm_handles(task_state, writer, self.handle);
         let vtpm_result = delete_vtpm_handles(task_state, writer, self.handle);
 
         tpm_result.and(vtpm_result)
@@ -40,7 +33,6 @@ fn delete_tpm_handles(
     task_state: &mut TaskState,
     writer: &mut dyn std::io::Write,
     pattern: crate::handle::Handle,
-    auth_args: &AuthArgs,
 ) -> Result<(), CommandError> {
     with_device(task_state.device.clone(), |dev| {
         let mut failed = false;
@@ -72,12 +64,7 @@ fn delete_tpm_handles(
                         }),
                     TpmHt::Persistent => {
                         let persistent_handle = TpmUint32(handle);
-                        task_state.evict_control(
-                            dev,
-                            persistent_handle,
-                            persistent_handle,
-                            &auth_args.build_auth_map()?,
-                        )
+                        task_state.evict_control(dev, persistent_handle, persistent_handle)
                     }
                     _ => Ok(()),
                 };

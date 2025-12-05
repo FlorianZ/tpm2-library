@@ -2,11 +2,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{
-    cli::Task,
-    command::{AuthArgs, CommandError},
-    task::TaskState,
-};
+use crate::{cli::Task, command::CommandError, task::TaskState};
 use clap::Args;
 use tpm2_device::with_device;
 use tpm2_protocol::{
@@ -17,10 +13,7 @@ use tpm2_protocol::{
 
 /// Resets the dictionary attack lockout counter.
 #[derive(Args, Debug)]
-pub struct ResetLock {
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
-}
+pub struct ResetLock;
 
 impl Task for ResetLock {
     fn run(
@@ -35,8 +28,8 @@ impl Task for ResetLock {
                 handles: [lock_handle],
             };
 
-            let auth_map = self.auth_args.build_auth_map()?;
-            let auth = auth_map
+            let auth = task_state
+                .auth_map
                 .get(&TpmUint32(lock_handle.into()))
                 .cloned()
                 .unwrap_or_default();

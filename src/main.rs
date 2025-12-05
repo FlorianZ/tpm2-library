@@ -15,7 +15,7 @@ pub mod task;
 
 use crate::{
     cli::{Task, TopLevel},
-    command::CommandError,
+    command::{common::build_auth_map, CommandError},
     task::{TaskState, TaskStateProgress},
 };
 
@@ -159,6 +159,8 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
         None
     };
 
-    let mut job = TaskState::new(shared_device, cache, progress)?;
+    let auth_map = build_auth_map(&cli.auth)?;
+
+    let mut job = TaskState::new(shared_device, cache, progress, auth_map)?;
     cli.command.run(&mut job, &mut stdout, is_tty)
 }

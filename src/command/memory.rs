@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{print_table, AuthArgs, CommandError},
+    command::{print_table, CommandError},
     task::{Auth, TaskState},
 };
 use clap::Args;
@@ -52,9 +52,6 @@ pub struct Memory {
     /// Do not use cache. Show physical handles in transient range.
     #[arg(long)]
     pub no_cache: bool,
-
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
 }
 
 impl Task for Memory {
@@ -64,15 +61,13 @@ impl Task for Memory {
         writer: &mut dyn std::io::Write,
         is_tty: bool,
     ) -> Result<(), CommandError> {
-        let auth_map = self.auth_args.build_auth_map()?;
-
         if let Some(handle) = self.handle {
             let handle_val = handle
                 .value()
                 .ok_or_else(|| CommandError::PatternNotAllowed(handle.to_string()))?;
-            Self::inspect_handle(session, writer, handle_val, handle.to_string(), &auth_map)
+            Self::inspect_handle(session, writer, handle_val, handle.to_string())
         } else {
-            Self::list_all_memory(session, writer, &auth_map, is_tty, self.no_cache)
+            Self::list_all_memory(session, writer, is_tty, self.no_cache)
         }
     }
 }
@@ -83,13 +78,12 @@ impl Memory {
         writer: &mut dyn std::io::Write,
         handle_val: u32,
         handle_str: String,
-        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<(), CommandError> {
         with_device(
             session.device.clone(),
             |device| -> Result<(), CommandError> {
                 if (handle_val >> 24) == (TpmHt::NvIndex as u32) {
-                    Self::inspect_nv_index(session, device, writer, handle_val, auth_map)
+                    Self::inspect_nv_index(session, device, writer, handle_val)
                 } else {
                     Self::inspect_object(session, device, writer, handle_val, handle_str)
                 }
@@ -208,7 +202,6 @@ impl Memory {
     fn list_all_memory(
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
-        auth_map: &HashMap<TpmHandle, Auth>,
         is_tty: bool,
         no_cache: bool,
     ) -> Result<(), CommandError> {
@@ -225,7 +218,7 @@ impl Memory {
 
             Self::fetch_session_rows(device, &mut rows)?;
             Self::fetch_saved_session_rows(device, &mut rows)?;
-            Self::fetch_nv_rows(session, device, auth_map, &mut rows)?;
+            Self::fetch_nv_rows(session, device, &mut rows)?;
 
             rows.sort_unstable_by(|a, b| a.handle.cmp(&b.handle));
             print_table(&rows, writer, is_tty)?;
@@ -376,12 +369,11 @@ impl Memory {
     fn fetch_nv_rows(
         session: &mut TaskState,
         device: &mut TpmDevice,
-        auth_map: &HashMap<TpmHandle, Auth>,
         rows: &mut Vec<MemoryRow>,
     ) -> Result<(), CommandError> {
         for handle in device.fetch_handles(TpmHt::NvIndex)? {
             let TpmUint32(handle_val) = handle;
-            let details = Self::fetch_nv_details(session, device, handle, auth_map);
+            let details = Self::fetch_nv_details(session, device, handle);
             rows.push(MemoryRow {
                 handle: format!("{handle_val:08x}"),
                 class: MemoryHandleType::NvIndex.to_string(),
@@ -409,7 +401,6 @@ impl Memory {
         session: &mut TaskState,
         device: &mut TpmDevice,
         handle: u32,
-        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<Vec<u8>, CommandError> {
         let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)?;
 
@@ -434,7 +425,8 @@ impl Memory {
 
         let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
-        let auth = auth_map
+        let auth = session
+            .auth_map
             .get(&TpmUint32(auth_handle_val))
             .cloned()
             .unwrap_or_default();
@@ -477,9 +469,8 @@ impl Memory {
         device: &mut TpmDevice,
         writer: &mut dyn std::io::Write,
         handle: u32,
-        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<(), CommandError> {
-        let cert_bytes = Self::read_nv_index(session, device, handle, auth_map)?;
+        let cert_bytes = Self::read_nv_index(session, device, handle)?;
 
         if cert_bytes.is_empty() {
             log::warn!("{handle:08x}: empty");
@@ -500,11 +491,10 @@ impl Memory {
         session: &mut TaskState,
         device: &mut TpmDevice,
         handle: TpmHandle,
-        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> String {
         let TpmUint32(handle_val) = handle;
 
-        let Ok(cert_bytes) = Self::read_nv_index(session, device, handle_val, auth_map) else {
+        let Ok(cert_bytes) = Self::read_nv_index(session, device, handle_val) else {
             return String::new();
         };
 

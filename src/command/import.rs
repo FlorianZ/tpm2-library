@@ -5,8 +5,8 @@
 use crate::{
     cli::Task,
     command::{
-        common::build_policy_command_list, AuthArgs, CommandError, CreationArgs, InputArgs,
-        OutputArgs, OutputEncodingArgs,
+        common::build_policy_command_list, CommandError, CreationArgs, InputArgs, OutputArgs,
+        OutputEncodingArgs,
     },
     io::{read_file_input, write_key_data, write_object},
     task::{Auth, TaskState},
@@ -48,9 +48,6 @@ pub struct Import {
     pub description: Option<String>,
 
     #[clap(flatten)]
-    pub auth_args: AuthArgs,
-
-    #[clap(flatten)]
     pub input_args: InputArgs,
 
     #[clap(flatten)]
@@ -76,11 +73,8 @@ impl Task for Import {
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
 
         with_device(task_state.device.clone(), |device| {
-            let (parent_handle, name_alg, auth) = task_state.resolve_auth(
-                device,
-                TpmUint32(parent),
-                &self.auth_args.build_auth_map()?,
-            )?;
+            let (parent_handle, name_alg, auth) =
+                task_state.resolve_auth(device, TpmUint32(parent))?;
 
             let input_bytes = read_file_input(self.input_args.input.as_deref())?;
 
@@ -287,7 +281,7 @@ impl Import {
     /// Parses external key bytes (PEM or DER) into a TPM public structure and
     /// private data.
     ///
-    /// This attempts to interpret the input as RSA first, falling back to ECC
+    /// This function attempts to interpret the input as RSA first, falling back to ECC
     /// if RSA parsing fails.
     ///
     /// # Errors

@@ -38,13 +38,13 @@ fn auth_with_value() {
     let native_child_output = tpm2sh(
         cache_path,
         &[
+            "--auth",
+            parent_auth_arg.as_str(),
             "seal",
             primary_handle_str,
             "sha256",
             "--data",
             SEALED_DATA,
-            "--auth",
-            parent_auth_arg.as_str(),
             "--password",
             "deadbeef",
         ],
@@ -52,10 +52,10 @@ fn auth_with_value() {
     .pipe(tpm2sh(
         cache_path,
         &[
-            "load",
-            primary_handle_str,
             "--auth",
             parent_auth_arg.as_str(),
+            "load",
+            primary_handle_str,
         ],
     ))
     .read()
@@ -67,10 +67,10 @@ fn auth_with_value() {
     tpm2sh(
         cache_path,
         &[
-            "unseal",
-            native_child.as_str(),
             "--auth",
             child_auth_arg.as_str(),
+            "unseal",
+            native_child.as_str(),
         ],
     )
     .run()
@@ -82,10 +82,10 @@ fn auth_with_value() {
     let _ = tpm2sh(
         cache_path,
         &[
-            "import",
-            primary_handle_str,
             "--auth",
             parent_auth_arg.as_str(),
+            "import",
+            primary_handle_str,
             "--password",
             "deadbeef",
         ],
@@ -94,10 +94,10 @@ fn auth_with_value() {
     .pipe(tpm2sh(
         cache_path,
         &[
-            "load",
-            primary_handle_str,
             "--auth",
             parent_auth_arg.as_str(),
+            "load",
+            primary_handle_str,
         ],
     ))
     .read()
@@ -116,13 +116,13 @@ fn auth_policy_secret_with_value() {
     let policy_str = format!("secret({primary_handle_str})");
 
     let create_args = [
+        "--auth",
+        parent_auth.as_str(),
         "seal",
         primary_handle_str,
         "sha256",
         "--data",
         SEALED_DATA,
-        "--auth",
-        parent_auth.as_str(),
         "--policy",
         policy_str.as_str(),
     ];
@@ -130,17 +130,17 @@ fn auth_policy_secret_with_value() {
     let sealed_output = tpm2sh(cache_path, &create_args)
         .pipe(tpm2sh(
             cache_path,
-            &["load", primary_handle_str, "--auth", parent_auth.as_str()],
+            &["--auth", parent_auth.as_str(), "load", primary_handle_str],
         ))
         .read()
         .expect("Failed to create and load policy-protected object");
     let sealed_handle = sealed_output.trim().to_string();
 
     let unseal_args_with_auth = [
-        "unseal",
-        sealed_handle.as_str(),
         "--auth",
         parent_auth.as_str(),
+        "unseal",
+        sealed_handle.as_str(),
     ];
 
     let output = tpm2sh(cache_path, &unseal_args_with_auth)

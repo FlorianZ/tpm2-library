@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{AuthArgs, CommandError, InputArgs},
+    command::{CommandError, InputArgs},
     io::read_file_input,
     task::{Auth, TaskState},
 };
@@ -25,9 +25,6 @@ use tpm2_vtpm::{vtpm_policy_command_from_parts, VtpmPolicyCommand};
 #[derive(Args, Debug)]
 #[command(verbatim_doc_comment)]
 pub struct Load {
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
-
     #[clap(flatten)]
     pub input_args: InputArgs,
 
@@ -65,11 +62,8 @@ impl Task for Load {
                     Self::parent_from_handle(task_state, device, TpmUint32(parent))?
                 };
 
-                let (parent_handle, _, auth) = task_state.resolve_auth(
-                    device,
-                    parent_handle_ref,
-                    &self.auth_args.build_auth_map()?,
-                )?;
+                let (parent_handle, _, auth) =
+                    task_state.resolve_auth(device, parent_handle_ref)?;
 
                 let object_private = if let Some(secret) = tpm_key.secret() {
                     let in_sym_seed = Tpm2bEncryptedSecret::try_from(secret.as_slice())

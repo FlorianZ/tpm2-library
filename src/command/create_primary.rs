@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{
         common::{build_policy_command_list, resolve_public_template},
-        AuthArgs, CommandError, CreationArgs, HierarchyArgs,
+        CommandError, CreationArgs, HierarchyArgs,
     },
     task::TaskState,
 };
@@ -31,9 +31,6 @@ pub struct CreatePrimary {
     /// Key algorithm
     #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
     pub algorithm: TpmPublicTemplate,
-
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
 
     #[clap(flatten)]
     pub creation_args: CreationArgs,
@@ -81,8 +78,8 @@ impl Task for CreatePrimary {
                 handles: [(primary_handle as u32).into()],
             };
 
-            let auth_map = self.auth_args.build_auth_map()?;
-            let auth = auth_map
+            let auth = task_state
+                .auth_map
                 .get(&TpmUint32(primary_handle as u32))
                 .cloned()
                 .unwrap_or_default();

@@ -59,6 +59,8 @@ pub struct TaskState<'a> {
     pub live_handles: HashMap<u32, TpmHandle>,
     /// All tracked handles (physical) for cleanup.
     pub tracked_handles: HashSet<TpmHandle>,
+    /// Authentication values indexed by handle.
+    pub auth_map: HashMap<TpmHandle, Auth>,
 }
 
 impl<'a> TaskState<'a> {
@@ -77,6 +79,7 @@ impl<'a> TaskState<'a> {
         device: Option<Rc<RefCell<TpmDevice>>>,
         cache: VtpmCache<'a>,
         progress: Option<Box<dyn TaskStateProgress>>,
+        auth_map: HashMap<TpmHandle, Auth>,
     ) -> Result<Self, CommandError> {
         let mut state = Self {
             device,
@@ -85,6 +88,7 @@ impl<'a> TaskState<'a> {
             sessions: HashMap::new(),
             live_handles: HashMap::new(),
             tracked_handles: HashSet::new(),
+            auth_map,
         };
 
         let device_opt = state.device.clone();
@@ -211,15 +215,14 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         handle: TpmHandle,
-        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<(TpmHandle, TpmAlgId, Auth), CommandError> {
         let (phys_handle, policy, name_alg) = self.fetch_policy(device, handle)?;
 
-        if let Some(auth) = auth_map.get(&handle).cloned() {
+        if let Some(auth) = self.auth_map.get(&handle).cloned() {
             return Ok((phys_handle, name_alg, auth));
         }
 
-        if let Some(commands) = self.load_policy(device, &policy, auth_map)? {
+        if let Some(commands) = self.load_policy(device, &policy)? {
             if !commands.is_empty() {
                 let session = TpmPolicySession::builder()
                     .with_auth_hash(name_alg)
@@ -446,7 +449,6 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
-        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<(), CommandError> {
         let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
@@ -454,7 +456,7 @@ impl<'a> TaskState<'a> {
             (TpmRh::Platform as u32).into()
         };
 
-        let auth = auth_map.get(&auth_handle).cloned().unwrap_or_default();
+        let auth = self.auth_map.get(&auth_handle).cloned().unwrap_or_default();
 
         let cmd = TpmEvictControlCommand {
             persistent_handle,
@@ -625,7 +627,6 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         policy: &[Box<dyn VtpmPolicyCommand>],
-        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<Option<TpmCommandList>, CommandError> {
         if policy.is_empty() {
             return Ok(None);
@@ -635,7 +636,7 @@ impl<'a> TaskState<'a> {
 
         for vtpm_cmd in policy {
             let (cmd, auth) = if vtpm_cmd.cc() == TpmCc::PolicySecret {
-                self.load_policy_secret(device, vtpm_cmd.as_ref(), auth_map)?
+                self.load_policy_secret(device, vtpm_cmd.as_ref())?
             } else {
                 let tpm_cmd = vtpm_cmd.to_command().map_err(CommandError::Vtpm)?;
                 (tpm_cmd, TpmAuthCommands::new())
@@ -650,7 +651,6 @@ impl<'a> TaskState<'a> {
         &mut self,
         device: &mut TpmDevice,
         vtpm_cmd: &dyn VtpmPolicyCommand,
-        auth_map: &HashMap<TpmHandle, Auth>,
     ) -> Result<(TpmCommand, TpmAuthCommands), CommandError> {
         let body = vtpm_cmd.body();
         let (vtpm_secret_cmd, rest) =
@@ -687,7 +687,7 @@ impl<'a> TaskState<'a> {
         };
 
         let task_auth = vhandle
-            .and_then(|vhandle| auth_map.get(&vhandle))
+            .and_then(|vhandle| self.auth_map.get(&vhandle))
             .cloned()
             .unwrap_or_default();
 

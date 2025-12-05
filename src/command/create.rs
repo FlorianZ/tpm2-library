@@ -8,7 +8,7 @@ use crate::{
     cli::Task,
     command::{
         common::{build_policy_command_list, resolve_public_template},
-        AuthArgs, CommandError, CreationArgs, OutputArgs, OutputEncodingArgs,
+        CommandError, CreationArgs, OutputArgs, OutputEncodingArgs,
     },
     io::write_key_data,
     task::TaskState,
@@ -43,9 +43,6 @@ pub struct Create {
     /// Description
     #[arg(short = 'd', long)]
     pub description: Option<String>,
-
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
@@ -132,11 +129,7 @@ impl Create {
             return Err(CommandError::ParentMissing);
         };
 
-        let (parent_phys_handle, _, auth) = task_state.resolve_auth(
-            device,
-            TpmUint32(parent),
-            &self.auth_args.build_auth_map()?,
-        )?;
+        let (parent_phys_handle, _, auth) = task_state.resolve_auth(device, TpmUint32(parent))?;
 
         let (create_cmd, policy_commands, empty_auth) =
             self.build_create_command(task_state, device, parent_phys_handle)?;

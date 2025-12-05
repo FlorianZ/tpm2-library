@@ -46,7 +46,7 @@ fn parse_handle_target(s: &str) -> Result<TpmHandle, String> {
 ///
 /// Returns an error when the string is not formatted correctly, the handle is
 /// invalid, or the hex value is malformed.
-fn parse_auth(s: &str) -> Result<(TpmHandle, Auth), String> {
+pub fn parse_auth(s: &str) -> Result<(TpmHandle, Auth), String> {
     let (handle_str, auth_str) = s
         .split_once(':')
         .ok_or_else(|| "format must be <handle>:<value>".to_string())?;
@@ -62,40 +62,33 @@ fn parse_auth(s: &str) -> Result<(TpmHandle, Auth), String> {
     Ok((handle, auth))
 }
 
-#[derive(Args, Debug, Clone, Default)]
-pub struct AuthArgs {
-    /// List of authentication values in the format '<handle>:<hex string>'.
-    #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = parse_auth)]
-    pub auth: Vec<(TpmHandle, Auth)>,
-}
+/// Builds a map of handle-specific authorizations.
+///
+/// # Errors
+///
+/// Returns [`CommandError::InvalidInput`] if the `TPM2SH_AUTH` environment
+/// variable contains malformed authentication entries.
+pub fn build_auth_map(
+    auth_entries: &[(TpmHandle, Auth)],
+) -> Result<HashMap<TpmHandle, Auth>, CommandError> {
+    let mut map = HashMap::new();
 
-impl AuthArgs {
-    /// Builds a map of handle-specific authorizations.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CommandError::InvalidInput`] if the `TPM2SH_AUTH` environment
-    /// variable contains malformed authentication entries.
-    pub fn build_auth_map(&self) -> Result<HashMap<TpmHandle, Auth>, CommandError> {
-        let mut map = HashMap::new();
-
-        if let Ok(env_str) = std::env::var("TPM2SH_AUTH") {
-            for s in env_str.split(',') {
-                if s.trim().is_empty() {
-                    continue;
-                }
-                let (handle, auth) =
-                    parse_auth(s).map_err(|e| CommandError::InvalidInput(format!("{s}: {e}")))?;
-                map.insert(handle, auth);
+    if let Ok(env_str) = std::env::var("TPM2SH_AUTH") {
+        for s in env_str.split(',') {
+            if s.trim().is_empty() {
+                continue;
             }
+            let (handle, auth) =
+                parse_auth(s).map_err(|e| CommandError::InvalidInput(format!("{s}: {e}")))?;
+            map.insert(handle, auth);
         }
-
-        for (handle, auth) in &self.auth {
-            map.insert(*handle, auth.clone());
-        }
-
-        Ok(map)
     }
+
+    for (handle, auth) in auth_entries {
+        map.insert(*handle, auth.clone());
+    }
+
+    Ok(map)
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString, ValueEnum)]
@@ -306,8 +299,8 @@ mod tests {
     #[test]
     fn build_auth_map_wraps_entry_in_error() {
         env::set_var("TPM2SH_AUTH", "owner:not-hex");
-        let args = AuthArgs::default();
-        let err = args.build_auth_map().unwrap_err();
+        let empty_entries = vec![];
+        let err = build_auth_map(&empty_entries).unwrap_err();
         assert!(matches!(err, CommandError::InvalidInput(msg) if msg.contains("owner:not-hex")));
         env::remove_var("TPM2SH_AUTH");
     }

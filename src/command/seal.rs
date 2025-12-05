@@ -5,9 +5,7 @@
 use crate::{
     cli::Task,
     command::{
-        common::{
-            build_policy_command_list, AuthArgs, CreationArgs, OutputArgs, OutputEncodingArgs,
-        },
+        common::{build_policy_command_list, CreationArgs, OutputArgs, OutputEncodingArgs},
         CommandError,
     },
     io::write_key_data,
@@ -39,7 +37,7 @@ pub struct Seal {
     pub parent: crate::handle::Handle,
 
     /// Hash algorithm
-    pub algorithm: TpmHash,
+    pub hash_algorithm: TpmHash,
 
     /// Data to seal (hex string)
     #[arg(long = "data", conflicts_with = "input")]
@@ -52,9 +50,6 @@ pub struct Seal {
     /// Description
     #[arg(short = 'd', long)]
     pub description: Option<String>,
-
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
@@ -121,7 +116,7 @@ impl Seal {
             object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
         }
 
-        let name_alg = TpmAlgId::from(self.algorithm);
+        let name_alg = TpmAlgId::from(self.hash_algorithm);
 
         let (auth_policy_digest, policy_commands) =
             build_policy_command_list(&self.creation_args, task_state, device, name_alg)?;
@@ -175,11 +170,7 @@ impl Seal {
             return Err(CommandError::ParentMissing);
         };
 
-        let (parent_phys_handle, _, auth) = task_state.resolve_auth(
-            device,
-            TpmUint32(parent),
-            &self.auth_args.build_auth_map()?,
-        )?;
+        let (parent_phys_handle, _, auth) = task_state.resolve_auth(device, TpmUint32(parent))?;
 
         let (create_cmd, policy_commands, empty_auth) =
             self.build_create_command(task_state, device, parent_phys_handle)?;

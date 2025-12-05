@@ -2,11 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    cli::Task,
-    command::{AuthArgs, CommandError},
-    task::TaskState,
-};
+use crate::{cli::Task, command::CommandError, task::TaskState};
 use clap::Args;
 use tpm2_device::with_device;
 use tpm2_protocol::{basic::TpmUint32, data::TpmHt};
@@ -19,9 +15,6 @@ pub struct Evict {
 
     /// Persistent handle as an eight character hex string.
     pub output: crate::handle::Handle,
-
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
 }
 
 impl Task for Evict {
@@ -70,12 +63,7 @@ impl Task for Evict {
                     )
                 };
 
-                task_state.evict_control(
-                    dev,
-                    transient_handle,
-                    persistent_handle,
-                    &self.auth_args.build_auth_map()?,
-                )?;
+                task_state.evict_control(dev, transient_handle, persistent_handle)?;
 
                 task_state
                     .cache

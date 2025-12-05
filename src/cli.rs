@@ -6,10 +6,10 @@
 
 use crate::{
     command::{
-        Algorithm, CommandError, Create, CreatePrimary, Delete, Evict, Import, Load, Memory,
-        PcrEvent, ResetLock, ReturnCode, Seal, Unseal,
+        common::parse_auth, Algorithm, CommandError, Create, CreatePrimary, Delete, Evict, Import,
+        Load, Memory, PcrEvent, ResetLock, ReturnCode, Seal, Unseal,
     },
-    task::TaskState,
+    task::{Auth, TaskState},
 };
 use clap::{
     builder::styling::{Style, Styles},
@@ -17,7 +17,7 @@ use clap::{
 };
 use std::{io::Write, path::PathBuf};
 use strum::{Display, EnumString};
-use tpm2_protocol::data::TpmRh;
+use tpm2_protocol::{basic::TpmHandle, data::TpmRh};
 
 const STYLES: Styles = Styles::styled()
     .header(Style::new().bold())
@@ -53,6 +53,10 @@ pub struct TopLevel {
     /// Device file
     #[arg(short = 'd', long, default_value = "/dev/tpmrm0")]
     pub device: PathBuf,
+
+    /// List of authentication values in the format '<handle>:<hex string>'.
+    #[arg(short = 'A', long = "auth", value_delimiter = ',', value_parser = parse_auth, global = true)]
+    pub auth: Vec<(TpmHandle, Auth)>,
 
     #[command(subcommand)]
     pub command: Command,

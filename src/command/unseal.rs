@@ -3,7 +3,7 @@
 
 use crate::{
     cli::Task,
-    command::{AuthArgs, CommandError, OutputArgs},
+    command::{CommandError, OutputArgs},
     task::TaskState,
 };
 use clap::Args;
@@ -16,9 +16,6 @@ use tpm2_protocol::{basic::TpmUint32, data::TpmCc, frame::TpmUnsealCommand};
 pub struct Unseal {
     /// TPM handle as a eight characters hex string.
     pub handle: crate::handle::Handle,
-
-    #[clap(flatten)]
-    pub auth_args: AuthArgs,
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
@@ -36,11 +33,7 @@ impl Task for Unseal {
         };
 
         with_device(task_state.device.clone(), |device| {
-            let (item_handle, _, auth) = task_state.resolve_auth(
-                device,
-                TpmUint32(handle),
-                &self.auth_args.build_auth_map()?,
-            )?;
+            let (item_handle, _, auth) = task_state.resolve_auth(device, TpmUint32(handle))?;
 
             let unseal_cmd = TpmUnsealCommand {
                 handles: [item_handle.0.into()],
