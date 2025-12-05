@@ -40,6 +40,7 @@ fn auth_with_value() {
         &[
             "seal",
             primary_handle_str,
+            "sha256",
             "--data",
             SEALED_DATA,
             "--auth",
@@ -117,6 +118,7 @@ fn auth_policy_secret_with_value() {
     let create_args = [
         "seal",
         primary_handle_str,
+        "sha256",
         "--data",
         SEALED_DATA,
         "--auth",
@@ -162,6 +164,7 @@ fn auth_with_policy() {
     let create_args = [
         "seal",
         primary_handle_str,
+        "sha256",
         "--data",
         SEALED_DATA,
         "--policy",
@@ -183,6 +186,7 @@ fn auth_with_policy() {
     let create_pcr_args = [
         "seal",
         primary_handle_str,
+        "sha256",
         "--data",
         SEALED_DATA,
         "--policy",
@@ -361,7 +365,7 @@ fn load_multi_level_hierarchy() {
 
     let l3_output = tpm2sh(
         cache_path,
-        &["seal", l2_handle.as_str(), "--data", &deep_data],
+        &["seal", l2_handle.as_str(), "sha256", "--data", &deep_data],
     )
     .pipe(tpm2sh(cache_path, &["load", l2_handle.as_str()]))
     .read()
