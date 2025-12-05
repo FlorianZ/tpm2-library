@@ -103,6 +103,10 @@ fn main() {
     }
 
     if let Err(err) = execute_cli(&cli, &cache_dir) {
+        if TEARDOWN.load(Ordering::Relaxed) {
+            process::exit(130);
+        }
+
         eprintln!("{err:#}");
         process::exit(1);
     }
