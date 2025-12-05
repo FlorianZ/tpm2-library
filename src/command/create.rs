@@ -154,7 +154,7 @@ impl Create {
             .with_public(resp.out_public)
             .with_private(resp.out_private)
             .with_parent(parent_phys_handle)
-            .with_description(self.description.clone().unwrap_or_default().clone())
+            .with_description(self.description.clone().unwrap_or_default())
             .with_policy(TpmKeyPolicy::new(None, policy));
 
         write_key_data(

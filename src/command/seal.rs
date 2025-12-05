@@ -195,7 +195,7 @@ impl Seal {
             .with_private(resp.out_private)
             .with_parent(parent_phys_handle)
             .with_policy(TpmKeyPolicy::new(None, policy))
-            .with_description(self.description.clone().unwrap_or_default().clone());
+            .with_description(self.description.clone().unwrap_or_default());
 
         write_key_data(
             writer,
