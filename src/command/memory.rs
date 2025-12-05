@@ -415,13 +415,7 @@ impl Memory {
         handle: u32,
         auth_args: &AuthArgs,
     ) -> Result<Vec<u8>, CommandError> {
-        let max_read_size = device
-            .get_tpm_property(TpmPt::NvBufferMax)
-            .unwrap_or(TpmUint32(0));
-
-        if max_read_size.value() == 0 {
-            return Ok(Vec::new());
-        }
+        let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)?;
 
         let nv_read_public_cmd = TpmNvReadPublicCommand {
             handles: [handle.into()],
