@@ -323,10 +323,8 @@ impl<'a> TaskState<'a> {
         }
 
         let handle_val = target.0;
-        let ht_byte = (handle_val >> 24) as u8;
-        let ht = TpmHt::try_from(ht_byte).map_err(|_| CommandError::InvalidHandleType(ht_byte))?;
 
-        if ht == TpmHt::Persistent {
+        if (handle_val >> 24) as u8 == TpmHt::Persistent as u8 {
             return Ok(TpmUint32(handle_val));
         }
 
@@ -522,10 +520,8 @@ impl<'a> TaskState<'a> {
     fn validate_persistent_handles(&mut self, device: &mut TpmDevice) -> Result<(), CommandError> {
         let mut persistent_vhandles = Vec::new();
         for (vhandle, _) in self.cache.key_iter() {
-            let handle_val = *vhandle;
-            let ht_byte = (handle_val >> 24) as u8;
-            if let Ok(TpmHt::Persistent) = TpmHt::try_from(ht_byte) {
-                persistent_vhandles.push(handle_val);
+            if (*vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+                persistent_vhandles.push(*vhandle);
             }
         }
 
@@ -607,10 +603,7 @@ impl<'a> TaskState<'a> {
         handle: TpmHandle,
     ) -> Result<(TpmHandle, Vec<Box<dyn VtpmPolicyCommand>>, TpmAlgId), CommandError> {
         let phys_handle = self.load_key_by_handle(device, handle)?;
-        let ht_byte = (handle.0 >> 24) as u8;
-        let ht = TpmHt::try_from(ht_byte).map_err(|_| CommandError::InvalidHandleType(ht_byte))?;
-
-        if ht == TpmHt::Transient {
+        if (handle.0 >> 24) as u8 == TpmHt::Transient as u8 {
             let vhandle = handle.0;
             let key = self
                 .cache
