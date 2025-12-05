@@ -3,15 +3,14 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::Hierarchy,
+    cli::{Hierarchy, OutputEncoding},
     command::CommandError,
     handle::Handle,
     pcr::read_all_pcrs,
     task::{Auth, TaskState},
 };
-use clap::{Args, ValueEnum};
+use clap::Args;
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
-use strum::{Display, EnumString};
 use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
@@ -89,14 +88,6 @@ pub fn build_auth_map(
     }
 
     Ok(map)
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString, ValueEnum)]
-#[strum(serialize_all = "kebab-case")]
-pub enum OutputEncoding {
-    #[default]
-    Pem,
-    Der,
 }
 
 #[derive(Args, Debug, Clone)]
