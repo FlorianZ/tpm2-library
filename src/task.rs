@@ -53,12 +53,14 @@ pub struct TaskState<'a> {
     pub device: Option<Rc<RefCell<TpmDevice>>>,
     pub cache: VtpmCache<'a>,
     pub progress: Option<Box<dyn TaskStateProgress>>,
-    /// Holds all temporary sessions, indexed by their vhandle.
+    /// Holds all temporary sessions, indexed by their virtual handle.
     pub sessions: HashMap<TpmHandle, TpmPolicySession>,
-    /// Live handles (virtual handle -> physical handle).
-    pub live_handles: HashMap<u32, TpmHandle>,
-    /// All tracked handles (physical) for cleanup.
-    pub tracked_handles: HashSet<TpmHandle>,
+    /// Loaded virtual handles. Handles containted are s a subset of
+    /// `phys_handles`.
+    pub virt_handles: HashMap<u32, TpmHandle>,
+    /// Tracked physical handles. Handles contained are a superset of
+    /// `virt_handles`.
+    pub phys_handles: HashSet<TpmHandle>,
     /// Authentication values indexed by handle.
     pub auth_map: HashMap<TpmHandle, Auth>,
 }
@@ -86,8 +88,8 @@ impl<'a> TaskState<'a> {
             cache,
             progress,
             sessions: HashMap::new(),
-            live_handles: HashMap::new(),
-            tracked_handles: HashSet::new(),
+            virt_handles: HashMap::new(),
+            phys_handles: HashSet::new(),
             auth_map,
         };
 
@@ -128,19 +130,23 @@ impl<'a> TaskState<'a> {
     ///
     /// Returns [`CommandError::HandleAlreadyTracked`] if the handle is already
     /// being tracked.
-    pub fn track(&mut self, device: &mut TpmDevice, handle: TpmHandle) -> Result<(), CommandError> {
-        if self.tracked_handles.contains(&handle) {
-            let _ = device.flush_context(handle);
-            return Err(CommandError::HandleAlreadyTracked(handle));
+    pub fn track(
+        &mut self,
+        device: &mut TpmDevice,
+        phys_handle: TpmHandle,
+    ) -> Result<(), CommandError> {
+        if self.phys_handles.contains(&phys_handle) {
+            let _ = device.flush_context(phys_handle);
+            return Err(CommandError::HandleAlreadyTracked(phys_handle));
         }
-        self.tracked_handles.insert(handle);
+        self.phys_handles.insert(phys_handle);
         Ok(())
     }
 
     /// Removes a handle from the live handle tracking list.
     pub fn untrack(&mut self, handle: TpmHandle) {
-        self.tracked_handles.remove(&handle);
-        self.live_handles.retain(|_, v| *v != handle);
+        self.phys_handles.remove(&handle);
+        self.virt_handles.retain(|_, v| *v != handle);
     }
 
     /// Refreshes the cache by checking validity of the keys.
@@ -318,7 +324,7 @@ impl<'a> TaskState<'a> {
     ) -> Result<TpmHandle, CommandError> {
         let target_vhandle = target.0;
 
-        if let Some(&phandle) = self.live_handles.get(&target_vhandle) {
+        if let Some(&phandle) = self.virt_handles.get(&target_vhandle) {
             return Ok(phandle);
         }
 
@@ -328,7 +334,7 @@ impl<'a> TaskState<'a> {
             return Ok(TpmUint32(handle_val));
         }
 
-        if let Some(&phandle) = self.live_handles.get(&handle_val) {
+        if let Some(&phandle) = self.virt_handles.get(&handle_val) {
             return Ok(phandle);
         }
 
@@ -338,7 +344,7 @@ impl<'a> TaskState<'a> {
             .ok_or(CommandError::HandleNotFound(TpmUint32(handle_val)))?;
         let loaded_phandle = device.load_context(key.context().clone())?;
         self.track(device, loaded_phandle)?;
-        self.live_handles.insert(handle_val, loaded_phandle);
+        self.virt_handles.insert(handle_val, loaded_phandle);
         Ok(loaded_phandle)
     }
 
@@ -702,7 +708,7 @@ impl Drop for TaskState<'_> {
     fn drop(&mut self) {
         if let Some(device_rc) = self.device.clone() {
             if let Ok(mut dev) = device_rc.try_borrow_mut() {
-                let handles_to_flush: Vec<TpmHandle> = self.tracked_handles.drain().collect();
+                let handles_to_flush: Vec<TpmHandle> = self.phys_handles.drain().collect();
                 for handle in handles_to_flush {
                     if let Err(err) = dev.flush_context(handle) {
                         log::error!("{handle}: {err}");
