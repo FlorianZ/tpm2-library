@@ -77,7 +77,8 @@ fn auth_with_value() {
     .expect("Failed to unseal with correct auth");
 
     let rsa = Rsa::generate(2048).unwrap();
-    let rsa_pem = rsa.private_key_to_pem().unwrap();
+    let rsa_der = rsa.private_key_to_der().unwrap();
+    let rsa_hex = hex::encode(rsa_der);
 
     let _ = tpm2sh(
         cache_path,
@@ -90,7 +91,7 @@ fn auth_with_value() {
             "deadbeef",
         ],
     )
-    .stdin_bytes(rsa_pem)
+    .stdin_bytes(rsa_hex)
     .pipe(tpm2sh(
         cache_path,
         &[

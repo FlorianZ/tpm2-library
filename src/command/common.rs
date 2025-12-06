@@ -92,14 +92,14 @@ pub fn build_auth_map(
 
 #[derive(Args, Debug, Clone)]
 pub struct InputArgs {
-    /// Input file path (defaults to stdin as hex string)
+    /// Input file path (defaults to stdin as hex-encoded DER)
     #[arg(short = 'I', long)]
     pub input: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct OutputArgs {
-    /// Output file path (defaults to stdout as hex string)
+    /// Output file path (defaults to stdout as hex-encoded DER)
     #[arg(short = 'O', long)]
     pub output: Option<PathBuf>,
 }
