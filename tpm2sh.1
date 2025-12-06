@@ -39,6 +39,17 @@ Print help.
 .B -V, --version
 Print version.
 
+.SH INPUT/OUTPUT FORMATTING
+.B tpm2sh
+behaves differently depending on whether input/output is a file or a stream:
+.TP
+.B Stdin/Stdout
+If \fI--input\fR is not specified, input is read from stdin as a \fBhex-encoded DER\fR.
+If \fI--output\fR is not specified, output is written to stdout as a \fBhex-encoded DER\fR.
+.TP
+.B Files
+When reading from or writing to files, data is treated as binary. Output files default to \fBPEM\fR encoding unless overridden by \fI--encoding\fR.
+
 .SH COMMANDS
 .TP
 .B algorithm

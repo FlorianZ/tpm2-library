@@ -92,21 +92,21 @@ pub fn build_auth_map(
 
 #[derive(Args, Debug, Clone)]
 pub struct InputArgs {
-    /// Input file path (default: stdin)
+    /// Input file path (defaults to stdin as hex string)
     #[arg(short = 'I', long)]
     pub input: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct OutputArgs {
-    /// Output file path (default: stdout)
+    /// Output file path (defaults to stdout as hex string)
     #[arg(short = 'O', long)]
     pub output: Option<PathBuf>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct OutputEncodingArgs {
-    /// Output encoding: pem or der
+    /// Output encoding for file output (ignored for stdout): pem or der
     #[arg(short = 'e', long = "encoding", value_enum, default_value_t = OutputEncoding::default())]
     pub encoding: OutputEncoding,
 }

@@ -15,32 +15,37 @@ use tpm2_tpmkey::TpmKeyFile;
 
 /// Reads data from a file path or from stdin if the path is not provided.
 ///
+/// If reading from stdin, the input is assumed to be a hex-encoded string
+/// representing the binary data (DER).
+///
 /// # Errors
 ///
 /// Returns `CommandError::UnexpectedEof` when no data is provided.
+/// Returns `CommandError::InvalidInput` when hex decoding fails.
 pub fn read_file_input(input: Option<&Path>) -> Result<Vec<u8>, CommandError> {
-    let mut input_bytes = Vec::new();
-    match input {
-        Some(path) => {
-            input_bytes = std::fs::read(path)?;
+    if let Some(path) = input {
+        let bytes = fs::read(path)?;
+        if bytes.is_empty() {
+            Err(CommandError::UnexpectedEof)
+        } else {
+            Ok(bytes)
         }
-        None => {
-            io::stdin().read_to_end(&mut input_bytes)?;
-        }
-    }
-
-    if input_bytes.is_empty() {
-        Err(CommandError::UnexpectedEof)
     } else {
-        Ok(input_bytes)
+        let mut input_str = String::new();
+        io::stdin().read_to_string(&mut input_str)?;
+        let trimmed = input_str.trim();
+        if trimmed.is_empty() {
+            return Err(CommandError::UnexpectedEof);
+        }
+        hex::decode(trimmed)
+            .map_err(|e| CommandError::InvalidInput(format!("invalid hex input: {e}")))
     }
 }
 
-/// Handles the output of a `TpmKey`, choosing PEM or DER format based on the
-/// URI.
+/// Handles the output of a `TpmKey`.
 ///
-/// It will either save it to a file or print it to stdout as PEM, based on the
-/// provided output string.
+/// If `output` is provided (file path), it respects the requested encoding (PEM or DER).
+/// If `output` is `None` (stdout), it forces DER encoding outputted as a hex string.
 ///
 /// # Errors
 ///
@@ -51,29 +56,16 @@ pub fn write_key_data(
     output: Option<&Path>,
     encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
-    let effective_encoding = if output.is_none() {
-        OutputEncoding::Pem
+    if let Some(path) = output {
+        let output_bytes = match encoding {
+            OutputEncoding::Der => tpm_key.to_der().map_err(CommandError::from)?,
+            OutputEncoding::Pem => tpm_key.to_pem().map_err(CommandError::from)?.into_bytes(),
+        };
+        fs::write(path, output_bytes)?;
     } else {
-        encoding
-    };
-
-    let output_bytes = match effective_encoding {
-        OutputEncoding::Der => tpm_key.to_der().map_err(CommandError::from)?,
-        OutputEncoding::Pem => tpm_key.to_pem().map_err(CommandError::from)?.into_bytes(),
-    };
-
-    write_data(writer, output, &output_bytes)
-}
-
-fn write_data(
-    writer: &mut dyn Write,
-    output_path: Option<&Path>,
-    data: &[u8],
-) -> Result<(), CommandError> {
-    if let Some(path) = output_path {
-        fs::write(path, data)?;
-    } else {
-        writer.write_all(data)?;
+        let der = tpm_key.to_der().map_err(CommandError::from)?;
+        let hex_str = hex::encode(der);
+        writeln!(writer, "{hex_str}")?;
     }
     Ok(())
 }
