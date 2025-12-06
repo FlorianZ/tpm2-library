@@ -28,9 +28,8 @@ impl Task for Evict {
             .input
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.input.to_string()))?;
-        let input_ht =
-            TpmHt::try_from((input_handle >> 24) as u8).map_err(|_| CommandError::InvalidHandle)?;
-        if input_ht != TpmHt::Transient {
+
+        if (input_handle >> 24) as u8 != TpmHt::Transient as u8 {
             return Err(CommandError::InvalidHandle);
         }
 
@@ -38,9 +37,8 @@ impl Task for Evict {
             .output
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.output.to_string()))?;
-        let output_ht = TpmHt::try_from((output_handle >> 24) as u8)
-            .map_err(|_| CommandError::InvalidHandle)?;
-        if output_ht != TpmHt::Persistent {
+
+        if (output_handle >> 24) as u8 != TpmHt::Persistent as u8 {
             return Err(CommandError::InvalidHandle);
         }
 
