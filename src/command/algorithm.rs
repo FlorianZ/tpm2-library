@@ -97,6 +97,52 @@ impl Algorithm {
         format!("ecc-{}:{}", curve, TpmHash::from(hash))
     }
 
+    fn fetch_rsa_algs(
+        device: &mut TpmDevice,
+        name_algs: &[TpmAlgId],
+    ) -> Result<Vec<String>, CommandError> {
+        let mut results = Vec::new();
+        for bits in Self::fetch_supported_rsa_sizes(device)? {
+            for &hash in name_algs {
+                results.push(Self::format_rsa_alg(bits, hash));
+            }
+        }
+        Ok(results)
+    }
+
+    fn fetch_ecc_algs(
+        device: &mut TpmDevice,
+        name_algs: &[TpmAlgId],
+    ) -> Result<Vec<String>, CommandError> {
+        let mut results = Vec::new();
+        let supported_curves = device.fetch_ecc_curves()?;
+        for curve_id in supported_curves {
+            for &hash in name_algs {
+                results.push(Self::format_ecc_alg(TpmEllipticCurve::from(curve_id), hash));
+            }
+        }
+        Ok(results)
+    }
+
+    fn fetch_keyedhash_algs(device: &mut TpmDevice, name_algs: &[TpmAlgId]) -> Vec<String> {
+        let mut results = Vec::new();
+        if Self::test_keyedhash_parms(device, TpmAlgId::Null, TpmAlgId::Null).is_ok() {
+            for &hash in name_algs {
+                results.push(format!("keyedhash-null:{}", TpmHash::from(hash)));
+            }
+        }
+
+        for &hash in name_algs {
+            if Self::test_keyedhash_parms(device, TpmAlgId::Hmac, hash).is_ok() {
+                results.push(format!("keyedhash-hmac:{}", TpmHash::from(hash)));
+            }
+            if Self::test_keyedhash_parms(device, TpmAlgId::Xor, hash).is_ok() {
+                results.push(format!("keyedhash-xor:{}", TpmHash::from(hash)));
+            }
+        }
+        results
+    }
+
     fn fetch_key_algorithms(device: &mut TpmDevice) -> Result<Vec<String>, CommandError> {
         let mut results: Vec<String> = Vec::new();
         let all_alg_props = device.fetch_algorithm_properties()?;
@@ -108,37 +154,15 @@ impl Algorithm {
             .collect();
 
         if all_algs.contains(&TpmAlgId::Rsa) {
-            for bits in Self::fetch_supported_rsa_sizes(device)? {
-                for &hash in &name_algs {
-                    results.push(Self::format_rsa_alg(bits, hash));
-                }
-            }
+            results.extend(Self::fetch_rsa_algs(device, &name_algs)?);
         }
 
         if all_algs.contains(&TpmAlgId::Ecc) {
-            let supported_curves = device.fetch_ecc_curves()?;
-            for curve_id in supported_curves {
-                for &hash in &name_algs {
-                    results.push(Self::format_ecc_alg(TpmEllipticCurve::from(curve_id), hash));
-                }
-            }
+            results.extend(Self::fetch_ecc_algs(device, &name_algs)?);
         }
 
         if all_algs.contains(&TpmAlgId::KeyedHash) {
-            if Self::test_keyedhash_parms(device, TpmAlgId::Null, TpmAlgId::Null).is_ok() {
-                for &hash in &name_algs {
-                    results.push(format!("keyedhash-null:{}", TpmHash::from(hash)));
-                }
-            }
-
-            for &hash in &name_algs {
-                if Self::test_keyedhash_parms(device, TpmAlgId::Hmac, hash).is_ok() {
-                    results.push(format!("keyedhash-hmac:{}", TpmHash::from(hash)));
-                }
-                if Self::test_keyedhash_parms(device, TpmAlgId::Xor, hash).is_ok() {
-                    results.push(format!("keyedhash-xor:{}", TpmHash::from(hash)));
-                }
-            }
+            results.extend(Self::fetch_keyedhash_algs(device, &name_algs));
         }
         Ok(results)
     }
