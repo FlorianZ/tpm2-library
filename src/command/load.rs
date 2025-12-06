@@ -170,10 +170,7 @@ impl Load {
     ) -> Result<(Tpm2bPublic, TpmHandle), CommandError> {
         let value = parent.0;
 
-        let ht_byte = (parent.0 >> 24) as u8;
-        let ht = TpmHt::try_from(ht_byte).map_err(|_| CommandError::InvalidHandleType(ht_byte))?;
-
-        if ht == TpmHt::Persistent {
+        if (value >> 24) as u8 == TpmHt::Persistent as u8 {
             let (public, _) = device.read_public(TpmUint32(value))?;
             Ok((Tpm2bPublic { inner: public }, parent))
         } else {
