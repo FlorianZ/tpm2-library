@@ -20,8 +20,8 @@ use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId, TpmCc,
-        TpmaObject, TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmlPcrSelection,
+        TpmsSensitiveCreate,
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
@@ -85,13 +85,7 @@ impl Create {
         parent_handle: TpmHandle,
     ) -> Result<(TpmCreateCommand, PolicyCommands, bool), CommandError> {
         let user_auth = self.creation_args.parse_password()?;
-        let mut object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
-
-        object_attributes |= TpmaObject::SENSITIVE_DATA_ORIGIN;
-
-        if self.algorithm.object_type() == TpmAlgId::KeyedHash {
-            object_attributes |= TpmaObject::SIGN_ENCRYPT;
-        }
+        let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
 
         let (auth_policy_digest, policy_commands) = build_policy_command_list(
             &self.creation_args,
