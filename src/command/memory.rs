@@ -18,7 +18,10 @@ use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
-    data::{Tpm2bName, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmtPublic},
+    data::{
+        Tpm2bName, Tpm2bNvPublic, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv,
+        TpmtPublic,
+    },
     frame::{TpmAuthCommands, TpmCommand, TpmNvReadCommand, TpmNvReadPublicCommand},
 };
 use tpm2_vtpm::VtpmPolicyCommand;
@@ -400,13 +403,11 @@ impl Memory {
         }
     }
 
-    fn read_nv_index(
+    fn read_nv_public(
         session: &mut TaskState,
         device: &mut TpmDevice,
         handle: u32,
-    ) -> Result<Vec<u8>, CommandError> {
-        let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)?;
-
+    ) -> Result<Tpm2bNvPublic, CommandError> {
         let nv_read_public_cmd = TpmNvReadPublicCommand {
             handles: [handle.into()],
         };
@@ -414,36 +415,44 @@ impl Memory {
         let read_public_resp = resp
             .NvReadPublic()
             .map_err(|_| CommandError::ResponseMismatch(TpmCc::NvReadPublic))?;
-        let nv_public = read_public_resp.nv_public;
-        let data_size = nv_public.data_size;
+        Ok(read_public_resp.nv_public)
+    }
 
-        if data_size.value() == 0 {
+    fn read_nv_index(
+        session: &mut TaskState,
+        device: &mut TpmDevice,
+        handle: u32,
+    ) -> Result<Vec<u8>, CommandError> {
+        let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)?;
+        let nv_public = Self::read_nv_public(session, device, handle)?;
+        let data_size = nv_public.data_size.value() as usize;
+
+        if data_size == 0 {
             return Ok(Vec::new());
         }
 
         let auth_handle_val = Self::resolve_nv_auth(nv_public.attributes, handle);
 
-        let mut cert_bytes = Vec::with_capacity(data_size.value() as usize);
-        let mut offset: usize = 0;
-
         let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
+
         let auth = session
             .auth_map
             .get(&TpmUint32(auth_handle_val))
             .cloned()
             .unwrap_or_default();
+
         let effective_auths: &[Auth] = if needs_auth {
             std::slice::from_ref(&auth)
         } else {
             &[]
         };
 
-        while offset < data_size.value() as usize {
-            let chunk_size = std::cmp::min(
-                max_read_size.value() as usize,
-                data_size.value() as usize - offset,
-            );
+        let mut cert_bytes = Vec::with_capacity(data_size);
+        let mut offset: usize = 0;
+
+        while offset < data_size {
+            let chunk_size = std::cmp::min(max_read_size.value() as usize, data_size - offset);
             let nv_read_cmd = TpmNvReadCommand {
                 size: TpmUint16(u16::try_from(chunk_size)?),
                 offset: TpmUint16(u16::try_from(offset)?),
