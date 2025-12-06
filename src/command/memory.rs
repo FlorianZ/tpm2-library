@@ -91,6 +91,65 @@ impl Memory {
         )
     }
 
+    fn resolve_hierarchy_str(rh: Option<TpmRh>, handle_val: u32) -> &'static str {
+        if let Some(h) = rh {
+            match h {
+                TpmRh::Owner => "owner",
+                TpmRh::Platform => "platform",
+                TpmRh::Endorsement => "endorsement",
+                TpmRh::Null => "null",
+                _ => "unknown",
+            }
+        } else if handle_val >= 0x8180_0000 {
+            "platform"
+        } else if handle_val >= 0x8100_0000 {
+            "owner"
+        } else {
+            "unknown"
+        }
+    }
+
+    fn format_algorithm(public: &TpmtPublic) -> String {
+        public_to_template(public).map_or_else(
+            |_| format!("{:?}", public.object_type),
+            |t| t.try_into().unwrap_or_else(|_| "unknown".to_string()),
+        )
+    }
+
+    fn resolve_parent_str(
+        session: &TaskState,
+        device: &mut TpmDevice,
+        parent_public: &TpmtPublic,
+        hierarchy_str: &str,
+    ) -> String {
+        if parent_public.object_type == TpmAlgId::Null {
+            return hierarchy_str.to_string();
+        }
+
+        let mut name_to_handle = HashMap::new();
+        if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
+            for h in handles {
+                if let Ok((_, name)) = device.read_public(h) {
+                    name_to_handle.insert(name, format!("{:08x}", h.0));
+                }
+            }
+        }
+        for (vhandle, k) in session.cache.key_iter() {
+            if let Ok(name) = tpm_make_name(k.public()) {
+                name_to_handle.insert(name, format!("{vhandle:08x}"));
+            }
+        }
+
+        if let Ok(pname) = tpm_make_name(parent_public) {
+            name_to_handle
+                .get(&pname)
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string())
+        } else {
+            "error".to_string()
+        }
+    }
+
     fn inspect_object(
         session: &mut TaskState,
         device: &mut TpmDevice,
@@ -100,103 +159,47 @@ impl Memory {
     ) -> Result<(), CommandError> {
         let handle = TpmUint32(handle_val);
 
-        if let Some(key) = session.cache.find_by_handle(handle) {
+        let (public, hierarchy_str, parent_str, policy_str) = if let Some(key) =
+            session.cache.find_by_handle(handle)
+        {
             let public = key.public();
-            let alg_str = public_to_template(public).map_or_else(
-                |_| format!("{:?}", public.object_type),
-                |t| t.try_into().unwrap_or_else(|_| "unknown".to_string()),
-            );
-
-            let hierarchy = match key.context().hierarchy {
-                TpmRh::Owner => "owner",
-                TpmRh::Platform => "platform",
-                TpmRh::Endorsement => "endorsement",
-                TpmRh::Null => "null",
-                _ => "unknown",
-            };
-
-            let parent_str = if key.parent().object_type == TpmAlgId::Null {
-                hierarchy.to_string()
-            } else {
-                let mut name_to_handle = HashMap::new();
-                if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
-                    for h in handles {
-                        if let Ok((_, name)) = device.read_public(h) {
-                            name_to_handle.insert(name, format!("{:08x}", h.0));
-                        }
-                    }
-                }
-                for (vhandle, k) in session.cache.key_iter() {
-                    if let Ok(name) = tpm_make_name(k.public()) {
-                        name_to_handle.insert(name, format!("{vhandle:08x}"));
-                    }
-                }
-
-                if let Ok(pname) = tpm_make_name(key.parent()) {
-                    name_to_handle
-                        .get(&pname)
-                        .cloned()
-                        .unwrap_or_else(|| "unknown".to_string())
-                } else {
-                    "error".to_string()
-                }
-            };
-
+            let hierarchy_str =
+                Self::resolve_hierarchy_str(Some(key.context().hierarchy), handle_val);
+            let parent_str = Self::resolve_parent_str(session, device, key.parent(), hierarchy_str);
             let policy_str = Self::format_policy(key.policy())
                 .unwrap_or_else(|| hex::encode(public.auth_policy));
-
-            writeln!(writer, "algorithm: {alg_str}")?;
-            writeln!(writer, "hierarchy: {hierarchy}")?;
-            writeln!(writer, "parent: {parent_str}")?;
-            writeln!(
-                writer,
-                "attributes: {:08x}",
-                public.object_attributes.bits()
-            )?;
-            if !policy_str.is_empty() {
-                writeln!(writer, "policy: {policy_str}")?;
+            (public.clone(), hierarchy_str, parent_str, policy_str)
+        } else {
+            match device.read_public(handle) {
+                Ok((public, _)) => {
+                    let hierarchy_str = Self::resolve_hierarchy_str(None, handle_val);
+                    let policy_str = hex::encode(public.auth_policy);
+                    (public, hierarchy_str, "unknown".to_string(), policy_str)
+                }
+                Err(TpmDeviceError::TpmRc(rc))
+                    if rc.base() == TpmRcBase::Handle || rc.base() == TpmRcBase::ReferenceH0 =>
+                {
+                    return Err(CommandError::UnknownHandle(handle_str));
+                }
+                Err(e) => return Err(e.into()),
             }
-            return Ok(());
+        };
+
+        let alg_str = Self::format_algorithm(&public);
+
+        writeln!(writer, "algorithm: {alg_str}")?;
+        writeln!(writer, "hierarchy: {hierarchy_str}")?;
+        writeln!(writer, "parent: {parent_str}")?;
+        writeln!(
+            writer,
+            "attributes: {:08x}",
+            public.object_attributes.bits()
+        )?;
+        if !policy_str.is_empty() {
+            writeln!(writer, "policy: {policy_str}")?;
         }
 
-        match device.read_public(handle) {
-            Ok((public, _name)) => {
-                let alg_str = public_to_template(&public).map_or_else(
-                    |_| format!("{:?}", public.object_type),
-                    |t| t.try_into().unwrap_or_else(|_| "unknown".to_string()),
-                );
-
-                let hierarchy = if handle_val >= 0x8180_0000 {
-                    "platform"
-                } else if handle_val >= 0x8100_0000 {
-                    "owner"
-                } else {
-                    "unknown"
-                };
-
-                let parent_str = "unknown";
-
-                let policy_str = hex::encode(public.auth_policy);
-
-                writeln!(writer, "algorithm: {alg_str}")?;
-                writeln!(writer, "hierarchy: {hierarchy}")?;
-                writeln!(writer, "parent: {parent_str}")?;
-                writeln!(
-                    writer,
-                    "attributes: {:08x}",
-                    public.object_attributes.bits()
-                )?;
-                writeln!(writer, "policy: {policy_str}")?;
-
-                Ok(())
-            }
-            Err(TpmDeviceError::TpmRc(rc))
-                if rc.base() == TpmRcBase::Handle || rc.base() == TpmRcBase::ReferenceH0 =>
-            {
-                Err(CommandError::UnknownHandle(handle_str))
-            }
-            Err(e) => Err(e.into()),
-        }
+        Ok(())
     }
 
     fn list_all_memory(
