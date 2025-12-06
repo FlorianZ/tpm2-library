@@ -101,9 +101,7 @@ impl Task for Import {
                 object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
             }
 
-            let tpm_key_result = Self::create_external_key(
-                self.loadable,
-                self.description.as_deref(),
+            let tpm_key_result = self.build_external_key(
                 task_state,
                 device,
                 parent_handle,
@@ -239,7 +237,7 @@ impl Import {
         Tpm2bPrivate::try_from(duplicate_blob.as_slice()).map_err(CommandError::Unmarshal)
     }
 
-    fn create_import_blob(
+    fn build_import_blob(
         parent_public: &tpm2_protocol::data::TpmtPublic,
         object_public: &tpm2_protocol::data::TpmtPublic,
         private_bytes: &[u8],
@@ -334,9 +332,62 @@ impl Import {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn create_external_key(
-        loadable: bool,
-        name: Option<&str>,
+    fn build_key_file(
+        &self,
+        task_state: &mut TaskState,
+        device: &mut TpmDevice,
+        parent_handle: TpmHandle,
+        public: Tpm2bPublic,
+        duplicate: &Tpm2bPrivate,
+        in_sym_seed: &Tpm2bEncryptedSecret,
+        encryption_key: &Tpm2bData,
+        auths: &[Auth],
+        user_auth: Tpm2bAuth,
+        policy_commands: Vec<(TpmCommand, TpmAuthCommands)>,
+    ) -> Result<TpmKeyFile, CommandError> {
+        let symmetric_alg = TpmtSymDefObject::default();
+        let policy = task_state.save_key_policy(device, policy_commands)?;
+
+        let mut file = if self.loadable {
+            let out_private = task_state.import_key(
+                device,
+                parent_handle,
+                &public,
+                duplicate,
+                in_sym_seed,
+                encryption_key,
+                &symmetric_alg,
+                auths,
+            )?;
+
+            TpmKeyFile::new()
+                .with_kind(TpmKeyType::Loadable)
+                .with_empty_auth(user_auth.is_empty())
+                .with_public(public)
+                .with_private(out_private)
+                .with_parent(parent_handle)
+                .with_policy(TpmKeyPolicy::new(None, policy))
+        } else {
+            TpmKeyFile::new()
+                .with_kind(TpmKeyType::Importable)
+                .with_empty_auth(user_auth.is_empty())
+                .with_public(public)
+                .with_private(*duplicate)
+                .with_secret(in_sym_seed.as_ref().to_vec())
+                .with_parent(parent_handle)
+                .with_policy(TpmKeyPolicy::new(None, policy))
+        };
+
+        if let Some(n) = &self.description {
+            file = file.with_description(n.clone());
+        }
+
+        Ok(file)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_external_key(
+        &self,
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
@@ -361,7 +412,7 @@ impl Import {
         let mut rng = rand::thread_rng();
         let object_name = tpm_make_name(&public).map_err(CommandError::Crypto)?;
 
-        let (duplicate, in_sym_seed, encryption_key) = Self::create_import_blob(
+        let (duplicate, in_sym_seed, encryption_key) = Self::build_import_blob(
             &parent_public,
             &public,
             &sensitive_blob,
@@ -373,43 +424,18 @@ impl Import {
         let tpm_public = Tpm2bPublic {
             inner: public.clone(),
         };
-        let symmetric_alg = TpmtSymDefObject::default();
-        let policy = task_state.save_key_policy(device, policy_commands)?;
 
-        let mut file = if loadable {
-            let out_private = task_state.import_key(
-                device,
-                parent_handle,
-                &tpm_public,
-                &duplicate,
-                &in_sym_seed,
-                &encryption_key,
-                &symmetric_alg,
-                auths,
-            )?;
-
-            TpmKeyFile::new()
-                .with_kind(TpmKeyType::Loadable)
-                .with_empty_auth(user_auth.is_empty())
-                .with_public(tpm_public)
-                .with_private(out_private)
-                .with_parent(parent_handle)
-                .with_policy(TpmKeyPolicy::new(None, policy))
-        } else {
-            TpmKeyFile::new()
-                .with_kind(TpmKeyType::Importable)
-                .with_empty_auth(user_auth.is_empty())
-                .with_public(tpm_public)
-                .with_private(duplicate)
-                .with_secret(in_sym_seed.as_ref().to_vec())
-                .with_parent(parent_handle)
-                .with_policy(TpmKeyPolicy::new(None, policy))
-        };
-
-        if let Some(n) = name {
-            file = file.with_description(n.to_string());
-        }
-
-        Ok(file)
+        self.build_key_file(
+            task_state,
+            device,
+            parent_handle,
+            tpm_public,
+            &duplicate,
+            &in_sym_seed,
+            &encryption_key,
+            auths,
+            user_auth,
+            policy_commands,
+        )
     }
 }
