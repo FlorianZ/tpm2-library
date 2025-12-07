@@ -130,13 +130,13 @@ impl Memory {
         }
 
         let mut name_to_handle = HashMap::new();
-        if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
-            for h in handles {
-                if let Ok((_, name)) = device.read_public(h) {
-                    name_to_handle.insert(name, format!("{:08x}", h.0));
-                }
+
+        if let Ok(persistent_map) = crate::command::common::fetch_persistent_names(device) {
+            for (handle, name) in persistent_map {
+                name_to_handle.insert(name, format!("{:08x}", handle.0));
             }
         }
+
         for (vhandle, k) in session.cache.key_iter() {
             if let Ok(name) = tpm_make_name(k.public()) {
                 name_to_handle.insert(name, format!("{vhandle:08x}"));
@@ -283,13 +283,12 @@ impl Memory {
         session.refresh_cache(device)?;
 
         let mut name_to_handle: HashMap<Tpm2bName, String> = HashMap::new();
-        if let Ok(handles) = device.fetch_handles(TpmHt::Persistent) {
-            for handle in handles {
-                if let Ok((_, name)) = device.read_public(handle) {
-                    name_to_handle.insert(name, format!("{:08x}", handle.0));
-                }
+        if let Ok(persistent_map) = crate::command::common::fetch_persistent_names(device) {
+            for (handle, name) in persistent_map {
+                name_to_handle.insert(name, format!("{:08x}", handle.0));
             }
         }
+
         for (vhandle, key) in session.cache.key_iter() {
             if let Ok(name) = tpm_make_name(key.public()) {
                 name_to_handle.insert(name, format!("{vhandle:08x}"));

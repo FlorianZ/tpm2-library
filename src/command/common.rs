@@ -252,23 +252,36 @@ pub fn resolve_public_template(
     Ok(public_area)
 }
 
+/// Fetches the mapping of persistent handles to their names from the device.
+///
+/// # Errors
+///
+/// Returns [`CommandError::Device`] if fetching handles fails.
+pub fn fetch_persistent_names(
+    device: &mut TpmDevice,
+) -> Result<HashMap<TpmHandle, Tpm2bName>, CommandError> {
+    let mut map = HashMap::new();
+    let handles = device.fetch_handles(TpmHt::Persistent)?;
+
+    for h in handles {
+        if let Ok((_, name)) = device.read_public(h) {
+            map.insert(h, name);
+        }
+    }
+
+    Ok(map)
+}
+
 /// Fetches a map of all available names (virtual and persistent).
 fn fetch_handle_names(
     state: &mut TaskState,
     device: &mut TpmDevice,
 ) -> Result<HashMap<TpmHandle, Tpm2bName>, CommandError> {
-    let mut map = HashMap::new();
+    let mut map = fetch_persistent_names(device)?;
 
     for (vhandle, key) in state.cache.key_iter() {
         let name = tpm_make_name(key.public())?;
         map.insert(TpmUint32(*vhandle), name);
-    }
-
-    let handles = device.fetch_handles(TpmHt::Persistent)?;
-    for h in handles {
-        if let Ok((_, name)) = device.read_public(h) {
-            map.insert(TpmUint32(h.0), name);
-        }
     }
 
     Ok(map)

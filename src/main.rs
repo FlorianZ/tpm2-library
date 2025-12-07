@@ -28,7 +28,6 @@ use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use indicatif::ProgressBar;
 use tpm2_device::TpmDevice;
-use tpm2_protocol::{basic::TpmHandle, data::Tpm2bName};
 use tpm2_vtpm::VtpmCache;
 use tracing_subscriber::EnvFilter;
 
@@ -116,20 +115,6 @@ fn main() {
     }
 }
 
-fn fetch_persistent_key_map(
-    device: &mut TpmDevice,
-) -> Result<HashMap<Tpm2bName, TpmHandle>, CommandError> {
-    let handles = device.fetch_handles(tpm2_protocol::data::TpmHt::Persistent)?;
-    let mut persistent_keys = HashMap::new();
-    for handle_val in handles {
-        let phandle = handle_val;
-        if let Ok((_, name)) = device.read_public(phandle) {
-            persistent_keys.insert(name, phandle);
-        }
-    }
-    Ok(persistent_keys)
-}
-
 fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), CommandError> {
     let shared_device = if cli.command.is_local() {
         None
@@ -143,7 +128,8 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
 
     let persistent_handles = if let Some(device_rc) = &shared_device {
         let mut device = device_rc.borrow_mut();
-        fetch_persistent_key_map(&mut device)?
+        let name_map = command::common::fetch_persistent_names(&mut device)?;
+        name_map.into_iter().map(|(h, name)| (name, h)).collect()
     } else {
         HashMap::new()
     };
