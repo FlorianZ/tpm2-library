@@ -5,14 +5,15 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_policy_command_list, CreationArgs, OutputArgs, OutputEncodingArgs},
+        common::{
+            build_policy_command_list, CreationArgs, InputArgs, OutputArgs, OutputEncodingArgs,
+        },
         CommandError,
     },
-    io::write_key_data,
+    io::{read_file_input, write_key_data},
     task::TaskState,
 };
 use clap::Args;
-use std::path::PathBuf;
 use tpm2_crypto::{TpmHash, TpmPublicTemplate};
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
@@ -43,9 +44,8 @@ pub struct Seal {
     #[arg(long = "data", conflicts_with = "input")]
     pub data: Option<String>,
 
-    /// Data to seal (file path)
-    #[arg(short = 'I', long, conflicts_with = "data")]
-    pub input: Option<PathBuf>,
+    #[clap(flatten)]
+    pub input_args: InputArgs,
 
     /// Description
     #[arg(short = 'd', long)]
@@ -83,10 +83,8 @@ impl Seal {
     fn resolve_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
         let bytes = if let Some(hex_str) = &self.data {
             hex::decode(hex_str).map_err(|_| CommandError::InvalidSensitiveData)?
-        } else if let Some(path) = &self.input {
-            std::fs::read(path)?
         } else {
-            return Err(CommandError::SensitiveDataMissing);
+            read_file_input(self.input_args.input.as_deref())?
         };
 
         if bytes.is_empty() {
