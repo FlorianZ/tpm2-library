@@ -48,10 +48,6 @@ impl Task for Load {
         let tpm_key = TpmKeyFile::from_pem(&input_bytes)
             .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;
 
-        if let Some(name) = &self.kernel {
-            return Self::load_kernel_key(&tpm_key, name, writer);
-        }
-
         with_device(
             task_state.device.clone(),
             |device| -> Result<(), CommandError> {
@@ -61,6 +57,10 @@ impl Task for Load {
                     };
                     Self::parent_from_handle(task_state, device, TpmUint32(parent))?
                 };
+
+                if let Some(name) = &self.kernel {
+                    return Self::load_kernel_key(&tpm_key, name, writer, parent_handle_ref);
+                }
 
                 let (parent_handle, _, auth) =
                     task_state.resolve_auth(device, parent_handle_ref)?;
@@ -122,6 +122,7 @@ impl Load {
         tpm_key: &TpmKeyFile,
         name: &str,
         writer: &mut dyn std::io::Write,
+        parent_handle: TpmHandle,
     ) -> Result<(), CommandError> {
         if tpm_key.public().object_type != TpmAlgId::KeyedHash {
             return Err(CommandError::UnsupportedKeyAlgorithm);
@@ -130,7 +131,7 @@ impl Load {
         let trimmed_key = TpmKeyFile::new()
             .with_kind(tpm_key.kind())
             .with_empty_auth(tpm_key.empty_auth())
-            .with_parent(tpm_key.parent())
+            .with_parent(parent_handle)
             .with_public(tpm_key.public().clone())
             .with_private(*tpm_key.private());
 
