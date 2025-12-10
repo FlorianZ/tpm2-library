@@ -8,7 +8,7 @@ use crate::{
     cli::Task,
     command::{
         common::{build_policy_command_list, resolve_public_template},
-        CommandError, CreationArgs, OutputArgs, OutputEncodingArgs,
+        CommandError, CreationArgs, OutputArgs,
     },
     io::write_key_data,
     task::TaskState,
@@ -46,9 +46,6 @@ pub struct Create {
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
-
-    #[clap(flatten)]
-    pub output_encoding_args: OutputEncodingArgs,
 
     #[clap(flatten)]
     pub creation_args: CreationArgs,
@@ -144,11 +141,6 @@ impl Create {
             .with_description(self.description.clone().unwrap_or_default())
             .with_policy(TpmKeyPolicy::new(None, policy));
 
-        write_key_data(
-            writer,
-            &tpm_key,
-            self.output_args.output.as_deref(),
-            self.output_encoding_args.encoding,
-        )
+        write_key_data(writer, &tpm_key, self.output_args.output.as_deref())
     }
 }

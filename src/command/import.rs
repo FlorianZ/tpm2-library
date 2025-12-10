@@ -6,7 +6,6 @@ use crate::{
     cli::Task,
     command::{
         common::build_policy_command_list, CommandError, CreationArgs, InputArgs, OutputArgs,
-        OutputEncodingArgs,
     },
     io::{read_file_input, write_key_data, write_object},
     task::{Auth, TaskState},
@@ -52,9 +51,6 @@ pub struct Import {
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
-
-    #[clap(flatten)]
-    pub output_encoding_args: OutputEncodingArgs,
 
     #[clap(flatten)]
     pub creation_args: CreationArgs,
@@ -115,12 +111,7 @@ impl Task for Import {
 
             let tpm_key = tpm_key_result?;
 
-            write_key_data(
-                writer,
-                &tpm_key,
-                self.output_args.output.as_deref(),
-                self.output_encoding_args.encoding,
-            )
+            write_key_data(writer, &tpm_key, self.output_args.output.as_deref())
         })
     }
 }
@@ -276,7 +267,7 @@ impl Import {
         Ok((duplicate, in_sym_seed, Tpm2bData::default()))
     }
 
-    /// Parses external key bytes (PEM or DER) into a TPM public structure and
+    /// Parses external key bytes (PEM) into a TPM public structure and
     /// private data.
     ///
     /// This function attempts to interpret the input as RSA first, falling back to ECC
@@ -284,6 +275,8 @@ impl Import {
     ///
     /// # Errors
     ///
+    /// Returns [`CommandError::InvalidInput`] if the input is not a valid PEM
+    /// containing a supported private key.
     /// Returns [`Crypto`](crate::command::CommandError::Crypto) if the input
     /// cannot be parsed as either RSA or ECC.
     fn parse_external_key(
@@ -293,20 +286,21 @@ impl Import {
         object_attributes: TpmaObject,
     ) -> Result<(TpmtPublic, Vec<u8>), CommandError> {
         let der_bytes = pem::parse_many(input_bytes)
-            .ok()
-            .and_then(|pems| {
-                pems.into_iter().find_map(|p| {
-                    if matches!(
-                        p.tag(),
-                        "PRIVATE KEY" | "RSA PRIVATE KEY" | "EC PRIVATE KEY"
-                    ) {
-                        Some(p.contents().to_vec())
-                    } else {
-                        None
-                    }
-                })
+            .map_err(|_| CommandError::InvalidInput("Input is not valid PEM".to_string()))?
+            .into_iter()
+            .find_map(|p| {
+                if matches!(
+                    p.tag(),
+                    "PRIVATE KEY" | "RSA PRIVATE KEY" | "EC PRIVATE KEY"
+                ) {
+                    Some(p.contents().to_vec())
+                } else {
+                    None
+                }
             })
-            .unwrap_or_else(|| input_bytes.to_vec());
+            .ok_or_else(|| {
+                CommandError::InvalidInput("No supported private key found in PEM".to_string())
+            })?;
 
         let symmetric = TpmtSymDefObject::default();
         let template = TpmPublicTemplate::new()

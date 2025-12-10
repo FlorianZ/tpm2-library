@@ -5,9 +5,7 @@
 use crate::{
     cli::Task,
     command::{
-        common::{
-            build_policy_command_list, CreationArgs, InputArgs, OutputArgs, OutputEncodingArgs,
-        },
+        common::{build_policy_command_list, CreationArgs, InputArgs, OutputArgs},
         CommandError,
     },
     io::{read_file_input, write_key_data},
@@ -53,9 +51,6 @@ pub struct Seal {
 
     #[clap(flatten)]
     pub output_args: OutputArgs,
-
-    #[clap(flatten)]
-    pub output_encoding_args: OutputEncodingArgs,
 
     #[clap(flatten)]
     pub creation_args: CreationArgs,
@@ -189,11 +184,6 @@ impl Seal {
             .with_policy(TpmKeyPolicy::new(None, policy))
             .with_description(self.description.clone().unwrap_or_default());
 
-        write_key_data(
-            writer,
-            &tpm_key,
-            self.output_args.output.as_deref(),
-            self.output_encoding_args.encoding,
-        )
+        write_key_data(writer, &tpm_key, self.output_args.output.as_deref())
     }
 }

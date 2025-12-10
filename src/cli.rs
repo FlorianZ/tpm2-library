@@ -134,11 +134,3 @@ impl From<Hierarchy> for TpmRh {
         }
     }
 }
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Display, EnumString, ValueEnum)]
-#[strum(serialize_all = "kebab-case")]
-pub enum OutputEncoding {
-    #[default]
-    Pem,
-    Der,
-}

@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::OutputEncoding, command::CommandError};
+use crate::command::CommandError;
 
 use std::{
     fs,
@@ -15,37 +15,36 @@ use tpm2_tpmkey::TpmKeyFile;
 
 /// Reads data from a file path or from stdin if the path is not provided.
 ///
-/// If reading from stdin, the input is assumed to be a hex-encoded string
-/// representing the binary data (DER).
-///
 /// # Errors
 ///
 /// Returns `CommandError::UnexpectedEof` when no data is provided.
-/// Returns `CommandError::InvalidInput` when hex decoding fails.
+/// Returns `CommandError::Io` on I/O failure.
 pub fn read_file_input(input: Option<&Path>) -> Result<Vec<u8>, CommandError> {
-    if let Some(path) = input {
-        let bytes = fs::read(path)?;
-        if bytes.is_empty() {
-            Err(CommandError::UnexpectedEof)
-        } else {
-            Ok(bytes)
-        }
+    let mut bytes = if let Some(path) = input {
+        fs::read(path)?
     } else {
-        let mut input_str = String::new();
-        io::stdin().read_to_string(&mut input_str)?;
-        let trimmed = input_str.trim();
-        if trimmed.is_empty() {
-            return Err(CommandError::UnexpectedEof);
-        }
-        hex::decode(trimmed)
-            .map_err(|e| CommandError::InvalidInput(format!("invalid hex input: {e}")))
+        let mut buffer = Vec::new();
+        io::stdin().read_to_end(&mut buffer)?;
+        buffer
+    };
+
+    if bytes.is_empty() {
+        return Err(CommandError::UnexpectedEof);
     }
+
+    if input.is_none() {
+        if let Ok(s) = std::str::from_utf8(&bytes) {
+            bytes = s.trim().as_bytes().to_vec();
+        }
+    }
+
+    Ok(bytes)
 }
 
 /// Handles the output of a `TpmKey`.
 ///
-/// If `output` is provided (file path), it respects the requested encoding (PEM or DER).
-/// If `output` is `None` (stdout), it forces DER encoding outputted as a hex string.
+/// Serializes the key to PEM format. If `output` is provided (file path),
+/// writes to the file. If `output` is `None` (stdout), writes to the writer.
 ///
 /// # Errors
 ///
@@ -54,18 +53,12 @@ pub fn write_key_data(
     writer: &mut dyn Write,
     tpm_key: &TpmKeyFile,
     output: Option<&Path>,
-    encoding: OutputEncoding,
 ) -> Result<(), CommandError> {
+    let pem = tpm_key.to_pem().map_err(CommandError::from)?;
     if let Some(path) = output {
-        let output_bytes = match encoding {
-            OutputEncoding::Der => tpm_key.to_der().map_err(CommandError::from)?,
-            OutputEncoding::Pem => tpm_key.to_pem().map_err(CommandError::from)?.into_bytes(),
-        };
-        fs::write(path, output_bytes)?;
+        fs::write(path, pem.as_bytes())?;
     } else {
-        let der = tpm_key.to_der().map_err(CommandError::from)?;
-        let hex_str = hex::encode(der);
-        writeln!(writer, "{hex_str}")?;
+        write!(writer, "{pem}")?;
     }
     Ok(())
 }

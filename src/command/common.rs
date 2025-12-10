@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::{Hierarchy, OutputEncoding},
+    cli::Hierarchy,
     command::CommandError,
     handle::Handle,
     pcr::read_all_pcrs,
@@ -102,13 +102,6 @@ pub struct OutputArgs {
     /// Output file path (defaults to stdout as hex-encoded DER)
     #[arg(short = 'O', long)]
     pub output: Option<PathBuf>,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct OutputEncodingArgs {
-    /// Output encoding for file output (ignored for stdout): pem or der
-    #[arg(short = 'e', long = "encoding", value_enum, default_value_t = OutputEncoding::default())]
-    pub encoding: OutputEncoding,
 }
 
 #[derive(Args, Debug, Clone)]

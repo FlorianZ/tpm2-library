@@ -45,8 +45,7 @@ impl Task for Load {
     ) -> Result<(), CommandError> {
         let input_bytes = read_file_input(self.input_args.input.as_deref())?;
 
-        let tpm_key = TpmKeyFile::from_pem(&input_bytes)
-            .or_else(|_| TpmKeyFile::from_der(&input_bytes).map_err(CommandError::from))?;
+        let tpm_key = TpmKeyFile::from_pem(&input_bytes).map_err(CommandError::from)?;
 
         with_device(
             task_state.device.clone(),
