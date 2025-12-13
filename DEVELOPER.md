@@ -2,10 +2,8 @@
 
 ## Overview
 
-All commits must follow the conventions presented in the
-[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
-specification, and they must also include a `Signed-off-by` tag as the
-trailer.
+Commits should follow loosely kernel commit style i.e. subsystem tag followed by
+short summary, and then long description.
 
 ## Documenting API
 
