@@ -91,7 +91,7 @@ pub struct TpmKeyFile {
     kind: TpmKeyType,
     empty_auth: bool,
     policy: Vec<TpmKeyPolicyCommand>,
-    secret: Option<Vec<u8>>,
+    secret: Vec<u8>,
     auth_policy: Option<Vec<TpmKeyAuthPolicy>>,
     description: Option<String>,
     public: Tpm2bPublic,
@@ -113,7 +113,7 @@ impl TpmKeyFile {
             kind: TpmKeyType::Loadable,
             empty_auth: false,
             policy: Vec::new(),
-            secret: None,
+            secret: Vec::new(),
             auth_policy: None,
             description: None,
             public: Tpm2bPublic::default(),
@@ -154,12 +154,8 @@ impl TpmKeyFile {
     }
 
     #[must_use]
-    pub fn with_secret(mut self, secret: Vec<u8>) -> Self {
-        self.secret = if secret.is_empty() {
-            None
-        } else {
-            Some(secret)
-        };
+    pub fn with_secret(mut self, secret: &[u8]) -> Self {
+        secret.clone_into(&mut self.secret);
         self
     }
 
@@ -211,7 +207,7 @@ impl TpmKeyFile {
     }
 
     #[must_use]
-    pub fn secret(&self) -> &Option<Vec<u8>> {
+    pub fn secret(&self) -> &[u8] {
         &self.secret
     }
 
@@ -345,15 +341,17 @@ impl TpmKeyFile {
 
         let empty_auth = if self.empty_auth { Some(true) } else { None };
         let rsa_parent = if self.rsa_parent { Some(true) } else { None };
+        let secret = if self.secret.is_empty() {
+            None
+        } else {
+            Some(OctetString::copy_from_slice(&self.secret))
+        };
 
         Ok(TpmKeyAsn1 {
             key_type: oid,
             empty_auth,
             policy,
-            secret: self
-                .secret
-                .as_ref()
-                .map(|v| OctetString::copy_from_slice(v)),
+            secret,
             auth_policy: auth_policy_asn1,
             description: self.description.as_deref().map(Utf8String::from),
             rsa_parent,
@@ -416,6 +414,7 @@ impl TpmKeyFile {
 
         let empty_auth = asn1.empty_auth.unwrap_or_default();
         let rsa_parent = asn1.rsa_parent.unwrap_or_default();
+        let secret = asn1.secret.unwrap_or_default().to_vec();
 
         Ok(Self {
             kind,
@@ -425,7 +424,7 @@ impl TpmKeyFile {
             empty_auth,
             policy,
             auth_policy,
-            secret: asn1.secret.as_ref().map(|o| o.as_ref().to_vec()),
+            secret,
             description: asn1.description,
             rsa_parent,
         })
@@ -616,7 +615,7 @@ mod tests {
             empty_auth: false,
             policy: Vec::new(),
             auth_policy: None,
-            secret: None,
+            secret: Vec::new(),
             description: None,
             rsa_parent: false,
         }
@@ -707,7 +706,7 @@ mod tests {
             empty_auth: false,
             policy: Vec::new(),
             auth_policy: None,
-            secret: None,
+            secret: Vec::new(),
             description: None,
             rsa_parent: false,
         };
