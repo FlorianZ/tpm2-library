@@ -89,7 +89,7 @@ pub enum TpmKeyType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmKeyFile {
     kind: TpmKeyType,
-    empty_auth: Option<bool>,
+    empty_auth: bool,
     policy: Option<TpmKeyPolicy>,
     secret: Option<Vec<u8>>,
     auth_policy: Option<Vec<TpmKeyPolicy>>,
@@ -97,7 +97,7 @@ pub struct TpmKeyFile {
     public: Tpm2bPublic,
     private: Tpm2bPrivate,
     parent: TpmHandle,
-    rsa_parent: Option<bool>,
+    rsa_parent: bool,
 }
 
 impl Default for TpmKeyFile {
@@ -111,7 +111,7 @@ impl TpmKeyFile {
     pub fn new() -> Self {
         TpmKeyFile {
             kind: TpmKeyType::Loadable,
-            empty_auth: None,
+            empty_auth: false,
             policy: None,
             secret: None,
             auth_policy: None,
@@ -119,7 +119,7 @@ impl TpmKeyFile {
             public: Tpm2bPublic::default(),
             private: Tpm2bPrivate::default(),
             parent: TpmHandle::from(0),
-            rsa_parent: None,
+            rsa_parent: false,
         }
     }
 
@@ -143,7 +143,7 @@ impl TpmKeyFile {
 
     #[must_use]
     pub fn with_empty_auth(mut self, empty_auth: bool) -> Self {
-        self.empty_auth = if empty_auth { Some(empty_auth) } else { None };
+        self.empty_auth = empty_auth;
         self
     }
 
@@ -195,7 +195,7 @@ impl TpmKeyFile {
 
     #[must_use]
     pub fn with_rsa_parent(mut self, rsa_parent: bool) -> Self {
-        self.rsa_parent = if rsa_parent { Some(rsa_parent) } else { None };
+        self.rsa_parent = rsa_parent;
         self
     }
 
@@ -206,7 +206,7 @@ impl TpmKeyFile {
 
     #[must_use]
     pub fn empty_auth(&self) -> bool {
-        self.empty_auth == Some(true)
+        self.empty_auth
     }
 
     #[must_use]
@@ -231,7 +231,7 @@ impl TpmKeyFile {
 
     #[must_use]
     pub fn rsa_parent(&self) -> bool {
-        self.rsa_parent == Some(true)
+        self.rsa_parent
     }
 
     #[must_use]
@@ -343,9 +343,8 @@ impl TpmKeyFile {
             TpmKeyType::SealedData => OID_SEALED_DATA.clone(),
         };
 
-        let empty_auth = self
-            .empty_auth
-            .and_then(|val| if val { Some(true) } else { None });
+        let empty_auth = if self.empty_auth { Some(true) } else { None };
+        let rsa_parent = if self.rsa_parent { Some(true) } else { None };
 
         Ok(TpmKeyAsn1 {
             key_type: oid,
@@ -357,7 +356,7 @@ impl TpmKeyFile {
                 .map(|v| OctetString::copy_from_slice(v)),
             auth_policy: auth_policy_asn1,
             description: self.description.as_deref().map(Utf8String::from),
-            rsa_parent: self.rsa_parent,
+            rsa_parent,
             parent: self.parent.into(),
             pubkey: OctetString::copy_from_slice(&tpm_marshal_array(&[&self.public])?),
             privkey: OctetString::copy_from_slice(&tpm_marshal_array(&[&self.private])?),
@@ -372,14 +371,18 @@ impl TpmKeyFile {
         let key_type = public.inner.object_type;
 
         let kind = if asn1.key_type == OID_LOADABLE_KEY {
-            if key_type != TpmAlgId::Rsa && key_type != TpmAlgId::Ecc &&
-               key_type != TpmAlgId::KeyedHash {
+            if key_type != TpmAlgId::Rsa
+                && key_type != TpmAlgId::Ecc
+                && key_type != TpmAlgId::KeyedHash
+            {
                 return Err(TpmKeyError::InvalidLoadable(key_type));
             }
             TpmKeyType::Loadable
         } else if asn1.key_type == OID_IMPORTABLE_KEY {
-            if key_type != TpmAlgId::Rsa && key_type != TpmAlgId::Ecc &&
-               key_type != TpmAlgId::KeyedHash {
+            if key_type != TpmAlgId::Rsa
+                && key_type != TpmAlgId::Ecc
+                && key_type != TpmAlgId::KeyedHash
+            {
                 return Err(TpmKeyError::InvalidImportable(key_type));
             }
             TpmKeyType::Importable
@@ -408,17 +411,20 @@ impl TpmKeyFile {
             })
             .transpose()?;
 
+        let empty_auth = asn1.empty_auth.unwrap_or_default();
+        let rsa_parent = asn1.rsa_parent.unwrap_or_default();
+
         Ok(Self {
             kind,
             public,
             private,
             parent: TpmUint32::new(asn1.parent),
-            empty_auth: asn1.empty_auth,
+            empty_auth,
             policy,
             auth_policy,
             secret: asn1.secret.as_ref().map(|o| o.as_ref().to_vec()),
             description: asn1.description,
-            rsa_parent: asn1.rsa_parent,
+            rsa_parent,
         })
     }
 }
@@ -604,12 +610,12 @@ mod tests {
             public,
             private,
             parent: TpmUint32::new(0),
-            empty_auth: None,
+            empty_auth: false,
             policy: None,
             auth_policy: None,
             secret: None,
             description: None,
-            rsa_parent: None,
+            rsa_parent: false,
         }
     }
 
@@ -647,15 +653,15 @@ mod tests {
     fn test_empty_auth_encoding() {
         let mut key = minimal_key();
 
-        key.empty_auth = Some(true);
+        key.empty_auth = true;
         let asn1_true = key.to_asn1().unwrap();
         assert_eq!(asn1_true.empty_auth, Some(true));
 
-        key.empty_auth = Some(false);
+        key.empty_auth = false;
         let asn1_false = key.to_asn1().unwrap();
         assert!(asn1_false.empty_auth.is_none());
 
-        key.empty_auth = None;
+        key.empty_auth = false;
         let asn1_none = key.to_asn1().unwrap();
         assert!(asn1_none.empty_auth.is_none());
     }
@@ -695,12 +701,12 @@ mod tests {
             public,
             private,
             parent: TpmUint32::new(0),
-            empty_auth: None,
+            empty_auth: false,
             policy: None,
             auth_policy: None,
             secret: None,
             description: None,
-            rsa_parent: None,
+            rsa_parent: false,
         };
 
         let der = key.to_der().unwrap();
