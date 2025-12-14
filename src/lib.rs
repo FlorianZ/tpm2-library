@@ -90,9 +90,9 @@ pub enum TpmKeyType {
 pub struct TpmKeyFile {
     kind: TpmKeyType,
     empty_auth: bool,
-    policy: Option<TpmKeyPolicy>,
+    policy: Vec<TpmKeyPolicyCommand>,
     secret: Option<Vec<u8>>,
-    auth_policy: Option<Vec<TpmKeyPolicy>>,
+    auth_policy: Option<Vec<TpmKeyAuthPolicy>>,
     description: Option<String>,
     public: Tpm2bPublic,
     private: Tpm2bPrivate,
@@ -112,7 +112,7 @@ impl TpmKeyFile {
         TpmKeyFile {
             kind: TpmKeyType::Loadable,
             empty_auth: false,
-            policy: None,
+            policy: Vec::new(),
             secret: None,
             auth_policy: None,
             description: None,
@@ -148,12 +148,8 @@ impl TpmKeyFile {
     }
 
     #[must_use]
-    pub fn with_policy(mut self, policy: TpmKeyPolicy) -> Self {
-        self.policy = if policy.is_empty() {
-            None
-        } else {
-            Some(policy)
-        };
+    pub fn with_policy(mut self, policy: &[TpmKeyPolicyCommand]) -> Self {
+        policy.clone_into(&mut self.policy);
         self
     }
 
@@ -168,7 +164,7 @@ impl TpmKeyFile {
     }
 
     #[must_use]
-    pub fn with_auth_policy(mut self, auth_policy: Vec<TpmKeyPolicy>) -> Self {
+    pub fn with_auth_policy(mut self, auth_policy: Vec<TpmKeyAuthPolicy>) -> Self {
         self.auth_policy = if auth_policy.is_empty() {
             None
         } else {
@@ -210,7 +206,7 @@ impl TpmKeyFile {
     }
 
     #[must_use]
-    pub fn policy(&self) -> &Option<TpmKeyPolicy> {
+    pub fn policy(&self) -> &Vec<TpmKeyPolicyCommand> {
         &self.policy
     }
 
@@ -220,7 +216,7 @@ impl TpmKeyFile {
     }
 
     #[must_use]
-    pub fn auth_policy(&self) -> &Option<Vec<TpmKeyPolicy>> {
+    pub fn auth_policy(&self) -> &Option<Vec<TpmKeyAuthPolicy>> {
         &self.auth_policy
     }
 
@@ -330,7 +326,11 @@ impl TpmKeyFile {
     }
 
     fn to_asn1(&self) -> Result<TpmKeyAsn1, TpmKeyError> {
-        let policy_asn1 = self.policy.as_ref().map(Vec::<TpmKeyCommandAsn1>::from);
+        let policy = if self.policy.is_empty() {
+            None
+        } else {
+            Some(self.policy.iter().map(TpmKeyCommandAsn1::from).collect())
+        };
 
         let auth_policy_asn1 = self
             .auth_policy
@@ -349,7 +349,7 @@ impl TpmKeyFile {
         Ok(TpmKeyAsn1 {
             key_type: oid,
             empty_auth,
-            policy: policy_asn1,
+            policy,
             secret: self
                 .secret
                 .as_ref()
@@ -399,14 +399,17 @@ impl TpmKeyFile {
             return Err(TpmKeyError::MissingSecret);
         }
 
-        let policy = asn1.policy.map(TpmKeyPolicy::try_from).transpose()?;
+        let mut policy = Vec::new();
+        for command in asn1.policy.unwrap_or_default() {
+            policy.push(TpmKeyPolicyCommand::try_from(command)?);
+        }
 
         let auth_policy = asn1
             .auth_policy
             .map(|branches| {
                 branches
                     .into_iter()
-                    .map(TpmKeyPolicy::try_from)
+                    .map(TpmKeyAuthPolicy::try_from)
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
@@ -429,7 +432,7 @@ impl TpmKeyFile {
     }
 }
 
-impl TryFrom<TpmAuthPolicyAsn1> for TpmKeyPolicy {
+impl TryFrom<TpmAuthPolicyAsn1> for TpmKeyAuthPolicy {
     type Error = TpmKeyError;
 
     fn try_from(val: TpmAuthPolicyAsn1) -> Result<Self, Self::Error> {
@@ -439,11 +442,11 @@ impl TryFrom<TpmAuthPolicyAsn1> for TpmKeyPolicy {
             .map(TpmKeyPolicyCommand::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(TpmKeyPolicy::new(val.name, cmds))
+        Ok(TpmKeyAuthPolicy::new(val.name, cmds))
     }
 }
 
-impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmKeyPolicy {
+impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmKeyAuthPolicy {
     type Error = TpmKeyError;
 
     fn try_from(cmds: Vec<TpmKeyCommandAsn1>) -> Result<Self, Self::Error> {
@@ -452,12 +455,12 @@ impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmKeyPolicy {
             .map(TpmKeyPolicyCommand::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(TpmKeyPolicy::new(None, cmds))
+        Ok(TpmKeyAuthPolicy::new(None, cmds))
     }
 }
 
-impl From<&TpmKeyPolicy> for TpmAuthPolicyAsn1 {
-    fn from(p: &TpmKeyPolicy) -> Self {
+impl From<&TpmKeyAuthPolicy> for TpmAuthPolicyAsn1 {
+    fn from(p: &TpmKeyAuthPolicy) -> Self {
         Self {
             name: p.name().as_deref().map(Utf8String::from),
             policy: p.policy().iter().map(TpmKeyCommandAsn1::from).collect(),
@@ -465,8 +468,8 @@ impl From<&TpmKeyPolicy> for TpmAuthPolicyAsn1 {
     }
 }
 
-impl From<&TpmKeyPolicy> for Vec<TpmKeyCommandAsn1> {
-    fn from(p: &TpmKeyPolicy) -> Self {
+impl From<&TpmKeyAuthPolicy> for Vec<TpmKeyCommandAsn1> {
+    fn from(p: &TpmKeyAuthPolicy) -> Self {
         p.policy().iter().map(TpmKeyCommandAsn1::from).collect()
     }
 }
@@ -611,7 +614,7 @@ mod tests {
             private,
             parent: TpmUint32::new(0),
             empty_auth: false,
-            policy: None,
+            policy: Vec::new(),
             auth_policy: None,
             secret: None,
             description: None,
@@ -702,7 +705,7 @@ mod tests {
             private,
             parent: TpmUint32::new(0),
             empty_auth: false,
-            policy: None,
+            policy: Vec::new(),
             auth_policy: None,
             secret: None,
             description: None,

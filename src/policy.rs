@@ -32,20 +32,20 @@ impl TpmKeyPolicyCommand {
 
 /// A TPM key policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TpmKeyPolicy {
+pub struct TpmKeyAuthPolicy {
     name: Option<String>,
     policy: Vec<TpmKeyPolicyCommand>,
 }
 
-impl TpmKeyPolicy {
+impl TpmKeyAuthPolicy {
     #[must_use]
     pub const fn new(name: Option<String>, policy: Vec<TpmKeyPolicyCommand>) -> Self {
-        TpmKeyPolicy { name, policy }
+        TpmKeyAuthPolicy { name, policy }
     }
 
     #[must_use]
     pub const fn empty() -> Self {
-        TpmKeyPolicy {
+        TpmKeyAuthPolicy {
             name: None,
             policy: Vec::new(),
         }
@@ -71,7 +71,7 @@ impl TpmKeyPolicy {
     }
 }
 
-impl Default for TpmKeyPolicy {
+impl Default for TpmKeyAuthPolicy {
     fn default() -> Self {
         Self::empty()
     }
