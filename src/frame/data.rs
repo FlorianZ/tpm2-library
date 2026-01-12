@@ -14,8 +14,8 @@ use crate::{
         TpmSe, TpmSu, TpmaLocality, TpmiAlgCipherMode, TpmiAlgHash, TpmiEccKeyExchange, TpmiYesNo,
         TpmlAcCapabilities, TpmlAlg, TpmlCc, TpmlDigest, TpmlDigestValues, TpmlPcrSelection,
         TpmsAcOutput, TpmsAlgorithmDetailEcc, TpmsCapabilityData, TpmsContext, TpmsTimeInfo,
-        TpmtHa, TpmtKdfScheme, TpmtPublicParms, TpmtRsaDecrypt, TpmtSignature, TpmtSymDef,
-        TpmtSymDefObject, TpmtTkAuth, TpmtTkCreation, TpmtTkHashcheck, TpmtTkVerified,
+        TpmtHa, TpmtKdfScheme, TpmtPublicParms, TpmtRsaDecrypt, TpmtSigScheme, TpmtSignature,
+        TpmtSymDef, TpmtSymDefObject, TpmtTkAuth, TpmtTkCreation, TpmtTkHashcheck, TpmtTkVerified,
     },
     frame::TpmHeader,
 };
@@ -2552,7 +2552,7 @@ tpm_struct! {
     handles: 1,
     parameters: {
         pub digest: Tpm2bDigest,
-        pub in_scheme: TpmtSignature,
+        pub in_scheme: TpmtSigScheme,
         pub validation: TpmtTkHashcheck,
     }
 }
