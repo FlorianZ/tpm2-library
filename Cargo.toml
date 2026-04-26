@@ -8,7 +8,7 @@ name = "tpm2-protocol"
 readme = "README.md"
 repository = "https://gitlab.com/tpm-protocol/tpm2-protocol"
 rust-version = "1.81"
-version = "0.16.6"
+version = "0.16.7"
 
 [[test]]
 name = "return_code"
