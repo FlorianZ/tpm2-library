@@ -2,11 +2,11 @@
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
 description = "TPM 2.0 marshaler/unmarshaler"
 edition = "2021"
-homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol.git/about"
+homepage = "https://gitlab.com/tpm-protocol/tpm2-protocol"
 license = "MIT OR Apache-2.0"
 name = "tpm2-protocol"
 readme = "README.md"
-repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-protocol.git"
+repository = "https://gitlab.com/tpm-protocol/tpm2-protocol"
 rust-version = "1.81"
 version = "0.16.6"
 
