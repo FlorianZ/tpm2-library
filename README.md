@@ -3,14 +3,35 @@
 `tpm2-policy-language` is a TPM 2.0 policy language expression interpreter with
 an ability to compile them into marshaled sequences of policy commands.
 
-## Development
+## Submitting patches
 
-* Git: https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-tools.git
-* Contributions: patches can be submitted to `tpm-protocol@lists.linux.dev`.
-* Commits follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
-  specification.
-* New commits should include a `Signed-off-by` trailer.
-* Versioning scheme uses [Semantic Versioning](https://semver.org/).
+Contributions can be submitted as merge requests.
+
+Commit messages should follow simple kernel alike format. Write a clear summary
+of the change to the long description. NOTE: conventional commit messages have
+been abandoned despite used in the early development.
+
+## Mailing List
+
+For broader discussions there is a mailing list.
+
+The list can be subscribed by sending an empty message to
+`tpm-protocol+subscribe@lists.linux.dev`, Unsubscribing follows the same exact
+pattern except that the subaddress is `+unsubscribe`.
+
+Emails must be in `text/plain` (instead of e.g., `text/html`) .
+
+## Documenting errors
+
+The following snippet demonstrates the recommended pattern for documenting
+the return values on error:
+
+```
+/// # Errors
+///
+/// Returns [`<variant's unqualified name>`](<variant's unqualified name>)
+/// Returns ...
+```
 
 ## Licensing
 
