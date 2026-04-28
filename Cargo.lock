@@ -562,9 +562,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.11.1"
+version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02fac58f51753ce2b8bbf964f0626ec172d20aead253dd6e0057d8334bb33352"
+checksum = "c4a9c473d4c7f44c460f71fc631b3d5847148068ec58814526dfc511ae118e9f"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -577,9 +577,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.16.4"
+version = "0.16.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7c48a6ed150f111bee570c182015e7c11eb29be1d1a1bceb09369ca74753512"
+checksum = "75452b7cfe993c1867e27ccbc9cd9bc2f5608fc6f142b592448b5fa089cfa73d"
 
 [[package]]
 name = "tpm2-vtpm"

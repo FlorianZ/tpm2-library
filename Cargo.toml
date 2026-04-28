@@ -3,8 +3,8 @@ name = "tpm2-vtpm"
 description = "TPM 2.0 virtual TPM context cache"
 version = "0.6.3"
 license = "MIT OR Apache-2.0"
-homepage = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-vtpm.git/about/?h=main"
-repository = "https://git.kernel.org/pub/scm/linux/kernel/git/jarkko/tpm2-vtpm.git"
+homepage = "https://gitlab.com/tpm-protocol/tpm2-vtpm"
+repository = "https://gitlab.com/tpm-protocol/tpm2-vtpm"
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
 edition = "2021"
 rust-version = "1.81"
@@ -13,8 +13,8 @@ readme = "README.md"
 [dependencies]
 log = "0.4"
 thiserror = "1.0"
-tpm2-crypto = "0.11.1"
-tpm2-protocol = "0.16.4"
+tpm2-crypto = "0.11.3"
+tpm2-protocol = "0.16.7"
 
 [dev-dependencies]
 rstest = "0.18"
