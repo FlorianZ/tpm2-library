@@ -305,7 +305,7 @@ impl TpmEccExternalKey {
         let mut ephemeral_pub_point =
             EcPoint::new(&group).map_err(|_| TpmCryptoError::OutOfMemory)?;
         ephemeral_pub_point
-            .mul_generator(&group, &priv_bn, &ctx)
+            .mul_generator2(&group, &priv_bn, &mut ctx)
             .map_err(|_| TpmCryptoError::OperationFailed)?;
         let ephemeral_key = EcKey::from_private_components(&group, &priv_bn, &ephemeral_pub_point)
             .map_err(|_| TpmCryptoError::OutOfMemory)?;
