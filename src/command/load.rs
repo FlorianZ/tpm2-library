@@ -64,8 +64,10 @@ impl Task for Load {
                 let (parent_handle, _, auth) =
                     task_state.resolve_auth(device, parent_handle_ref)?;
 
-                let object_private = if let Some(secret) = tpm_key.secret() {
-                    let in_sym_seed = Tpm2bEncryptedSecret::try_from(secret.as_slice())
+                let object_private = if tpm_key.secret().is_empty() {
+                    *tpm_key.private()
+                } else {
+                    let in_sym_seed = Tpm2bEncryptedSecret::try_from(tpm_key.secret())
                         .map_err(|_| CommandError::CapacityExceeded)?;
 
                     task_state.import_key(
@@ -78,8 +80,6 @@ impl Task for Load {
                         &TpmtSymDefObject::default(),
                         std::slice::from_ref(&auth),
                     )?
-                } else {
-                    *tpm_key.private()
                 };
 
                 let (object_handle, public) = Self::run_load(
@@ -91,14 +91,14 @@ impl Task for Load {
                     &[auth],
                 )?;
 
-                let policy_blob = if let Some(policy) = &tpm_key.policy() {
+                let policy_blob = if tpm_key.policy().is_empty() {
+                    None
+                } else {
                     let mut policy_vec: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
-                    for cmd in policy.policy() {
+                    for cmd in tpm_key.policy() {
                         policy_vec.push(vtpm_policy_command_from_parts(cmd.cc(), cmd.body())?);
                     }
                     Some(policy_vec)
-                } else {
-                    None
                 };
 
                 let object_context = device.save_context(object_handle)?;

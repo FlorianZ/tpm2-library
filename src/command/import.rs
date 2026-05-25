@@ -30,7 +30,7 @@ use tpm2_protocol::{
     frame::{TpmAuthCommands, TpmCommand},
     TpmMarshal, TpmWriter,
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyType};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 
 /// Import external keys to TPM keys.
 #[derive(Args, Debug)]
@@ -360,16 +360,16 @@ impl Import {
                 .with_public(public)
                 .with_private(out_private)
                 .with_parent(parent_handle)
-                .with_policy(TpmKeyPolicy::new(None, policy))
+                .with_policy(&policy)
         } else {
             TpmKeyFile::new()
                 .with_kind(TpmKeyType::Importable)
                 .with_empty_auth(user_auth.is_empty())
                 .with_public(public)
                 .with_private(*duplicate)
-                .with_secret(in_sym_seed.as_ref().to_vec())
+                .with_secret(in_sym_seed.as_ref())
                 .with_parent(parent_handle)
-                .with_policy(TpmKeyPolicy::new(None, policy))
+                .with_policy(&policy)
         };
 
         if let Some(n) = &self.description {

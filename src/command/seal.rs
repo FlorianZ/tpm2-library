@@ -24,7 +24,7 @@ use tpm2_protocol::{
     },
     frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
 };
-use tpm2_tpmkey::{TpmKeyFile, TpmKeyPolicy, TpmKeyType};
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
@@ -181,7 +181,7 @@ impl Seal {
             .with_public(resp.out_public)
             .with_private(resp.out_private)
             .with_parent(parent_phys_handle)
-            .with_policy(TpmKeyPolicy::new(None, policy))
+            .with_policy(&policy)
             .with_description(self.description.clone().unwrap_or_default());
 
         write_key_data(writer, &tpm_key, self.output_args.output.as_deref())
