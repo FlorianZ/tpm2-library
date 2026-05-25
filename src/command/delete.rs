@@ -3,14 +3,16 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{cli::Task, command::CommandError, task::TaskState};
-use clap::Args;
+use argh::FromArgs;
 use tpm2_device::with_device;
 use tpm2_protocol::{basic::TpmUint32, data::TpmHt};
 
 /// Deletes active and cached objects.
-#[derive(Args, Debug)]
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "delete", help_triggers("-h", "--help", "help"))]
 pub struct Delete {
-    /// TPM handle as a eight characters hex string or wildcard pattern.
+    /// TPM handle as an eight characters hex string or wildcard pattern
+    #[argh(positional)]
     pub handle: crate::handle::Handle,
 }
 

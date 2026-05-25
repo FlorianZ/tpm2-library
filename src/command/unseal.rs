@@ -1,24 +1,23 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{
-    cli::Task,
-    command::{CommandError, OutputArgs},
-    task::TaskState,
-};
-use clap::Args;
+use crate::{cli::Task, command::CommandError, task::TaskState};
+use argh::FromArgs;
+use std::path::PathBuf;
 use tpm2_device::with_device;
 use tpm2_protocol::{basic::TpmUint32, data::TpmCc, frame::TpmUnsealCommand};
 
 /// Retrieves data from a sealed data object.
-#[derive(Args, Debug)]
-#[command(about = "Retrieves data from a sealed data object.")]
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "unseal", help_triggers("-h", "--help", "help"))]
 pub struct Unseal {
-    /// TPM handle as a eight characters hex string.
+    /// TPM handle as a eight characters hex string
+    #[argh(positional)]
     pub handle: crate::handle::Handle,
 
-    #[clap(flatten)]
-    pub output_args: OutputArgs,
+    /// output file path (defaults to stdout as hex)
+    #[argh(option, short = 'O')]
+    pub output: Option<PathBuf>,
 }
 
 impl Task for Unseal {
@@ -46,7 +45,7 @@ impl Task for Unseal {
                 .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
                 .out_data;
 
-            if let Some(path) = &self.output_args.output {
+            if let Some(path) = &self.output {
                 std::fs::write(path, out_data.as_ref())?;
             } else {
                 writeln!(writer, "{}", hex::encode(out_data.as_ref()))?;

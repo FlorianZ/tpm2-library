@@ -4,12 +4,12 @@
 
 use crate::{
     cli::Task,
-    command::{CommandError, InputArgs},
+    command::CommandError,
     io::read_file_input,
     task::{Auth, TaskState},
 };
-use clap::Args;
-use std::ffi::CString;
+use argh::FromArgs;
+use std::{ffi::CString, path::PathBuf};
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
@@ -22,17 +22,19 @@ use tpm2_tpmkey::TpmKeyFile;
 use tpm2_vtpm::{vtpm_policy_command_from_parts, VtpmPolicyCommand};
 
 /// Loads a PEM or DER TPMKey file to cache.
-#[derive(Args, Debug)]
-#[command(verbatim_doc_comment)]
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "load", help_triggers("-h", "--help", "help"))]
 pub struct Load {
-    #[clap(flatten)]
-    pub input_args: InputArgs,
+    /// input file path (defaults to stdin as PEM)
+    #[argh(option, short = 'I')]
+    pub input: Option<PathBuf>,
 
-    /// Parent's TPM handle as an eight characters hex string.
+    /// parent's TPM handle as an eight characters hex string
+    #[argh(positional)]
     pub parent: crate::handle::Handle,
 
-    /// Load to the kernel keyring as a trusted key with the given name.
-    #[arg(long, value_name = "NAME")]
+    /// load to the kernel keyring as a trusted key with the given name
+    #[argh(option)]
     pub kernel: Option<String>,
 }
 
@@ -43,7 +45,7 @@ impl Task for Load {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<(), CommandError> {
-        let input_bytes = read_file_input(self.input_args.input.as_deref())?;
+        let input_bytes = read_file_input(self.input.as_deref())?;
 
         let tpm_key = TpmKeyFile::from_pem(&input_bytes).map_err(CommandError::from)?;
 

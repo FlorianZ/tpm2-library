@@ -3,7 +3,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{cli::Task, command::CommandError, task::TaskState};
-use clap::Args;
+use argh::FromArgs;
 use tpm2_device::with_device;
 use tpm2_protocol::{
     basic::TpmUint32,
@@ -12,8 +12,9 @@ use tpm2_protocol::{
 };
 
 /// Resets the dictionary attack lockout counter.
-#[derive(Args, Debug)]
-pub struct ResetLock;
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "reset-lock", help_triggers("-h", "--help", "help"))]
+pub struct ResetLock {}
 
 impl Task for ResetLock {
     fn run(

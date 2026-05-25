@@ -3,7 +3,7 @@
 // Copyright (c) 2025 Opinsys Oy
 
 use crate::{cli::Task, command::CommandError, io::parse_u32, task::TaskState};
-use clap::Args;
+use argh::FromArgs;
 use tpm2_protocol::data::TpmRc;
 
 fn parse_rc(rc_str: &str) -> Result<TpmRc, String> {
@@ -12,10 +12,15 @@ fn parse_rc(rc_str: &str) -> Result<TpmRc, String> {
 }
 
 /// Prints a TPM return code in human-readable format.
-#[derive(Args, Debug)]
+#[derive(FromArgs, Debug)]
+#[argh(
+    subcommand,
+    name = "return-code",
+    help_triggers("-h", "--help", "help")
+)]
 pub struct ReturnCode {
-    /// Return code in hex or decimal
-    #[arg(value_parser = parse_rc)]
+    /// return code in hex or decimal
+    #[argh(positional, from_str_fn(parse_rc))]
     pub rc: TpmRc,
 }
 

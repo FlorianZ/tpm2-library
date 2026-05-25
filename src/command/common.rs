@@ -3,14 +3,12 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::Hierarchy,
     command::CommandError,
     handle::Handle,
     pcr::read_all_pcrs,
     task::{Auth, TaskState},
 };
-use clap::Args;
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, str::FromStr};
 use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
@@ -90,90 +88,56 @@ pub fn build_auth_map(
     Ok(map)
 }
 
-#[derive(Args, Debug, Clone)]
-pub struct InputArgs {
-    /// Input file path (defaults to stdin as PEM)
-    #[arg(short = 'I', long)]
-    pub input: Option<PathBuf>,
+/// Parses a password into a TPM authorization value.
+///
+/// # Errors
+///
+/// Returns [`CommandError::InvalidPassword`] when the hex string is malformed,
+/// or [`CommandError::CapacityExceeded`] when the password is too long.
+pub fn parse_password(password: Option<&str>) -> Result<Tpm2bAuth, CommandError> {
+    match password {
+        Some(hex_str) => Tpm2bAuth::try_from(
+            hex::decode(hex_str)
+                .map_err(|_| CommandError::InvalidPassword)?
+                .as_slice(),
+        )
+        .map_err(|_| CommandError::CapacityExceeded),
+        None => Ok(Tpm2bAuth::default()),
+    }
 }
 
-#[derive(Args, Debug, Clone)]
-pub struct OutputArgs {
-    /// Output file path (defaults to stdout as PEM)
-    #[arg(short = 'O', long)]
-    pub output: Option<PathBuf>,
-}
+/// Creates object attributes based on the algorithm and policy configuration.
+///
+/// # Errors
+///
+/// Returns [`CommandError`] when attribute construction fails.
+pub fn parse_creation_attributes(
+    password: Option<&str>,
+    policy_expression: Option<&str>,
+    lock: bool,
+    alg: &TpmPublicTemplate,
+) -> Result<TpmaObject, CommandError> {
+    let mut attributes =
+        TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT | TpmaObject::SENSITIVE_DATA_ORIGIN;
 
-#[derive(Args, Debug, Clone)]
-pub struct HierarchyArgs {
-    /// Hierarchy: owner (default), platform or endorsement
-    #[arg(short = 'H', long, value_enum, default_value_t = Hierarchy::default())]
-    pub hierarchy: Hierarchy,
-}
-
-#[derive(Args, Debug, Clone, Default)]
-pub struct CreationArgs {
-    /// Authentication value: '<hex string>'
-    #[arg(long = "password")]
-    pub password: Option<String>,
-
-    /// Policy expression: e.g., 'pcr(sha256:7)'
-    #[arg(long = "policy")]
-    pub policy_expression: Option<String>,
-
-    /// Enable dictionary attack protection.
-    #[arg(long = "lock")]
-    pub lock: bool,
-}
-
-impl CreationArgs {
-    /// Parses the password into a TPM authorization value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CommandError::InvalidPassword`] when the hex string is
-    /// malformed, or [`CommandError::CapacityExceeded`] when the password is
-    /// too long.
-    pub fn parse_password(&self) -> Result<Tpm2bAuth, CommandError> {
-        match &self.password {
-            Some(hex_str) => Tpm2bAuth::try_from(
-                hex::decode(hex_str)
-                    .map_err(|_| CommandError::InvalidPassword)?
-                    .as_slice(),
-            )
-            .map_err(|_| CommandError::CapacityExceeded),
-            None => Ok(Tpm2bAuth::default()),
-        }
+    if !lock {
+        attributes |= TpmaObject::NO_DA;
     }
 
-    /// Creates object attributes based on the algorithm and policy configuration.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CommandError`] when attribute construction fails.
-    pub fn parse_attributes(&self, alg: &TpmPublicTemplate) -> Result<TpmaObject, CommandError> {
-        let mut attributes =
-            TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT | TpmaObject::SENSITIVE_DATA_ORIGIN;
-
-        if !self.lock {
-            attributes |= TpmaObject::NO_DA;
-        }
-
-        if alg.object_type() == TpmAlgId::KeyedHash {
-            attributes |= TpmaObject::SIGN_ENCRYPT;
-        } else {
-            attributes |= TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
-        }
-
-        if self.password.is_some() || self.policy_expression.is_none() {
-            attributes |= TpmaObject::USER_WITH_AUTH;
-        }
-        if self.policy_expression.is_some() {
-            attributes |= TpmaObject::ADMIN_WITH_POLICY;
-        }
-
-        Ok(attributes)
+    if alg.object_type() == TpmAlgId::KeyedHash {
+        attributes |= TpmaObject::SIGN_ENCRYPT;
+    } else {
+        attributes |= TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
     }
+
+    if password.is_some() || policy_expression.is_none() {
+        attributes |= TpmaObject::USER_WITH_AUTH;
+    }
+    if policy_expression.is_some() {
+        attributes |= TpmaObject::ADMIN_WITH_POLICY;
+    }
+
+    Ok(attributes)
 }
 
 /// Resolves the policy expression (if any) into a policy digest and a list of
@@ -185,12 +149,12 @@ impl CreationArgs {
 /// reading fails.
 #[allow(clippy::type_complexity)]
 pub fn build_policy_command_list(
-    creation_args: &CreationArgs,
+    policy_expression: Option<&str>,
     task_state: &mut TaskState,
     device: &mut TpmDevice,
     name_alg: TpmAlgId,
 ) -> Result<(Tpm2bDigest, Vec<(TpmCommand, TpmAuthCommands)>), CommandError> {
-    if let Some(expression) = &creation_args.policy_expression {
+    if let Some(expression) = policy_expression {
         let pcrs = read_all_pcrs(device)?;
         let names = fetch_handle_names(task_state, device)?;
 

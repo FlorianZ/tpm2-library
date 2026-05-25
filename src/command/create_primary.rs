@@ -3,14 +3,17 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    cli::Task,
+    cli::{Hierarchy, Task},
     command::{
-        common::{build_policy_command_list, resolve_public_template},
-        CommandError, CreationArgs, HierarchyArgs,
+        common::{
+            build_policy_command_list, parse_creation_attributes, parse_password,
+            resolve_public_template,
+        },
+        CommandError,
     },
     task::TaskState,
 };
-use clap::Args;
+use argh::FromArgs;
 use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
@@ -23,17 +26,33 @@ use tpm2_protocol::{
 };
 
 /// Creates a new primary key in a specified hierarchy.
-#[derive(Args, Debug, Clone)]
+#[derive(FromArgs, Debug, Clone)]
+#[argh(
+    subcommand,
+    name = "create-primary",
+    description = "Creates a new primary key in a specified hierarchy.",
+    help_triggers("-h", "--help", "help")
+)]
 pub struct CreatePrimary {
-    #[clap(flatten)]
-    pub hierarchy_args: HierarchyArgs,
+    /// hierarchy for the primary key
+    #[argh(option, short = 'H', default = "Hierarchy::Owner")]
+    pub hierarchy: Hierarchy,
 
-    /// Key algorithm
-    #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
+    /// key algorithm
+    #[argh(positional)]
     pub algorithm: TpmPublicTemplate,
 
-    #[clap(flatten)]
-    pub creation_args: CreationArgs,
+    /// authentication value: '<hex string>'
+    #[argh(option)]
+    pub password: Option<String>,
+
+    /// policy expression: e.g., 'pcr(sha256:7)'
+    #[argh(option, long = "policy")]
+    pub policy_expression: Option<String>,
+
+    /// enable dictionary attack protection
+    #[argh(switch)]
+    pub lock: bool,
 }
 
 impl Task for CreatePrimary {
@@ -60,13 +79,18 @@ impl CreatePrimary {
         task_state: &mut TaskState,
         device: &mut TpmDevice,
     ) -> Result<(TpmCreatePrimaryCommand, Vec<(TpmCommand, TpmAuthCommands)>), CommandError> {
-        let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
+        let primary_handle: TpmRh = self.hierarchy.into();
 
-        let user_auth = self.creation_args.parse_password()?;
-        let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
+        let user_auth = parse_password(self.password.as_deref())?;
+        let object_attributes = parse_creation_attributes(
+            self.password.as_deref(),
+            self.policy_expression.as_deref(),
+            self.lock,
+            &self.algorithm,
+        )?;
 
         let (auth_policy_digest, policy_commands) = build_policy_command_list(
-            &self.creation_args,
+            self.policy_expression.as_deref(),
             task_state,
             device,
             self.algorithm.name_alg(),
@@ -98,7 +122,7 @@ impl CreatePrimary {
         device: &mut TpmDevice,
     ) -> Result<(), CommandError> {
         let (cmd, policy_commands) = self.build_command(task_state, device)?;
-        let primary_handle: TpmRh = self.hierarchy_args.hierarchy.into();
+        let primary_handle: TpmRh = self.hierarchy.into();
 
         let auth = task_state
             .auth_map

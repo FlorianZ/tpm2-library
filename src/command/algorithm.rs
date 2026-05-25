@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{cli::Task, command::CommandError, task::TaskState};
-use clap::Args;
+use argh::FromArgs;
 use std::collections::HashSet;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
 use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
@@ -20,8 +20,9 @@ use tpm2_protocol::{
 const RSA_KEY_SIZES: [u16; 3] = [2048, 3072, 4096];
 
 /// Lists available algorithms supported by the chip.
-#[derive(Args, Debug)]
-pub struct Algorithm;
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "algorithm", help_triggers("-h", "--help", "help"))]
+pub struct Algorithm {}
 
 impl Algorithm {
     /// Checks if the TPM supports a given set of RSA parameters.

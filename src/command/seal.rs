@@ -5,13 +5,14 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_policy_command_list, CreationArgs, InputArgs, OutputArgs},
+        common::{build_policy_command_list, parse_password},
         CommandError,
     },
     io::{read_file_input, write_key_data},
     task::TaskState,
 };
-use clap::Args;
+use argh::FromArgs;
+use std::path::PathBuf;
 use tpm2_crypto::{TpmHash, TpmPublicTemplate};
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
@@ -29,40 +30,64 @@ use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
 /// Creates a sealed data object (passive KeyedHash).
-#[derive(Args, Debug, Clone)]
-#[command(about = "Creates a sealed data object.")]
+#[derive(FromArgs, Debug, Clone)]
+#[argh(subcommand, name = "seal", help_triggers("-h", "--help", "help"))]
 pub struct Seal {
-    /// Parent's TPM handle as an eight characters hex string.
+    /// parent's TPM handle as an eight characters hex string
+    #[argh(positional)]
     pub parent: crate::handle::Handle,
 
-    /// Hash algorithm
+    /// hash algorithm
+    #[argh(positional)]
     pub hash_algorithm: TpmHash,
 
-    /// Data to seal (hex string)
-    #[arg(long = "data", conflicts_with = "input")]
+    /// data to seal as a hex string
+    #[argh(option)]
     pub data: Option<String>,
 
-    #[clap(flatten)]
-    pub input_args: InputArgs,
+    /// input file path (defaults to stdin as PEM)
+    #[argh(option, short = 'I')]
+    pub input: Option<PathBuf>,
 
-    /// Description
-    #[arg(short = 'd', long)]
+    /// description
+    #[argh(option, short = 'd')]
     pub description: Option<String>,
 
-    #[clap(flatten)]
-    pub output_args: OutputArgs,
+    /// output file path (defaults to stdout as PEM)
+    #[argh(option, short = 'O')]
+    pub output: Option<PathBuf>,
 
-    #[clap(flatten)]
-    pub creation_args: CreationArgs,
+    /// authentication value: '<hex string>'
+    #[argh(option)]
+    pub password: Option<String>,
+
+    /// policy expression: e.g., 'pcr(sha256:7)'
+    #[argh(option, long = "policy")]
+    pub policy_expression: Option<String>,
+
+    /// enable dictionary attack protection
+    #[argh(switch)]
+    pub lock: bool,
 }
 
 impl Task for Seal {
+    fn validate(&self) -> Result<(), CommandError> {
+        if self.data.is_some() && self.input.is_some() {
+            return Err(CommandError::InvalidInput(
+                "--data and --input are mutually exclusive".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     fn run(
         &self,
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<(), CommandError> {
+        self.validate()?;
         self.parent
             .value()
             .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
@@ -77,9 +102,14 @@ impl Seal {
     /// Resolves the sensitive data to be sealed.
     fn resolve_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
         let bytes = if let Some(hex_str) = &self.data {
+            if self.input.is_some() {
+                return Err(CommandError::InvalidInput(
+                    "--data and --input are mutually exclusive".to_string(),
+                ));
+            }
             hex::decode(hex_str).map_err(|_| CommandError::InvalidSensitiveData)?
         } else {
-            read_file_input(self.input_args.input.as_deref())?
+            read_file_input(self.input.as_deref())?
         };
 
         if bytes.is_empty() {
@@ -95,24 +125,28 @@ impl Seal {
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
     ) -> Result<(TpmCreateCommand, PolicyCommands, bool), CommandError> {
-        let user_auth = self.creation_args.parse_password()?;
+        let user_auth = parse_password(self.password.as_deref())?;
         let sensitive_data = self.resolve_data()?;
 
         let mut object_attributes = TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT;
-        if !self.creation_args.lock {
+        if !self.lock {
             object_attributes |= TpmaObject::NO_DA;
         }
-        if self.creation_args.password.is_some() || self.creation_args.policy_expression.is_none() {
+        if self.password.is_some() || self.policy_expression.is_none() {
             object_attributes |= TpmaObject::USER_WITH_AUTH;
         }
-        if self.creation_args.policy_expression.is_some() {
+        if self.policy_expression.is_some() {
             object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
         }
 
         let name_alg = TpmAlgId::from(self.hash_algorithm);
 
-        let (auth_policy_digest, policy_commands) =
-            build_policy_command_list(&self.creation_args, task_state, device, name_alg)?;
+        let (auth_policy_digest, policy_commands) = build_policy_command_list(
+            self.policy_expression.as_deref(),
+            task_state,
+            device,
+            name_alg,
+        )?;
 
         let symmetric = TpmtSymDefObject {
             algorithm: TpmAlgId::Aes,
@@ -184,6 +218,6 @@ impl Seal {
             .with_policy(&policy)
             .with_description(self.description.clone().unwrap_or_default());
 
-        write_key_data(writer, &tpm_key, self.output_args.output.as_deref())
+        write_key_data(writer, &tpm_key, self.output.as_deref())
     }
 }

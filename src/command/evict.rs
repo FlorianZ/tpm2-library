@@ -3,17 +3,20 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{cli::Task, command::CommandError, task::TaskState};
-use clap::Args;
+use argh::FromArgs;
 use tpm2_device::with_device;
 use tpm2_protocol::{basic::TpmUint32, data::TpmHt};
 
 /// Create persistent object from transient object.
-#[derive(Args, Debug)]
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "evict", help_triggers("-h", "--help", "help"))]
 pub struct Evict {
-    /// Transient handle as an eight character hex string.
+    /// transient handle as an eight character hex string
+    #[argh(positional)]
     pub input: crate::handle::Handle,
 
-    /// Persistent handle as an eight character hex string.
+    /// persistent handle as an eight character hex string
+    #[argh(positional)]
     pub output: crate::handle::Handle,
 }
 

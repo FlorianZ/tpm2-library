@@ -7,14 +7,18 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_policy_command_list, resolve_public_template},
-        CommandError, CreationArgs, OutputArgs,
+        common::{
+            build_policy_command_list, parse_creation_attributes, parse_password,
+            resolve_public_template,
+        },
+        CommandError,
     },
     io::write_key_data,
     task::TaskState,
 };
 
-use clap::Args;
+use argh::FromArgs;
+use std::path::PathBuf;
 use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
@@ -30,25 +34,41 @@ use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 type PolicyCommands = Vec<(TpmCommand, TpmAuthCommands)>;
 
 /// Creates secondary keys or sealed data objects.
-#[derive(Args, Debug, Clone)]
-#[command(about = "Creates a secondary key or a sealed data object.")]
+#[derive(FromArgs, Debug, Clone)]
+#[argh(
+    subcommand,
+    name = "create",
+    description = "Creates a secondary key or a sealed data object.",
+    help_triggers("-h", "--help", "help")
+)]
 pub struct Create {
-    /// Parent's TPM handle as an eight characters hex string.
+    /// parent's TPM handle as an eight characters hex string
+    #[argh(positional)]
     pub parent: crate::handle::Handle,
 
-    /// Object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash-hmac:sha256'.
-    #[arg(value_parser = clap::value_parser!(TpmPublicTemplate))]
+    /// object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash-hmac:sha256'
+    #[argh(positional)]
     pub algorithm: TpmPublicTemplate,
 
-    /// Description
-    #[arg(short = 'd', long)]
+    /// description
+    #[argh(option, short = 'd')]
     pub description: Option<String>,
 
-    #[clap(flatten)]
-    pub output_args: OutputArgs,
+    /// output file path (defaults to stdout as PEM)
+    #[argh(option, short = 'O')]
+    pub output: Option<PathBuf>,
 
-    #[clap(flatten)]
-    pub creation_args: CreationArgs,
+    /// authentication value: '<hex string>'
+    #[argh(option)]
+    pub password: Option<String>,
+
+    /// policy expression: e.g., 'pcr(sha256:7)'
+    #[argh(option, long = "policy")]
+    pub policy_expression: Option<String>,
+
+    /// enable dictionary attack protection
+    #[argh(switch)]
+    pub lock: bool,
 }
 
 impl Task for Create {
@@ -81,11 +101,16 @@ impl Create {
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
     ) -> Result<(TpmCreateCommand, PolicyCommands, bool), CommandError> {
-        let user_auth = self.creation_args.parse_password()?;
-        let object_attributes = self.creation_args.parse_attributes(&self.algorithm)?;
+        let user_auth = parse_password(self.password.as_deref())?;
+        let object_attributes = parse_creation_attributes(
+            self.password.as_deref(),
+            self.policy_expression.as_deref(),
+            self.lock,
+            &self.algorithm,
+        )?;
 
         let (auth_policy_digest, policy_commands) = build_policy_command_list(
-            &self.creation_args,
+            self.policy_expression.as_deref(),
             task_state,
             device,
             self.algorithm.name_alg(),
@@ -141,6 +166,6 @@ impl Create {
             .with_description(self.description.clone().unwrap_or_default())
             .with_policy(&policy);
 
-        write_key_data(writer, &tpm_key, self.output_args.output.as_deref())
+        write_key_data(writer, &tpm_key, self.output.as_deref())
     }
 }

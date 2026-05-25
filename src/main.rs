@@ -24,8 +24,7 @@ use std::{
     sync::atomic::Ordering, time::Duration,
 };
 
-use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser};
+use argh::{EarlyExit, FromArgs};
 use indicatif::ProgressBar;
 use tpm2_device::TpmDevice;
 use tpm2_vtpm::VtpmCache;
@@ -71,20 +70,19 @@ fn main() {
         process::exit(1);
     }
 
-    let cli = match TopLevel::try_parse() {
-        Ok(cli) => cli,
-        Err(e) => {
-            if e.kind() == ErrorKind::MissingRequiredArgument {
-                let mut cmd = TopLevel::command();
-                eprintln!("{}", cmd.render_usage());
-                eprintln!();
-                eprintln!("For more information, try '--help'.");
-                process::exit(2);
-            } else {
-                e.exit();
-            }
-        }
-    };
+    let cli = parse_cli();
+
+    if cli.version {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
+    if cli.command.is_none() {
+        eprintln!("Usage: {} [OPTIONS] <COMMAND>", env!("CARGO_PKG_NAME"));
+        eprintln!();
+        eprintln!("For more information, try '--help'.");
+        process::exit(2);
+    }
 
     let cache_dir = if let Ok(path) = std::env::var("TPM2SH_CACHE_PATH") {
         PathBuf::from(path)
@@ -115,8 +113,50 @@ fn main() {
     }
 }
 
+fn parse_cli() -> TopLevel {
+    let strings: Vec<String> = std::env::args_os()
+        .map(std::ffi::OsString::into_string)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap_or_else(|arg| {
+            eprintln!("Invalid UTF-8: {}", arg.to_string_lossy());
+            process::exit(1);
+        });
+
+    if strings.is_empty() {
+        eprintln!("No program name, argv is empty");
+        process::exit(1);
+    }
+
+    let command_name = std::path::Path::new(&strings[0])
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&strings[0]);
+    let strs: Vec<&str> = strings.iter().map(String::as_str).collect();
+
+    TopLevel::from_args(&[command_name], &strs[1..]).unwrap_or_else(|early_exit| {
+        exit_cli_parse(command_name, &early_exit);
+    })
+}
+
+fn exit_cli_parse(command_name: &str, early_exit: &EarlyExit) -> ! {
+    if let Ok(()) = early_exit.status {
+        print!("{}", early_exit.output);
+        process::exit(0);
+    }
+
+    eprint!("{}", early_exit.output);
+    eprintln!("For more information, try '{command_name} --help'.");
+    process::exit(2);
+}
+
 fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), CommandError> {
-    let shared_device = if cli.command.is_local() {
+    let command = cli
+        .command
+        .as_ref()
+        .ok_or_else(|| CommandError::InvalidInput("missing command".to_string()))?;
+
+    command.validate()?;
+    let shared_device = if command.is_local() {
         None
     } else {
         let device = TpmDevice::builder()
@@ -145,8 +185,9 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
         None
     };
 
-    let auth_map = build_auth_map(&cli.auth)?;
+    let auth_entries = cli.auth_entries();
+    let auth_map = build_auth_map(&auth_entries)?;
 
     let mut job = TaskState::new(shared_device, cache, progress, auth_map)?;
-    cli.command.run(&mut job, &mut stdout, is_tty)
+    command.run(&mut job, &mut stdout, is_tty)
 }

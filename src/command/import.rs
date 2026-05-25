@@ -5,14 +5,16 @@
 use crate::{
     cli::Task,
     command::{
-        common::build_policy_command_list, CommandError, CreationArgs, InputArgs, OutputArgs,
+        common::{build_policy_command_list, parse_password},
+        CommandError,
     },
     io::{read_file_input, write_key_data, write_object},
     task::{Auth, TaskState},
 };
-use clap::Args;
+use argh::FromArgs;
 use openssl::symm::{encrypt, Cipher};
 use rand;
+use std::path::PathBuf;
 use tpm2_crypto::{
     tpm_make_name, TpmCryptoError, TpmEccExternalKey, TpmExternalKey, TpmHash, TpmPublicTemplate,
     TpmRsaExternalKey, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
@@ -33,27 +35,40 @@ use tpm2_protocol::{
 use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 
 /// Import external keys to TPM keys.
-#[derive(Args, Debug)]
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "import", help_triggers("-h", "--help", "help"))]
 pub struct Import {
-    /// Parent's TPM handle as an eight characters hex string.
+    /// parent's TPM handle as an eight characters hex string
+    #[argh(positional)]
     pub parent: crate::handle::Handle,
 
-    /// Create a loadable key instead of an importable key.
-    #[arg(long)]
+    /// create a loadable key instead of an importable key
+    #[argh(switch)]
     pub loadable: bool,
 
-    /// Description
-    #[arg(short = 'd', long)]
+    /// description
+    #[argh(option, short = 'd')]
     pub description: Option<String>,
 
-    #[clap(flatten)]
-    pub input_args: InputArgs,
+    /// input file path (defaults to stdin as PEM)
+    #[argh(option, short = 'I')]
+    pub input: Option<PathBuf>,
 
-    #[clap(flatten)]
-    pub output_args: OutputArgs,
+    /// output file path (defaults to stdout as PEM)
+    #[argh(option, short = 'O')]
+    pub output: Option<PathBuf>,
 
-    #[clap(flatten)]
-    pub creation_args: CreationArgs,
+    /// authentication value: '<hex string>'
+    #[argh(option)]
+    pub password: Option<String>,
+
+    /// policy expression: e.g., 'pcr(sha256:7)'
+    #[argh(option, long = "policy")]
+    pub policy_expression: Option<String>,
+
+    /// enable dictionary attack protection
+    #[argh(switch)]
+    pub lock: bool,
 }
 
 impl Task for Import {
@@ -72,26 +87,22 @@ impl Task for Import {
             let (parent_handle, name_alg, auth) =
                 task_state.resolve_auth(device, TpmUint32(parent))?;
 
-            let input_bytes = read_file_input(self.input_args.input.as_deref())?;
+            let input_bytes = read_file_input(self.input.as_deref())?;
 
-            let user_auth = match &self.creation_args.password {
-                Some(hex_str) => {
-                    let auth = hex::decode(hex_str).map_err(|_| CommandError::InvalidPassword)?;
-                    Tpm2bAuth::try_from(auth.as_slice()).map_err(CommandError::Unmarshal)?
-                }
-                None => Tpm2bAuth::default(),
-            };
+            let user_auth = parse_password(self.password.as_deref())?;
 
             let mut object_attributes = TpmaObject::DECRYPT;
 
-            if self.creation_args.password.is_some()
-                || self.creation_args.policy_expression.is_none()
-            {
+            if self.password.is_some() || self.policy_expression.is_none() {
                 object_attributes |= TpmaObject::USER_WITH_AUTH;
             }
 
-            let (auth_policy, policy_commands) =
-                build_policy_command_list(&self.creation_args, task_state, device, name_alg)?;
+            let (auth_policy, policy_commands) = build_policy_command_list(
+                self.policy_expression.as_deref(),
+                task_state,
+                device,
+                name_alg,
+            )?;
 
             if !auth_policy.is_empty() {
                 object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
@@ -111,7 +122,7 @@ impl Task for Import {
 
             let tpm_key = tpm_key_result?;
 
-            write_key_data(writer, &tpm_key, self.output_args.output.as_deref())
+            write_key_data(writer, &tpm_key, self.output.as_deref())
         })
     }
 }

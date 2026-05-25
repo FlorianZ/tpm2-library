@@ -7,7 +7,7 @@ use crate::{
     command::{print_table, CommandError},
     task::{Auth, TaskState},
 };
-use clap::Args;
+use argh::FromArgs;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
 use std::collections::HashMap;
@@ -46,14 +46,15 @@ struct MemoryRow {
 }
 
 /// Lists active TPM objects or inspects a single handle.
-#[derive(Args, Debug)]
-#[command(about = "Lists objects inside TPM memory or inspects a single handle.")]
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "memory", help_triggers("-h", "--help", "help"))]
 pub struct Memory {
-    /// TPM handle as a eight characters hex string.
+    /// TPM handle as a eight characters hex string
+    #[argh(positional)]
     pub handle: Option<crate::handle::Handle>,
 
-    /// Do not use cache. Show physical handles in transient range.
-    #[arg(long)]
+    /// do not use cache; show physical handles in transient range
+    #[argh(switch)]
     pub no_cache: bool,
 }
 

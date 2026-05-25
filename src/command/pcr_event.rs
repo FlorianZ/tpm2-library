@@ -3,11 +3,12 @@
 
 use crate::{
     cli::Task,
-    command::{CommandError, InputArgs},
+    command::CommandError,
     io::{parse_u32, read_file_input},
     task::TaskState,
 };
-use clap::Args;
+use argh::FromArgs;
+use std::path::PathBuf;
 use tpm2_crypto::TpmHash;
 use tpm2_device::with_device;
 use tpm2_protocol::{
@@ -23,15 +24,16 @@ fn parse_pcr_index(handle_str: &str) -> Result<TpmHandle, String> {
 }
 
 /// Extends a PCR with an event.
-#[derive(Args, Debug)]
-#[command(name = "pcr-event")]
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "pcr-event", help_triggers("-h", "--help", "help"))]
 pub struct PcrEvent {
     /// PCR index
-    #[arg(value_name = "pcr-index", value_parser = parse_pcr_index)]
+    #[argh(positional, arg_name = "pcr-index", from_str_fn(parse_pcr_index))]
     pub pcr_index: TpmHandle,
 
-    #[clap(flatten)]
-    pub input_args: InputArgs,
+    /// input file path (defaults to stdin as PEM)
+    #[argh(option, short = 'I')]
+    pub input: Option<PathBuf>,
 }
 
 impl Task for PcrEvent {
@@ -44,7 +46,7 @@ impl Task for PcrEvent {
         with_device(task_state.device.clone(), |device| {
             let handles = [self.pcr_index.0];
 
-            let data_bytes = read_file_input(self.input_args.input.as_deref())?;
+            let data_bytes = read_file_input(self.input.as_deref())?;
 
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())
                 .map_err(|_| CommandError::CapacityExceeded)?;
