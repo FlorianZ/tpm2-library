@@ -1474,9 +1474,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.11.3"
+version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4a9c473d4c7f44c460f71fc631b3d5847148068ec58814526dfc511ae118e9f"
+checksum = "9b8d2af4987ad90f21b5f490ca14f71fea71f64de74364312669bc5fb20dfaee"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -1489,9 +1489,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-device"
-version = "0.5.8"
+version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fa2603b7cc0359141757cb760a3a28d1c8b3eeaaa462b76d996624ba4d1615c"
+checksum = "9aef0bfbeb9d44b0973af40e8ddff3fe73cb61256813bbc6cb93fb2859941fb9"
 dependencies = [
  "hex",
  "log",
@@ -1505,9 +1505,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "0.10.9"
+version = "0.10.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80180311ace2982cc36f7e1e38291a378cb5fdbabd1f6e98bedfa83d35ea97aa"
+checksum = "ce88b1aef7ae913591afb9da2ae91d7f5cb4bbcb32b3a6eb3a7de85d3fd934f8"
 dependencies = [
  "hex",
  "strum",
@@ -1524,9 +1524,9 @@ checksum = "75452b7cfe993c1867e27ccbc9cd9bc2f5608fc6f142b592448b5fa089cfa73d"
 
 [[package]]
 name = "tpm2-tpmkey"
-version = "0.11.9"
+version = "0.11.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6950f4f67da8aa61953b6f1cf719fc1463033426ced5a1c2dfa6d51241a6310b"
+checksum = "77a54f487fdc01e056375eddedbaa86515d555458d1c0984ae7053b3b594c645"
 dependencies = [
  "hex",
  "pem",
@@ -1537,9 +1537,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-vtpm"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d391d1faab36c04dc97fa76059f7966e9c3e757e341354a440905aab35553690"
+checksum = "f7d131e96780f69b221992f32e2e31fba9d517f6dead63673edb9876b29ca473"
 dependencies = [
  "log",
  "thiserror",
