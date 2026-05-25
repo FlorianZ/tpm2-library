@@ -579,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "hex",
  "rstest",
