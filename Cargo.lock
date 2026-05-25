@@ -691,7 +691,7 @@ checksum = "75452b7cfe993c1867e27ccbc9cd9bc2f5608fc6f142b592448b5fa089cfa73d"
 
 [[package]]
 name = "tpm2-vtpm"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "log",
  "rstest",
