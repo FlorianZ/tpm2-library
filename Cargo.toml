@@ -13,7 +13,7 @@ readme = "README.md"
 [dependencies]
 log = "0.4"
 thiserror = "1.0"
-tpm2-crypto = "0.11.3"
+tpm2-crypto = "0.11.4"
 tpm2-protocol = "0.16.7"
 
 [dev-dependencies]
