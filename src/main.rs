@@ -28,7 +28,6 @@ use argh::{EarlyExit, FromArgs};
 use indicatif::ProgressBar;
 use tpm2_device::TpmDevice;
 use tpm2_vtpm::VtpmCache;
-use tracing_subscriber::EnvFilter;
 
 /// A global flag to signal graceful teardown of the application.
 ///
@@ -53,13 +52,7 @@ impl TaskStateProgress for CliProgress {
 /// CTRL-C exits with 130 as exit codes larger than 128 commonly refer to an
 /// external signal indexed by the signal number.
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_writer(std::io::stderr)
-        .with_timer(tracing_subscriber::fmt::time::SystemTime)
-        .init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     if ctrlc::set_handler(move || {
         TEARDOWN.store(true, Ordering::Relaxed);
@@ -89,7 +82,7 @@ fn main() {
     } else {
         let Some(project) = directories::ProjectDirs::from("", "", "tpm2sh") else {
             eprintln!("Could not locate cache directory path.");
-            std::process::exit(1);
+            process::exit(1);
         };
         project.cache_dir().join("vtpm")
     };
@@ -131,9 +124,9 @@ fn parse_cli() -> TopLevel {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(&strings[0]);
-    let strs: Vec<&str> = strings.iter().map(String::as_str).collect();
+    let args: Vec<&str> = strings.iter().map(String::as_str).collect();
 
-    TopLevel::from_args(&[command_name], &strs[1..]).unwrap_or_else(|early_exit| {
+    TopLevel::from_args(&[command_name], &args[1..]).unwrap_or_else(|early_exit| {
         exit_cli_parse(command_name, &early_exit);
     })
 }
