@@ -41,7 +41,7 @@ pub enum TpmCryptoError {
 
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
-    Marshal(tpm2_protocol::TpmProtocolError),
+    Marshal(tpm2_protocol::TpmError),
 
     /// A cryptographic operation failed.
     #[error("operation failed")]
@@ -57,5 +57,5 @@ pub enum TpmCryptoError {
 
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
-    Unmarshal(tpm2_protocol::TpmProtocolError),
+    Unmarshal(tpm2_protocol::TpmError),
 }
