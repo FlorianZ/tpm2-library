@@ -17,8 +17,9 @@ fn rsa_to_seed_with_default_exponent() {
     let pkey = PKey::from_rsa(rsa).expect("pkey");
     let der = pkey.private_key_to_der().expect("der");
 
-    let (ext_key, _private) = TpmRsaExternalKey::from_der(&der).expect("from_der");
+    let (ext_key, private) = TpmRsaExternalKey::from_der(&der).expect("from_der");
     assert_eq!(u32::from(ext_key.exponent()), 0);
+    assert_eq!(private.as_ref().len(), 128);
 
     let mut rng = OsRng;
     let alg = TpmHash::Sha256;

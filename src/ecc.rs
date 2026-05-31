@@ -219,14 +219,18 @@ impl TryFrom<&PKey<Private>> for TpmEccExternalKey {
 }
 
 impl TpmExternalKey for TpmEccExternalKey {
-    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
+    type Sensitive = Tpm2bEccParameter;
+
+    fn from_der(bytes: &[u8]) -> Result<(Self, Self::Sensitive), TpmCryptoError> {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
         let public_key = TpmEccExternalKey::try_from(&pkey)?;
         let ec_key = pkey
             .ec_key()
             .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
-        let sensitive = ec_key.private_key().to_vec();
+        let private_key = ec_key.private_key().to_vec();
+        let sensitive = Tpm2bEccParameter::try_from(private_key.as_slice())
+            .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
         Ok((public_key, sensitive))
     }
 

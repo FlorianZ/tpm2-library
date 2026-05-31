@@ -17,8 +17,8 @@ use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     basic::{TpmUint16, TpmUint32},
     data::{
-        Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmsRsaParms, TpmsSchemeHash,
-        TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+        Tpm2bEncryptedSecret, Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmAlgId, TpmsRsaParms,
+        TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
     },
 };
 
@@ -142,14 +142,18 @@ impl TryFrom<&PKey<Private>> for TpmRsaExternalKey {
 }
 
 impl TpmExternalKey for TpmRsaExternalKey {
-    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError> {
+    type Sensitive = Tpm2bPrivateKeyRsa;
+
+    fn from_der(bytes: &[u8]) -> Result<(Self, Self::Sensitive), TpmCryptoError> {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
         let public_key = TpmRsaExternalKey::try_from(&pkey)?;
         let rsa = pkey
             .rsa()
             .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
-        let sensitive = rsa.p().ok_or(TpmCryptoError::OperationFailed)?.to_vec();
+        let p = rsa.p().ok_or(TpmCryptoError::OperationFailed)?.to_vec();
+        let sensitive = Tpm2bPrivateKeyRsa::try_from(p.as_slice())
+            .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
         Ok((public_key, sensitive))
     }
 

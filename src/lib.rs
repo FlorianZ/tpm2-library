@@ -28,6 +28,9 @@ pub trait TpmExternalKey
 where
     Self: Sized,
 {
+    /// TPM buffer type holding the sensitive private component.
+    type Sensitive;
+
     /// Parses a DER-encoded private key.
     ///
     /// Returns the public key structure and the sensitive private component.
@@ -44,7 +47,7 @@ where
     /// the parsing fails.
     /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when memory
     /// allocation for the key data fails.
-    fn from_der(bytes: &[u8]) -> Result<(Self, Vec<u8>), TpmCryptoError>;
+    fn from_der(bytes: &[u8]) -> Result<(Self, Self::Sensitive), TpmCryptoError>;
 
     /// Converts the public key to a `TpmtPublic` structure. Populates
     /// `objectAttributes` `nameALg` and `symmetric` fields from the provided
