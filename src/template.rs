@@ -84,8 +84,19 @@ impl TpmPublicTemplate {
     }
 
     #[must_use]
-    pub const fn with_name_alg(mut self, name_alg: TpmAlgId) -> Self {
-        self.name_alg = name_alg;
+    pub const fn with_name_alg(mut self, name_alg: TpmHash) -> Self {
+        self.name_alg = match name_alg {
+            TpmHash::Sha1 => TpmAlgId::Sha1,
+            TpmHash::Sha256 => TpmAlgId::Sha256,
+            TpmHash::Sha384 => TpmAlgId::Sha384,
+            TpmHash::Sha512 => TpmAlgId::Sha512,
+            TpmHash::Sm3_256 => TpmAlgId::Sm3_256,
+            TpmHash::Sha3_256 => TpmAlgId::Sha3_256,
+            TpmHash::Sha3_384 => TpmAlgId::Sha3_384,
+            TpmHash::Sha3_512 => TpmAlgId::Sha3_512,
+            TpmHash::Shake128 => TpmAlgId::Shake128,
+            TpmHash::Shake256 => TpmAlgId::Shake256,
+        };
         self
     }
 
@@ -218,9 +229,8 @@ fn parse_rsa(suffix: &str) -> Result<TpmPublicTemplate, TpmCryptoError> {
     let key_bits: u16 = bits_str
         .parse()
         .map_err(|_| TpmCryptoError::InvalidObjectType)?;
-    let name_alg = TpmHash::from_str(name_alg_str)
-        .map_err(|_| TpmCryptoError::InvalidObjectType)?
-        .into();
+    let name_alg =
+        TpmHash::from_str(name_alg_str).map_err(|_| TpmCryptoError::InvalidObjectType)?;
 
     let parms = TpmuPublicParms::Rsa(TpmsRsaParms {
         symmetric: TpmtSymDefObject::default(),
@@ -242,9 +252,8 @@ fn parse_ecc(suffix: &str) -> Result<TpmPublicTemplate, TpmCryptoError> {
     let curve_id: TpmEccCurve = TpmEllipticCurve::from_str(curve_str)
         .map_err(|_| TpmCryptoError::InvalidObjectType)?
         .into();
-    let name_alg = TpmHash::from_str(name_alg_str)
-        .map_err(|_| TpmCryptoError::InvalidObjectType)?
-        .into();
+    let name_alg =
+        TpmHash::from_str(name_alg_str).map_err(|_| TpmCryptoError::InvalidObjectType)?;
 
     let parms = TpmuPublicParms::Ecc(TpmsEccParms {
         symmetric: TpmtSymDefObject::default(),
@@ -260,20 +269,21 @@ fn parse_ecc(suffix: &str) -> Result<TpmPublicTemplate, TpmCryptoError> {
 }
 
 fn parse_keyedhash(hash_alg: &str, scheme: TpmAlgId) -> Result<TpmPublicTemplate, TpmCryptoError> {
-    let name_alg = TpmHash::from_str(hash_alg)
-        .map_err(|_| TpmCryptoError::InvalidObjectType)?
-        .into();
+    let name_alg = TpmHash::from_str(hash_alg).map_err(|_| TpmCryptoError::InvalidObjectType)?;
+    let name_alg_id = name_alg.into();
 
     let details = match scheme {
         TpmAlgId::Null => TpmuKeyedhashScheme::Null,
         TpmAlgId::Xor => TpmuKeyedhashScheme::Xor(TpmsSchemeXor {
-            hash_alg: name_alg,
+            hash_alg: name_alg_id,
             kdf: TpmtKdfScheme {
                 scheme: TpmAlgId::Kdf1Sp800_108,
                 details: TpmuKdfScheme::Null,
             },
         }),
-        TpmAlgId::Hmac => TpmuKeyedhashScheme::Hmac(TpmsSchemeHash { hash_alg: name_alg }),
+        TpmAlgId::Hmac => TpmuKeyedhashScheme::Hmac(TpmsSchemeHash {
+            hash_alg: name_alg_id,
+        }),
         _ => return Err(TpmCryptoError::InvalidObjectType),
     };
 

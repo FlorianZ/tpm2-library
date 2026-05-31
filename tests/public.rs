@@ -11,8 +11,8 @@ use openssl::nid::Nid;
 use rstest::rstest;
 use std::str::FromStr;
 use tpm2_crypto::{
-    TpmCryptoError, TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmPublicTemplate,
-    TpmRsaExternalKey,
+    TpmCryptoError, TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmHash,
+    TpmPublicTemplate, TpmRsaExternalKey,
 };
 use tpm2_protocol::{
     basic::TpmUint32,
@@ -27,9 +27,9 @@ const TEST_MODULUS: [u8; 256] = [1; 256];
 const TEST_COORD: [u8; 32] = [2; 32];
 
 #[rstest]
-#[case(TpmAlgId::Sha256, 2048)]
-#[case(TpmAlgId::Sha384, 3072)]
-fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
+#[case(TpmHash::Sha256, 2048)]
+#[case(TpmHash::Sha384, 3072)]
+fn test_rsa_to_public(#[case] hash_alg: TpmHash, #[case] key_bits: u16) {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
     let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32::new(0), key_bits.into());
     let symmetric = TpmtSymDefObject::default();
@@ -41,9 +41,10 @@ fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
 
     let public = rsa_key.to_public(&template);
     let default_attr = TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT;
+    let hash_alg_id = TpmAlgId::from(hash_alg);
 
     assert_eq!(public.object_type, TpmAlgId::Rsa);
-    assert_eq!(public.name_alg, hash_alg);
+    assert_eq!(public.name_alg, hash_alg_id);
     assert_eq!(public.object_attributes, default_attr);
     assert_eq!(public.auth_policy.len(), 0);
 
@@ -52,7 +53,7 @@ fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
         assert_eq!(u32::from(params.exponent), 0);
         assert_eq!(params.scheme.scheme, TpmAlgId::Oaep);
         if let TpmuAsymScheme::Hash(details) = params.scheme.details {
-            assert_eq!(details.hash_alg, hash_alg);
+            assert_eq!(details.hash_alg, hash_alg_id);
         } else {
             panic!("Incorrect scheme details type: expected Hash");
         }
@@ -69,10 +70,10 @@ fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
 }
 
 #[rstest]
-#[case(TpmAlgId::Sha256, TpmEllipticCurve::NistP256, &TEST_COORD, &TEST_COORD)]
-#[case(TpmAlgId::Sha1, TpmEllipticCurve::NistP192, &[3; 24], &[4; 24])]
+#[case(TpmHash::Sha256, TpmEllipticCurve::NistP256, &TEST_COORD, &TEST_COORD)]
+#[case(TpmHash::Sha1, TpmEllipticCurve::NistP192, &[3; 24], &[4; 24])]
 fn test_ecc_to_public(
-    #[case] hash_alg: TpmAlgId,
+    #[case] hash_alg: TpmHash,
     #[case] curve: TpmEllipticCurve,
     #[case] x_bytes: &[u8],
     #[case] y_bytes: &[u8],
@@ -88,9 +89,10 @@ fn test_ecc_to_public(
         .with_object_attributes(TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT)
         .with_symmetric(symmetric);
     let public = ecc_key.to_public(&template);
+    let hash_alg_id = TpmAlgId::from(hash_alg);
 
     assert_eq!(public.object_type, TpmAlgId::Ecc);
-    assert_eq!(public.name_alg, hash_alg);
+    assert_eq!(public.name_alg, hash_alg_id);
     assert_eq!(
         public.object_attributes,
         TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT
@@ -101,7 +103,7 @@ fn test_ecc_to_public(
         assert_eq!(params.curve_id, curve.into());
         assert_eq!(params.scheme.scheme, TpmAlgId::Ecdh);
         if let TpmuAsymScheme::Hash(details) = params.scheme.details {
-            assert_eq!(details.hash_alg, hash_alg);
+            assert_eq!(details.hash_alg, hash_alg_id);
         } else {
             panic!("Incorrect scheme details type: expected Hash");
         }
@@ -180,7 +182,7 @@ fn rsa_to_public_with_aes_symmetric() {
     };
 
     let template = tpm2_crypto::TpmPublicTemplate::new()
-        .with_name_alg(TpmAlgId::Sha256)
+        .with_name_alg(TpmHash::Sha256)
         .with_object_attributes(TpmaObject::USER_WITH_AUTH | TpmaObject::DECRYPT)
         .with_symmetric(symmetric);
 
