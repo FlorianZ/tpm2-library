@@ -2,6 +2,66 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+/// Additional structured data for a TPM protocol error.
+#[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
+pub struct TpmErrorValue {
+    /// Byte offset from the start of the parsed buffer.
+    pub offset: usize,
+
+    /// Raw value associated with the error.
+    pub value: u64,
+
+    /// Required byte or item count.
+    pub needed: usize,
+
+    /// Available byte or item count.
+    pub available: usize,
+
+    /// Maximum allowed byte or item count.
+    pub limit: usize,
+
+    /// Actual byte or item count.
+    pub actual: usize,
+}
+
+impl TpmErrorValue {
+    /// Creates empty error data at a byte offset.
+    #[must_use]
+    pub const fn new(offset: usize) -> Self {
+        Self {
+            offset,
+            value: 0,
+            needed: 0,
+            available: 0,
+            limit: 0,
+            actual: 0,
+        }
+    }
+
+    /// Sets the raw value associated with the error.
+    #[must_use]
+    pub const fn value(mut self, value: u64) -> Self {
+        self.value = value;
+        self
+    }
+
+    /// Sets the required and available counts.
+    #[must_use]
+    pub const fn size(mut self, needed: usize, available: usize) -> Self {
+        self.needed = needed;
+        self.available = available;
+        self
+    }
+
+    /// Sets the maximum allowed and actual counts.
+    #[must_use]
+    pub const fn limit(mut self, limit: usize, actual: usize) -> Self {
+        self.limit = limit;
+        self.actual = actual;
+        self
+    }
+}
+
 /// TPM frame marshaling and unmarshaling error type containing variants
 /// for all the possible error conditions.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]

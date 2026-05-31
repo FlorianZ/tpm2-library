@@ -33,7 +33,7 @@ mod error;
 pub mod r#macro;
 pub mod frame;
 
-pub use self::error::{TpmError, TpmResult};
+pub use self::error::{TpmError, TpmErrorValue, TpmResult};
 
 /// A byte-backed TPM wire view.
 #[repr(transparent)]
