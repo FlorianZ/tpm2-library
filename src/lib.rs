@@ -38,11 +38,10 @@ where
     /// # Errors
     ///
     /// Returns
-    /// [`InvalidEccParameters`](crate::TpmCryptoError::InvalidEccParameters)
-    /// when the key is not a valid ECC key.
-    /// Returns
-    /// [`InvalidRsaParameters`](crate::TpmCryptoError::InvalidRsaParameters)
-    /// when the key is not a valid RSA key.
+    /// [`InvalidEccKey`](crate::TpmCryptoError::InvalidEccKey) when the key is
+    /// not a valid ECC key.
+    /// Returns [`InvalidRsaKey`](crate::TpmCryptoError::InvalidRsaKey) when
+    /// the key is not a valid RSA key.
     /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) when
     /// the parsing fails.
     /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when memory

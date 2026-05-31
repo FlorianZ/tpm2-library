@@ -4,7 +4,7 @@
 //! TPM 2.0 RSA cryptographic operations.
 
 use super::TpmPublicTemplate;
-use crate::{TpmCryptoError, TpmExternalKey, TpmHash};
+use crate::{TpmCryptoError, TpmExternalKey, TpmHash, TpmPublicAreaField};
 use openssl::{
     bn::BigNum,
     hash::MessageDigest,
@@ -16,6 +16,7 @@ use openssl::{
 use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     basic::{TpmUint16, TpmUint32},
+    constant::MAX_RSA_KEY_BYTES,
     data::{
         Tpm2bEncryptedSecret, Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmAlgId, TpmsRsaParms,
         TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
@@ -37,9 +38,10 @@ impl TpmRsaExternalKey {
     ///
     /// Returns [`InvalidKeyBits`](crate::TpmCryptoError::InvalidKeyBits) when
     /// `key_bits` is zero or not byte-aligned.
-    /// Returns [`InvalidRsaParameters`](crate::TpmCryptoError::InvalidRsaParameters)
-    /// when the modulus length does not match `key_bits`, or the exponent is
-    /// not zero, odd, and at least three.
+    /// Returns [`InvalidRsaModulus`](crate::TpmCryptoError::InvalidRsaModulus)
+    /// when the modulus length does not match `key_bits`.
+    /// Returns [`InvalidRsaExponent`](crate::TpmCryptoError::InvalidRsaExponent)
+    /// when the exponent is not zero, odd, and at least three.
     pub fn try_new(
         public_key: Tpm2bPublicKeyRsa,
         exponent: TpmUint32,
@@ -51,12 +53,14 @@ impl TpmRsaExternalKey {
         }
 
         if public_key.as_ref().len() != usize::from(key_bits_value / 8) {
-            return Err(TpmCryptoError::InvalidRsaParameters);
+            return Err(TpmCryptoError::InvalidRsaModulus(
+                public_key.as_ref().to_vec(),
+            ));
         }
 
         let exponent_value = exponent.value();
         if exponent_value != 0 && (exponent_value < 3 || exponent_value % 2 == 0) {
-            return Err(TpmCryptoError::InvalidRsaParameters);
+            return Err(TpmCryptoError::InvalidRsaExponent(exponent));
         }
 
         Ok(Self {
@@ -90,17 +94,26 @@ impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
         if public.object_type != TpmAlgId::Rsa {
-            return Err(TpmCryptoError::InvalidRsaParameters);
+            return Err(TpmCryptoError::InvalidRsaPublicArea {
+                object_type: public.object_type,
+                field: TpmPublicAreaField::ObjectType,
+            });
         }
 
         let params = match &public.parameters {
             TpmuPublicParms::Rsa(params) => Ok(params),
-            _ => Err(TpmCryptoError::InvalidRsaParameters),
+            _ => Err(TpmCryptoError::InvalidRsaPublicArea {
+                object_type: public.object_type,
+                field: TpmPublicAreaField::Parameters,
+            }),
         }?;
 
         let n = match &public.unique {
             TpmuPublicId::Rsa(n) => Ok(*n),
-            _ => Err(TpmCryptoError::InvalidRsaParameters),
+            _ => Err(TpmCryptoError::InvalidRsaPublicArea {
+                object_type: public.object_type,
+                field: TpmPublicAreaField::Unique,
+            }),
         }?;
 
         let exponent_u32 = u32::from(params.exponent);
@@ -118,15 +131,14 @@ impl TryFrom<&PKey<Private>> for TpmRsaExternalKey {
     type Error = TpmCryptoError;
 
     fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
-        let rsa = pkey
-            .rsa()
-            .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
-        let n = Tpm2bPublicKeyRsa::try_from(rsa.n().to_vec().as_slice())
-            .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
+        let rsa = pkey.rsa().map_err(|_| TpmCryptoError::InvalidRsaKey)?;
+        let n_bytes = rsa.n().to_vec();
+        let n = Tpm2bPublicKeyRsa::try_from(n_bytes.as_slice())
+            .map_err(|_| TpmCryptoError::InvalidRsaModulus(n_bytes))?;
 
         let e_bn = rsa.e();
         if e_bn.is_negative() || e_bn.num_bits() > 32 {
-            return Err(TpmCryptoError::InvalidRsaParameters);
+            return Err(TpmCryptoError::InvalidRsaKey);
         }
         let e_bytes = e_bn.to_vec();
         let mut e_buf = [0u8; 4];
@@ -134,8 +146,7 @@ impl TryFrom<&PKey<Private>> for TpmRsaExternalKey {
         let e = u32::from_be_bytes(e_buf);
         let e = if e == 65537 { 0 } else { e };
 
-        let key_bits =
-            u16::try_from(rsa.size() * 8).map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
+        let key_bits = u16::try_from(rsa.size() * 8).map_err(|_| TpmCryptoError::InvalidRsaKey)?;
 
         Self::try_new(n, TpmUint32::new(e), TpmUint16::new(key_bits))
     }
@@ -148,12 +159,14 @@ impl TpmExternalKey for TpmRsaExternalKey {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
         let public_key = TpmRsaExternalKey::try_from(&pkey)?;
-        let rsa = pkey
-            .rsa()
-            .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
+        let rsa = pkey.rsa().map_err(|_| TpmCryptoError::InvalidRsaKey)?;
         let p = rsa.p().ok_or(TpmCryptoError::OperationFailed)?.to_vec();
-        let sensitive = Tpm2bPrivateKeyRsa::try_from(p.as_slice())
-            .map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
+        let sensitive = Tpm2bPrivateKeyRsa::try_from(p.as_slice()).map_err(|_| {
+            TpmCryptoError::InvalidRsaPrivatePrime {
+                len: p.len(),
+                max: MAX_RSA_KEY_BYTES / 2,
+            }
+        })?;
         Ok((public_key, sensitive))
     }
 

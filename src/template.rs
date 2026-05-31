@@ -182,7 +182,7 @@ impl TryFrom<TpmPublicTemplate> for String {
             TpmuPublicParms::Rsa(parms) => {
                 let key_bits = parms.key_bits;
                 if key_bits.value() == 0 {
-                    return Err(TpmCryptoError::InvalidRsaParameters);
+                    return Err(TpmCryptoError::InvalidKeyBits(0));
                 }
                 Ok(format!("rsa-{key_bits}:{name_alg_str}"))
             }

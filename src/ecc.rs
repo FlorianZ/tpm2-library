@@ -5,7 +5,7 @@
 //! TPM 2.0 ECC curves and cryptographic operations.
 
 use super::TpmPublicTemplate;
-use crate::{TpmCryptoError, TpmExternalKey, TpmHash, KDF_LABEL_DUPLICATE};
+use crate::{TpmCryptoError, TpmExternalKey, TpmHash, TpmPublicAreaField, KDF_LABEL_DUPLICATE};
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::ops::bytes::ToBytes;
 use openssl::{
@@ -18,7 +18,7 @@ use openssl::{
 use rand::{CryptoRng, RngCore};
 use strum::{Display, EnumString};
 use tpm2_protocol::{
-    constant::TPM_MAX_COMMAND_SIZE,
+    constant::{MAX_ECC_KEY_BYTES, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmsEccParms, TpmsEccPoint,
         TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmuAsymScheme, TpmuPublicId,
@@ -69,7 +69,7 @@ impl TryFrom<TpmEccCurve> for TpmEllipticCurve {
             TpmEccCurve::BpP512R1 => Ok(Self::BpP512R1),
             TpmEccCurve::Curve25519 => Ok(Self::Curve25519),
             TpmEccCurve::Curve448 => Ok(Self::Curve448),
-            TpmEccCurve::None => Err(TpmCryptoError::InvalidEccCurve),
+            curve @ TpmEccCurve::None => Err(TpmCryptoError::InvalidEccCurve(curve)),
         }
     }
 }
@@ -109,7 +109,7 @@ impl TryFrom<TpmEllipticCurve> for Nid {
             TpmEllipticCurve::BpP384R1 => Ok(Nid::BRAINPOOL_P384R1),
             TpmEllipticCurve::BpP512R1 => Ok(Nid::BRAINPOOL_P512R1),
             TpmEllipticCurve::Sm2P256 => Ok(Nid::SM2),
-            _ => Err(TpmCryptoError::InvalidEccCurve),
+            _ => Err(TpmCryptoError::InvalidEccCurve(curve.into())),
         }
     }
 }
@@ -128,7 +128,7 @@ impl TryFrom<Nid> for TpmEllipticCurve {
             Nid::BRAINPOOL_P384R1 => Ok(TpmEllipticCurve::BpP384R1),
             Nid::BRAINPOOL_P512R1 => Ok(TpmEllipticCurve::BpP512R1),
             Nid::SM2 => Ok(TpmEllipticCurve::Sm2P256),
-            _ => Err(TpmCryptoError::InvalidEccCurve),
+            _ => Err(TpmCryptoError::InvalidEccNid(nid)),
         }
     }
 }
@@ -147,18 +147,23 @@ impl TpmEccExternalKey {
     ///
     /// Returns [`InvalidEccCurve`](crate::TpmCryptoError::InvalidEccCurve)
     /// when the curve is not supported by this crate's OpenSSL backend.
-    /// Returns [`InvalidEccParameters`](crate::TpmCryptoError::InvalidEccParameters)
+    /// Returns [`InvalidEccPoint`](crate::TpmCryptoError::InvalidEccPoint)
     /// when the affine point coordinate sizes do not match the curve.
     /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when OpenSSL
     /// cannot allocate the curve group.
     pub fn try_new(curve: TpmEllipticCurve, unique: TpmsEccPoint) -> Result<Self, TpmCryptoError> {
+        let curve_id = curve.into();
         let nid = Nid::try_from(curve)?;
         let group = EcGroup::from_curve_name(nid).map_err(|_| TpmCryptoError::OutOfMemory)?;
-        let coord_len = usize::try_from(group.degree().div_ceil(8))
-            .map_err(|_| TpmCryptoError::OperationFailed)?;
+        let coord_len = ecc_coord_len(&group)?;
 
         if unique.x.as_ref().len() != coord_len || unique.y.as_ref().len() != coord_len {
-            return Err(TpmCryptoError::InvalidEccParameters);
+            return Err(TpmCryptoError::InvalidEccPoint {
+                curve: curve_id,
+                x_len: unique.x.as_ref().len(),
+                y_len: unique.y.as_ref().len(),
+                expected_len: coord_len,
+            });
         }
 
         Ok(Self { curve, unique })
@@ -181,17 +186,26 @@ impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
         if public.object_type != TpmAlgId::Ecc {
-            return Err(TpmCryptoError::InvalidEccParameters);
+            return Err(TpmCryptoError::InvalidEccPublicArea {
+                object_type: public.object_type,
+                field: TpmPublicAreaField::ObjectType,
+            });
         }
 
         let params = match &public.parameters {
             TpmuPublicParms::Ecc(params) => Ok(params),
-            _ => Err(TpmCryptoError::InvalidEccParameters),
+            _ => Err(TpmCryptoError::InvalidEccPublicArea {
+                object_type: public.object_type,
+                field: TpmPublicAreaField::Parameters,
+            }),
         }?;
 
         let (x, y) = match &public.unique {
             TpmuPublicId::Ecc(point) => Ok((point.x, point.y)),
-            _ => Err(TpmCryptoError::InvalidEccParameters),
+            _ => Err(TpmCryptoError::InvalidEccPublicArea {
+                object_type: public.object_type,
+                field: TpmPublicAreaField::Unique,
+            }),
         }?;
 
         Self::try_new(params.curve_id.try_into()?, TpmsEccPoint { x, y })
@@ -202,17 +216,15 @@ impl TryFrom<&PKey<Private>> for TpmEccExternalKey {
     type Error = TpmCryptoError;
 
     fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
-        let ec_key = pkey
-            .ec_key()
-            .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
+        let ec_key = pkey.ec_key().map_err(|_| TpmCryptoError::InvalidEccKey)?;
         let group = ec_key.group();
         let nid = group
             .curve_name()
-            .ok_or(TpmCryptoError::InvalidEccParameters)?;
+            .ok_or(TpmCryptoError::InvalidEccNid(Nid::UNDEF))?;
         let curve = TpmEllipticCurve::try_from(nid)?;
 
         let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
-        let unique = tpm_make_point(ec_key.public_key(), group, &mut ctx)?;
+        let unique = tpm_make_point(ec_key.public_key(), group, &mut ctx, curve)?;
 
         Self::try_new(curve, unique)
     }
@@ -225,12 +237,14 @@ impl TpmExternalKey for TpmEccExternalKey {
         let pkey =
             PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
         let public_key = TpmEccExternalKey::try_from(&pkey)?;
-        let ec_key = pkey
-            .ec_key()
-            .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
+        let ec_key = pkey.ec_key().map_err(|_| TpmCryptoError::InvalidEccKey)?;
         let private_key = ec_key.private_key().to_vec();
-        let sensitive = Tpm2bEccParameter::try_from(private_key.as_slice())
-            .map_err(|_| TpmCryptoError::InvalidEccParameters)?;
+        let sensitive = Tpm2bEccParameter::try_from(private_key.as_slice()).map_err(|_| {
+            TpmCryptoError::InvalidEccPrivateScalar {
+                len: private_key.len(),
+                max: MAX_ECC_KEY_BYTES,
+            }
+        })?;
         Ok((public_key, sensitive))
     }
 
@@ -341,7 +355,7 @@ impl TpmEccExternalKey {
             .derive_to_vec()
             .map_err(|_| TpmCryptoError::OperationFailed)?;
 
-        let ephemeral = tpm_make_point(&ephemeral_pub_point, &group, &mut ctx)?;
+        let ephemeral = tpm_make_point(&ephemeral_pub_point, &group, &mut ctx, self.curve)?;
 
         let seed_bits =
             u16::try_from(name_alg.size() * 8).map_err(|_| TpmCryptoError::OperationFailed)?;
@@ -358,20 +372,37 @@ fn tpm_make_point(
     point: &EcPointRef,
     group: &EcGroupRef,
     ctx: &mut BigNumContext,
+    curve: TpmEllipticCurve,
 ) -> Result<TpmsEccPoint, TpmCryptoError> {
     let pub_bytes = point
         .to_bytes(group, PointConversionForm::UNCOMPRESSED, ctx)
         .map_err(|_| TpmCryptoError::OperationFailed)?;
 
-    if pub_bytes.is_empty() || pub_bytes[0] != UNCOMPRESSED_POINT_TAG {
-        return Err(TpmCryptoError::InvalidEccParameters);
+    let expected_len = ecc_coord_len(group)?;
+    let point_len = pub_bytes.len().saturating_sub(1);
+    let x_len = point_len / 2;
+    let y_len = point_len - x_len;
+
+    if pub_bytes.first() != Some(&UNCOMPRESSED_POINT_TAG)
+        || x_len != expected_len
+        || y_len != expected_len
+    {
+        return Err(TpmCryptoError::InvalidEccPoint {
+            curve: curve.into(),
+            x_len,
+            y_len,
+            expected_len,
+        });
     }
 
-    let coord_len = (pub_bytes.len() - 1) / 2;
-    let x = Tpm2bEccParameter::try_from(&pub_bytes[1..=coord_len])
+    let x = Tpm2bEccParameter::try_from(&pub_bytes[1..=expected_len])
         .map_err(TpmCryptoError::Unmarshal)?;
-    let y = Tpm2bEccParameter::try_from(&pub_bytes[1 + coord_len..])
+    let y = Tpm2bEccParameter::try_from(&pub_bytes[1 + expected_len..=2 * expected_len])
         .map_err(TpmCryptoError::Unmarshal)?;
 
     Ok(TpmsEccPoint { x, y })
+}
+
+fn ecc_coord_len(group: &EcGroupRef) -> Result<usize, TpmCryptoError> {
+    usize::try_from(group.degree().div_ceil(8)).map_err(|_| TpmCryptoError::OperationFailed)
 }

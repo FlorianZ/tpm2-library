@@ -12,7 +12,7 @@ use rstest::rstest;
 use std::str::FromStr;
 use tpm2_crypto::{
     TpmCryptoError, TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmHash,
-    TpmPublicTemplate, TpmRsaExternalKey,
+    TpmPublicAreaField, TpmPublicTemplate, TpmRsaExternalKey,
 };
 use tpm2_protocol::{
     basic::TpmUint32,
@@ -269,7 +269,11 @@ fn rsa_try_new_rejects_modulus_size_mismatch() {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
     let result = TpmRsaExternalKey::try_new(public_key, TpmUint32::new(0), 3072.into());
 
-    assert!(matches!(result, Err(TpmCryptoError::InvalidRsaParameters)));
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::InvalidRsaModulus(modulus))
+            if modulus.as_slice() == TEST_MODULUS.as_slice()
+    ));
 }
 
 #[test]
@@ -277,7 +281,10 @@ fn rsa_try_new_rejects_invalid_exponent() {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
     let result = TpmRsaExternalKey::try_new(public_key, TpmUint32::new(2), 2048.into());
 
-    assert!(matches!(result, Err(TpmCryptoError::InvalidRsaParameters)));
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::InvalidRsaExponent(exponent)) if exponent.value() == 2
+    ));
 }
 
 #[test]
@@ -318,7 +325,13 @@ fn ecc_from_public_rejects_object_type_mismatch() {
 
     let result = TpmEccExternalKey::try_from(&public);
 
-    assert!(matches!(result, Err(TpmCryptoError::InvalidEccParameters)));
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::InvalidEccPublicArea {
+            object_type: TpmAlgId::Rsa,
+            field: TpmPublicAreaField::ObjectType,
+        })
+    ));
 }
 
 #[test]
@@ -327,7 +340,10 @@ fn ecc_try_new_rejects_unsupported_curve() {
     let y = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
     let result = TpmEccExternalKey::try_new(TpmEllipticCurve::BnP256, TpmsEccPoint { x, y });
 
-    assert!(matches!(result, Err(TpmCryptoError::InvalidEccCurve)));
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::InvalidEccCurve(TpmEccCurve::BnP256))
+    ));
 }
 
 #[test]
@@ -336,21 +352,29 @@ fn ecc_try_new_rejects_coordinate_size_mismatch() {
     let y = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
     let result = TpmEccExternalKey::try_new(TpmEllipticCurve::NistP256, TpmsEccPoint { x, y });
 
-    assert!(matches!(result, Err(TpmCryptoError::InvalidEccParameters)));
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::InvalidEccPoint {
+            curve: TpmEccCurve::NistP256,
+            x_len: 31,
+            y_len: 32,
+            expected_len: 32,
+        })
+    ));
 }
 
 #[test]
 fn invalid_curve_conversions_fail() {
     assert!(matches!(
         TpmEllipticCurve::try_from(TpmEccCurve::None),
-        Err(TpmCryptoError::InvalidEccCurve)
+        Err(TpmCryptoError::InvalidEccCurve(TpmEccCurve::None))
     ));
     assert!(matches!(
         TpmEllipticCurve::try_from(Nid::UNDEF),
-        Err(TpmCryptoError::InvalidEccCurve)
+        Err(TpmCryptoError::InvalidEccNid(Nid::UNDEF))
     ));
     assert!(matches!(
         Nid::try_from(TpmEllipticCurve::BnP256),
-        Err(TpmCryptoError::InvalidEccCurve)
+        Err(TpmCryptoError::InvalidEccCurve(TpmEccCurve::BnP256))
     ));
 }
