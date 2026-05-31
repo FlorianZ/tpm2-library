@@ -266,6 +266,29 @@ fn ecc_to_public_preserves_auth_policy() {
 }
 
 #[test]
+fn ecc_from_public_rejects_object_type_mismatch() {
+    let x = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
+    let y = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
+    let public = TpmtPublic {
+        object_type: TpmAlgId::Rsa,
+        name_alg: TpmAlgId::Sha256,
+        object_attributes: TpmaObject::empty(),
+        auth_policy: Tpm2bDigest::default(),
+        parameters: TpmuPublicParms::Ecc(tpm2_protocol::data::TpmsEccParms {
+            symmetric: TpmtSymDefObject::default(),
+            scheme: tpm2_protocol::data::TpmtEccScheme::default(),
+            curve_id: TpmEccCurve::NistP256,
+            kdf: tpm2_protocol::data::TpmtKdfScheme::default(),
+        }),
+        unique: TpmuPublicId::Ecc(TpmsEccPoint { x, y }),
+    };
+
+    let result = TpmEccExternalKey::try_from(&public);
+
+    assert!(matches!(result, Err(TpmCryptoError::InvalidEccParameters)));
+}
+
+#[test]
 fn invalid_curve_conversions_fail() {
     assert!(matches!(
         TpmEllipticCurve::try_from(TpmEccCurve::None),

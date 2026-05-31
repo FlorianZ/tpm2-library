@@ -162,6 +162,10 @@ impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
     type Error = TpmCryptoError;
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
+        if public.object_type != TpmAlgId::Ecc {
+            return Err(TpmCryptoError::InvalidEccParameters);
+        }
+
         let params = match &public.parameters {
             TpmuPublicParms::Ecc(params) => Ok(params),
             _ => Err(TpmCryptoError::InvalidEccParameters),
