@@ -190,14 +190,14 @@ macro_rules! tpm_dispatch {
     };
 
     ( $( ($cmd:ident, $resp:ident, $variant:ident) ),* $(,)? ) => {
-        /// A TPM command
+        /// An owned TPM command body value.
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
-        pub enum TpmCommand {
+        pub enum TpmCommandValue {
             $( $variant($crate::frame::data::$cmd), )*
         }
 
-        impl $crate::TpmSized for TpmCommand {
+        impl $crate::TpmSized for TpmCommandValue {
             const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE;
             fn len(&self) -> usize {
                 match self {
@@ -206,7 +206,7 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl $crate::frame::TpmMarshalBody for TpmCommand {
+        impl $crate::frame::TpmMarshalBody for TpmCommandValue {
              fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
                      $( Self::$variant(c) => $crate::frame::TpmMarshalBody::marshal_handles(c, writer), )*
@@ -219,7 +219,7 @@ macro_rules! tpm_dispatch {
              }
         }
 
-        impl $crate::TpmMarshal for TpmCommand {
+        impl $crate::TpmMarshal for TpmCommandValue {
              fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
                      $( Self::$variant(c) => $crate::TpmMarshal::marshal(c, writer), )*
@@ -227,7 +227,7 @@ macro_rules! tpm_dispatch {
              }
         }
 
-        impl $crate::frame::TpmFrame for TpmCommand {
+        impl $crate::frame::TpmFrame for TpmCommandValue {
             fn cc(&self) -> $crate::data::TpmCc {
                 match self {
                     $( Self::$variant(c) => $crate::frame::TpmFrame::cc(c), )*
@@ -240,7 +240,7 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl TpmCommand {
+        impl TpmCommandValue {
             /// Marshals a command body into a writer.
             ///
             /// # Errors
@@ -258,14 +258,14 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        /// A TPM response body
+        /// An owned TPM response body value.
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
-        pub enum TpmResponse {
+        pub enum TpmResponseValue {
             $( $variant($crate::frame::data::$resp), )*
         }
 
-        impl $crate::TpmSized for TpmResponse {
+        impl $crate::TpmSized for TpmResponseValue {
             const SIZE: usize = $crate::constant::TPM_MAX_COMMAND_SIZE;
             fn len(&self) -> usize {
                 match self {
@@ -274,7 +274,7 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl $crate::frame::TpmMarshalBody for TpmResponse {
+        impl $crate::frame::TpmMarshalBody for TpmResponseValue {
              fn marshal_handles(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
                      $( Self::$variant(r) => $crate::frame::TpmMarshalBody::marshal_handles(r, writer), )*
@@ -287,7 +287,7 @@ macro_rules! tpm_dispatch {
              }
         }
 
-        impl $crate::TpmMarshal for TpmResponse {
+        impl $crate::TpmMarshal for TpmResponseValue {
              fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                  match self {
                      $( Self::$variant(r) => $crate::TpmMarshal::marshal(r, writer), )*
@@ -295,7 +295,7 @@ macro_rules! tpm_dispatch {
              }
         }
 
-        impl $crate::frame::TpmFrame for TpmResponse {
+        impl $crate::frame::TpmFrame for TpmResponseValue {
             fn cc(&self) -> $crate::data::TpmCc {
                 match self {
                     $( Self::$variant(r) => $crate::frame::TpmFrame::cc(r), )*
@@ -308,13 +308,13 @@ macro_rules! tpm_dispatch {
             }
         }
 
-        impl TpmResponse {
+        impl TpmResponseValue {
             $(
-                /// Attempts to convert the `TpmResponse` into a specific response type.
+                /// Attempts to convert the `TpmResponseValue` into a specific response type.
                 ///
                 /// # Errors
                 ///
-                /// Returns the original `TpmResponse` as an error if the enum variant does not match.
+                /// Returns the original `TpmResponseValue` as an error if the enum variant does not match.
                 #[allow(non_snake_case, clippy::result_large_err)]
                 pub fn $variant(self) -> Result<$crate::frame::data::$resp, Self> {
                     if let Self::$variant(r) = self {
@@ -349,11 +349,11 @@ macro_rules! tpm_dispatch {
                     handles: <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::HANDLES,
                     command_unmarshaler: |handles, params| {
                         <$crate::frame::data::$cmd as $crate::frame::TpmUnmarshalCommand>::unmarshal_body(handles, params)
-                            .map(|(c, r)| (TpmCommand::$variant(c), r))
+                            .map(|(c, r)| (TpmCommandValue::$variant(c), r))
                     },
                     response_unmarshaler: |tag, buf| {
                         <$crate::frame::data::$resp as $crate::frame::TpmUnmarshalResponse>::unmarshal_body(tag, buf)
-                            .map(|(r, rest)| (TpmResponse::$variant(r), rest))
+                            .map(|(r, rest)| (TpmResponseValue::$variant(r), rest))
                     },
                 },
             )*

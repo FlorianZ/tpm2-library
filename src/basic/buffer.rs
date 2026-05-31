@@ -3,7 +3,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    basic::TpmUint16, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal, TpmWriter,
+    basic::TpmUint16, TpmCast, TpmCastMut, TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
+    TpmUnmarshal, TpmWriter,
 };
 use core::{
     convert::TryFrom,
@@ -13,6 +14,189 @@ use core::{
     ops::Deref,
     slice,
 };
+
+const TPM2B_SIZE_LEN: usize = size_of::<TpmUint16>();
+
+/// A zero-copy TPM2B wire view over caller-owned bytes.
+#[repr(transparent)]
+pub struct Tpm2b<const CAPACITY: usize>([u8]);
+
+impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
+    /// Casts a byte slice into a TPM2B wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// `buf` is shorter than the TPM2B header or declared payload size.
+    /// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when
+    /// `buf` contains bytes after the declared payload.
+    /// Returns [`TooManyBytes`](crate::TpmProtocolError::TooManyBytes) when
+    /// the declared payload exceeds `CAPACITY`.
+    pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
+        Self::validate(buf)?;
+
+        // SAFETY: `validate` checked the complete TPM2B byte range and size
+        // limit for this transparent wire view.
+        Ok(unsafe { Self::cast_unchecked(buf) })
+    }
+
+    /// Casts a byte slice into a TPM2B wire view without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `buf` contains exactly one complete TPM2B
+    /// value and that its declared payload length does not exceed `CAPACITY`.
+    #[must_use]
+    pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
+        let ptr = core::ptr::from_ref(buf) as *const Self;
+
+        // SAFETY: `Tpm2b` is `repr(transparent)` over `[u8]`, so it has the
+        // same layout, metadata, and alignment as the referenced slice.
+        unsafe { &*ptr }
+    }
+
+    /// Casts a mutable byte slice into a mutable TPM2B wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// `buf` is shorter than the TPM2B header or declared payload size.
+    /// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when
+    /// `buf` contains bytes after the declared payload.
+    /// Returns [`TooManyBytes`](crate::TpmProtocolError::TooManyBytes) when
+    /// the declared payload exceeds `CAPACITY`.
+    pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
+        Self::validate(buf)?;
+
+        // SAFETY: `validate` checked the complete TPM2B byte range and size
+        // limit for this transparent wire view. The `&mut` input provides
+        // exclusive access.
+        Ok(unsafe { Self::cast_mut_unchecked(buf) })
+    }
+
+    /// Casts a mutable byte slice into a mutable TPM2B wire view without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `buf` contains exactly one complete TPM2B
+    /// value and that its declared payload length does not exceed `CAPACITY`.
+    /// The returned reference inherits the exclusive access represented by
+    /// `buf`.
+    #[must_use]
+    pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
+        let ptr = core::ptr::from_mut(buf) as *mut Self;
+
+        // SAFETY: `Tpm2b` is `repr(transparent)` over `[u8]`, so it has the
+        // same layout, metadata, and alignment as the referenced slice.
+        unsafe { &mut *ptr }
+    }
+
+    /// Returns the complete TPM2B byte representation.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Returns the complete mutable TPM2B byte representation.
+    #[must_use]
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+
+    /// Returns the declared payload size.
+    #[must_use]
+    pub fn size(&self) -> usize {
+        Self::read_size(&self.0)
+    }
+
+    /// Returns the payload bytes.
+    #[must_use]
+    pub fn data(&self) -> &[u8] {
+        &self.0[TPM2B_SIZE_LEN..]
+    }
+
+    /// Returns the mutable payload bytes.
+    #[must_use]
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        &mut self.0[TPM2B_SIZE_LEN..]
+    }
+
+    /// Returns the complete TPM2B wire length.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns `true` when the TPM2B payload is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.size() == 0
+    }
+
+    fn validate(buf: &[u8]) -> TpmResult<()> {
+        if buf.len() < TPM2B_SIZE_LEN {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        let size = Self::read_size(buf);
+        if size > CAPACITY {
+            return Err(TpmProtocolError::TooManyBytes);
+        }
+
+        let total = TPM2B_SIZE_LEN
+            .checked_add(size)
+            .ok_or(TpmProtocolError::IntegerTooLarge)?;
+
+        if buf.len() < total {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        if buf.len() > total {
+            return Err(TpmProtocolError::TrailingData);
+        }
+
+        Ok(())
+    }
+
+    fn read_size(buf: &[u8]) -> usize {
+        usize::from(u16::from_be_bytes([buf[0], buf[1]]))
+    }
+}
+
+impl<const CAPACITY: usize> TpmCast for Tpm2b<CAPACITY> {
+    fn cast(buf: &[u8]) -> TpmResult<&Self> {
+        Self::cast(buf)
+    }
+
+    unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
+        // SAFETY: The caller upholds the unchecked cast contract for `Tpm2b`.
+        unsafe { Self::cast_unchecked(buf) }
+    }
+}
+
+impl<const CAPACITY: usize> TpmCastMut for Tpm2b<CAPACITY> {
+    fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
+        Self::cast_mut(buf)
+    }
+
+    unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
+        // SAFETY: The caller upholds the unchecked mutable cast contract for
+        // `Tpm2b`.
+        unsafe { Self::cast_mut_unchecked(buf) }
+    }
+}
+
+impl<const CAPACITY: usize> AsRef<[u8]> for Tpm2b<CAPACITY> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl<const CAPACITY: usize> AsMut<[u8]> for Tpm2b<CAPACITY> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_bytes_mut()
+    }
+}
 
 /// A buffer in the TPM2B wire format.
 ///

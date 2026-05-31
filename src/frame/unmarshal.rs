@@ -3,8 +3,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{
-    TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmHandles, TpmResponse, TPM_DISPATCH_TABLE,
-    TPM_HEADER_SIZE,
+    TpmAuthCommands, TpmAuthResponses, TpmCommandValue, TpmHandles, TpmResponseValue,
+    TPM_DISPATCH_TABLE, TPM_HEADER_SIZE,
 };
 use crate::{
     basic::TpmUint32,
@@ -19,13 +19,15 @@ pub struct TpmDispatch {
     pub cc: TpmCc,
     pub handles: usize,
     #[allow(clippy::type_complexity)]
-    pub command_unmarshaler: for<'a> fn(&'a [u8], &'a [u8]) -> TpmResult<(TpmCommand, &'a [u8])>,
+    pub command_unmarshaler:
+        for<'a> fn(&'a [u8], &'a [u8]) -> TpmResult<(TpmCommandValue, &'a [u8])>,
     #[allow(clippy::type_complexity)]
-    pub response_unmarshaler: for<'a> fn(TpmSt, &'a [u8]) -> TpmResult<(TpmResponse, &'a [u8])>,
+    pub response_unmarshaler:
+        for<'a> fn(TpmSt, &'a [u8]) -> TpmResult<(TpmResponseValue, &'a [u8])>,
 }
 
 /// Represents the dualistic nature of responses.
-pub type TpmResponseResult = Result<(TpmResponse, TpmAuthResponses), TpmRc>;
+pub type TpmResponseValueResult = Result<(TpmResponseValue, TpmAuthResponses), TpmRc>;
 
 /// Unmarshals a TPM command.
 ///
@@ -37,7 +39,9 @@ pub type TpmResponseResult = Result<(TpmResponse, TpmAuthResponses), TpmRc>;
 /// unmarshaling there is some data left.
 /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when the
 /// buffer does not hold all the bytes.
-pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, TpmAuthCommands)> {
+pub fn tpm_unmarshal_command(
+    buf: &[u8],
+) -> TpmResult<(TpmHandles, TpmCommandValue, TpmAuthCommands)> {
     if buf.len() < TPM_HEADER_SIZE as usize {
         return Err(TpmProtocolError::UnexpectedEnd);
     }
@@ -117,7 +121,7 @@ pub fn tpm_unmarshal_command(buf: &[u8]) -> TpmResult<(TpmHandles, TpmCommand, T
 /// unmarshaling there is some data left.
 /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when the
 /// buffer does not hold all the bytes.
-pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseResult> {
+pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseValueResult> {
     if buf.len() < TPM_HEADER_SIZE as usize {
         return Err(TpmProtocolError::UnexpectedEnd);
     }

@@ -8,8 +8,9 @@ use core::fmt::Debug;
 mod data;
 mod marshal;
 mod unmarshal;
+mod wire;
 
-pub use self::{data::*, marshal::*, unmarshal::*};
+pub use self::{data::*, marshal::*, unmarshal::*, wire::*};
 
 use crate::constant::{MAX_HANDLES, MAX_SESSIONS};
 

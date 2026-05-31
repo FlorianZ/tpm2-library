@@ -2,7 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{basic::TpmUint32, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal};
+use crate::{
+    basic::TpmUint32, TpmCast, TpmCastMut, TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
+    TpmUnmarshal,
+};
 use core::{
     convert::TryFrom,
     fmt::Debug,
@@ -10,6 +13,173 @@ use core::{
     ops::Deref,
     slice,
 };
+
+const TPML_COUNT_LEN: usize = size_of::<TpmUint32>();
+
+/// A zero-copy TPML wire view over caller-owned bytes.
+#[repr(transparent)]
+pub struct Tpml<const CAPACITY: usize>([u8]);
+
+impl<const CAPACITY: usize> Tpml<CAPACITY> {
+    /// Casts a byte slice into a TPML wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// `buf` is shorter than the TPML count field.
+    /// Returns [`TooManyItems`](crate::TpmProtocolError::TooManyItems) when
+    /// the declared item count exceeds `CAPACITY`.
+    pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
+        Self::validate(buf)?;
+
+        // SAFETY: `validate` checked the TPML header and count limit for this
+        // transparent wire view.
+        Ok(unsafe { Self::cast_unchecked(buf) })
+    }
+
+    /// Casts a byte slice into a TPML wire view without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `buf` starts with a complete TPML count
+    /// field and that the declared item count does not exceed `CAPACITY`.
+    #[must_use]
+    pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
+        let ptr = core::ptr::from_ref(buf) as *const Self;
+
+        // SAFETY: `Tpml` is `repr(transparent)` over `[u8]`, so it has the
+        // same layout, metadata, and alignment as the referenced slice.
+        unsafe { &*ptr }
+    }
+
+    /// Casts a mutable byte slice into a mutable TPML wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// `buf` is shorter than the TPML count field.
+    /// Returns [`TooManyItems`](crate::TpmProtocolError::TooManyItems) when
+    /// the declared item count exceeds `CAPACITY`.
+    pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
+        Self::validate(buf)?;
+
+        // SAFETY: `validate` checked the TPML header and count limit for this
+        // transparent wire view. The `&mut` input provides exclusive access.
+        Ok(unsafe { Self::cast_mut_unchecked(buf) })
+    }
+
+    /// Casts a mutable byte slice into a mutable TPML wire view without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `buf` starts with a complete TPML count
+    /// field and that the declared item count does not exceed `CAPACITY`. The
+    /// returned reference inherits the exclusive access represented by `buf`.
+    #[must_use]
+    pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
+        let ptr = core::ptr::from_mut(buf) as *mut Self;
+
+        // SAFETY: `Tpml` is `repr(transparent)` over `[u8]`, so it has the
+        // same layout, metadata, and alignment as the referenced slice.
+        unsafe { &mut *ptr }
+    }
+
+    /// Returns the complete TPML byte representation.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Returns the complete mutable TPML byte representation.
+    #[must_use]
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+
+    /// Returns the declared item count.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        Self::read_count(&self.0)
+    }
+
+    /// Returns the bytes after the count field.
+    #[must_use]
+    pub fn items_bytes(&self) -> &[u8] {
+        &self.0[TPML_COUNT_LEN..]
+    }
+
+    /// Returns the mutable bytes after the count field.
+    #[must_use]
+    pub fn items_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.0[TPML_COUNT_LEN..]
+    }
+
+    /// Returns the complete TPML wire length.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns `true` when the declared item count is zero.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.count() == 0
+    }
+
+    fn validate(buf: &[u8]) -> TpmResult<()> {
+        if buf.len() < TPML_COUNT_LEN {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        let count = Self::read_count(buf);
+        if count > CAPACITY {
+            return Err(TpmProtocolError::TooManyItems);
+        }
+
+        Ok(())
+    }
+
+    fn read_count(buf: &[u8]) -> usize {
+        let raw = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+
+        raw as usize
+    }
+}
+
+impl<const CAPACITY: usize> TpmCast for Tpml<CAPACITY> {
+    fn cast(buf: &[u8]) -> TpmResult<&Self> {
+        Self::cast(buf)
+    }
+
+    unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
+        // SAFETY: The caller upholds the unchecked cast contract for `Tpml`.
+        unsafe { Self::cast_unchecked(buf) }
+    }
+}
+
+impl<const CAPACITY: usize> TpmCastMut for Tpml<CAPACITY> {
+    fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
+        Self::cast_mut(buf)
+    }
+
+    unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
+        // SAFETY: The caller upholds the unchecked mutable cast contract for
+        // `Tpml`.
+        unsafe { Self::cast_mut_unchecked(buf) }
+    }
+}
+
+impl<const CAPACITY: usize> AsRef<[u8]> for Tpml<CAPACITY> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl<const CAPACITY: usize> AsMut<[u8]> for Tpml<CAPACITY> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_bytes_mut()
+    }
+}
 
 /// A fixed-capacity list for TPM structures, implemented over a fixed-size array.
 #[derive(Clone, Copy)]
