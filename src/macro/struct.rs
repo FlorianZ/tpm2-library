@@ -31,13 +31,13 @@ macro_rules! tpm_struct {
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmProtocolError)` when the frame is malformed or
+            /// Returns `Err(TpmError)` when the frame is malformed or
             /// has a different command code.
             pub fn cast_frame(buf: &[u8]) -> $crate::TpmResult<&$crate::frame::TpmCommand> {
                 let command = <$crate::frame::TpmCommand>::cast(buf)?;
 
                 if command.cc()? != Self::CC {
-                    return Err($crate::TpmProtocolError::InvalidCc);
+                    return Err($crate::TpmError::InvalidCc);
                 }
 
                 Ok(command)
@@ -47,7 +47,7 @@ macro_rules! tpm_struct {
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmProtocolError)` when the frame is malformed or
+            /// Returns `Err(TpmError)` when the frame is malformed or
             /// has a different command code.
             pub fn cast_frame_mut(
                 buf: &mut [u8],
@@ -55,7 +55,7 @@ macro_rules! tpm_struct {
                 let command = <$crate::frame::TpmCommand>::cast_mut(buf)?;
 
                 if command.cc()? != Self::CC {
-                    return Err($crate::TpmProtocolError::InvalidCc);
+                    return Err($crate::TpmError::InvalidCc);
                 }
 
                 Ok(command)
@@ -117,7 +117,7 @@ macro_rules! tpm_struct {
                 }
 
                 if !cursor.is_empty() {
-                    return Err($crate::TpmProtocolError::TrailingData);
+                    return Err($crate::TpmError::TrailingData);
                 }
 
                 let mut cursor = params_buf;
@@ -164,7 +164,7 @@ macro_rules! tpm_struct {
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmProtocolError)` when the frame envelope is malformed.
+            /// Returns `Err(TpmError)` when the frame envelope is malformed.
             pub fn cast_frame(buf: &[u8]) -> $crate::TpmResult<&$crate::frame::TpmResponse> {
                 <$crate::frame::TpmResponse>::cast(buf)
             }
@@ -173,7 +173,7 @@ macro_rules! tpm_struct {
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmProtocolError)` when the frame envelope is malformed.
+            /// Returns `Err(TpmError)` when the frame envelope is malformed.
             pub fn cast_frame_mut(
                 buf: &mut [u8],
             ) -> $crate::TpmResult<&mut $crate::frame::TpmResponse> {
@@ -238,7 +238,7 @@ macro_rules! tpm_struct {
                         <$crate::basic::TpmUint32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     let size = u32::from(size) as usize;
                     if buf_after_size.len() < size {
-                        return Err($crate::TpmProtocolError::UnexpectedEnd);
+                        return Err($crate::TpmError::UnexpectedEnd);
                     }
                     let (mut params_cursor, final_tail) = buf_after_size.split_at(size);
 
@@ -248,7 +248,7 @@ macro_rules! tpm_struct {
                     )*
 
                     if !params_cursor.is_empty() {
-                        return Err($crate::TpmProtocolError::TrailingData);
+                        return Err($crate::TpmError::TrailingData);
                     }
 
                     Ok((
@@ -349,7 +349,7 @@ macro_rules! tpm2b_struct {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 let len_field = <$crate::basic::TpmUint16>::try_from(inner_len)
-                    .map_err(|_| $crate::TpmProtocolError::IntegerTooLarge)?;
+                    .map_err(|_| $crate::TpmError::IntegerTooLarge)?;
                 len_field.marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
             }
@@ -361,14 +361,14 @@ macro_rules! tpm2b_struct {
                 let size = u16::from(size) as usize;
 
                 if buf_after_size.len() < size {
-                    return Err($crate::TpmProtocolError::UnexpectedEnd);
+                    return Err($crate::TpmError::UnexpectedEnd);
                 }
                 let (inner_bytes, rest) = buf_after_size.split_at(size);
 
                 let (inner_val, tail) = <$inner_ty>::unmarshal(inner_bytes)?;
 
                 if !tail.is_empty() {
-                    return Err($crate::TpmProtocolError::TrailingData);
+                    return Err($crate::TpmError::TrailingData);
                 }
 
                 Ok((Self { inner: inner_val }, rest))

@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmCast, TpmCastMut, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal,
+    TpmCast, TpmCastMut, TpmMarshal, TpmError, TpmResult, TpmSized, TpmUnmarshal,
     basic::TpmUint32,
 };
 use core::{
@@ -25,9 +25,9 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
     /// `buf` is shorter than the TPML count field.
-    /// Returns [`TooManyItems`](crate::TpmProtocolError::TooManyItems) when
+    /// Returns [`TooManyItems`](crate::TpmError::TooManyItems) when
     /// the declared item count exceeds `CAPACITY`.
     pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
         Self::validate(buf)?;
@@ -56,9 +56,9 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
     /// `buf` is shorter than the TPML count field.
-    /// Returns [`TooManyItems`](crate::TpmProtocolError::TooManyItems) when
+    /// Returns [`TooManyItems`](crate::TpmError::TooManyItems) when
     /// the declared item count exceeds `CAPACITY`.
     pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Self::validate(buf)?;
@@ -128,12 +128,12 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
 
     fn validate(buf: &[u8]) -> TpmResult<()> {
         if buf.len() < TPML_COUNT_LEN {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         let item_count = Self::read_count(buf);
         if item_count > CAPACITY {
-            return Err(TpmProtocolError::TooManyItems);
+            return Err(TpmError::TooManyItems);
         }
 
         Ok(())
@@ -208,11 +208,11 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`TooManyItems`](crate::TpmProtocolError::TooManyItems) if the list is at
+    /// Returns [`TooManyItems`](crate::TpmError::TooManyItems) if the list is at
     /// full capacity.
-    pub fn try_push(&mut self, item: T) -> Result<(), TpmProtocolError> {
+    pub fn try_push(&mut self, item: T) -> Result<(), TpmError> {
         if self.len >= CAPACITY {
-            return Err(TpmProtocolError::TooManyItems);
+            return Err(TpmError::TooManyItems);
         }
         self.items[self.len].write(item);
         self.len += 1;
@@ -223,16 +223,16 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`TooManyItems`](crate::TpmProtocolError::TooManyItems) if the list cannot
+    /// Returns [`TooManyItems`](crate::TpmError::TooManyItems) if the list cannot
     /// fit all elements from the slice.
-    pub fn try_extend_from_slice(&mut self, slice: &[T]) -> Result<(), TpmProtocolError> {
+    pub fn try_extend_from_slice(&mut self, slice: &[T]) -> Result<(), TpmError> {
         let new_len = self
             .len
             .checked_add(slice.len())
-            .ok_or(TpmProtocolError::TooManyItems)?;
+            .ok_or(TpmError::TooManyItems)?;
 
         if new_len > CAPACITY {
-            return Err(TpmProtocolError::TooManyItems);
+            return Err(TpmError::TooManyItems);
         }
 
         for (dest, src) in self.items[self.len..new_len].iter_mut().zip(slice) {
@@ -282,7 +282,7 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 
 impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPACITY> {
     fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len = TpmUint32::try_from(self.len).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+        let len = TpmUint32::try_from(self.len).map_err(|_| TpmError::IntegerTooLarge)?;
         TpmMarshal::marshal(&len, writer)?;
         for item in &**self {
             TpmMarshal::marshal(item, writer)?;
@@ -296,7 +296,7 @@ impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, 
         let (count_u32, mut buf) = TpmUint32::unmarshal(buf)?;
         let count = u32::from(count_u32) as usize;
         if count > CAPACITY {
-            return Err(TpmProtocolError::TooManyItems);
+            return Err(TpmError::TooManyItems);
         }
 
         let mut list = Self::new();

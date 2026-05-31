@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmCast, TpmCastMut, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal,
+    TpmCast, TpmCastMut, TpmMarshal, TpmError, TpmResult, TpmSized, TpmUnmarshal,
     TpmWriter, basic::TpmUint16,
 };
 use core::{
@@ -26,11 +26,11 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
     /// `buf` is shorter than the TPM2B header or declared payload size.
-    /// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when
+    /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
     /// `buf` contains bytes after the declared payload.
-    /// Returns [`TooManyBytes`](crate::TpmProtocolError::TooManyBytes) when
+    /// Returns [`TooManyBytes`](crate::TpmError::TooManyBytes) when
     /// the declared payload exceeds `CAPACITY`.
     pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
         Self::validate(buf)?;
@@ -59,11 +59,11 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
     /// `buf` is shorter than the TPM2B header or declared payload size.
-    /// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when
+    /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
     /// `buf` contains bytes after the declared payload.
-    /// Returns [`TooManyBytes`](crate::TpmProtocolError::TooManyBytes) when
+    /// Returns [`TooManyBytes`](crate::TpmError::TooManyBytes) when
     /// the declared payload exceeds `CAPACITY`.
     pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Self::validate(buf)?;
@@ -135,24 +135,24 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
 
     fn validate(buf: &[u8]) -> TpmResult<()> {
         if buf.len() < TPM2B_SIZE_LEN {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         let payload_len = Self::read_size(buf);
         if payload_len > CAPACITY {
-            return Err(TpmProtocolError::TooManyBytes);
+            return Err(TpmError::TooManyBytes);
         }
 
         let wire_len = TPM2B_SIZE_LEN
             .checked_add(payload_len)
-            .ok_or(TpmProtocolError::IntegerTooLarge)?;
+            .ok_or(TpmError::IntegerTooLarge)?;
 
         if buf.len() < wire_len {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         if buf.len() > wire_len {
-            return Err(TpmProtocolError::TrailingData);
+            return Err(TpmError::TrailingData);
         }
 
         Ok(())
@@ -222,11 +222,11 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`BufferOverflow`](crate::TpmProtocolError::BufferOverflow) when the
+    /// Returns [`BufferOverflow`](crate::TpmError::BufferOverflow) when the
     /// buffer is full or the size exceeds `u16::MAX`.
     pub fn try_push(&mut self, byte: u8) -> TpmResult<()> {
         if (self.size as usize) >= CAPACITY || self.size == u16::MAX {
-            return Err(TpmProtocolError::BufferOverflow);
+            return Err(TpmError::BufferOverflow);
         }
         self.data[self.size as usize].write(byte);
         self.size += 1;
@@ -237,19 +237,19 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`BufferOverflow`](crate::TpmProtocolError::BufferOverflow) when the
+    /// Returns [`BufferOverflow`](crate::TpmError::BufferOverflow) when the
     /// resulting size exceeds the buffer capacity or `u16::MAX`.
     pub fn try_extend_from_slice(&mut self, slice: &[u8]) -> TpmResult<()> {
         let current_len = self.size as usize;
         let new_len = current_len
             .checked_add(slice.len())
-            .ok_or(TpmProtocolError::BufferOverflow)?;
+            .ok_or(TpmError::BufferOverflow)?;
 
         if new_len > CAPACITY {
-            return Err(TpmProtocolError::BufferOverflow);
+            return Err(TpmError::BufferOverflow);
         }
 
-        self.size = u16::try_from(new_len).map_err(|_| TpmProtocolError::BufferOverflow)?;
+        self.size = u16::try_from(new_len).map_err(|_| TpmError::BufferOverflow)?;
 
         for (dest, src) in self.data[current_len..new_len].iter_mut().zip(slice) {
             dest.write(*src);
@@ -310,11 +310,11 @@ impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
         let size_usize = u16::from(native_size) as usize;
 
         if size_usize > CAPACITY {
-            return Err(TpmProtocolError::TooManyBytes);
+            return Err(TpmError::TooManyBytes);
         }
 
         if remainder.len() < size_usize {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         let mut buffer = Self::new();
@@ -324,11 +324,11 @@ impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
 }
 
 impl<const CAPACITY: usize> TryFrom<&[u8]> for TpmBuffer<CAPACITY> {
-    type Error = TpmProtocolError;
+    type Error = TpmError;
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > CAPACITY {
-            return Err(TpmProtocolError::TooManyBytes);
+            return Err(TpmError::TooManyBytes);
         }
         let mut buffer = Self::new();
         buffer.try_extend_from_slice(slice)?;

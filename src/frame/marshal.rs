@@ -4,7 +4,7 @@
 
 use super::{TPM_HEADER_SIZE, TpmFrame};
 use crate::{
-    TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
+    TpmMarshal, TpmError, TpmResult, TpmSized,
     basic::TpmUint32,
     data::{TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
 };
@@ -14,7 +14,7 @@ use core::{convert::TryFrom, mem::size_of};
 ///
 /// # Errors
 ///
-/// Returns `Err(TpmProtocolError)` on a marshal failure.
+/// Returns `Err(TpmError)` on a marshal failure.
 pub fn tpm_marshal_command<C>(
     command: &C,
     tag: TpmSt,
@@ -25,7 +25,7 @@ where
     C: TpmFrame,
 {
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-        return Err(TpmProtocolError::InvalidTag);
+        return Err(TpmError::InvalidTag);
     }
 
     let handle_area_size = command.handles() * size_of::<u32>();
@@ -40,14 +40,14 @@ where
     let total_body_len = handle_area_size
         .checked_add(auth_area_size)
         .and_then(|len| len.checked_add(param_area_size))
-        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+        .ok_or(TpmError::IntegerTooLarge)?;
 
     let command_size_usize = (TPM_HEADER_SIZE as usize)
         .checked_add(total_body_len)
-        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+        .ok_or(TpmError::IntegerTooLarge)?;
 
     let command_size =
-        TpmUint32::try_from(command_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+        TpmUint32::try_from(command_size_usize).map_err(|_| TpmError::IntegerTooLarge)?;
 
     tag.marshal(writer)?;
     command_size.marshal(writer)?;
@@ -57,7 +57,7 @@ where
 
     if tag == TpmSt::Sessions {
         let sessions_len = TpmUint32::try_from(auth_area_size - size_of::<TpmUint32>())
-            .map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+            .map_err(|_| TpmError::IntegerTooLarge)?;
         sessions_len.marshal(writer)?;
         for s in sessions {
             s.marshal(writer)?;
@@ -71,7 +71,7 @@ where
 ///
 /// # Errors
 ///
-/// Returns `Err(TpmProtocolError)` on a marshal failure.
+/// Returns `Err(TpmError)` on a marshal failure.
 pub fn tpm_marshal_response<R>(
     response: &R,
     sessions: &[TpmsAuthResponse],
@@ -108,14 +108,14 @@ where
         .checked_add(parameter_area_size_field_len)
         .and_then(|len| len.checked_add(param_area_size))
         .and_then(|len| len.checked_add(sessions_len))
-        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+        .ok_or(TpmError::IntegerTooLarge)?;
 
     let response_size_usize = (TPM_HEADER_SIZE as usize)
         .checked_add(total_body_len)
-        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+        .ok_or(TpmError::IntegerTooLarge)?;
 
     let response_size =
-        TpmUint32::try_from(response_size_usize).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+        TpmUint32::try_from(response_size_usize).map_err(|_| TpmError::IntegerTooLarge)?;
 
     tag.marshal(writer)?;
     response_size.marshal(writer)?;
@@ -125,7 +125,7 @@ where
 
     if tag == TpmSt::Sessions {
         let params_len =
-            TpmUint32::try_from(param_area_size).map_err(|_| TpmProtocolError::IntegerTooLarge)?;
+            TpmUint32::try_from(param_area_size).map_err(|_| TpmError::IntegerTooLarge)?;
         params_len.marshal(writer)?;
     }
 

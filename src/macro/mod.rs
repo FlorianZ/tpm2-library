@@ -164,7 +164,7 @@ macro_rules! tpm_bool {
                 match u8::from(val) {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
-                    _ => Err($crate::TpmProtocolError::InvalidBoolean),
+                    _ => Err($crate::TpmError::InvalidBoolean),
                 }
             }
         }
@@ -249,7 +249,7 @@ macro_rules! tpm_dispatch {
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmProtocolError)` on a marshal failure.
+            /// Returns `Err(TpmError)` on a marshal failure.
             pub fn marshal_frame(
                 &self,
                 tag: $crate::data::TpmSt,
@@ -333,7 +333,7 @@ macro_rules! tpm_dispatch {
             ///
             /// # Errors
             ///
-            /// Returns `Err(TpmProtocolError)` on a marshal failure.
+            /// Returns `Err(TpmError)` on a marshal failure.
             pub fn marshal_frame(
                 &self,
                 rc: $crate::data::TpmRc,

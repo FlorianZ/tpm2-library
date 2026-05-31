@@ -24,14 +24,14 @@ macro_rules! tpm_enum {
         }
 
         impl TryFrom<$repr> for $name {
-            type Error = $crate::TpmProtocolError;
+            type Error = $crate::TpmError;
 
-            fn try_from(value: $repr) -> Result<Self, $crate::TpmProtocolError> {
+            fn try_from(value: $repr) -> Result<Self, $crate::TpmError> {
                 match value {
                     $(
                         _ if value == $value => Ok(Self::$variant),
                     )*
-                    _ => Err($crate::TpmProtocolError::VariantNotAvailable),
+                    _ => Err($crate::TpmError::VariantNotAvailable),
                 }
             }
         }

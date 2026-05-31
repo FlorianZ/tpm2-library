@@ -47,14 +47,14 @@ pub trait TpmMarshalBody: TpmSized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` on a marshal failure.
+    /// Returns `Err(TpmError)` on a marshal failure.
     fn marshal_handles(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 
     /// Marshals the parameter area.
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` on a marshal failure.
+    /// Returns `Err(TpmError)` on a marshal failure.
     fn marshal_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
@@ -65,7 +65,7 @@ pub(crate) trait TpmUnmarshalCommand: Sized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` on a unmarshal failure.
+    /// Returns `Err(TpmError)` on a unmarshal failure.
     fn unmarshal_body<'a>(handles: &'a [u8], params: &'a [u8]) -> TpmResult<(Self, &'a [u8])>;
 }
 
@@ -76,7 +76,7 @@ pub trait TpmUnmarshalResponse: Sized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` on a unmarshal failure.
+    /// Returns `Err(TpmError)` on a unmarshal failure.
     fn unmarshal_body(tag: crate::data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 

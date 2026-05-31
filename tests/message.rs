@@ -92,7 +92,7 @@ fn main() {
                         let actual_err = TpmResponse::cast(&original_bytes)
                             .and_then(|response| response.validate(cc))
                             .err()
-                            .expect("expected TpmProtocolError, got Ok");
+                            .expect("expected TpmError, got Ok");
                         assert_eq!(
                             actual_err, expected_err,
                             "mismatched unmarshaling error type"

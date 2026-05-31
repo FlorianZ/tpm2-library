@@ -28,9 +28,12 @@
 pub mod basic;
 pub mod constant;
 pub mod data;
+mod error;
 #[macro_use]
 pub mod r#macro;
 pub mod frame;
+
+pub use self::error::{TpmError, TpmResult};
 
 /// A byte-backed TPM wire view.
 #[repr(transparent)]
@@ -131,17 +134,17 @@ impl<const N: usize> TpmWireBytes<N> {
     ///
     /// # Errors
     ///
-    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
     /// `buf` is smaller than `N` bytes.
-    /// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when
+    /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
     /// `buf` is larger than `N` bytes.
     pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
         if buf.len() < N {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         if buf.len() > N {
-            return Err(TpmProtocolError::TrailingData);
+            return Err(TpmError::TrailingData);
         }
 
         // SAFETY: The length check above guarantees that `buf` has exactly the
@@ -169,17 +172,17 @@ impl<const N: usize> TpmWireBytes<N> {
     ///
     /// # Errors
     ///
-    /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
     /// `buf` is smaller than `N` bytes.
-    /// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when
+    /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
     /// `buf` is larger than `N` bytes.
     pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         if buf.len() < N {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         if buf.len() > N {
-            return Err(TpmProtocolError::TrailingData);
+            return Err(TpmError::TrailingData);
         }
 
         // SAFETY: The length check above guarantees that `buf` has exactly the
@@ -248,7 +251,7 @@ pub trait TpmCast {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when `buf` does not satisfy the
+    /// Returns `Err(TpmError)` when `buf` does not satisfy the
     /// invariants for `Self`.
     fn cast(buf: &[u8]) -> TpmResult<&Self>;
 
@@ -267,7 +270,7 @@ pub trait TpmCastMut: TpmCast {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when `buf` does not satisfy the
+    /// Returns `Err(TpmError)` when `buf` does not satisfy the
     /// invariants for `Self`.
     fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self>;
 
@@ -328,69 +331,6 @@ impl<const N: usize> TpmCastMut for TpmWireBytes<N> {
     }
 }
 
-/// TPM frame marshaling and unmarshaling error type containing variants
-/// for all the possible error conditions.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum TpmProtocolError {
-    /// Trying to marshal more bytes than buffer has space. This is unexpected
-    /// situation, and should be considered possible bug in the crate itself.
-    BufferOverflow,
-
-    /// Integer overflow while converting to an integer of a different size.
-    IntegerTooLarge,
-
-    /// Boolean value was expected but the value is neither `0` nor `1`.
-    InvalidBoolean,
-
-    /// Non-existent command code encountered.
-    InvalidCc,
-
-    /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
-    /// magic value.
-    InvalidMagicNumber,
-
-    /// Tag is neither [`Sessions`](crate::data::TpmSt::Sessions) nor
-    /// [`NoSessions`](crate::data::TpmSt::NoSessions).
-    InvalidTag,
-
-    /// Buffer contains more bytes than allowed by the TCG specifications.
-    TooManyBytes,
-
-    /// List contains more items than allowed by the TCG specifications.
-    TooManyItems,
-
-    /// Trailing data left after unmarshaling.
-    TrailingData,
-
-    /// Run out of bytes while unmarshaling.
-    UnexpectedEnd,
-
-    /// The variant accessed is not available.
-    VariantNotAvailable,
-}
-
-impl core::fmt::Display for TpmProtocolError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::BufferOverflow => write!(f, "buffer overflow"),
-            Self::InvalidBoolean => write!(f, "invalid boolean value"),
-            Self::InvalidCc => write!(f, "invalid command code"),
-            Self::InvalidMagicNumber => write!(f, "invalid magic number"),
-            Self::InvalidTag => write!(f, "invalid tag"),
-            Self::IntegerTooLarge => write!(f, "integer overflow"),
-            Self::TooManyBytes => write!(f, "buffer capacity surpassed"),
-            Self::TooManyItems => write!(f, "list capaacity surpassed"),
-            Self::TrailingData => write!(f, "trailing data"),
-            Self::UnexpectedEnd => write!(f, "unexpected end"),
-            Self::VariantNotAvailable => write!(f, "enum variant is not available"),
-        }
-    }
-}
-
-impl core::error::Error for TpmProtocolError {}
-
-pub type TpmResult<T> = Result<T, TpmProtocolError>;
-
 /// Builds TPM wire bytes into a caller-provided mutable byte slice.
 pub struct TpmWriter<'a> {
     buffer: &'a mut [u8],
@@ -426,16 +366,16 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`OutOfMemory`](crate::TpmProtocolError::OutOfMemory)
+    /// Returns [`OutOfMemory`](crate::TpmError::OutOfMemory)
     /// when the capacity of the buffer is exceeded.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self
             .cursor
             .checked_add(bytes.len())
-            .ok_or(TpmProtocolError::BufferOverflow)?;
+            .ok_or(TpmError::BufferOverflow)?;
 
         if end > self.buffer.len() {
-            return Err(TpmProtocolError::BufferOverflow);
+            return Err(TpmError::BufferOverflow);
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
@@ -464,7 +404,7 @@ pub trait TpmMarshal {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` on a marshal failure.
+    /// Returns `Err(TpmError)` on a marshal failure.
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
@@ -475,7 +415,7 @@ pub(crate) trait TpmUnmarshal: Sized + TpmSized {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` on a unmarshal failure.
+    /// Returns `Err(TpmError)` on a unmarshal failure.
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 
@@ -494,8 +434,8 @@ pub(crate) trait TpmUnmarshalTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmUnmarshal` implementation,
-    /// such as a `TpmProtocolError::UnexpectedEnd` if the buffer is too small or an
-    /// `TpmProtocolError::MalformedValue` if the data is malformed.
+    /// such as a `TpmError::UnexpectedEnd` if the buffer is too small or an
+    /// `TpmError::MalformedValue` if the data is malformed.
     fn unmarshal_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where
         Self: TpmTagged,

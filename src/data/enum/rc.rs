@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmProtocolError, tpm_enum};
+use crate::{TpmError, tpm_enum};
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display, Formatter},
@@ -217,7 +217,7 @@ impl crate::TpmUnmarshal for TpmRc {
 }
 
 impl TryFrom<u32> for TpmRc {
-    type Error = TpmProtocolError;
+    type Error = TpmError;
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         let base_code = if (value & TPM_RC_FMT1) != 0 {
             TPM_RC_FMT1 | (value & TPM_RC_FMT1_ERROR_MASK)

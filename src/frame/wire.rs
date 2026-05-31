@@ -4,7 +4,7 @@
 
 use super::{TPM_DISPATCH_TABLE, TPM_HEADER_SIZE};
 use crate::{
-    TpmCast, TpmCastMut, TpmProtocolError, TpmResult,
+    TpmCast, TpmCastMut, TpmError, TpmResult,
     constant::MAX_SESSIONS,
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt},
 };
@@ -24,7 +24,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
+    /// Returns `Err(TpmError)` when the command envelope is malformed.
     pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
         Self::validate_envelope(buf)?;
 
@@ -52,7 +52,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
+    /// Returns `Err(TpmError)` when the command envelope is malformed.
     pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Self::validate_envelope(buf)?;
 
@@ -94,7 +94,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns [`VariantNotAvailable`](crate::TpmProtocolError::VariantNotAvailable)
+    /// Returns [`VariantNotAvailable`](crate::TpmError::VariantNotAvailable)
     /// when the tag value is not defined.
     pub fn tag(&self) -> TpmResult<TpmSt> {
         TpmSt::try_from(read_u16(&self.0, TAG_OFFSET))
@@ -110,7 +110,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidCc`](crate::TpmProtocolError::InvalidCc) when the
+    /// Returns [`InvalidCc`](crate::TpmError::InvalidCc) when the
     /// command code has no dispatch entry.
     pub fn cc(&self) -> TpmResult<TpmCc> {
         command_code(&self.0)
@@ -125,7 +125,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidCc`](crate::TpmProtocolError::InvalidCc) when the
+    /// Returns [`InvalidCc`](crate::TpmError::InvalidCc) when the
     /// command code has no dispatch entry.
     pub fn set_cc(&mut self, cc: TpmCc) -> TpmResult<()> {
         let _ = dispatch_for(cc)?;
@@ -138,7 +138,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
+    /// Returns `Err(TpmError)` when the command envelope is malformed.
     pub fn handles(&self) -> TpmResult<&[u8]> {
         let range = self.handle_area_range()?;
 
@@ -149,7 +149,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
+    /// Returns `Err(TpmError)` when the command envelope is malformed.
     pub fn handles_mut(&mut self) -> TpmResult<&mut [u8]> {
         let range = self.handle_area_range()?;
 
@@ -160,7 +160,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command has no sessions or its
+    /// Returns `Err(TpmError)` when the command has no sessions or its
     /// authorization area is malformed.
     pub fn auth_area(&self) -> TpmResult<&[u8]> {
         let (auth_area, _) = self.session_and_parameter_ranges()?;
@@ -172,7 +172,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command has no sessions or its
+    /// Returns `Err(TpmError)` when the command has no sessions or its
     /// authorization area is malformed.
     pub fn auth_area_mut(&mut self) -> TpmResult<&mut [u8]> {
         let (auth_area, _) = self.session_and_parameter_ranges()?;
@@ -184,7 +184,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
+    /// Returns `Err(TpmError)` when the command envelope is malformed.
     pub fn parameters(&self) -> TpmResult<&[u8]> {
         let (_, parameters) = self.session_and_parameter_ranges()?;
 
@@ -195,7 +195,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
+    /// Returns `Err(TpmError)` when the command envelope is malformed.
     pub fn parameters_mut(&mut self) -> TpmResult<&mut [u8]> {
         let (_, parameters) = self.session_and_parameter_ranges()?;
 
@@ -206,7 +206,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the command frame is malformed.
+    /// Returns `Err(TpmError)` when the command frame is malformed.
     pub fn validate(&self) -> TpmResult<()> {
         Self::validate_envelope(&self.0)?;
         validate_auth_commands(self.auth_area()?)
@@ -246,17 +246,17 @@ impl TpmCommand {
         let after_handles = &self.0[after_handles_start..];
 
         if after_handles.len() < size_of::<u32>() {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         let auth_size = read_u32(after_handles, 0) as usize;
         let auth_start = size_of::<u32>();
         let auth_end = auth_start
             .checked_add(auth_size)
-            .ok_or(TpmProtocolError::IntegerTooLarge)?;
+            .ok_or(TpmError::IntegerTooLarge)?;
 
         if after_handles.len() < auth_end {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         let auth_start = after_handles_start + auth_start;
@@ -270,7 +270,7 @@ impl TpmCommand {
 
         let tag = TpmSt::try_from(read_u16(buf, TAG_OFFSET))?;
         if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-            return Err(TpmProtocolError::InvalidTag);
+            return Err(TpmError::InvalidTag);
         }
 
         let dispatch = dispatch_for(command_code(buf)?)?;
@@ -278,22 +278,22 @@ impl TpmCommand {
         let handle_area_size = dispatch.handles * size_of::<u32>();
 
         if body.len() < handle_area_size {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         if tag == TpmSt::Sessions {
             let after_handles = &body[handle_area_size..];
             if after_handles.len() < size_of::<u32>() {
-                return Err(TpmProtocolError::UnexpectedEnd);
+                return Err(TpmError::UnexpectedEnd);
             }
 
             let auth_size = read_u32(after_handles, 0) as usize;
             let auth_end = size_of::<u32>()
                 .checked_add(auth_size)
-                .ok_or(TpmProtocolError::IntegerTooLarge)?;
+                .ok_or(TpmError::IntegerTooLarge)?;
 
             if after_handles.len() < auth_end {
-                return Err(TpmProtocolError::UnexpectedEnd);
+                return Err(TpmError::UnexpectedEnd);
             }
         }
 
@@ -345,7 +345,7 @@ impl TpmResponse {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the response envelope is malformed.
+    /// Returns `Err(TpmError)` when the response envelope is malformed.
     pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
         Self::validate_envelope(buf)?;
 
@@ -373,7 +373,7 @@ impl TpmResponse {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the response envelope is malformed.
+    /// Returns `Err(TpmError)` when the response envelope is malformed.
     pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Self::validate_envelope(buf)?;
 
@@ -415,7 +415,7 @@ impl TpmResponse {
     ///
     /// # Errors
     ///
-    /// Returns [`VariantNotAvailable`](crate::TpmProtocolError::VariantNotAvailable)
+    /// Returns [`VariantNotAvailable`](crate::TpmError::VariantNotAvailable)
     /// when the tag value is not defined.
     pub fn tag(&self) -> TpmResult<TpmSt> {
         TpmSt::try_from(read_u16(&self.0, TAG_OFFSET))
@@ -431,7 +431,7 @@ impl TpmResponse {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the response code is malformed.
+    /// Returns `Err(TpmError)` when the response code is malformed.
     pub fn rc(&self) -> TpmResult<TpmRc> {
         TpmRc::try_from(read_u32(&self.0, CODE_OFFSET))
     }
@@ -462,7 +462,7 @@ impl TpmResponse {
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmProtocolError)` when the response frame is malformed or
+    /// Returns `Err(TpmError)` when the response frame is malformed or
     /// `cc` has no dispatch entry.
     pub fn validate(&self, cc: TpmCc) -> TpmResult<()> {
         Self::validate_envelope(&self.0)?;
@@ -479,21 +479,21 @@ impl TpmResponse {
         let handle_area_size = dispatch.response_handles * size_of::<u32>();
         let body = self.body();
         if body.len() < handle_area_size {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         let after_handles = &body[handle_area_size..];
         if after_handles.len() < size_of::<u32>() {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         let params_len = read_u32(after_handles, 0) as usize;
         let sessions_start = size_of::<u32>()
             .checked_add(params_len)
-            .ok_or(TpmProtocolError::IntegerTooLarge)?;
+            .ok_or(TpmError::IntegerTooLarge)?;
 
         if after_handles.len() < sessions_start {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         validate_auth_responses(&after_handles[sessions_start..])
@@ -556,28 +556,28 @@ impl AsMut<[u8]> for TpmResponse {
 }
 
 fn command_code(buf: &[u8]) -> TpmResult<TpmCc> {
-    TpmCc::try_from(read_u32(buf, CODE_OFFSET)).map_err(|_| TpmProtocolError::InvalidCc)
+    TpmCc::try_from(read_u32(buf, CODE_OFFSET)).map_err(|_| TpmError::InvalidCc)
 }
 
 fn dispatch_for(cc: TpmCc) -> TpmResult<&'static super::TpmDispatch> {
     TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
-        .map_err(|_| TpmProtocolError::InvalidCc)
+        .map_err(|_| TpmError::InvalidCc)
 }
 
 fn validate_frame_size(buf: &[u8]) -> TpmResult<()> {
     if buf.len() < HEADER_SIZE {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     }
 
     let size = read_u32(buf, SIZE_OFFSET) as usize;
     if buf.len() < size {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     }
 
     if buf.len() > size {
-        return Err(TpmProtocolError::TrailingData);
+        return Err(TpmError::TrailingData);
     }
 
     Ok(())
@@ -609,18 +609,18 @@ fn validate_auth_commands(mut buf: &[u8]) -> TpmResult<()> {
 
     while !buf.is_empty() {
         if count >= MAX_SESSIONS {
-            return Err(TpmProtocolError::TooManyItems);
+            return Err(TpmError::TooManyItems);
         }
 
         if buf.len() < size_of::<u32>() {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         buf = &buf[size_of::<u32>()..];
         buf = skip_tpm2b(buf)?;
 
         if buf.is_empty() {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         buf = &buf[1..];
@@ -636,13 +636,13 @@ fn validate_auth_responses(mut buf: &[u8]) -> TpmResult<()> {
 
     while !buf.is_empty() {
         if count >= MAX_SESSIONS {
-            return Err(TpmProtocolError::TooManyItems);
+            return Err(TpmError::TooManyItems);
         }
 
         buf = skip_tpm2b(buf)?;
 
         if buf.is_empty() {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
 
         buf = &buf[1..];
@@ -655,16 +655,16 @@ fn validate_auth_responses(mut buf: &[u8]) -> TpmResult<()> {
 
 fn skip_tpm2b(buf: &[u8]) -> TpmResult<&[u8]> {
     if buf.len() < size_of::<u16>() {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     }
 
     let size = read_u16(buf, 0) as usize;
     let end = size_of::<u16>()
         .checked_add(size)
-        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+        .ok_or(TpmError::IntegerTooLarge)?;
 
     if buf.len() < end {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     }
 
     Ok(&buf[end..])

@@ -7,7 +7,7 @@ use super::{
     TpmHandles, TpmResponseValue,
 };
 use crate::{
-    TpmProtocolError, TpmResult, TpmUnmarshal,
+    TpmError, TpmResult, TpmUnmarshal,
     basic::TpmUint32,
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
 };
@@ -34,17 +34,17 @@ pub type TpmResponseValueResult = Result<(TpmResponseValue, TpmAuthResponses), T
 ///
 /// # Errors
 ///
-/// Returns [`InvalidValue`](crate::TpmProtocolError::InvalidValue) when the
+/// Returns [`InvalidValue`](crate::TpmError::InvalidValue) when the
 /// command code is non-existent.
-/// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when after
+/// Returns [`TrailingData`](crate::TpmError::TrailingData) when after
 /// unmarshaling there is some data left.
-/// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when the
+/// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when the
 /// buffer does not hold all the bytes.
 pub fn tpm_unmarshal_command(
     buf: &[u8],
 ) -> TpmResult<(TpmHandles, TpmCommandValue, TpmAuthCommands)> {
     if buf.len() < TPM_HEADER_SIZE as usize {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     }
     let buf_len = buf.len();
 
@@ -54,23 +54,23 @@ pub fn tpm_unmarshal_command(
 
     let size_usize = u32::from(size) as usize;
     if buf_len < size_usize {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     } else if buf_len > size_usize {
-        return Err(TpmProtocolError::TrailingData);
+        return Err(TpmError::TrailingData);
     }
 
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
-        .map_err(|_| TpmProtocolError::InvalidCc)?;
+        .map_err(|_| TpmError::InvalidCc)?;
 
     if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-        return Err(TpmProtocolError::InvalidTag);
+        return Err(TpmError::InvalidTag);
     }
 
     let handle_area_size = dispatch.handles * size_of::<u32>();
     if body_buf.len() < handle_area_size {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     }
     let (handle_area, after_handles) = body_buf.split_at(handle_area_size);
 
@@ -79,7 +79,7 @@ pub fn tpm_unmarshal_command(
         let (auth_area_size, buf_after_auth_size) = TpmUint32::unmarshal(after_handles)?;
         let auth_area_size = u32::from(auth_area_size) as usize;
         if buf_after_auth_size.len() < auth_area_size {
-            return Err(TpmProtocolError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd);
         }
         let (mut auth_area, param_area) = buf_after_auth_size.split_at(auth_area_size);
         while !auth_area.is_empty() {
@@ -88,7 +88,7 @@ pub fn tpm_unmarshal_command(
             auth_area = rest;
         }
         if !auth_area.is_empty() {
-            return Err(TpmProtocolError::TrailingData);
+            return Err(TpmError::TrailingData);
         }
         param_area
     } else {
@@ -98,7 +98,7 @@ pub fn tpm_unmarshal_command(
     let (command_data, param_remainder) = (dispatch.command_unmarshaler)(handle_area, param_area)?;
 
     if !param_remainder.is_empty() {
-        return Err(TpmProtocolError::TrailingData);
+        return Err(TpmError::TrailingData);
     }
 
     let mut handles = TpmHandles::new();
@@ -116,15 +116,15 @@ pub fn tpm_unmarshal_command(
 ///
 /// # Errors
 ///
-/// Returns [`InvalidValue`](crate::TpmProtocolError::InvalidValue) when the
+/// Returns [`InvalidValue`](crate::TpmError::InvalidValue) when the
 /// command code is non-existent.
-/// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when after
+/// Returns [`TrailingData`](crate::TpmError::TrailingData) when after
 /// unmarshaling there is some data left.
-/// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when the
+/// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when the
 /// buffer does not hold all the bytes.
 pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseValueResult> {
     if buf.len() < TPM_HEADER_SIZE as usize {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     }
 
     let (tag, remainder) = TpmSt::unmarshal(buf)?;
@@ -133,9 +133,9 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseVal
 
     let size_usize = u32::from(size) as usize;
     if buf.len() < size_usize {
-        return Err(TpmProtocolError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd);
     } else if buf.len() > size_usize {
-        return Err(TpmProtocolError::TrailingData);
+        return Err(TpmError::TrailingData);
     }
 
     if !matches!(rc, TpmRc::Fmt0(TpmRcBase::Success)) {
@@ -145,7 +145,7 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseVal
     let dispatch = TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
-        .map_err(|_| TpmProtocolError::InvalidCc)?;
+        .map_err(|_| TpmError::InvalidCc)?;
 
     let (body, mut session_area) = (dispatch.response_unmarshaler)(tag, body_buf)?;
 
@@ -159,7 +159,7 @@ pub fn tpm_unmarshal_response(cc: TpmCc, buf: &[u8]) -> TpmResult<TpmResponseVal
     }
 
     if !session_area.is_empty() {
-        return Err(TpmProtocolError::TrailingData);
+        return Err(TpmError::TrailingData);
     }
 
     Ok(Ok((body, auth_responses)))

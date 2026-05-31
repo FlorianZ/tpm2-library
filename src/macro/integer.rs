@@ -53,9 +53,9 @@ macro_rules! integer {
             ///
             /// # Errors
             ///
-            /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+            /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
             /// `buf` is smaller than this integer's wire size.
-            /// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when
+            /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
             /// `buf` is larger than this integer's wire size.
             pub fn cast(buf: &[u8]) -> $crate::TpmResult<&Self> {
                 let _ = $crate::TpmWireBytes::<$bytes>::cast(buf)?;
@@ -85,9 +85,9 @@ macro_rules! integer {
             ///
             /// # Errors
             ///
-            /// Returns [`UnexpectedEnd`](crate::TpmProtocolError::UnexpectedEnd) when
+            /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
             /// `buf` is smaller than this integer's wire size.
-            /// Returns [`TrailingData`](crate::TpmProtocolError::TrailingData) when
+            /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
             /// `buf` is larger than this integer's wire size.
             pub fn cast_mut(buf: &mut [u8]) -> $crate::TpmResult<&mut Self> {
                 let _ = $crate::TpmWireBytes::<$bytes>::cast_mut(buf)?;
@@ -181,10 +181,10 @@ macro_rules! integer {
                 let size = core::mem::size_of::<$raw>();
                 let bytes = buf
                     .get(..size)
-                    .ok_or($crate::TpmProtocolError::UnexpectedEnd)?;
+                    .ok_or($crate::TpmError::UnexpectedEnd)?;
                 let array = bytes
                     .try_into()
-                    .map_err(|_| $crate::TpmProtocolError::UnexpectedEnd)?;
+                    .map_err(|_| $crate::TpmError::UnexpectedEnd)?;
                 let val = Self::from_be_bytes(array);
                 Ok((val, &buf[size..]))
             }
