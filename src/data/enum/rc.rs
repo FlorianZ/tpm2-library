@@ -260,3 +260,6 @@ impl Display for TpmRc {
         }
     }
 }
+
+pub type TpmRcBaseValue = TpmRcBase;
+pub type TpmRcValue = TpmRc;

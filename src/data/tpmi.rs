@@ -32,3 +32,4 @@ pub type TpmiDhParent = TpmHandle;
 pub type TpmiShAuthSession = TpmHandle;
 pub type TpmiRhHierarchy = TpmHandle;
 pub type TpmiRhNvExpIndex = TpmHandle;
+pub type TpmiEccKeyExchangeValue = TpmiEccKeyExchange;

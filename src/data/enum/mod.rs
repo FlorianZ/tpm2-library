@@ -450,3 +450,17 @@ tpm_enum! {
         (State, 0x0001, "TPM_SU_STATE"),
     }
 }
+
+pub type TpmAlgIdValue = TpmAlgId;
+pub type TpmAtValue = TpmAt;
+pub type TpmCapValue = TpmCap;
+pub type TpmCcValue = TpmCc;
+pub type TpmClockAdjustValue = TpmClockAdjust;
+pub type TpmEoValue = TpmEo;
+pub type TpmEccCurveValue = TpmEccCurve;
+pub type TpmHtValue = TpmHt;
+pub type TpmPtValue = TpmPt;
+pub type TpmRhValue = TpmRh;
+pub type TpmSeValue = TpmSe;
+pub type TpmStValue = TpmSt;
+pub type TpmSuValue = TpmSu;

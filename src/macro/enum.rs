@@ -36,6 +36,13 @@ macro_rules! tpm_enum {
             }
         }
 
+        impl $name {
+            #[must_use]
+            pub const fn value(self) -> $repr {
+                self as $repr
+            }
+        }
+
         impl core::fmt::Display for $name {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 let s = match self {
