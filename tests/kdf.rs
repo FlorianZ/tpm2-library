@@ -7,7 +7,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-use tpm2_crypto::TpmHash;
+use tpm2_crypto::{TpmCryptoError, TpmHash};
 
 fn kdfa_expected(
     alg: TpmHash,
@@ -135,6 +135,44 @@ fn kdfa_input_sensitivity() {
 }
 
 #[test]
+fn kdfa_into_matches_kdfa() {
+    let alg = TpmHash::Sha256;
+    let key = b"k";
+    let label = "X";
+    let ctx_a = b"Y";
+    let ctx_b = b"Z";
+    let key_bits = 257;
+    let expected = alg
+        .kdfa(key, label, ctx_a, ctx_b, key_bits)
+        .expect("kdfa ok");
+    let mut output = [0xa5; 64];
+
+    let len = alg
+        .kdfa_into(key, label, ctx_a, ctx_b, key_bits, &mut output)
+        .expect("kdfa_into ok");
+
+    assert_eq!(len, expected.len());
+    assert_eq!(&output[..len], expected.as_slice());
+    assert_eq!(output[len], 0xa5);
+}
+
+#[test]
+fn kdfa_into_rejects_short_buffer() {
+    let alg = TpmHash::Sha256;
+    let mut output = [0; 15];
+
+    let result = alg.kdfa_into(b"key", "LBL", b"A", b"B", 128, &mut output);
+
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::BufferTooSmall {
+            expected: 16,
+            actual: 15
+        })
+    ));
+}
+
+#[test]
 fn kdfe_sha256_eq() {
     let alg = TpmHash::Sha256;
     let z = b"sharedsecretZ";
@@ -148,6 +186,42 @@ fn kdfe_sha256_eq() {
 
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), (key_bits as usize).div_ceil(8));
+}
+
+#[test]
+fn kdfe_into_matches_kdfe() {
+    let alg = TpmHash::Sha256;
+    let z = b"sharedsecretZ";
+    let label = "DUPLICATE";
+    let u = b"Ux";
+    let v = b"Vx";
+    let key_bits = 257;
+    let expected = alg.kdfe(z, label, u, v, key_bits).expect("kdfe ok");
+    let mut output = [0xa5; 64];
+
+    let len = alg
+        .kdfe_into(z, label, u, v, key_bits, &mut output)
+        .expect("kdfe_into ok");
+
+    assert_eq!(len, expected.len());
+    assert_eq!(&output[..len], expected.as_slice());
+    assert_eq!(output[len], 0xa5);
+}
+
+#[test]
+fn kdfe_into_rejects_short_buffer() {
+    let alg = TpmHash::Sha256;
+    let mut output = [0; 15];
+
+    let result = alg.kdfe_into(b"Z", "LBL", b"A", b"B", 128, &mut output);
+
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::BufferTooSmall {
+            expected: 16,
+            actual: 15
+        })
+    ));
 }
 
 #[test]

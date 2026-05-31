@@ -12,7 +12,7 @@ use openssl::{
     sign::Signer,
 };
 use strum::{Display, EnumString};
-use tpm2_protocol::data::TpmAlgId;
+use tpm2_protocol::{constant::MAX_DIGEST_SIZE, data::TpmAlgId};
 
 /// TPM 2.0 hash algorithms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
@@ -102,6 +102,31 @@ impl TpmHash {
     /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
     /// allocation fails.
     pub fn digest(&self, data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
+        let mut digest = vec![0; self.size()];
+        let len = self.digest_into(data_chunks, &mut digest)?;
+        digest.truncate(len);
+        Ok(digest)
+    }
+
+    /// Computes a cryptographic digest into `output`.
+    ///
+    /// Returns the number of bytes written to `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BufferTooSmall`](crate::TpmCryptoError::BufferTooSmall) when
+    /// `output` is too small for the digest.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
+    /// when the digest computation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
+    pub fn digest_into(
+        &self,
+        data_chunks: &[&[u8]],
+        output: &mut [u8],
+    ) -> Result<usize, TpmCryptoError> {
+        check_output_len(output, self.size())?;
+
         let md = (*self).into();
         let mut hasher = Hasher::new(md).map_err(|_| TpmCryptoError::OutOfMemory)?;
         for chunk in data_chunks {
@@ -109,10 +134,11 @@ impl TpmHash {
                 .update(chunk)
                 .map_err(|_| TpmCryptoError::OperationFailed)?;
         }
-        Ok(hasher
+        let digest = hasher
             .finish()
-            .map_err(|_| TpmCryptoError::OperationFailed)?
-            .to_vec())
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
+        output[..digest.len()].copy_from_slice(digest.as_ref());
+        Ok(digest.len())
     }
 
     /// Computes an HMAC digest over a series of data chunks.
@@ -128,6 +154,32 @@ impl TpmHash {
     /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
     /// allocation fails.
     pub fn hmac(&self, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
+        let mut hmac = vec![0; self.size()];
+        let len = self.hmac_into(key, data_chunks, &mut hmac)?;
+        hmac.truncate(len);
+        Ok(hmac)
+    }
+
+    /// Computes an HMAC digest into `output`.
+    ///
+    /// Returns the number of bytes written to `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BufferTooSmall`](crate::TpmCryptoError::BufferTooSmall) when
+    /// `output` is too small for the HMAC digest.
+    /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
+    /// provided key is empty.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
+    /// when the HMAC computation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
+    pub fn hmac_into(
+        &self,
+        key: &[u8],
+        data_chunks: &[&[u8]],
+        output: &mut [u8],
+    ) -> Result<usize, TpmCryptoError> {
         if key.is_empty() {
             return Err(TpmCryptoError::KeyIsEmpty);
         }
@@ -139,8 +191,10 @@ impl TpmHash {
                 .update(chunk)
                 .map_err(|_| TpmCryptoError::OperationFailed)?;
         }
+        let len = signer.len().map_err(|_| TpmCryptoError::OperationFailed)?;
+        check_output_len(output, len)?;
         signer
-            .sign_to_vec()
+            .sign(&mut output[..len])
             .map_err(|_| TpmCryptoError::OperationFailed)
     }
 
@@ -191,20 +245,59 @@ impl TpmHash {
         context_b: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
+        let mut key_stream = vec![0; (key_bits as usize).div_ceil(8)];
+        let len = self.kdfa_into(
+            hmac_key,
+            label,
+            context_a,
+            context_b,
+            key_bits,
+            &mut key_stream,
+        )?;
+        key_stream.truncate(len);
+        Ok(key_stream)
+    }
+
+    /// Implements `KDFa` into `output`.
+    ///
+    /// Returns the number of bytes written to `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BufferTooSmall`](crate::TpmCryptoError::BufferTooSmall) when
+    /// `output` is too small for the requested key size.
+    /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
+    /// provided key is empty.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
+    /// when the HMAC computation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
+    pub fn kdfa_into(
+        &self,
+        hmac_key: &[u8],
+        label: &str,
+        context_a: &[u8],
+        context_b: &[u8],
+        key_bits: u16,
+        output: &mut [u8],
+    ) -> Result<usize, TpmCryptoError> {
         if hmac_key.is_empty() {
             return Err(TpmCryptoError::KeyIsEmpty);
         }
 
         let key_bytes = (key_bits as usize).div_ceil(8);
-        let mut key_stream = Vec::with_capacity(key_bytes);
+        check_output_len(output, key_bytes)?;
 
         let mut counter: u32 = 1;
         let key_bits_bytes = u32::from(key_bits).to_be_bytes();
 
         let md = (*self).into();
         let pkey = PKey::hmac(hmac_key).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let mut offset = 0;
+        let mut block = [0u8; MAX_DIGEST_SIZE];
+        let block_len = self.size();
 
-        while key_stream.len() < key_bytes {
+        while offset < key_bytes {
             let counter_bytes = counter.to_be_bytes();
             let hmac_payload = [
                 counter_bytes.as_slice(),
@@ -221,18 +314,19 @@ impl TpmHash {
                     .update(chunk)
                     .map_err(|_| TpmCryptoError::OperationFailed)?;
             }
-            let result = signer
-                .sign_to_vec()
+            let len = signer
+                .sign(&mut block[..block_len])
                 .map_err(|_| TpmCryptoError::OperationFailed)?;
 
-            let remaining = key_bytes - key_stream.len();
-            let to_take = remaining.min(result.len());
-            key_stream.extend_from_slice(&result[..to_take]);
+            let remaining = key_bytes - offset;
+            let to_take = remaining.min(len);
+            output[offset..offset + to_take].copy_from_slice(&block[..to_take]);
+            offset += to_take;
 
             counter += 1;
         }
 
-        Ok(key_stream)
+        Ok(key_bytes)
     }
 
     /// Implements the `KDFe` key derivation function from SP 800-56A for ECDH.
@@ -253,8 +347,35 @@ impl TpmHash {
         context_v: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
+        let mut key_stream = vec![0; (key_bits as usize).div_ceil(8)];
+        let len = self.kdfe_into(z, label, context_u, context_v, key_bits, &mut key_stream)?;
+        key_stream.truncate(len);
+        Ok(key_stream)
+    }
+
+    /// Implements `KDFe` into `output`.
+    ///
+    /// Returns the number of bytes written to `output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BufferTooSmall`](crate::TpmCryptoError::BufferTooSmall) when
+    /// `output` is too small for the requested key size.
+    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
+    /// when the digest computation fails.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
+    /// allocation fails.
+    pub fn kdfe_into(
+        &self,
+        z: &[u8],
+        label: &str,
+        context_u: &[u8],
+        context_v: &[u8],
+        key_bits: u16,
+        output: &mut [u8],
+    ) -> Result<usize, TpmCryptoError> {
         let key_bytes = (key_bits as usize).div_ceil(8);
-        let mut key_stream = Vec::with_capacity(key_bytes);
+        check_output_len(output, key_bytes)?;
 
         let (label_data, terminator) = if label.as_bytes().last() == Some(&0) {
             (label.as_bytes(), &[][..])
@@ -264,8 +385,9 @@ impl TpmHash {
 
         let mut counter: u32 = 1;
         let md = (*self).into();
+        let mut offset = 0;
 
-        while key_stream.len() < key_bytes {
+        while offset < key_bytes {
             let counter_bytes = counter.to_be_bytes();
             let digest_payload = [
                 &counter_bytes,
@@ -286,13 +408,25 @@ impl TpmHash {
                 .finish()
                 .map_err(|_| TpmCryptoError::OperationFailed)?;
 
-            let remaining = key_bytes - key_stream.len();
+            let remaining = key_bytes - offset;
             let to_take = remaining.min(result.len());
-            key_stream.extend_from_slice(&result[..to_take]);
+            output[offset..offset + to_take].copy_from_slice(&result[..to_take]);
+            offset += to_take;
 
             counter += 1;
         }
 
-        Ok(key_stream)
+        Ok(key_bytes)
     }
+}
+
+fn check_output_len(output: &[u8], expected: usize) -> Result<(), TpmCryptoError> {
+    if output.len() < expected {
+        return Err(TpmCryptoError::BufferTooSmall {
+            expected,
+            actual: output.len(),
+        });
+    }
+
+    Ok(())
 }

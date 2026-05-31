@@ -7,6 +7,10 @@ use thiserror::Error;
 /// The top-level error type for cryptographic operations.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TpmCryptoError {
+    /// The output buffer is too small for the requested operation.
+    #[error("buffer too small: expected at least {expected} bytes, got {actual}")]
+    BufferTooSmall { expected: usize, actual: usize },
+
     /// ECC curve is not supported in the context of use.
     #[error("invalid ECC curve")]
     InvalidEccCurve,

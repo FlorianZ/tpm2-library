@@ -47,6 +47,74 @@ fn rfc_4231_test_case_1() {
 }
 
 #[test]
+fn digest_into_matches_digest() {
+    let data = b"abc";
+    let alg = TpmHash::Sha256;
+    let expected = alg.digest(&[data.as_ref()]).expect("digest ok");
+    let mut output = [0xa5; 64];
+
+    let len = alg
+        .digest_into(&[data.as_ref()], &mut output)
+        .expect("digest_into ok");
+
+    assert_eq!(len, expected.len());
+    assert_eq!(&output[..len], expected.as_slice());
+    assert_eq!(output[len], 0xa5);
+}
+
+#[test]
+fn hmac_into_matches_hmac() {
+    let key = b"key";
+    let data = b"data";
+    let alg = TpmHash::Sha256;
+    let expected = alg.hmac(key, &[data.as_ref()]).expect("hmac ok");
+    let mut output = [0xa5; 64];
+
+    let len = alg
+        .hmac_into(key, &[data.as_ref()], &mut output)
+        .expect("hmac_into ok");
+
+    assert_eq!(len, expected.len());
+    assert_eq!(&output[..len], expected.as_slice());
+    assert_eq!(output[len], 0xa5);
+}
+
+#[test]
+fn digest_into_rejects_short_buffer() {
+    let data = b"abc";
+    let alg = TpmHash::Sha256;
+    let mut output = [0; 31];
+
+    let result = alg.digest_into(&[data.as_ref()], &mut output);
+
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::BufferTooSmall {
+            expected: 32,
+            actual: 31
+        })
+    ));
+}
+
+#[test]
+fn hmac_into_rejects_short_buffer() {
+    let key = b"key";
+    let data = b"data";
+    let alg = TpmHash::Sha256;
+    let mut output = [0; 31];
+
+    let result = alg.hmac_into(key, &[data.as_ref()], &mut output);
+
+    assert!(matches!(
+        result,
+        Err(TpmCryptoError::BufferTooSmall {
+            expected: 32,
+            actual: 31
+        })
+    ));
+}
+
+#[test]
 fn sm3_digest() {
     let input = hex_to_bytes(
         "0090414C494345313233405941484F4F2E434F4D
