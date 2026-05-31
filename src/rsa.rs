@@ -131,7 +131,7 @@ impl TryFrom<&PKey<Private>> for TpmRsaExternalKey {
     type Error = TpmCryptoError;
 
     fn try_from(pkey: &PKey<Private>) -> Result<Self, Self::Error> {
-        let rsa = pkey.rsa().map_err(|_| TpmCryptoError::InvalidRsaKey)?;
+        let rsa = pkey.rsa().map_err(TpmCryptoError::Crypto)?;
         let n_bytes = rsa.n().to_vec();
         let n = Tpm2bPublicKeyRsa::try_from(n_bytes.as_slice())
             .map_err(|_| TpmCryptoError::InvalidRsaModulus(n_bytes))?;
@@ -156,10 +156,9 @@ impl TpmExternalKey for TpmRsaExternalKey {
     type Sensitive = Tpm2bPrivateKeyRsa;
 
     fn from_der(bytes: &[u8]) -> Result<(Self, Self::Sensitive), TpmCryptoError> {
-        let pkey =
-            PKey::private_key_from_der(bytes).map_err(|_| TpmCryptoError::OperationFailed)?;
+        let pkey = PKey::private_key_from_der(bytes).map_err(TpmCryptoError::Crypto)?;
         let public_key = TpmRsaExternalKey::try_from(&pkey)?;
-        let rsa = pkey.rsa().map_err(|_| TpmCryptoError::InvalidRsaKey)?;
+        let rsa = pkey.rsa().map_err(TpmCryptoError::Crypto)?;
         let p = rsa.p().ok_or(TpmCryptoError::OperationFailed)?.to_vec();
         let sensitive = Tpm2bPrivateKeyRsa::try_from(p.as_slice()).map_err(|_| {
             TpmCryptoError::InvalidRsaPrivatePrime {
@@ -216,42 +215,37 @@ impl TpmRsaExternalKey {
     ///
     /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash)
     /// when the hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when an internal cryptographic operation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     fn oaep(&self, name_alg: TpmHash, seed: &[u8]) -> Result<Vec<u8>, TpmCryptoError> {
         let md = Into::<MessageDigest>::into(name_alg);
 
         let oaep_md = Md::from_nid(md.type_()).ok_or(TpmCryptoError::OperationFailed)?;
 
-        let n = BigNum::from_slice(self.public_key.as_ref())
-            .map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let n = BigNum::from_slice(self.public_key.as_ref()).map_err(TpmCryptoError::Crypto)?;
         let exponent_value = match self.exponent.value() {
             0 => 65537,
             value => value,
         };
-        let e = BigNum::from_u32(exponent_value).map_err(|_| TpmCryptoError::OutOfMemory)?;
-        let rsa = Rsa::from_public_components(n, e).map_err(|_| TpmCryptoError::OperationFailed)?;
-        let pkey = PKey::from_rsa(rsa).map_err(|_| TpmCryptoError::OperationFailed)?;
+        let e = BigNum::from_u32(exponent_value).map_err(TpmCryptoError::Crypto)?;
+        let rsa = Rsa::from_public_components(n, e).map_err(TpmCryptoError::Crypto)?;
+        let pkey = PKey::from_rsa(rsa).map_err(TpmCryptoError::Crypto)?;
 
-        let mut ctx = PkeyCtx::new(&pkey).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let mut ctx = PkeyCtx::new(&pkey).map_err(TpmCryptoError::Crypto)?;
 
-        ctx.encrypt_init()
-            .map_err(|_| TpmCryptoError::OperationFailed)?;
+        ctx.encrypt_init().map_err(TpmCryptoError::Crypto)?;
         ctx.set_rsa_padding(Padding::PKCS1_OAEP)
-            .map_err(|_| TpmCryptoError::OperationFailed)?;
+            .map_err(TpmCryptoError::Crypto)?;
         ctx.set_rsa_oaep_md(oaep_md)
-            .map_err(|_| TpmCryptoError::OperationFailed)?;
+            .map_err(TpmCryptoError::Crypto)?;
         ctx.set_rsa_mgf1_md(oaep_md)
-            .map_err(|_| TpmCryptoError::OperationFailed)?;
+            .map_err(TpmCryptoError::Crypto)?;
         ctx.set_rsa_oaep_label(b"DUPLICATE\0")
-            .map_err(|_| TpmCryptoError::OperationFailed)?;
+            .map_err(TpmCryptoError::Crypto)?;
 
         let mut encrypted_seed = vec![0; pkey.size()];
         let len = ctx
             .encrypt(seed, Some(encrypted_seed.as_mut_slice()))
-            .map_err(|_| TpmCryptoError::OperationFailed)?;
+            .map_err(TpmCryptoError::Crypto)?;
 
         encrypted_seed.truncate(len);
         Ok(encrypted_seed)

@@ -37,15 +37,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns
-    /// [`InvalidEccKey`](crate::TpmCryptoError::InvalidEccKey) when the key is
-    /// not a valid ECC key.
-    /// Returns [`InvalidRsaKey`](crate::TpmCryptoError::InvalidRsaKey) when
-    /// the key is not a valid RSA key.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) when
-    /// the parsing fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when memory
-    /// allocation for the key data fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     fn from_der(bytes: &[u8]) -> Result<(Self, Self::Sensitive), TpmCryptoError>;
 
     /// Converts the public key to a `TpmtPublic` structure. Populates
@@ -60,8 +52,7 @@ where
     ///
     /// Returns [`Marshal`](crate::TpmCryptoError::Marshal) when marshal
     /// operation on TPM protocol compliant data fails.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) when
-    /// the seed generation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     /// Returns [`Unmarshal`](crate::TpmCryptoError::Unmarshal) when unmarshal
     /// operation on TPM protocol compliant data fails.
     fn to_seed(
@@ -79,10 +70,7 @@ where
 /// algorithm is not recognized.
 /// Returns [`Marshal`](crate::TpmCryptoError::Marshal) when marshal operation
 /// on TPM protocol compliant data fails.
-/// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed) when an
-/// internal cryptographic operation fails.
-/// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when memory
-/// allocation for temporary data fails.
+/// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
 /// Returns [`Unmarshal`](crate::TpmCryptoError::Unmarshal) when unmarshal
 /// operation on TPM protocol compliant data fails.
 pub fn tpm_make_name(

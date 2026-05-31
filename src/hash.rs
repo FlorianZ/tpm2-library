@@ -97,10 +97,7 @@ impl TpmHash {
     ///
     /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
     /// hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the digest computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn digest(&self, data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
         let mut digest = vec![0; self.size()];
         let len = self.digest_into(data_chunks, &mut digest)?;
@@ -116,10 +113,7 @@ impl TpmHash {
     ///
     /// Returns [`BufferTooSmall`](crate::TpmCryptoError::BufferTooSmall) when
     /// `output` is too small for the digest.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the digest computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn digest_into(
         &self,
         data_chunks: &[&[u8]],
@@ -128,15 +122,11 @@ impl TpmHash {
         check_output_len(output, self.size())?;
 
         let md = (*self).into();
-        let mut hasher = Hasher::new(md).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let mut hasher = Hasher::new(md).map_err(TpmCryptoError::Crypto)?;
         for chunk in data_chunks {
-            hasher
-                .update(chunk)
-                .map_err(|_| TpmCryptoError::OperationFailed)?;
+            hasher.update(chunk).map_err(TpmCryptoError::Crypto)?;
         }
-        let digest = hasher
-            .finish()
-            .map_err(|_| TpmCryptoError::OperationFailed)?;
+        let digest = hasher.finish().map_err(TpmCryptoError::Crypto)?;
         output[..digest.len()].copy_from_slice(digest.as_ref());
         Ok(digest.len())
     }
@@ -149,10 +139,7 @@ impl TpmHash {
     /// hash algorithm is not recognized.
     /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
     /// provided key is empty.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the HMAC computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn hmac(&self, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
         let mut hmac = vec![0; self.size()];
         let len = self.hmac_into(key, data_chunks, &mut hmac)?;
@@ -170,10 +157,7 @@ impl TpmHash {
     /// `output` is too small for the HMAC digest.
     /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
     /// provided key is empty.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the HMAC computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn hmac_into(
         &self,
         key: &[u8],
@@ -184,18 +168,16 @@ impl TpmHash {
             return Err(TpmCryptoError::KeyIsEmpty);
         }
         let md = (*self).into();
-        let public_key = PKey::hmac(key).map_err(|_| TpmCryptoError::OutOfMemory)?;
-        let mut signer = Signer::new(md, &public_key).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let public_key = PKey::hmac(key).map_err(TpmCryptoError::Crypto)?;
+        let mut signer = Signer::new(md, &public_key).map_err(TpmCryptoError::Crypto)?;
         for chunk in data_chunks {
-            signer
-                .update(chunk)
-                .map_err(|_| TpmCryptoError::OperationFailed)?;
+            signer.update(chunk).map_err(TpmCryptoError::Crypto)?;
         }
-        let len = signer.len().map_err(|_| TpmCryptoError::OperationFailed)?;
+        let len = signer.len().map_err(TpmCryptoError::Crypto)?;
         check_output_len(output, len)?;
         signer
             .sign(&mut output[..len])
-            .map_err(|_| TpmCryptoError::OperationFailed)
+            .map_err(TpmCryptoError::Crypto)
     }
 
     /// Verifies an HMAC signature over a series of data chunks.
@@ -206,10 +188,7 @@ impl TpmHash {
     /// when the HMAC does not match the expected value.
     /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
     /// hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the HMAC computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn hmac_verify(
         &self,
         key: &[u8],
@@ -233,10 +212,7 @@ impl TpmHash {
     /// hash algorithm is not recognized.
     /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
     /// provided key is empty.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the HMAC computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn kdfa(
         &self,
         hmac_key: &[u8],
@@ -268,10 +244,7 @@ impl TpmHash {
     /// `output` is too small for the requested key size.
     /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
     /// provided key is empty.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the HMAC computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn kdfa_into(
         &self,
         hmac_key: &[u8],
@@ -292,7 +265,7 @@ impl TpmHash {
         let key_bits_bytes = u32::from(key_bits).to_be_bytes();
 
         let md = (*self).into();
-        let pkey = PKey::hmac(hmac_key).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let pkey = PKey::hmac(hmac_key).map_err(TpmCryptoError::Crypto)?;
         let mut offset = 0;
         let mut block = [0u8; MAX_DIGEST_SIZE];
         let block_len = self.size();
@@ -308,15 +281,13 @@ impl TpmHash {
                 key_bits_bytes.as_slice(),
             ];
 
-            let mut signer = Signer::new(md, &pkey).map_err(|_| TpmCryptoError::OutOfMemory)?;
+            let mut signer = Signer::new(md, &pkey).map_err(TpmCryptoError::Crypto)?;
             for chunk in &hmac_payload {
-                signer
-                    .update(chunk)
-                    .map_err(|_| TpmCryptoError::OperationFailed)?;
+                signer.update(chunk).map_err(TpmCryptoError::Crypto)?;
             }
             let len = signer
                 .sign(&mut block[..block_len])
-                .map_err(|_| TpmCryptoError::OperationFailed)?;
+                .map_err(TpmCryptoError::Crypto)?;
 
             let remaining = key_bytes - offset;
             let to_take = remaining.min(len);
@@ -335,10 +306,7 @@ impl TpmHash {
     ///
     /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
     /// hash algorithm is not recognized.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the digest computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn kdfe(
         &self,
         z: &[u8],
@@ -361,10 +329,7 @@ impl TpmHash {
     ///
     /// Returns [`BufferTooSmall`](crate::TpmCryptoError::BufferTooSmall) when
     /// `output` is too small for the requested key size.
-    /// Returns [`OperationFailed`](crate::TpmCryptoError::OperationFailed)
-    /// when the digest computation fails.
-    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
-    /// allocation fails.
+    /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn kdfe_into(
         &self,
         z: &[u8],
@@ -398,15 +363,11 @@ impl TpmHash {
                 context_v,
             ];
 
-            let mut hasher = Hasher::new(md).map_err(|_| TpmCryptoError::OutOfMemory)?;
+            let mut hasher = Hasher::new(md).map_err(TpmCryptoError::Crypto)?;
             for chunk in &digest_payload {
-                hasher
-                    .update(chunk)
-                    .map_err(|_| TpmCryptoError::OperationFailed)?;
+                hasher.update(chunk).map_err(TpmCryptoError::Crypto)?;
             }
-            let result = hasher
-                .finish()
-                .map_err(|_| TpmCryptoError::OperationFailed)?;
+            let result = hasher.finish().map_err(TpmCryptoError::Crypto)?;
 
             let remaining = key_bytes - offset;
             let to_take = remaining.min(result.len());
