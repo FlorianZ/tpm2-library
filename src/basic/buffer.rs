@@ -38,7 +38,7 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`OutOfMemory`](crate::TpmProtocolError::OutOfMemory) when the
+    /// Returns [`BufferOverflow`](crate::TpmProtocolError::BufferOverflow) when the
     /// buffer is full or the size exceeds `u16::MAX`.
     pub fn try_push(&mut self, byte: u8) -> TpmResult<()> {
         if (self.size as usize) >= CAPACITY || self.size == u16::MAX {
@@ -53,7 +53,7 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
     ///
     /// # Errors
     ///
-    /// Returns [`OutOfMemory`](crate::TpmProtocolError::OutOfMemory) when the
+    /// Returns [`BufferOverflow`](crate::TpmProtocolError::BufferOverflow) when the
     /// resulting size exceeds the buffer capacity or `u16::MAX`.
     pub fn try_extend_from_slice(&mut self, slice: &[u8]) -> TpmResult<()> {
         let current_len = self.size as usize;
@@ -74,19 +74,14 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
     }
 }
 
-#[allow(unsafe_code)]
 impl<const CAPACITY: usize> Deref for TpmBuffer<CAPACITY> {
     type Target = [u8];
 
-    /// # Safety
-    ///
-    /// This implementation uses `unsafe` to provide a view into the initialized
-    /// portion of the buffer. The caller can rely on this being safe because:
-    /// 1. The first `self.size` bytes are guaranteed to be initialized by the
-    ///    `try_push` and `try_extend_from_slice` methods.
-    /// 2. `MaybeUninit<u8>` is guaranteed to have the same memory layout as `u8`.
     fn deref(&self) -> &Self::Target {
         let size = self.size as usize;
+
+        // SAFETY: The first `size` bytes are initialized by the mutation APIs,
+        // and `MaybeUninit<u8>` has the same layout as `u8`.
         unsafe { slice::from_raw_parts(self.data.as_ptr().cast::<u8>(), size) }
     }
 }
@@ -144,10 +139,10 @@ impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
     }
 }
 
-impl<'a, const CAPACITY: usize> TryFrom<&'a [u8]> for TpmBuffer<CAPACITY> {
+impl<const CAPACITY: usize> TryFrom<&[u8]> for TpmBuffer<CAPACITY> {
     type Error = TpmProtocolError;
 
-    fn try_from(slice: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > CAPACITY {
             return Err(TpmProtocolError::TooManyBytes);
         }

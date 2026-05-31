@@ -73,17 +73,12 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     }
 }
 
-#[allow(unsafe_code)]
 impl<T: Copy, const CAPACITY: usize> Deref for TpmList<T, CAPACITY> {
     type Target = [T];
 
-    /// # Safety
-    ///
-    /// This implementation uses `unsafe` to provide a view into the initialized
-    /// portion of the list. The caller can rely on this being safe because:
-    /// 1. The first `self.len` items are guaranteed to be initialized by the `push` method.
-    /// 2. `MaybeUninit<T>` is guaranteed to have the same memory layout as `T`.
     fn deref(&self) -> &Self::Target {
+        // SAFETY: The first `self.len` items are initialized by the mutation APIs,
+        // and `MaybeUninit<T>` has the same layout as `T`.
         unsafe { slice::from_raw_parts(self.items.as_ptr().cast::<T>(), self.len) }
     }
 }

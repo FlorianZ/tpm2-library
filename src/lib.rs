@@ -242,6 +242,92 @@ impl<const N: usize> AsMut<[u8]> for TpmWireBytes<N> {
     }
 }
 
+/// Casts caller-owned bytes into a TPM wire view.
+pub trait TpmCast {
+    /// Casts `buf` into `Self` after validating the wire-view invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmProtocolError)` when `buf` does not satisfy the
+    /// invariants for `Self`.
+    fn cast(buf: &[u8]) -> TpmResult<&Self>;
+
+    /// Casts `buf` into `Self` without validating the wire-view invariants.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `buf` satisfies the same invariants checked
+    /// by [`TpmCast::cast`].
+    unsafe fn cast_unchecked(buf: &[u8]) -> &Self;
+}
+
+/// Casts caller-owned mutable bytes into a mutable TPM wire view.
+pub trait TpmCastMut: TpmCast {
+    /// Casts `buf` into mutable `Self` after validating the wire-view invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmProtocolError)` when `buf` does not satisfy the
+    /// invariants for `Self`.
+    fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self>;
+
+    /// Casts `buf` into mutable `Self` without validating the wire-view invariants.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `buf` satisfies the same invariants checked
+    /// by [`TpmCastMut::cast_mut`]. The returned reference inherits the
+    /// exclusive access represented by `buf`.
+    unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self;
+}
+
+impl TpmCast for TpmWire {
+    fn cast(buf: &[u8]) -> TpmResult<&Self> {
+        Ok(Self::cast(buf))
+    }
+
+    unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
+        // SAFETY: The caller upholds the unchecked cast contract for `TpmWire`.
+        unsafe { Self::cast_unchecked(buf) }
+    }
+}
+
+impl TpmCastMut for TpmWire {
+    fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
+        Ok(Self::cast_mut(buf))
+    }
+
+    unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
+        // SAFETY: The caller upholds the unchecked mutable cast contract for
+        // `TpmWire`.
+        unsafe { Self::cast_mut_unchecked(buf) }
+    }
+}
+
+impl<const N: usize> TpmCast for TpmWireBytes<N> {
+    fn cast(buf: &[u8]) -> TpmResult<&Self> {
+        Self::cast(buf)
+    }
+
+    unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
+        // SAFETY: The caller upholds the unchecked cast contract for
+        // `TpmWireBytes<N>`.
+        unsafe { Self::cast_unchecked(buf) }
+    }
+}
+
+impl<const N: usize> TpmCastMut for TpmWireBytes<N> {
+    fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
+        Self::cast_mut(buf)
+    }
+
+    unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
+        // SAFETY: The caller upholds the unchecked mutable cast contract for
+        // `TpmWireBytes<N>`.
+        unsafe { Self::cast_mut_unchecked(buf) }
+    }
+}
+
 /// TPM frame marshaling and unmarshaling error type containing variants
 /// for all the possible error conditions.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -376,7 +462,7 @@ pub trait TpmMarshal {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
 
-pub trait TpmUnmarshal: Sized + TpmSized {
+pub(crate) trait TpmUnmarshal: Sized + TpmSized {
     /// Unmarshals an object from the given buffer.
     ///
     /// Returns the unmarshald type and the remaining portion of the buffer.
@@ -388,7 +474,7 @@ pub trait TpmUnmarshal: Sized + TpmSized {
 }
 
 /// Types that are composed of a tag and a value e.g., a union.
-pub trait TpmTagged {
+pub(crate) trait TpmTagged {
     /// The type of the tag/discriminant.
     type Tag: TpmUnmarshal + TpmMarshal + Copy;
     /// The type of the value/union.
@@ -396,7 +482,7 @@ pub trait TpmTagged {
 }
 
 /// Unmarshals a tagged object from a buffer.
-pub trait TpmUnmarshalTagged: Sized {
+pub(crate) trait TpmUnmarshalTagged: Sized {
     /// Unmarshals a tagged object from the given buffer using the provided tag.
     ///
     /// # Errors
