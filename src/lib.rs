@@ -89,7 +89,7 @@ pub fn tpm_make_name(
     use tpm2_protocol::{TpmMarshal, TpmSized};
 
     let name_alg = TpmHash::from(public.name_alg);
-    let alg_bytes = (public.name_alg as u16).to_be_bytes();
+    let alg_bytes = public.name_alg.value().to_be_bytes();
 
     let len = public.len();
     let mut public_bytes = vec![0u8; len];

@@ -86,7 +86,7 @@ impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
 
         Ok(Self {
             public_key: n,
-            exponent: TpmUint32(e),
+            exponent: TpmUint32::new(e),
             key_bits: params.key_bits,
         })
     }
@@ -117,8 +117,8 @@ impl TryFrom<&PKey<Private>> for TpmRsaExternalKey {
 
         Ok(Self {
             public_key: n,
-            exponent: TpmUint32(e),
-            key_bits: TpmUint16(key_bits),
+            exponent: TpmUint32::new(e),
+            key_bits: TpmUint16::new(key_bits),
         })
     }
 }
@@ -168,7 +168,7 @@ impl TpmExternalKey for TpmRsaExternalKey {
         let encrypted_seed_bytes = self.oaep(name_alg, &seed)?;
 
         let encrypted_seed = Tpm2bEncryptedSecret::try_from(encrypted_seed_bytes.as_slice())
-            .map_err(|_| TpmCryptoError::OutOfMemory)?;
+            .map_err(TpmCryptoError::Unmarshal)?;
 
         Ok((seed, encrypted_seed))
     }

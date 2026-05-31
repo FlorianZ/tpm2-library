@@ -29,7 +29,7 @@ const TEST_COORD: [u8; 32] = [2; 32];
 #[case(TpmAlgId::Sha384, 3072)]
 fn test_rsa_to_public(#[case] hash_alg: TpmAlgId, #[case] key_bits: u16) {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
-    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32(0), key_bits.into());
+    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32::new(0), key_bits.into());
     let symmetric = TpmtSymDefObject::default();
 
     let template = tpm2_crypto::TpmPublicTemplate::new()
@@ -169,7 +169,7 @@ fn mismatched_public_types_rejected() {
 #[test]
 fn rsa_to_public_with_aes_symmetric() {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
-    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32(0), 2048.into());
+    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32::new(0), 2048.into());
 
     let symmetric = TpmtSymDefObject {
         algorithm: TpmAlgId::Aes,

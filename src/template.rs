@@ -228,8 +228,8 @@ fn parse_rsa(suffix: &str) -> Result<TpmPublicTemplate, TpmCryptoError> {
     let parms = TpmuPublicParms::Rsa(TpmsRsaParms {
         symmetric: TpmtSymDefObject::default(),
         scheme: TpmtRsaScheme::default(),
-        key_bits: TpmUint16(key_bits),
-        exponent: TpmUint32(0),
+        key_bits: TpmUint16::new(key_bits),
+        exponent: TpmUint32::new(0),
     });
     let unique = TpmuPublicId::Rsa(TpmBuffer::default());
 
