@@ -17,9 +17,10 @@ use tpm2_crypto::{
 use tpm2_protocol::{
     basic::TpmUint32,
     data::{
-        Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmEccCurve, TpmaObject,
-        TpmsEccPoint, TpmtPublic, TpmtSymDefObject, TpmuAsymScheme, TpmuKeyedhashScheme,
-        TpmuPublicId, TpmuPublicParms, TpmuSymMode,
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSymKey, TpmAlgId, TpmEccCurve,
+        TpmaObject, TpmsEccPoint, TpmsKeyedhashParms, TpmsSymcipherParms, TpmtKeyedhashScheme,
+        TpmtPublic, TpmtSymDefObject, TpmuAsymScheme, TpmuKeyedhashScheme, TpmuPublicId,
+        TpmuPublicParms, TpmuSymMode,
     },
 };
 
@@ -168,6 +169,43 @@ fn mismatched_public_types_rejected() {
         result,
         Err(tpm2_crypto::TpmCryptoError::InvalidObjectType)
     ));
+}
+
+#[test]
+fn template_string_rejects_unknown_keyedhash_scheme() {
+    let template = TpmPublicTemplate::new()
+        .with_public(
+            TpmuPublicId::KeyedHash(Tpm2bDigest::default()),
+            TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {
+                scheme: TpmtKeyedhashScheme {
+                    scheme: TpmAlgId::Oaep,
+                    details: TpmuKeyedhashScheme::Null,
+                },
+            }),
+        )
+        .unwrap()
+        .with_name_alg(TpmHash::Sha256);
+
+    let result = String::try_from(template);
+
+    assert!(matches!(result, Err(TpmCryptoError::InvalidObjectType)));
+}
+
+#[test]
+fn template_string_rejects_unsupported_public_parameters() {
+    let template = TpmPublicTemplate::new()
+        .with_public(
+            TpmuPublicId::SymCipher(Tpm2bSymKey::default()),
+            TpmuPublicParms::SymCipher(TpmsSymcipherParms {
+                sym: TpmtSymDefObject::default(),
+            }),
+        )
+        .unwrap()
+        .with_name_alg(TpmHash::Sha256);
+
+    let result = String::try_from(template);
+
+    assert!(matches!(result, Err(TpmCryptoError::InvalidObjectType)));
 }
 
 #[test]

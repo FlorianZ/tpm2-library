@@ -195,9 +195,9 @@ impl TryFrom<TpmPublicTemplate> for String {
                 TpmAlgId::Null => Ok(format!("keyedhash-null:{name_alg_str}")),
                 TpmAlgId::Xor => Ok(format!("keyedhash-xor:{name_alg_str}")),
                 TpmAlgId::Hmac => Ok(format!("keyedhash-hmac:{name_alg_str}")),
-                _ => Ok(format!("unknown:{name_alg_str}")),
+                _ => Err(TpmCryptoError::InvalidObjectType),
             },
-            _ => Ok(format!("unknown:{name_alg_str}")),
+            _ => Err(TpmCryptoError::InvalidObjectType),
         }
     }
 }
