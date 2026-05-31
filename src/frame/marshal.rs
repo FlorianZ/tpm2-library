@@ -2,11 +2,11 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use super::{TpmFrame, TPM_HEADER_SIZE};
+use super::{TPM_HEADER_SIZE, TpmFrame};
 use crate::{
+    TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
     basic::TpmUint32,
     data::{TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
 };
 use core::{convert::TryFrom, mem::size_of};
 

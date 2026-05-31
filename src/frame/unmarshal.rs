@@ -3,13 +3,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use super::{
-    TpmAuthCommands, TpmAuthResponses, TpmCommandValue, TpmHandles, TpmResponseValue,
-    TPM_DISPATCH_TABLE, TPM_HEADER_SIZE,
+    TPM_DISPATCH_TABLE, TPM_HEADER_SIZE, TpmAuthCommands, TpmAuthResponses, TpmCommandValue,
+    TpmHandles, TpmResponseValue,
 };
 use crate::{
+    TpmProtocolError, TpmResult, TpmUnmarshal,
     basic::TpmUint32,
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmsAuthCommand, TpmsAuthResponse},
-    TpmProtocolError, TpmResult, TpmUnmarshal,
 };
 use core::mem::size_of;
 
@@ -18,6 +18,7 @@ use core::mem::size_of;
 pub struct TpmDispatch {
     pub cc: TpmCc,
     pub handles: usize,
+    pub response_handles: usize,
     #[allow(clippy::type_complexity)]
     pub command_unmarshaler:
         for<'a> fn(&'a [u8], &'a [u8]) -> TpmResult<(TpmCommandValue, &'a [u8])>,

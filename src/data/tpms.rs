@@ -3,7 +3,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    basic::{TpmHandle, TpmUint16, TpmUint32, TpmUint64, TpmUint8},
+    TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
+    basic::{TpmHandle, TpmUint8, TpmUint16, TpmUint32, TpmUint64},
     constant::{TPM_GENERATED_VALUE, TPM_PCR_SELECT_MAX},
     data::{
         Tpm2b, Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bMaxNvBuffer, Tpm2bName,
@@ -12,8 +13,7 @@ use crate::{
         TpmiYesNo, TpmlPcrSelection, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme,
         TpmtRsaScheme, TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
     },
-    tpm_struct, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal,
-    TpmUnmarshalTagged, TpmWriter,
+    tpm_struct,
 };
 use core::{
     convert::TryFrom,

@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{tpm_enum, TpmProtocolError};
+use crate::{TpmProtocolError, tpm_enum};
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display, Formatter},

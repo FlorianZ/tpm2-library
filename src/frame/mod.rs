@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{basic::TpmList, TpmMarshal, TpmResult, TpmSized, TpmWriter};
+use crate::{TpmMarshal, TpmResult, TpmSized, TpmWriter, basic::TpmList};
 use core::fmt::Debug;
 
 mod data;

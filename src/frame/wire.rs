@@ -4,10 +4,11 @@
 
 use super::{TPM_DISPATCH_TABLE, TPM_HEADER_SIZE};
 use crate::{
-    data::{TpmCc, TpmRc, TpmSt},
     TpmCast, TpmCastMut, TpmProtocolError, TpmResult,
+    constant::MAX_SESSIONS,
+    data::{TpmCc, TpmRc, TpmRcBase, TpmSt},
 };
-use core::mem::size_of;
+use core::{mem::size_of, ops::Range};
 
 const HEADER_SIZE: usize = TPM_HEADER_SIZE as usize;
 const TAG_OFFSET: usize = 0;
@@ -115,16 +116,44 @@ impl TpmCommand {
         command_code(&self.0)
     }
 
+    /// Sets the command tag without changing the frame shape.
+    pub fn set_tag(&mut self, tag: TpmSt) {
+        write_u16(&mut self.0, TAG_OFFSET, tag.value());
+    }
+
+    /// Sets the command code without changing the frame shape.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidCc`](crate::TpmProtocolError::InvalidCc) when the
+    /// command code has no dispatch entry.
+    pub fn set_cc(&mut self, cc: TpmCc) -> TpmResult<()> {
+        let _ = dispatch_for(cc)?;
+
+        write_u32(&mut self.0, CODE_OFFSET, cc.value());
+        Ok(())
+    }
+
     /// Returns the command handle area bytes.
     ///
     /// # Errors
     ///
     /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
     pub fn handles(&self) -> TpmResult<&[u8]> {
-        let dispatch = dispatch_for(self.cc()?)?;
-        let handle_area_size = dispatch.handles * size_of::<u32>();
+        let range = self.handle_area_range()?;
 
-        Ok(&self.0[HEADER_SIZE..HEADER_SIZE + handle_area_size])
+        Ok(&self.0[range])
+    }
+
+    /// Returns the mutable command handle area bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
+    pub fn handles_mut(&mut self) -> TpmResult<&mut [u8]> {
+        let range = self.handle_area_range()?;
+
+        Ok(&mut self.0[range])
     }
 
     /// Returns the command authorization area bytes.
@@ -134,8 +163,21 @@ impl TpmCommand {
     /// Returns `Err(TpmProtocolError)` when the command has no sessions or its
     /// authorization area is malformed.
     pub fn auth_area(&self) -> TpmResult<&[u8]> {
-        let (auth_area, _) = self.session_and_parameter_areas()?;
-        Ok(auth_area)
+        let (auth_area, _) = self.session_and_parameter_ranges()?;
+
+        Ok(&self.0[auth_area])
+    }
+
+    /// Returns the mutable command authorization area bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmProtocolError)` when the command has no sessions or its
+    /// authorization area is malformed.
+    pub fn auth_area_mut(&mut self) -> TpmResult<&mut [u8]> {
+        let (auth_area, _) = self.session_and_parameter_ranges()?;
+
+        Ok(&mut self.0[auth_area])
     }
 
     /// Returns the command parameter area bytes.
@@ -144,8 +186,30 @@ impl TpmCommand {
     ///
     /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
     pub fn parameters(&self) -> TpmResult<&[u8]> {
-        let (_, parameters) = self.session_and_parameter_areas()?;
-        Ok(parameters)
+        let (_, parameters) = self.session_and_parameter_ranges()?;
+
+        Ok(&self.0[parameters])
+    }
+
+    /// Returns the mutable command parameter area bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmProtocolError)` when the command envelope is malformed.
+    pub fn parameters_mut(&mut self) -> TpmResult<&mut [u8]> {
+        let (_, parameters) = self.session_and_parameter_ranges()?;
+
+        Ok(&mut self.0[parameters])
+    }
+
+    /// Validates command frame structure without constructing an owned command body.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmProtocolError)` when the command frame is malformed.
+    pub fn validate(&self) -> TpmResult<()> {
+        Self::validate_envelope(&self.0)?;
+        validate_auth_commands(self.auth_area()?)
     }
 
     /// Returns `true` when the command frame contains no bytes.
@@ -160,15 +224,26 @@ impl TpmCommand {
         self.0.len()
     }
 
-    fn session_and_parameter_areas(&self) -> TpmResult<(&[u8], &[u8])> {
+    fn handle_area_range(&self) -> TpmResult<Range<usize>> {
         let dispatch = dispatch_for(self.cc()?)?;
-        let tag = self.tag()?;
         let handle_area_size = dispatch.handles * size_of::<u32>();
-        let after_handles = &self.0[HEADER_SIZE + handle_area_size..];
+
+        Ok(HEADER_SIZE..HEADER_SIZE + handle_area_size)
+    }
+
+    fn session_and_parameter_ranges(&self) -> TpmResult<(Range<usize>, Range<usize>)> {
+        let handle_area = self.handle_area_range()?;
+        let tag = self.tag()?;
+        let after_handles_start = handle_area.end;
 
         if tag != TpmSt::Sessions {
-            return Ok((&[], after_handles));
+            return Ok((
+                after_handles_start..after_handles_start,
+                after_handles_start..self.0.len(),
+            ));
         }
+
+        let after_handles = &self.0[after_handles_start..];
 
         if after_handles.len() < size_of::<u32>() {
             return Err(TpmProtocolError::UnexpectedEnd);
@@ -184,7 +259,10 @@ impl TpmCommand {
             return Err(TpmProtocolError::UnexpectedEnd);
         }
 
-        Ok((&after_handles[auth_start..auth_end], &after_handles[auth_end..]))
+        let auth_start = after_handles_start + auth_start;
+        let auth_end = after_handles_start + auth_end;
+
+        Ok((auth_start..auth_end, auth_end..self.0.len()))
     }
 
     fn validate_envelope(buf: &[u8]) -> TpmResult<()> {
@@ -358,10 +436,67 @@ impl TpmResponse {
         TpmRc::try_from(read_u32(&self.0, CODE_OFFSET))
     }
 
+    /// Sets the response tag without changing the frame shape.
+    pub fn set_tag(&mut self, tag: TpmSt) {
+        write_u16(&mut self.0, TAG_OFFSET, tag.value());
+    }
+
+    /// Sets the response code without changing the frame shape.
+    pub fn set_rc(&mut self, rc: TpmRc) {
+        write_u32(&mut self.0, CODE_OFFSET, rc.value());
+    }
+
     /// Returns the response body bytes after the TPM header.
     #[must_use]
     pub fn body(&self) -> &[u8] {
         &self.0[HEADER_SIZE..]
+    }
+
+    /// Returns the mutable response body bytes after the TPM header.
+    #[must_use]
+    pub fn body_mut(&mut self) -> &mut [u8] {
+        &mut self.0[HEADER_SIZE..]
+    }
+
+    /// Validates response frame structure without constructing an owned response body.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmProtocolError)` when the response frame is malformed or
+    /// `cc` has no dispatch entry.
+    pub fn validate(&self, cc: TpmCc) -> TpmResult<()> {
+        Self::validate_envelope(&self.0)?;
+        let dispatch = dispatch_for(cc)?;
+
+        if !matches!(self.rc()?, TpmRc::Fmt0(TpmRcBase::Success)) {
+            return Ok(());
+        }
+
+        if self.tag()? != TpmSt::Sessions {
+            return Ok(());
+        }
+
+        let handle_area_size = dispatch.response_handles * size_of::<u32>();
+        let body = self.body();
+        if body.len() < handle_area_size {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        let after_handles = &body[handle_area_size..];
+        if after_handles.len() < size_of::<u32>() {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        let params_len = read_u32(after_handles, 0) as usize;
+        let sessions_start = size_of::<u32>()
+            .checked_add(params_len)
+            .ok_or(TpmProtocolError::IntegerTooLarge)?;
+
+        if after_handles.len() < sessions_start {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        validate_auth_responses(&after_handles[sessions_start..])
     }
 
     /// Returns `true` when the response frame contains no bytes.
@@ -459,4 +594,78 @@ fn read_u32(buf: &[u8], offset: usize) -> u32 {
         buf[offset + 2],
         buf[offset + 3],
     ])
+}
+
+fn write_u16(buf: &mut [u8], offset: usize, value: u16) {
+    buf[offset..offset + size_of::<u16>()].copy_from_slice(&value.to_be_bytes());
+}
+
+fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
+    buf[offset..offset + size_of::<u32>()].copy_from_slice(&value.to_be_bytes());
+}
+
+fn validate_auth_commands(mut buf: &[u8]) -> TpmResult<()> {
+    let mut count = 0;
+
+    while !buf.is_empty() {
+        if count >= MAX_SESSIONS {
+            return Err(TpmProtocolError::TooManyItems);
+        }
+
+        if buf.len() < size_of::<u32>() {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        buf = &buf[size_of::<u32>()..];
+        buf = skip_tpm2b(buf)?;
+
+        if buf.is_empty() {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        buf = &buf[1..];
+        buf = skip_tpm2b(buf)?;
+        count += 1;
+    }
+
+    Ok(())
+}
+
+fn validate_auth_responses(mut buf: &[u8]) -> TpmResult<()> {
+    let mut count = 0;
+
+    while !buf.is_empty() {
+        if count >= MAX_SESSIONS {
+            return Err(TpmProtocolError::TooManyItems);
+        }
+
+        buf = skip_tpm2b(buf)?;
+
+        if buf.is_empty() {
+            return Err(TpmProtocolError::UnexpectedEnd);
+        }
+
+        buf = &buf[1..];
+        buf = skip_tpm2b(buf)?;
+        count += 1;
+    }
+
+    Ok(())
+}
+
+fn skip_tpm2b(buf: &[u8]) -> TpmResult<&[u8]> {
+    if buf.len() < size_of::<u16>() {
+        return Err(TpmProtocolError::UnexpectedEnd);
+    }
+
+    let size = read_u16(buf, 0) as usize;
+    let end = size_of::<u16>()
+        .checked_add(size)
+        .ok_or(TpmProtocolError::IntegerTooLarge)?;
+
+    if buf.len() < end {
+        return Err(TpmProtocolError::UnexpectedEnd);
+    }
+
+    Ok(&buf[end..])
 }

@@ -26,6 +26,42 @@ macro_rules! tpm_struct {
             const HANDLES: usize = $count;
         }
 
+        impl $name {
+            /// Casts a command frame into a typed wire view for this command.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmProtocolError)` when the frame is malformed or
+            /// has a different command code.
+            pub fn cast_frame(buf: &[u8]) -> $crate::TpmResult<&$crate::frame::TpmCommand> {
+                let command = <$crate::frame::TpmCommand>::cast(buf)?;
+
+                if command.cc()? != Self::CC {
+                    return Err($crate::TpmProtocolError::InvalidCc);
+                }
+
+                Ok(command)
+            }
+
+            /// Casts a mutable command frame into a typed mutable wire view for this command.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmProtocolError)` when the frame is malformed or
+            /// has a different command code.
+            pub fn cast_frame_mut(
+                buf: &mut [u8],
+            ) -> $crate::TpmResult<&mut $crate::frame::TpmCommand> {
+                let command = <$crate::frame::TpmCommand>::cast_mut(buf)?;
+
+                if command.cc()? != Self::CC {
+                    return Err($crate::TpmProtocolError::InvalidCc);
+                }
+
+                Ok(command)
+            }
+        }
+
         impl $crate::frame::TpmFrame for $name {
             fn cc(&self) -> $crate::data::TpmCc {
                 Self::CC
@@ -121,6 +157,28 @@ macro_rules! tpm_struct {
         impl $crate::frame::TpmHeader for $name {
             const CC: $crate::data::TpmCc = $cc;
             const HANDLES: usize = $count;
+        }
+
+        impl $name {
+            /// Casts a response frame into a typed wire view for this response.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmProtocolError)` when the frame envelope is malformed.
+            pub fn cast_frame(buf: &[u8]) -> $crate::TpmResult<&$crate::frame::TpmResponse> {
+                <$crate::frame::TpmResponse>::cast(buf)
+            }
+
+            /// Casts a mutable response frame into a typed mutable wire view for this response.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmProtocolError)` when the frame envelope is malformed.
+            pub fn cast_frame_mut(
+                buf: &mut [u8],
+            ) -> $crate::TpmResult<&mut $crate::frame::TpmResponse> {
+                <$crate::frame::TpmResponse>::cast_mut(buf)
+            }
         }
 
         impl $crate::frame::TpmFrame for $name {

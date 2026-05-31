@@ -3,6 +3,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
+    TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmTagged, TpmUnmarshal, TpmUnmarshalTagged,
+    TpmWriter,
     basic::{TpmBuffer, TpmUint16},
     constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{
@@ -14,8 +16,6 @@ use crate::{
         TpmsSchemeHash, TpmsSchemeHmac, TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc,
         TpmsSignatureRsa, TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
-    TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmTagged, TpmUnmarshal, TpmUnmarshalTagged,
-    TpmWriter,
 };
 use core::ops::Deref;
 

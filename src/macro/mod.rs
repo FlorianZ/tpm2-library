@@ -33,6 +33,10 @@ macro_rules! tpm_bitflags {
                 Self(bits)
             }
 
+            pub const fn set_bits(&mut self, bits: $repr) {
+                self.0 = bits;
+            }
+
             #[must_use]
             pub const fn empty() -> Self {
                 Self(0)
@@ -347,6 +351,7 @@ macro_rules! tpm_dispatch {
                 $crate::frame::TpmDispatch {
                     cc: <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC,
                     handles: <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::HANDLES,
+                    response_handles: <$crate::frame::data::$resp as $crate::frame::TpmHeader>::HANDLES,
                     command_unmarshaler: |handles, params| {
                         <$crate::frame::data::$cmd as $crate::frame::TpmUnmarshalCommand>::unmarshal_body(handles, params)
                             .map(|(c, r)| (TpmCommandValue::$variant(c), r))

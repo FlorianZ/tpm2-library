@@ -3,14 +3,14 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    basic::TpmUint16, TpmCast, TpmCastMut, TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
-    TpmUnmarshal, TpmWriter,
+    TpmCast, TpmCastMut, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal,
+    TpmWriter, basic::TpmUint16,
 };
 use core::{
     convert::TryFrom,
     fmt::Debug,
     hash::{Hash, Hasher},
-    mem::{size_of, MaybeUninit},
+    mem::{MaybeUninit, size_of},
     ops::Deref,
     slice,
 };
@@ -138,20 +138,20 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
             return Err(TpmProtocolError::UnexpectedEnd);
         }
 
-        let size = Self::read_size(buf);
-        if size > CAPACITY {
+        let payload_len = Self::read_size(buf);
+        if payload_len > CAPACITY {
             return Err(TpmProtocolError::TooManyBytes);
         }
 
-        let total = TPM2B_SIZE_LEN
-            .checked_add(size)
+        let wire_len = TPM2B_SIZE_LEN
+            .checked_add(payload_len)
             .ok_or(TpmProtocolError::IntegerTooLarge)?;
 
-        if buf.len() < total {
+        if buf.len() < wire_len {
             return Err(TpmProtocolError::UnexpectedEnd);
         }
 
-        if buf.len() > total {
+        if buf.len() > wire_len {
             return Err(TpmProtocolError::TrailingData);
         }
 

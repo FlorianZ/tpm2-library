@@ -8,8 +8,8 @@ use super::{
     TpmuSigScheme, TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
-    constant::TPM_MAX_COMMAND_SIZE, tpm_struct, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal,
-    TpmUnmarshalTagged, TpmWriter,
+    TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
+    constant::TPM_MAX_COMMAND_SIZE, tpm_struct,
 };
 
 macro_rules! tpm_struct_tagged {

@@ -3,13 +3,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    basic::TpmUint32, TpmCast, TpmCastMut, TpmMarshal, TpmProtocolError, TpmResult, TpmSized,
-    TpmUnmarshal,
+    TpmCast, TpmCastMut, TpmMarshal, TpmProtocolError, TpmResult, TpmSized, TpmUnmarshal,
+    basic::TpmUint32,
 };
 use core::{
     convert::TryFrom,
     fmt::Debug,
-    mem::{size_of, MaybeUninit},
+    mem::{MaybeUninit, size_of},
     ops::Deref,
     slice,
 };
@@ -131,8 +131,8 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
             return Err(TpmProtocolError::UnexpectedEnd);
         }
 
-        let count = Self::read_count(buf);
-        if count > CAPACITY {
+        let item_count = Self::read_count(buf);
+        if item_count > CAPACITY {
             return Err(TpmProtocolError::TooManyItems);
         }
 

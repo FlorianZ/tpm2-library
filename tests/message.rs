@@ -9,12 +9,8 @@ mod common;
 
 use crate::common::{bytes_to_hex, hex_to_bytes, run_test, unmarshal_tpm_error_kind_str};
 use tpm2_protocol::{
-    constant::TPM_MAX_COMMAND_SIZE,
     data::{TpmCc, TpmRc},
-    frame::{
-        tpm_marshal_response, tpm_unmarshal_command, tpm_unmarshal_response, TpmStartupResponse,
-    },
-    TpmWriter,
+    frame::{TpmCommand, TpmResponse},
 };
 
 const MESSAGE_DATA: &str = include_str!("message.txt");
@@ -46,53 +42,32 @@ fn main() {
 
             match type_str {
                 "Command" => {
-                    let (_handles, body, sessions) =
-                        tpm_unmarshal_command(&original_bytes).unwrap();
+                    let command = TpmCommand::cast(&original_bytes).unwrap();
+                    command.validate().unwrap();
 
-                    let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
-                    let built_len = {
-                        let mut writer = TpmWriter::new(&mut built_bytes);
-                        let tag = if sessions.is_empty() {
-                            tpm2_protocol::data::TpmSt::NoSessions
-                        } else {
-                            tpm2_protocol::data::TpmSt::Sessions
-                        };
-                        body.marshal_frame(tag, &sessions, &mut writer).unwrap();
-                        writer.len()
-                    };
-                    let rebuilt_slice = &built_bytes[..built_len];
                     assert_eq!(
-                        rebuilt_slice,
+                        command.as_bytes(),
                         original_bytes.as_slice(),
-                        "\nOriginal: {}\nRebuilt:  {}\n",
+                        "\nOriginal: {}\nView:     {}\n",
                         bytes_to_hex(&original_bytes),
-                        bytes_to_hex(rebuilt_slice)
+                        bytes_to_hex(command.as_bytes())
                     );
                 }
                 "Response" => {
-                    let unmarshal_result = tpm_unmarshal_response(cc, &original_bytes);
-
                     if let Ok(expected_rc_u32) = u32::from_str_radix(&outcome_str, 16) {
+                        let response = TpmResponse::cast(&original_bytes)
+                            .expect("response cast failed on a TpmRc test case");
                         if expected_rc_u32 == 0x0000 {
-                            let (body, sessions) = unmarshal_result
-                                .expect("unmarshaling failed on a success test case")
-                                .expect("expected success but got TpmRc error");
-
-                            let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
-                            let built_len = {
-                                let mut writer = TpmWriter::new(&mut built_bytes);
-                                let rc = TpmRc::try_from(0x0000).unwrap();
-                                body.marshal_frame(rc, &sessions, &mut writer).unwrap();
-                                writer.len()
-                            };
-
-                            let rebuilt_slice = &built_bytes[..built_len];
+                            response
+                                .validate(cc)
+                                .expect("response validation failed on a success test case");
+                            assert_eq!(response.rc().unwrap().value(), 0x0000);
                             assert_eq!(
-                                rebuilt_slice,
+                                response.as_bytes(),
                                 original_bytes.as_slice(),
-                                "\nOriginal: {}\nRebuilt:  {}\n",
+                                "\nOriginal: {}\nView:     {}\n",
                                 bytes_to_hex(&original_bytes),
-                                bytes_to_hex(rebuilt_slice)
+                                bytes_to_hex(response.as_bytes())
                             );
                         } else {
                             let expected_rc =
@@ -100,30 +75,13 @@ fn main() {
                                     panic!("invalid expected TpmRc value in test: {outcome_str}")
                                 });
 
-                            let actual_rc = unmarshal_result
-                                .expect("unmarshaling failed on a TpmRc test case")
-                                .err()
-                                .expect("expected a TpmRc error but got success");
+                            let actual_rc = response.rc().expect("invalid TpmRc value in response");
 
                             assert_eq!(actual_rc, expected_rc, "Mismatched TpmRc error");
-
-                            let mut built_bytes = [0u8; TPM_MAX_COMMAND_SIZE];
-                            let built_len = {
-                                let mut writer = TpmWriter::new(&mut built_bytes);
-                                tpm_marshal_response(
-                                    &TpmStartupResponse::default(),
-                                    &[],
-                                    actual_rc,
-                                    &mut writer,
-                                )
-                                .unwrap();
-                                writer.len()
-                            };
-                            let rebuilt_slice = &built_bytes[..built_len];
                             assert_eq!(
-                                rebuilt_slice,
+                                response.as_bytes(),
                                 original_bytes.as_slice(),
-                                "Error response did not roundtrip correctly"
+                                "Error response view did not roundtrip correctly"
                             );
                         }
                     } else {
@@ -131,7 +89,8 @@ fn main() {
                             .unwrap_or_else(|e| {
                                 panic!("failed to unmarshal outcome string '{outcome_str}': {e}")
                             });
-                        let actual_err = unmarshal_result
+                        let actual_err = TpmResponse::cast(&original_bytes)
+                            .and_then(|response| response.validate(cc))
                             .err()
                             .expect("expected TpmProtocolError, got Ok");
                         assert_eq!(

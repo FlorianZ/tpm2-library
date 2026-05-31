@@ -391,7 +391,7 @@ impl core::error::Error for TpmProtocolError {}
 
 pub type TpmResult<T> = Result<T, TpmProtocolError>;
 
-/// Writes into a mutable byte slice.
+/// Builds TPM wire bytes into a caller-provided mutable byte slice.
 pub struct TpmWriter<'a> {
     buffer: &'a mut [u8],
     cursor: usize,
@@ -414,6 +414,12 @@ impl<'a> TpmWriter<'a> {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.cursor == 0
+    }
+
+    /// Returns the bytes written so far.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buffer[..self.cursor]
     }
 
     /// Appends a slice of bytes to the writer.
