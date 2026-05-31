@@ -166,7 +166,7 @@ impl TryFrom<TpmPublicTemplate> for String {
     type Error = TpmCryptoError;
 
     fn try_from(template: TpmPublicTemplate) -> Result<Self, TpmCryptoError> {
-        let name_alg_str = TpmHash::from(template.name_alg).to_string();
+        let name_alg_str = TpmHash::try_from(template.name_alg)?.to_string();
         match template.public_parms {
             TpmuPublicParms::Rsa(parms) => {
                 let key_bits = parms.key_bits;
@@ -177,10 +177,7 @@ impl TryFrom<TpmPublicTemplate> for String {
             }
             TpmuPublicParms::Ecc(parms) => {
                 let curve = parms.curve_id;
-                let curve_str = TpmEllipticCurve::from(curve).to_string();
-                if curve == TpmEccCurve::None {
-                    return Err(TpmCryptoError::InvalidEccParameters);
-                }
+                let curve_str = TpmEllipticCurve::try_from(curve)?.to_string();
                 Ok(format!("ecc-{curve_str}:{name_alg_str}"))
             }
             TpmuPublicParms::KeyedHash(parms) => match parms.scheme.scheme {

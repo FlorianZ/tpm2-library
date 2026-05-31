@@ -28,23 +28,24 @@ pub enum TpmHash {
     Sha3_512,
     Shake128,
     Shake256,
-    Null,
 }
 
-impl From<TpmAlgId> for TpmHash {
-    fn from(alg: TpmAlgId) -> Self {
+impl TryFrom<TpmAlgId> for TpmHash {
+    type Error = TpmCryptoError;
+
+    fn try_from(alg: TpmAlgId) -> Result<Self, Self::Error> {
         match alg {
-            TpmAlgId::Sha1 => Self::Sha1,
-            TpmAlgId::Sha256 => Self::Sha256,
-            TpmAlgId::Sha384 => Self::Sha384,
-            TpmAlgId::Sha512 => Self::Sha512,
-            TpmAlgId::Sm3_256 => Self::Sm3_256,
-            TpmAlgId::Sha3_256 => Self::Sha3_256,
-            TpmAlgId::Sha3_384 => Self::Sha3_384,
-            TpmAlgId::Sha3_512 => Self::Sha3_512,
-            TpmAlgId::Shake128 => Self::Shake128,
-            TpmAlgId::Shake256 => Self::Shake256,
-            _ => Self::Null,
+            TpmAlgId::Sha1 => Ok(Self::Sha1),
+            TpmAlgId::Sha256 => Ok(Self::Sha256),
+            TpmAlgId::Sha384 => Ok(Self::Sha384),
+            TpmAlgId::Sha512 => Ok(Self::Sha512),
+            TpmAlgId::Sm3_256 => Ok(Self::Sm3_256),
+            TpmAlgId::Sha3_256 => Ok(Self::Sha3_256),
+            TpmAlgId::Sha3_384 => Ok(Self::Sha3_384),
+            TpmAlgId::Sha3_512 => Ok(Self::Sha3_512),
+            TpmAlgId::Shake128 => Ok(Self::Shake128),
+            TpmAlgId::Shake256 => Ok(Self::Shake256),
+            _ => Err(TpmCryptoError::InvalidHash),
         }
     }
 }
@@ -62,7 +63,6 @@ impl From<TpmHash> for TpmAlgId {
             TpmHash::Sha3_512 => Self::Sha3_512,
             TpmHash::Shake128 => Self::Shake128,
             TpmHash::Shake256 => Self::Shake256,
-            TpmHash::Null => Self::Null,
         }
     }
 }
@@ -80,7 +80,6 @@ impl From<TpmHash> for MessageDigest {
             TpmHash::Sha3_512 => MessageDigest::sha3_512(),
             TpmHash::Shake128 => MessageDigest::shake_128(),
             TpmHash::Shake256 => MessageDigest::shake_256(),
-            TpmHash::Null => MessageDigest::null(),
         }
     }
 }
@@ -103,10 +102,6 @@ impl TpmHash {
     /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
     /// allocation fails.
     pub fn digest(&self, data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
-        if *self == TpmHash::Null {
-            return Err(TpmCryptoError::InvalidHash);
-        }
-
         let md = (*self).into();
         let mut hasher = Hasher::new(md).map_err(|_| TpmCryptoError::OutOfMemory)?;
         for chunk in data_chunks {
@@ -133,9 +128,6 @@ impl TpmHash {
     /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when an
     /// allocation fails.
     pub fn hmac(&self, key: &[u8], data_chunks: &[&[u8]]) -> Result<Vec<u8>, TpmCryptoError> {
-        if *self == TpmHash::Null {
-            return Err(TpmCryptoError::InvalidHash);
-        }
         if key.is_empty() {
             return Err(TpmCryptoError::KeyIsEmpty);
         }
@@ -199,9 +191,6 @@ impl TpmHash {
         context_b: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
-        if *self == TpmHash::Null {
-            return Err(TpmCryptoError::InvalidHash);
-        }
         if hmac_key.is_empty() {
             return Err(TpmCryptoError::KeyIsEmpty);
         }
@@ -264,10 +253,6 @@ impl TpmHash {
         context_v: &[u8],
         key_bits: u16,
     ) -> Result<Vec<u8>, TpmCryptoError> {
-        if *self == TpmHash::Null {
-            return Err(TpmCryptoError::InvalidHash);
-        }
-
         let key_bytes = (key_bits as usize).div_ceil(8);
         let mut key_stream = Vec::with_capacity(key_bytes);
 

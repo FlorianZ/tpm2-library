@@ -7,10 +7,12 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
+use openssl::nid::Nid;
 use rstest::rstest;
 use std::str::FromStr;
 use tpm2_crypto::{
-    TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmPublicTemplate, TpmRsaExternalKey,
+    TpmCryptoError, TpmEccExternalKey, TpmEllipticCurve, TpmExternalKey, TpmPublicTemplate,
+    TpmRsaExternalKey,
 };
 use tpm2_protocol::{
     basic::TpmUint32,
@@ -189,4 +191,20 @@ fn rsa_to_public_with_aes_symmetric() {
     } else {
         panic!("Incorrect parameters type: expected RSA");
     }
+}
+
+#[test]
+fn invalid_curve_conversions_fail() {
+    assert!(matches!(
+        TpmEllipticCurve::try_from(TpmEccCurve::None),
+        Err(TpmCryptoError::InvalidEccCurve)
+    ));
+    assert!(matches!(
+        TpmEllipticCurve::try_from(Nid::UNDEF),
+        Err(TpmCryptoError::InvalidEccCurve)
+    ));
+    assert!(matches!(
+        Nid::try_from(TpmEllipticCurve::BnP256),
+        Err(TpmCryptoError::InvalidEccCurve)
+    ));
 }

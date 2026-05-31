@@ -5,7 +5,8 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-use tpm2_crypto::TpmHash;
+use tpm2_crypto::{TpmCryptoError, TpmHash};
+use tpm2_protocol::data::TpmAlgId;
 
 fn hex_to_bytes(s: &str) -> Vec<u8> {
     let s_no_whitespace: String = s.chars().filter(|c| !c.is_ascii_whitespace()).collect();
@@ -88,4 +89,16 @@ fn sm3_and_sha3_512_differ() {
     assert_eq!(sm3.len(), 32);
     assert_eq!(sha3.len(), 64);
     assert_ne!(sm3, sha3);
+}
+
+#[test]
+fn invalid_hash_conversions_fail() {
+    assert!(matches!(
+        TpmHash::try_from(TpmAlgId::Null),
+        Err(TpmCryptoError::InvalidHash)
+    ));
+    assert!(matches!(
+        TpmHash::try_from(TpmAlgId::Rsa),
+        Err(TpmCryptoError::InvalidHash)
+    ));
 }

@@ -88,7 +88,7 @@ pub fn tpm_make_name(
 ) -> Result<tpm2_protocol::data::Tpm2bName, TpmCryptoError> {
     use tpm2_protocol::{TpmMarshal, TpmSized};
 
-    let name_alg = TpmHash::from(public.name_alg);
+    let name_alg = TpmHash::try_from(public.name_alg)?;
     let alg_bytes = public.name_alg.value().to_be_bytes();
 
     let len = public.len();
