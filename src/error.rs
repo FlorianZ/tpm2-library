@@ -45,6 +45,21 @@ impl TpmErrorValue {
         self
     }
 
+    /// Sets a raw `usize` value associated with the error.
+    #[allow(clippy::cast_possible_truncation)]
+    #[must_use]
+    pub const fn value_usize(mut self, value: usize) -> Self {
+        self.value = value as u64;
+        self
+    }
+
+    /// Sets an actual count without a corresponding limit.
+    #[must_use]
+    pub const fn actual(mut self, actual: usize) -> Self {
+        self.actual = actual;
+        self
+    }
+
     /// Sets the required and available counts.
     #[must_use]
     pub const fn size(mut self, needed: usize, available: usize) -> Self {
@@ -60,64 +75,123 @@ impl TpmErrorValue {
         self.actual = actual;
         self
     }
+
+    /// Creates error data from a cursor slice inside a base slice.
+    #[must_use]
+    pub fn at(base: &[u8], cursor: &[u8]) -> Self {
+        Self::new(Self::offset(base, cursor))
+    }
+
+    /// Returns the byte offset of a cursor slice inside a base slice.
+    #[must_use]
+    pub fn offset(base: &[u8], cursor: &[u8]) -> usize {
+        let base_addr = base.as_ptr() as usize;
+        let cursor_addr = cursor.as_ptr() as usize;
+
+        cursor_addr.saturating_sub(base_addr).min(base.len())
+    }
 }
 
-/// TPM frame marshaling and unmarshaling error type containing variants
-/// for all the possible error conditions.
+/// TPM frame marshaling and unmarshaling error type.
+///
+/// Every variant carries [`TpmErrorValue`] with the byte offset and any
+/// applicable raw value, size, or limit information.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum TpmError {
     /// Trying to marshal more bytes than buffer has space. This is unexpected
     /// situation, and should be considered possible bug in the crate itself.
-    BufferOverflow,
+    BufferOverflow(TpmErrorValue),
 
     /// Integer overflow while converting to an integer of a different size.
-    IntegerTooLarge,
+    IntegerTooLarge(TpmErrorValue),
 
     /// Boolean value was expected but the value is neither `0` nor `1`.
-    InvalidBoolean,
+    InvalidBoolean(TpmErrorValue),
 
     /// Non-existent command code encountered.
-    InvalidCc,
+    InvalidCc(TpmErrorValue),
 
     /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
     /// magic value.
-    InvalidMagicNumber,
+    InvalidMagicNumber(TpmErrorValue),
+
+    /// Invalid TPM response code encountered.
+    InvalidRc(TpmErrorValue),
 
     /// Tag is neither [`Sessions`](crate::data::TpmSt::Sessions) nor
     /// [`NoSessions`](crate::data::TpmSt::NoSessions).
-    InvalidTag,
+    InvalidTag(TpmErrorValue),
 
     /// Buffer contains more bytes than allowed by the TCG specifications.
-    TooManyBytes,
+    TooManyBytes(TpmErrorValue),
 
     /// List contains more items than allowed by the TCG specifications.
-    TooManyItems,
+    TooManyItems(TpmErrorValue),
 
     /// Trailing data left after unmarshaling.
-    TrailingData,
+    TrailingData(TpmErrorValue),
 
     /// Run out of bytes while unmarshaling.
-    UnexpectedEnd,
+    UnexpectedEnd(TpmErrorValue),
 
     /// The variant accessed is not available.
-    VariantNotAvailable,
+    VariantNotAvailable(TpmErrorValue),
+}
+
+impl TpmError {
+    /// Returns the structured value carried by the error.
+    #[must_use]
+    pub const fn value(self) -> TpmErrorValue {
+        match self {
+            Self::BufferOverflow(value)
+            | Self::IntegerTooLarge(value)
+            | Self::InvalidBoolean(value)
+            | Self::InvalidCc(value)
+            | Self::InvalidMagicNumber(value)
+            | Self::InvalidRc(value)
+            | Self::InvalidTag(value)
+            | Self::TooManyBytes(value)
+            | Self::TooManyItems(value)
+            | Self::TrailingData(value)
+            | Self::UnexpectedEnd(value)
+            | Self::VariantNotAvailable(value) => value,
+        }
+    }
 }
 
 impl core::fmt::Display for TpmError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::BufferOverflow => write!(f, "buffer overflow"),
-            Self::InvalidBoolean => write!(f, "invalid boolean value"),
-            Self::InvalidCc => write!(f, "invalid command code"),
-            Self::InvalidMagicNumber => write!(f, "invalid magic number"),
-            Self::InvalidTag => write!(f, "invalid tag"),
-            Self::IntegerTooLarge => write!(f, "integer overflow"),
-            Self::TooManyBytes => write!(f, "buffer capacity surpassed"),
-            Self::TooManyItems => write!(f, "list capaacity surpassed"),
-            Self::TrailingData => write!(f, "trailing data"),
-            Self::UnexpectedEnd => write!(f, "unexpected end"),
-            Self::VariantNotAvailable => write!(f, "enum variant is not available"),
+        let (message, value) = match *self {
+            Self::BufferOverflow(value) => ("buffer overflow", value),
+            Self::InvalidBoolean(value) => ("invalid boolean value", value),
+            Self::InvalidCc(value) => ("invalid command code", value),
+            Self::InvalidMagicNumber(value) => ("invalid magic number", value),
+            Self::InvalidRc(value) => ("invalid response code", value),
+            Self::InvalidTag(value) => ("invalid tag", value),
+            Self::IntegerTooLarge(value) => ("integer overflow", value),
+            Self::TooManyBytes(value) => ("buffer capacity surpassed", value),
+            Self::TooManyItems(value) => ("list capacity surpassed", value),
+            Self::TrailingData(value) => ("trailing data", value),
+            Self::UnexpectedEnd(value) => ("unexpected end", value),
+            Self::VariantNotAvailable(value) => ("enum variant is not available", value),
+        };
+
+        write!(f, "{message} at offset {}", value.offset)?;
+        if value.value != 0 {
+            write!(f, ", value=0x{:x}", value.value)?;
         }
+        if value.needed != 0 || value.available != 0 {
+            write!(
+                f,
+                ", needed={}, available={}",
+                value.needed, value.available
+            )?;
+        }
+        if value.limit != 0 || value.actual != 0 {
+            write!(f, ", limit={}, actual={}", value.limit, value.actual)?;
+        }
+
+        Ok(())
     }
 }
 

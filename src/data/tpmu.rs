@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmMarshal, TpmError, TpmResult, TpmSized, TpmTagged, TpmUnmarshal, TpmUnmarshalTagged,
+    TpmError, TpmMarshal, TpmResult, TpmSized, TpmTagged, TpmUnmarshal, TpmUnmarshalTagged,
     TpmWriter,
     basic::{TpmBuffer, TpmUint16},
     constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
@@ -66,7 +66,9 @@ impl TpmUnmarshalTagged for TpmuAsymScheme {
                 Ok((Self::Hash(val), buf))
             }
             TpmAlgId::Rsaes | TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -177,18 +179,24 @@ impl TpmUnmarshalTagged for TpmuHa {
             }
             TpmAlgId::Sha384 | TpmAlgId::Sha3_384 => 48,
             TpmAlgId::Sha512 | TpmAlgId::Sha3_512 | TpmAlgId::Shake256_512 => 64,
-            _ => return Err(TpmError::VariantNotAvailable),
+            _ => {
+                return Err(TpmError::VariantNotAvailable(
+                    crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+                ));
+            }
         };
 
         if buf.len() < digest_size {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(digest_size, buf.len()),
+            ));
         }
 
         let (digest_bytes, buf) = buf.split_at(digest_size);
 
-        let digest = Self::Digest(
-            TpmBuffer::try_from(digest_bytes).map_err(|_| TpmError::IntegerTooLarge)?,
-        );
+        let digest = Self::Digest(TpmBuffer::try_from(digest_bytes).map_err(|_| {
+            TpmError::IntegerTooLarge(crate::TpmErrorValue::new(0).value_usize(digest_size))
+        })?);
 
         Ok((digest, buf))
     }
@@ -276,7 +284,9 @@ impl TpmUnmarshalTagged for TpmuPublicId {
                 Ok((TpmuPublicId::Ecc(point), rest))
             }
             TpmAlgId::Null => Ok((TpmuPublicId::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -340,7 +350,9 @@ impl TpmUnmarshalTagged for TpmuPublicParms {
                 Ok((Self::Ecc(details), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -405,7 +417,9 @@ impl TpmUnmarshalTagged for TpmuSensitiveComposite {
                 let (val, buf) = Tpm2bSymKey::unmarshal(buf)?;
                 Ok((TpmuSensitiveComposite::Sym(val), buf))
             }
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -466,7 +480,9 @@ impl TpmUnmarshalTagged for TpmuSymKeyBits {
                 Ok((TpmuSymKeyBits::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((TpmuSymKeyBits::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -527,7 +543,9 @@ impl TpmUnmarshalTagged for TpmuSymMode {
                 Ok((TpmuSymMode::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((TpmuSymMode::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -606,7 +624,9 @@ impl TpmUnmarshalTagged for TpmuSignature {
                 Ok((Self::Hmac(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -695,7 +715,9 @@ impl TpmUnmarshalTagged for TpmuAttest {
                 let (val, buf) = TpmsNvDigestCertifyInfo::unmarshal(buf)?;
                 Ok((TpmuAttest::NvDigest(val), buf))
             }
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -746,7 +768,9 @@ impl TpmUnmarshalTagged for TpmuKeyedhashScheme {
                 Ok((Self::Xor(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -800,7 +824,9 @@ impl TpmUnmarshalTagged for TpmuSigScheme {
                 Ok((Self::Hash(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -853,7 +879,9 @@ impl TpmUnmarshalTagged for TpmuNvPublic2 {
                 let (val, buf) = TpmsNvPublic::unmarshal(buf)?;
                 Ok((Self::PermanentNv(val), buf))
             }
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }
@@ -916,7 +944,9 @@ impl TpmUnmarshalTagged for TpmuKdfScheme {
                 Ok((Self::Kdf1Sp800_108(val), buf))
             }
             TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable),
+            _ => Err(TpmError::VariantNotAvailable(
+                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+            )),
         }
     }
 }

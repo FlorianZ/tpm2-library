@@ -140,11 +140,15 @@ impl<const N: usize> TpmWireBytes<N> {
     /// `buf` is larger than `N` bytes.
     pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
         if buf.len() < N {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(N, buf.len()),
+            ));
         }
 
         if buf.len() > N {
-            return Err(TpmError::TrailingData);
+            return Err(TpmError::TrailingData(
+                crate::TpmErrorValue::new(N).actual(buf.len() - N),
+            ));
         }
 
         // SAFETY: The length check above guarantees that `buf` has exactly the
@@ -178,11 +182,15 @@ impl<const N: usize> TpmWireBytes<N> {
     /// `buf` is larger than `N` bytes.
     pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         if buf.len() < N {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(N, buf.len()),
+            ));
         }
 
         if buf.len() > N {
-            return Err(TpmError::TrailingData);
+            return Err(TpmError::TrailingData(
+                crate::TpmErrorValue::new(N).actual(buf.len() - N),
+            ));
         }
 
         // SAFETY: The length check above guarantees that `buf` has exactly the
@@ -366,16 +374,21 @@ impl<'a> TpmWriter<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`OutOfMemory`](crate::TpmError::OutOfMemory)
-    /// when the capacity of the buffer is exceeded.
+    /// Returns [`BufferOverflow`](crate::TpmError::BufferOverflow) when the
+    /// capacity of the buffer is exceeded.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> TpmResult<()> {
         let end = self
             .cursor
             .checked_add(bytes.len())
-            .ok_or(TpmError::BufferOverflow)?;
+            .ok_or(TpmError::BufferOverflow(
+                crate::TpmErrorValue::new(self.cursor).size(bytes.len(), 0),
+            ))?;
 
         if end > self.buffer.len() {
-            return Err(TpmError::BufferOverflow);
+            return Err(TpmError::BufferOverflow(
+                crate::TpmErrorValue::new(self.cursor)
+                    .size(bytes.len(), self.buffer.len().saturating_sub(self.cursor)),
+            ));
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;
@@ -434,8 +447,8 @@ pub(crate) trait TpmUnmarshalTagged: Sized {
     /// # Errors
     ///
     /// This method can return any error of the underlying type's `TpmUnmarshal` implementation,
-    /// such as a `TpmError::UnexpectedEnd` if the buffer is too small or an
-    /// `TpmError::MalformedValue` if the data is malformed.
+    /// such as a `TpmError::UnexpectedEnd` if the buffer is too small or a
+    /// `TpmError::VariantNotAvailable` if a tagged variant is unavailable.
     fn unmarshal_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
     where
         Self: TpmTagged,

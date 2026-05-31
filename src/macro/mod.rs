@@ -161,10 +161,13 @@ macro_rules! tpm_bool {
         impl $crate::TpmUnmarshal for $name {
             fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
                 let (val, buf) = $crate::basic::TpmUint8::unmarshal(buf)?;
-                match u8::from(val) {
+                let raw = u8::from(val);
+                match raw {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
-                    _ => Err($crate::TpmError::InvalidBoolean),
+                    _ => Err($crate::TpmError::InvalidBoolean(
+                        $crate::TpmErrorValue::new(0).value(u64::from(raw)),
+                    )),
                 }
             }
         }

@@ -26,12 +26,15 @@ macro_rules! tpm_enum {
         impl TryFrom<$repr> for $name {
             type Error = $crate::TpmError;
 
+            #[allow(clippy::cast_lossless, clippy::cast_sign_loss)]
             fn try_from(value: $repr) -> Result<Self, $crate::TpmError> {
                 match value {
                     $(
                         _ if value == $value => Ok(Self::$variant),
                     )*
-                    _ => Err($crate::TpmError::VariantNotAvailable),
+                    _ => Err($crate::TpmError::VariantNotAvailable(
+                        $crate::TpmErrorValue::new(0).value(value as u64),
+                    )),
                 }
             }
         }

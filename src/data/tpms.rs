@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmMarshal, TpmError, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
+    TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
     basic::{TpmHandle, TpmUint8, TpmUint16, TpmUint32, TpmUint64},
     constant::{TPM_GENERATED_VALUE, TPM_PCR_SELECT_MAX},
     data::{
@@ -59,10 +59,14 @@ impl TryFrom<&[u8]> for TpmsPcrSelect {
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > TPM_PCR_SELECT_MAX as usize {
-            return Err(TpmError::TooManyItems);
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::new(0).limit(TPM_PCR_SELECT_MAX as usize, slice.len()),
+            ));
         }
         let mut pcr_select = Self::new();
-        let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmError::IntegerTooLarge)?;
+        let len_u8 = u8::try_from(slice.len()).map_err(|_| {
+            TpmError::IntegerTooLarge(crate::TpmErrorValue::new(0).value_usize(slice.len()))
+        })?;
         pcr_select.size = TpmUint8::from(len_u8);
         pcr_select.data[..slice.len()].copy_from_slice(slice);
         Ok(pcr_select)
@@ -100,10 +104,15 @@ impl TpmUnmarshal for TpmsPcrSelect {
         let raw = u8::from(size);
 
         if raw > TPM_PCR_SELECT_MAX {
-            return Err(TpmError::TooManyItems);
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::new(0).limit(TPM_PCR_SELECT_MAX as usize, raw as usize),
+            ));
         }
         if remainder.len() < raw as usize {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(size_of::<TpmUint8>())
+                    .size(raw as usize, remainder.len()),
+            ));
         }
 
         let (pcr_bytes, final_remainder) = remainder.split_at(raw as usize);
@@ -464,7 +473,9 @@ impl TpmUnmarshal for TpmsAttest {
     fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (magic, buf) = crate::basic::TpmUint32::unmarshal(buf)?;
         if u32::from(magic) != TPM_GENERATED_VALUE {
-            return Err(TpmError::InvalidMagicNumber);
+            return Err(TpmError::InvalidMagicNumber(
+                crate::TpmErrorValue::new(0).value(u64::from(u32::from(magic))),
+            ));
         }
         let (attest_type, buf) = TpmSt::unmarshal(buf)?;
         let (qualified_signer, buf) = Tpm2bName::unmarshal(buf)?;

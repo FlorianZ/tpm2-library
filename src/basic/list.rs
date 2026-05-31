@@ -3,8 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmCast, TpmCastMut, TpmMarshal, TpmError, TpmResult, TpmSized, TpmUnmarshal,
-    basic::TpmUint32,
+    TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, basic::TpmUint32,
 };
 use core::{
     convert::TryFrom,
@@ -128,12 +127,16 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
 
     fn validate(buf: &[u8]) -> TpmResult<()> {
         if buf.len() < TPML_COUNT_LEN {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(TPML_COUNT_LEN, buf.len()),
+            ));
         }
 
         let item_count = Self::read_count(buf);
         if item_count > CAPACITY {
-            return Err(TpmError::TooManyItems);
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::new(0).limit(CAPACITY, item_count),
+            ));
         }
 
         Ok(())
@@ -212,7 +215,9 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     /// full capacity.
     pub fn try_push(&mut self, item: T) -> Result<(), TpmError> {
         if self.len >= CAPACITY {
-            return Err(TpmError::TooManyItems);
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::new(0).limit(CAPACITY, self.len + 1),
+            ));
         }
         self.items[self.len].write(item);
         self.len += 1;
@@ -229,10 +234,14 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
         let new_len = self
             .len
             .checked_add(slice.len())
-            .ok_or(TpmError::TooManyItems)?;
+            .ok_or(TpmError::TooManyItems(
+                crate::TpmErrorValue::new(0).limit(CAPACITY, usize::MAX),
+            ))?;
 
         if new_len > CAPACITY {
-            return Err(TpmError::TooManyItems);
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::new(0).limit(CAPACITY, new_len),
+            ));
         }
 
         for (dest, src) in self.items[self.len..new_len].iter_mut().zip(slice) {
@@ -282,7 +291,9 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 
 impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPACITY> {
     fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len = TpmUint32::try_from(self.len).map_err(|_| TpmError::IntegerTooLarge)?;
+        let len = TpmUint32::try_from(self.len).map_err(|_| {
+            TpmError::IntegerTooLarge(crate::TpmErrorValue::new(0).value_usize(self.len))
+        })?;
         TpmMarshal::marshal(&len, writer)?;
         for item in &**self {
             TpmMarshal::marshal(item, writer)?;
@@ -296,7 +307,9 @@ impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, 
         let (count_u32, mut buf) = TpmUint32::unmarshal(buf)?;
         let count = u32::from(count_u32) as usize;
         if count > CAPACITY {
-            return Err(TpmError::TooManyItems);
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::new(0).limit(CAPACITY, count),
+            ));
         }
 
         let mut list = Self::new();

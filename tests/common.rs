@@ -6,7 +6,7 @@
 #![allow(clippy::pedantic)]
 
 use std::{io::IsTerminal, vec::Vec};
-use tpm2_protocol::TpmError;
+use tpm2_protocol::{TpmError, TpmErrorValue};
 
 #[allow(dead_code)]
 pub fn hex_to_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -99,10 +99,11 @@ fn unmarshal_key_value_str<'a>(part: &'a str, key: &str) -> Result<&'a str, &'st
 #[allow(dead_code)]
 pub fn unmarshal_tpm_error_kind_str(s: &str) -> Result<TpmError, &'static str> {
     match s {
-        "InvalidValue" => return Ok(TpmError::InvalidCc),
-        "UnexpectedEnd" => return Ok(TpmError::UnexpectedEnd),
-        "TrailingData" => return Ok(TpmError::TrailingData),
-        "VariantMissing" => return Ok(TpmError::VariantNotAvailable),
+        "InvalidValue" => return Ok(TpmError::InvalidCc(TpmErrorValue::new(0))),
+        "InvalidTag" => return Ok(TpmError::InvalidTag(TpmErrorValue::new(0))),
+        "UnexpectedEnd" => return Ok(TpmError::UnexpectedEnd(TpmErrorValue::new(0))),
+        "TrailingData" => return Ok(TpmError::TrailingData(TpmErrorValue::new(0))),
+        "VariantMissing" => return Ok(TpmError::VariantNotAvailable(TpmErrorValue::new(0))),
         _ => {}
     }
 

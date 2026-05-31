@@ -97,7 +97,11 @@ impl TpmCommand {
     /// Returns [`VariantNotAvailable`](crate::TpmError::VariantNotAvailable)
     /// when the tag value is not defined.
     pub fn tag(&self) -> TpmResult<TpmSt> {
-        TpmSt::try_from(read_u16(&self.0, TAG_OFFSET))
+        let raw = read_u16(&self.0, TAG_OFFSET);
+
+        TpmSt::try_from(raw).map_err(|_| {
+            TpmError::InvalidTag(crate::TpmErrorValue::new(TAG_OFFSET).value(u64::from(raw)))
+        })
     }
 
     /// Returns the command frame size field.
@@ -209,7 +213,9 @@ impl TpmCommand {
     /// Returns `Err(TpmError)` when the command frame is malformed.
     pub fn validate(&self) -> TpmResult<()> {
         Self::validate_envelope(&self.0)?;
-        validate_auth_commands(self.auth_area()?)
+        let auth_area = self.auth_area()?;
+
+        validate_auth_commands(&self.0, auth_area)
     }
 
     /// Returns `true` when the command frame contains no bytes.
@@ -246,17 +252,25 @@ impl TpmCommand {
         let after_handles = &self.0[after_handles_start..];
 
         if after_handles.len() < size_of::<u32>() {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(after_handles_start)
+                    .size(size_of::<u32>(), after_handles.len()),
+            ));
         }
 
         let auth_size = read_u32(after_handles, 0) as usize;
         let auth_start = size_of::<u32>();
         let auth_end = auth_start
             .checked_add(auth_size)
-            .ok_or(TpmError::IntegerTooLarge)?;
+            .ok_or(TpmError::IntegerTooLarge(
+                crate::TpmErrorValue::new(after_handles_start).value_usize(auth_size),
+            ))?;
 
         if after_handles.len() < auth_end {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(after_handles_start + auth_start)
+                    .size(auth_size, after_handles.len().saturating_sub(auth_start)),
+            ));
         }
 
         let auth_start = after_handles_start + auth_start;
@@ -268,9 +282,14 @@ impl TpmCommand {
     fn validate_envelope(buf: &[u8]) -> TpmResult<()> {
         validate_frame_size(buf)?;
 
-        let tag = TpmSt::try_from(read_u16(buf, TAG_OFFSET))?;
+        let raw_tag = read_u16(buf, TAG_OFFSET);
+        let tag = TpmSt::try_from(raw_tag).map_err(|_| {
+            TpmError::InvalidTag(crate::TpmErrorValue::new(TAG_OFFSET).value(u64::from(raw_tag)))
+        })?;
         if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
-            return Err(TpmError::InvalidTag);
+            return Err(TpmError::InvalidTag(
+                crate::TpmErrorValue::new(TAG_OFFSET).value(u64::from(raw_tag)),
+            ));
         }
 
         let dispatch = dispatch_for(command_code(buf)?)?;
@@ -278,22 +297,37 @@ impl TpmCommand {
         let handle_area_size = dispatch.handles * size_of::<u32>();
 
         if body.len() < handle_area_size {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(HEADER_SIZE).size(handle_area_size, body.len()),
+            ));
         }
 
         if tag == TpmSt::Sessions {
             let after_handles = &body[handle_area_size..];
             if after_handles.len() < size_of::<u32>() {
-                return Err(TpmError::UnexpectedEnd);
+                return Err(TpmError::UnexpectedEnd(
+                    crate::TpmErrorValue::new(HEADER_SIZE + handle_area_size)
+                        .size(size_of::<u32>(), after_handles.len()),
+                ));
             }
 
             let auth_size = read_u32(after_handles, 0) as usize;
-            let auth_end = size_of::<u32>()
-                .checked_add(auth_size)
-                .ok_or(TpmError::IntegerTooLarge)?;
+            let auth_end =
+                size_of::<u32>()
+                    .checked_add(auth_size)
+                    .ok_or(TpmError::IntegerTooLarge(
+                        crate::TpmErrorValue::new(HEADER_SIZE + handle_area_size)
+                            .value_usize(auth_size),
+                    ))?;
 
             if after_handles.len() < auth_end {
-                return Err(TpmError::UnexpectedEnd);
+                return Err(TpmError::UnexpectedEnd(
+                    crate::TpmErrorValue::new(HEADER_SIZE + handle_area_size + size_of::<u32>())
+                        .size(
+                            auth_size,
+                            after_handles.len().saturating_sub(size_of::<u32>()),
+                        ),
+                ));
             }
         }
 
@@ -418,7 +452,11 @@ impl TpmResponse {
     /// Returns [`VariantNotAvailable`](crate::TpmError::VariantNotAvailable)
     /// when the tag value is not defined.
     pub fn tag(&self) -> TpmResult<TpmSt> {
-        TpmSt::try_from(read_u16(&self.0, TAG_OFFSET))
+        let raw = read_u16(&self.0, TAG_OFFSET);
+
+        TpmSt::try_from(raw).map_err(|_| {
+            TpmError::InvalidTag(crate::TpmErrorValue::new(TAG_OFFSET).value(u64::from(raw)))
+        })
     }
 
     /// Returns the response frame size field.
@@ -433,7 +471,11 @@ impl TpmResponse {
     ///
     /// Returns `Err(TpmError)` when the response code is malformed.
     pub fn rc(&self) -> TpmResult<TpmRc> {
-        TpmRc::try_from(read_u32(&self.0, CODE_OFFSET))
+        let raw = read_u32(&self.0, CODE_OFFSET);
+
+        TpmRc::try_from(raw).map_err(|_| {
+            TpmError::InvalidRc(crate::TpmErrorValue::new(CODE_OFFSET).value(u64::from(raw)))
+        })
     }
 
     /// Sets the response tag without changing the frame shape.
@@ -479,24 +521,38 @@ impl TpmResponse {
         let handle_area_size = dispatch.response_handles * size_of::<u32>();
         let body = self.body();
         if body.len() < handle_area_size {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(HEADER_SIZE).size(handle_area_size, body.len()),
+            ));
         }
 
         let after_handles = &body[handle_area_size..];
         if after_handles.len() < size_of::<u32>() {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(HEADER_SIZE + handle_area_size)
+                    .size(size_of::<u32>(), after_handles.len()),
+            ));
         }
 
         let params_len = read_u32(after_handles, 0) as usize;
-        let sessions_start = size_of::<u32>()
-            .checked_add(params_len)
-            .ok_or(TpmError::IntegerTooLarge)?;
+        let sessions_start =
+            size_of::<u32>()
+                .checked_add(params_len)
+                .ok_or(TpmError::IntegerTooLarge(
+                    crate::TpmErrorValue::new(HEADER_SIZE + handle_area_size)
+                        .value_usize(params_len),
+                ))?;
 
         if after_handles.len() < sessions_start {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(HEADER_SIZE + handle_area_size + size_of::<u32>()).size(
+                    params_len,
+                    after_handles.len().saturating_sub(size_of::<u32>()),
+                ),
+            ));
         }
 
-        validate_auth_responses(&after_handles[sessions_start..])
+        validate_auth_responses(&self.0, &after_handles[sessions_start..])
     }
 
     /// Returns `true` when the response frame contains no bytes.
@@ -513,8 +569,14 @@ impl TpmResponse {
 
     fn validate_envelope(buf: &[u8]) -> TpmResult<()> {
         validate_frame_size(buf)?;
-        let _ = TpmSt::try_from(read_u16(buf, TAG_OFFSET))?;
-        let _ = TpmRc::try_from(read_u32(buf, CODE_OFFSET))?;
+        let raw_tag = read_u16(buf, TAG_OFFSET);
+        let _ = TpmSt::try_from(raw_tag).map_err(|_| {
+            TpmError::InvalidTag(crate::TpmErrorValue::new(TAG_OFFSET).value(u64::from(raw_tag)))
+        })?;
+        let raw_rc = read_u32(buf, CODE_OFFSET);
+        let _ = TpmRc::try_from(raw_rc).map_err(|_| {
+            TpmError::InvalidRc(crate::TpmErrorValue::new(CODE_OFFSET).value(u64::from(raw_rc)))
+        })?;
 
         Ok(())
     }
@@ -556,28 +618,38 @@ impl AsMut<[u8]> for TpmResponse {
 }
 
 fn command_code(buf: &[u8]) -> TpmResult<TpmCc> {
-    TpmCc::try_from(read_u32(buf, CODE_OFFSET)).map_err(|_| TpmError::InvalidCc)
+    let raw = read_u32(buf, CODE_OFFSET);
+
+    TpmCc::try_from(raw).map_err(|_| {
+        TpmError::InvalidCc(crate::TpmErrorValue::new(CODE_OFFSET).value(u64::from(raw)))
+    })
 }
 
 fn dispatch_for(cc: TpmCc) -> TpmResult<&'static super::TpmDispatch> {
     TPM_DISPATCH_TABLE
         .binary_search_by_key(&cc, |d| d.cc)
         .map(|index| &TPM_DISPATCH_TABLE[index])
-        .map_err(|_| TpmError::InvalidCc)
+        .map_err(|_| TpmError::InvalidCc(crate::TpmErrorValue::new(0).value(u64::from(cc.value()))))
 }
 
 fn validate_frame_size(buf: &[u8]) -> TpmResult<()> {
     if buf.len() < HEADER_SIZE {
-        return Err(TpmError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd(
+            crate::TpmErrorValue::new(0).size(HEADER_SIZE, buf.len()),
+        ));
     }
 
     let size = read_u32(buf, SIZE_OFFSET) as usize;
     if buf.len() < size {
-        return Err(TpmError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd(
+            crate::TpmErrorValue::new(buf.len()).size(size - buf.len(), 0),
+        ));
     }
 
     if buf.len() > size {
-        return Err(TpmError::TrailingData);
+        return Err(TpmError::TrailingData(
+            crate::TpmErrorValue::new(size).actual(buf.len() - size),
+        ));
     }
 
     Ok(())
@@ -604,67 +676,83 @@ fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
     buf[offset..offset + size_of::<u32>()].copy_from_slice(&value.to_be_bytes());
 }
 
-fn validate_auth_commands(mut buf: &[u8]) -> TpmResult<()> {
+fn validate_auth_commands(base: &[u8], mut buf: &[u8]) -> TpmResult<()> {
     let mut count = 0;
 
     while !buf.is_empty() {
         if count >= MAX_SESSIONS {
-            return Err(TpmError::TooManyItems);
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::at(base, buf).limit(MAX_SESSIONS, count + 1),
+            ));
         }
 
         if buf.len() < size_of::<u32>() {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::at(base, buf).size(size_of::<u32>(), buf.len()),
+            ));
         }
 
         buf = &buf[size_of::<u32>()..];
-        buf = skip_tpm2b(buf)?;
+        buf = skip_tpm2b(base, buf)?;
 
         if buf.is_empty() {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::at(base, buf).size(1, 0),
+            ));
         }
 
         buf = &buf[1..];
-        buf = skip_tpm2b(buf)?;
+        buf = skip_tpm2b(base, buf)?;
         count += 1;
     }
 
     Ok(())
 }
 
-fn validate_auth_responses(mut buf: &[u8]) -> TpmResult<()> {
+fn validate_auth_responses(base: &[u8], mut buf: &[u8]) -> TpmResult<()> {
     let mut count = 0;
 
     while !buf.is_empty() {
         if count >= MAX_SESSIONS {
-            return Err(TpmError::TooManyItems);
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::at(base, buf).limit(MAX_SESSIONS, count + 1),
+            ));
         }
 
-        buf = skip_tpm2b(buf)?;
+        buf = skip_tpm2b(base, buf)?;
 
         if buf.is_empty() {
-            return Err(TpmError::UnexpectedEnd);
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::at(base, buf).size(1, 0),
+            ));
         }
 
         buf = &buf[1..];
-        buf = skip_tpm2b(buf)?;
+        buf = skip_tpm2b(base, buf)?;
         count += 1;
     }
 
     Ok(())
 }
 
-fn skip_tpm2b(buf: &[u8]) -> TpmResult<&[u8]> {
+fn skip_tpm2b<'a>(base: &[u8], buf: &'a [u8]) -> TpmResult<&'a [u8]> {
     if buf.len() < size_of::<u16>() {
-        return Err(TpmError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd(
+            crate::TpmErrorValue::at(base, buf).size(size_of::<u16>(), buf.len()),
+        ));
     }
 
     let size = read_u16(buf, 0) as usize;
     let end = size_of::<u16>()
         .checked_add(size)
-        .ok_or(TpmError::IntegerTooLarge)?;
+        .ok_or(TpmError::IntegerTooLarge(
+            crate::TpmErrorValue::at(base, buf).value_usize(size),
+        ))?;
 
     if buf.len() < end {
-        return Err(TpmError::UnexpectedEnd);
+        return Err(TpmError::UnexpectedEnd(
+            crate::TpmErrorValue::at(base, buf).size(end, buf.len()),
+        ));
     }
 
     Ok(&buf[end..])

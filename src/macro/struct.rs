@@ -36,8 +36,11 @@ macro_rules! tpm_struct {
             pub fn cast_frame(buf: &[u8]) -> $crate::TpmResult<&$crate::frame::TpmCommand> {
                 let command = <$crate::frame::TpmCommand>::cast(buf)?;
 
-                if command.cc()? != Self::CC {
-                    return Err($crate::TpmError::InvalidCc);
+                let cc = command.cc()?;
+                if cc != Self::CC {
+                    return Err($crate::TpmError::InvalidCc(
+                        $crate::TpmErrorValue::new(6).value(u64::from(cc.value())),
+                    ));
                 }
 
                 Ok(command)
@@ -54,8 +57,11 @@ macro_rules! tpm_struct {
             ) -> $crate::TpmResult<&mut $crate::frame::TpmCommand> {
                 let command = <$crate::frame::TpmCommand>::cast_mut(buf)?;
 
-                if command.cc()? != Self::CC {
-                    return Err($crate::TpmError::InvalidCc);
+                let cc = command.cc()?;
+                if cc != Self::CC {
+                    return Err($crate::TpmError::InvalidCc(
+                        $crate::TpmErrorValue::new(6).value(u64::from(cc.value())),
+                    ));
                 }
 
                 Ok(command)
@@ -117,7 +123,9 @@ macro_rules! tpm_struct {
                 }
 
                 if !cursor.is_empty() {
-                    return Err($crate::TpmError::TrailingData);
+                    return Err($crate::TpmError::TrailingData(
+                        $crate::TpmErrorValue::at(handles_buf, cursor).actual(cursor.len()),
+                    ));
                 }
 
                 let mut cursor = params_buf;
@@ -238,7 +246,9 @@ macro_rules! tpm_struct {
                         <$crate::basic::TpmUint32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
                     let size = u32::from(size) as usize;
                     if buf_after_size.len() < size {
-                        return Err($crate::TpmError::UnexpectedEnd);
+                        return Err($crate::TpmError::UnexpectedEnd(
+                            $crate::TpmErrorValue::at(buf, buf_after_size).size(size, buf_after_size.len()),
+                        ));
                     }
                     let (mut params_cursor, final_tail) = buf_after_size.split_at(size);
 
@@ -248,7 +258,9 @@ macro_rules! tpm_struct {
                     )*
 
                     if !params_cursor.is_empty() {
-                        return Err($crate::TpmError::TrailingData);
+                        return Err($crate::TpmError::TrailingData(
+                            $crate::TpmErrorValue::at(buf, params_cursor).actual(params_cursor.len()),
+                        ));
                     }
 
                     Ok((
@@ -349,7 +361,9 @@ macro_rules! tpm2b_struct {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 let len_field = <$crate::basic::TpmUint16>::try_from(inner_len)
-                    .map_err(|_| $crate::TpmError::IntegerTooLarge)?;
+                    .map_err(|_| $crate::TpmError::IntegerTooLarge(
+                        $crate::TpmErrorValue::new(writer.len()).value_usize(inner_len),
+                    ))?;
                 len_field.marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
             }
@@ -361,14 +375,18 @@ macro_rules! tpm2b_struct {
                 let size = u16::from(size) as usize;
 
                 if buf_after_size.len() < size {
-                    return Err($crate::TpmError::UnexpectedEnd);
+                    return Err($crate::TpmError::UnexpectedEnd(
+                        $crate::TpmErrorValue::at(buf, buf_after_size).size(size, buf_after_size.len()),
+                    ));
                 }
                 let (inner_bytes, rest) = buf_after_size.split_at(size);
 
                 let (inner_val, tail) = <$inner_ty>::unmarshal(inner_bytes)?;
 
                 if !tail.is_empty() {
-                    return Err($crate::TpmError::TrailingData);
+                    return Err($crate::TpmError::TrailingData(
+                        $crate::TpmErrorValue::at(buf, tail).actual(tail.len()),
+                    ));
                 }
 
                 Ok((Self { inner: inner_val }, rest))

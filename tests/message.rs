@@ -94,7 +94,8 @@ fn main() {
                             .err()
                             .expect("expected TpmError, got Ok");
                         assert_eq!(
-                            actual_err, expected_err,
+                            std::mem::discriminant(&actual_err),
+                            std::mem::discriminant(&expected_err),
                             "mismatched unmarshaling error type"
                         );
                     }
