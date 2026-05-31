@@ -18,13 +18,13 @@ test: $(RETURN_CODE) $(MESSAGE)
 
 $(MESSAGE): tests/message.rs tests/message.txt $(TARGET)
 	@echo "Compiling test: message..."
-	@rustc tests/message.rs --crate-name message_return_code --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(MESSAGE)
+	@rustc tests/message.rs --crate-name message_return_code --edition=2024 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(MESSAGE)
 
 $(RETURN_CODE): $(TARGET) tests/return_code.rs
 	@echo "Compiling test: return_code..."
-	@rustc tests/return_code.rs --crate-name return_code --edition=2021 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(RETURN_CODE)
+	@rustc tests/return_code.rs --crate-name return_code --edition=2024 --extern tpm2_protocol=$(TARGET) -L $(TARGET_DIR) -o $(RETURN_CODE)
 
 $(TARGET): $(wildcard src/*.rs)
 	@echo "Compiling tpm2-protocol..."
 	@mkdir -p $(TARGET_DIR)
-	@rustc --crate-type lib --crate-name tpm2_protocol src/lib.rs --edition=2021 --out-dir $(TARGET_DIR)
+	@rustc --crate-type lib --crate-name tpm2_protocol src/lib.rs --edition=2024 --out-dir $(TARGET_DIR)
