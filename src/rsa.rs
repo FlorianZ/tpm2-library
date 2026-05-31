@@ -17,8 +17,8 @@ use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     basic::{TpmUint16, TpmUint32},
     data::{
-        Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmsRsaParms,
-        TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+        Tpm2bEncryptedSecret, Tpm2bPublicKeyRsa, TpmAlgId, TpmsRsaParms, TpmsSchemeHash,
+        TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
     },
 };
 
@@ -140,7 +140,7 @@ impl TpmExternalKey for TpmRsaExternalKey {
             object_type: TpmAlgId::Rsa,
             name_alg: template.name_alg(),
             object_attributes: template.object_attributes(),
-            auth_policy: Tpm2bDigest::default(),
+            auth_policy: template.auth_policy(),
             parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
                 symmetric: template.symmetric(),
                 scheme: TpmtRsaScheme {

@@ -17,9 +17,9 @@ use tpm2_crypto::{
 use tpm2_protocol::{
     basic::TpmUint32,
     data::{
-        Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccPoint,
-        TpmtPublic, TpmtSymDefObject, TpmuAsymScheme, TpmuKeyedhashScheme, TpmuPublicId,
-        TpmuPublicParms, TpmuSymMode,
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, TpmAlgId, TpmEccCurve, TpmaObject,
+        TpmsEccPoint, TpmtPublic, TpmtSymDefObject, TpmuAsymScheme, TpmuKeyedhashScheme,
+        TpmuPublicId, TpmuPublicParms, TpmuSymMode,
     },
 };
 
@@ -193,6 +193,38 @@ fn rsa_to_public_with_aes_symmetric() {
     } else {
         panic!("Incorrect parameters type: expected RSA");
     }
+}
+
+#[test]
+fn rsa_to_public_preserves_auth_policy() {
+    let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
+    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32::new(0), 2048.into());
+    let auth_policy = Tpm2bDigest::try_from([0xa5; 32].as_slice()).unwrap();
+
+    let template = TpmPublicTemplate::new()
+        .with_name_alg(TpmHash::Sha256)
+        .with_auth_policy(auth_policy);
+
+    let public = rsa_key.to_public(&template);
+
+    assert_eq!(public.auth_policy, auth_policy);
+}
+
+#[test]
+fn ecc_to_public_preserves_auth_policy() {
+    let x = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
+    let y = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
+    let unique = TpmsEccPoint { x, y };
+    let ecc_key = TpmEccExternalKey::new(TpmEllipticCurve::NistP256, unique);
+    let auth_policy = Tpm2bDigest::try_from([0x5a; 32].as_slice()).unwrap();
+
+    let template = TpmPublicTemplate::new()
+        .with_name_alg(TpmHash::Sha256)
+        .with_auth_policy(auth_policy);
+
+    let public = ecc_key.to_public(&template);
+
+    assert_eq!(public.auth_policy, auth_policy);
 }
 
 #[test]

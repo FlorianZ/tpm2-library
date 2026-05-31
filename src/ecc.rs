@@ -20,9 +20,9 @@ use strum::{Display, EnumString};
 use tpm2_protocol::{
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmsEccParms,
-        TpmsEccPoint, TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmuAsymScheme,
-        TpmuPublicId, TpmuPublicParms,
+        Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmsEccParms, TpmsEccPoint,
+        TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmuAsymScheme, TpmuPublicId,
+        TpmuPublicParms,
     },
     TpmMarshal, TpmWriter,
 };
@@ -216,7 +216,7 @@ impl TpmExternalKey for TpmEccExternalKey {
             object_type: TpmAlgId::Ecc,
             name_alg: template.name_alg(),
             object_attributes: template.object_attributes(),
-            auth_policy: Tpm2bDigest::default(),
+            auth_policy: template.auth_policy(),
             parameters: TpmuPublicParms::Ecc(TpmsEccParms {
                 symmetric: template.symmetric(),
                 scheme: TpmtEccScheme {
