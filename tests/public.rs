@@ -25,14 +25,20 @@ use tpm2_protocol::{
 };
 
 const TEST_MODULUS: [u8; 256] = [1; 256];
+const TEST_MODULUS_3072: [u8; 384] = [1; 384];
 const TEST_COORD: [u8; 32] = [2; 32];
 
 #[rstest]
-#[case(TpmHash::Sha256, 2048)]
-#[case(TpmHash::Sha384, 3072)]
-fn test_rsa_to_public(#[case] hash_alg: TpmHash, #[case] key_bits: u16) {
-    let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
-    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32::new(0), key_bits.into());
+#[case(TpmHash::Sha256, 2048, &TEST_MODULUS)]
+#[case(TpmHash::Sha384, 3072, &TEST_MODULUS_3072)]
+fn test_rsa_to_public(
+    #[case] hash_alg: TpmHash,
+    #[case] key_bits: u16,
+    #[case] modulus_bytes: &[u8],
+) {
+    let public_key = Tpm2bPublicKeyRsa::try_from(modulus_bytes).unwrap();
+    let rsa_key = TpmRsaExternalKey::try_new(public_key, TpmUint32::new(0), key_bits.into())
+        .expect("valid RSA public key");
     let symmetric = TpmtSymDefObject::default();
 
     let template = tpm2_crypto::TpmPublicTemplate::new()
@@ -64,7 +70,7 @@ fn test_rsa_to_public(#[case] hash_alg: TpmHash, #[case] key_bits: u16) {
     }
 
     if let TpmuPublicId::Rsa(modulus) = public.unique {
-        assert_eq!(modulus.as_ref(), TEST_MODULUS);
+        assert_eq!(modulus.as_ref(), modulus_bytes);
     } else {
         panic!("Incorrect unique ID type: expected RSA");
     }
@@ -82,7 +88,7 @@ fn test_ecc_to_public(
     let x = Tpm2bEccParameter::try_from(x_bytes).unwrap();
     let y = Tpm2bEccParameter::try_from(y_bytes).unwrap();
     let unique = TpmsEccPoint { x, y };
-    let ecc_key = TpmEccExternalKey::new(curve, unique);
+    let ecc_key = TpmEccExternalKey::try_new(curve, unique).expect("valid ECC public key");
     let symmetric = TpmtSymDefObject::default();
 
     let template = tpm2_crypto::TpmPublicTemplate::new()
@@ -211,7 +217,8 @@ fn template_string_rejects_unsupported_public_parameters() {
 #[test]
 fn rsa_to_public_with_aes_symmetric() {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
-    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32::new(0), 2048.into());
+    let rsa_key = TpmRsaExternalKey::try_new(public_key, TpmUint32::new(0), 2048.into())
+        .expect("valid RSA public key");
 
     let symmetric = TpmtSymDefObject {
         algorithm: TpmAlgId::Aes,
@@ -236,7 +243,8 @@ fn rsa_to_public_with_aes_symmetric() {
 #[test]
 fn rsa_to_public_preserves_auth_policy() {
     let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
-    let rsa_key = TpmRsaExternalKey::new(public_key, TpmUint32::new(0), 2048.into());
+    let rsa_key = TpmRsaExternalKey::try_new(public_key, TpmUint32::new(0), 2048.into())
+        .expect("valid RSA public key");
     let auth_policy = Tpm2bDigest::try_from([0xa5; 32].as_slice()).unwrap();
 
     let template = TpmPublicTemplate::new()
@@ -249,11 +257,36 @@ fn rsa_to_public_preserves_auth_policy() {
 }
 
 #[test]
+fn rsa_try_new_rejects_invalid_key_bits() {
+    let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
+    let result = TpmRsaExternalKey::try_new(public_key, TpmUint32::new(0), 0.into());
+
+    assert!(matches!(result, Err(TpmCryptoError::InvalidKeyBits(0))));
+}
+
+#[test]
+fn rsa_try_new_rejects_modulus_size_mismatch() {
+    let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
+    let result = TpmRsaExternalKey::try_new(public_key, TpmUint32::new(0), 3072.into());
+
+    assert!(matches!(result, Err(TpmCryptoError::InvalidRsaParameters)));
+}
+
+#[test]
+fn rsa_try_new_rejects_invalid_exponent() {
+    let public_key = Tpm2bPublicKeyRsa::try_from(TEST_MODULUS.as_slice()).unwrap();
+    let result = TpmRsaExternalKey::try_new(public_key, TpmUint32::new(2), 2048.into());
+
+    assert!(matches!(result, Err(TpmCryptoError::InvalidRsaParameters)));
+}
+
+#[test]
 fn ecc_to_public_preserves_auth_policy() {
     let x = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
     let y = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
     let unique = TpmsEccPoint { x, y };
-    let ecc_key = TpmEccExternalKey::new(TpmEllipticCurve::NistP256, unique);
+    let ecc_key = TpmEccExternalKey::try_new(TpmEllipticCurve::NistP256, unique)
+        .expect("valid ECC public key");
     let auth_policy = Tpm2bDigest::try_from([0x5a; 32].as_slice()).unwrap();
 
     let template = TpmPublicTemplate::new()
@@ -284,6 +317,24 @@ fn ecc_from_public_rejects_object_type_mismatch() {
     };
 
     let result = TpmEccExternalKey::try_from(&public);
+
+    assert!(matches!(result, Err(TpmCryptoError::InvalidEccParameters)));
+}
+
+#[test]
+fn ecc_try_new_rejects_unsupported_curve() {
+    let x = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
+    let y = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
+    let result = TpmEccExternalKey::try_new(TpmEllipticCurve::BnP256, TpmsEccPoint { x, y });
+
+    assert!(matches!(result, Err(TpmCryptoError::InvalidEccCurve)));
+}
+
+#[test]
+fn ecc_try_new_rejects_coordinate_size_mismatch() {
+    let x = Tpm2bEccParameter::try_from([3; 31].as_slice()).unwrap();
+    let y = Tpm2bEccParameter::try_from(TEST_COORD.as_slice()).unwrap();
+    let result = TpmEccExternalKey::try_new(TpmEllipticCurve::NistP256, TpmsEccPoint { x, y });
 
     assert!(matches!(result, Err(TpmCryptoError::InvalidEccParameters)));
 }

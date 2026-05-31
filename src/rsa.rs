@@ -31,13 +31,39 @@ pub struct TpmRsaExternalKey {
 }
 
 impl TpmRsaExternalKey {
-    #[must_use]
-    pub fn new(public_key: Tpm2bPublicKeyRsa, exponent: TpmUint32, key_bits: TpmUint16) -> Self {
-        Self {
+    /// Creates RSA public key parameters after validating the modulus shape.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidKeyBits`](crate::TpmCryptoError::InvalidKeyBits) when
+    /// `key_bits` is zero or not byte-aligned.
+    /// Returns [`InvalidRsaParameters`](crate::TpmCryptoError::InvalidRsaParameters)
+    /// when the modulus length does not match `key_bits`, or the exponent is
+    /// not zero, odd, and at least three.
+    pub fn try_new(
+        public_key: Tpm2bPublicKeyRsa,
+        exponent: TpmUint32,
+        key_bits: TpmUint16,
+    ) -> Result<Self, TpmCryptoError> {
+        let key_bits_value = key_bits.value();
+        if key_bits_value == 0 || key_bits_value % 8 != 0 {
+            return Err(TpmCryptoError::InvalidKeyBits(key_bits_value));
+        }
+
+        if public_key.as_ref().len() != usize::from(key_bits_value / 8) {
+            return Err(TpmCryptoError::InvalidRsaParameters);
+        }
+
+        let exponent_value = exponent.value();
+        if exponent_value != 0 && (exponent_value < 3 || exponent_value % 2 == 0) {
+            return Err(TpmCryptoError::InvalidRsaParameters);
+        }
+
+        Ok(Self {
             public_key,
             exponent,
             key_bits,
-        }
+        })
     }
 
     /// Returns the public key modulus.
@@ -84,11 +110,7 @@ impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
             exponent_u32
         };
 
-        Ok(Self {
-            public_key: n,
-            exponent: TpmUint32::new(e),
-            key_bits: params.key_bits,
-        })
+        Self::try_new(n, TpmUint32::new(e), params.key_bits)
     }
 }
 
@@ -115,11 +137,7 @@ impl TryFrom<&PKey<Private>> for TpmRsaExternalKey {
         let key_bits =
             u16::try_from(rsa.size() * 8).map_err(|_| TpmCryptoError::InvalidRsaParameters)?;
 
-        Ok(Self {
-            public_key: n,
-            exponent: TpmUint32::new(e),
-            key_bits: TpmUint16::new(key_bits),
-        })
+        Self::try_new(n, TpmUint32::new(e), TpmUint16::new(key_bits))
     }
 }
 

@@ -141,9 +141,27 @@ pub struct TpmEccExternalKey {
 }
 
 impl TpmEccExternalKey {
-    #[must_use]
-    pub fn new(curve: TpmEllipticCurve, unique: TpmsEccPoint) -> Self {
-        Self { curve, unique }
+    /// Creates ECC public key parameters after validating the curve and point shape.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidEccCurve`](crate::TpmCryptoError::InvalidEccCurve)
+    /// when the curve is not supported by this crate's OpenSSL backend.
+    /// Returns [`InvalidEccParameters`](crate::TpmCryptoError::InvalidEccParameters)
+    /// when the affine point coordinate sizes do not match the curve.
+    /// Returns [`OutOfMemory`](crate::TpmCryptoError::OutOfMemory) when OpenSSL
+    /// cannot allocate the curve group.
+    pub fn try_new(curve: TpmEllipticCurve, unique: TpmsEccPoint) -> Result<Self, TpmCryptoError> {
+        let nid = Nid::try_from(curve)?;
+        let group = EcGroup::from_curve_name(nid).map_err(|_| TpmCryptoError::OutOfMemory)?;
+        let coord_len = usize::try_from(group.degree().div_ceil(8))
+            .map_err(|_| TpmCryptoError::OperationFailed)?;
+
+        if unique.x.as_ref().len() != coord_len || unique.y.as_ref().len() != coord_len {
+            return Err(TpmCryptoError::InvalidEccParameters);
+        }
+
+        Ok(Self { curve, unique })
     }
 
     /// Returns the curve of the ECC key.
@@ -176,10 +194,7 @@ impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
             _ => Err(TpmCryptoError::InvalidEccParameters),
         }?;
 
-        Ok(Self {
-            curve: params.curve_id.try_into()?,
-            unique: TpmsEccPoint { x, y },
-        })
+        Self::try_new(params.curve_id.try_into()?, TpmsEccPoint { x, y })
     }
 }
 
@@ -199,7 +214,7 @@ impl TryFrom<&PKey<Private>> for TpmEccExternalKey {
         let mut ctx = BigNumContext::new().map_err(|_| TpmCryptoError::OutOfMemory)?;
         let unique = tpm_make_point(ec_key.public_key(), group, &mut ctx)?;
 
-        Ok(Self { curve, unique })
+        Self::try_new(curve, unique)
     }
 }
 
