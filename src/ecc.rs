@@ -5,7 +5,7 @@
 //! TPM 2.0 ECC curves and cryptographic operations.
 
 use super::TpmPublicTemplate;
-use crate::{TpmCryptoError, TpmExternalKey, TpmHash, TpmPublicAreaField, KDF_LABEL_DUPLICATE};
+use crate::{KDF_LABEL_DUPLICATE, TpmCryptoError, TpmExternalKey, TpmHash, TpmPublicAreaField};
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::ops::bytes::ToBytes;
 use openssl::{
@@ -18,13 +18,13 @@ use openssl::{
 use rand::{CryptoRng, RngCore};
 use strum::{Display, EnumString};
 use tpm2_protocol::{
-    constant::{MAX_ECC_KEY_BYTES, TPM_MAX_COMMAND_SIZE},
-    data::{
-        Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmsEccParms, TpmsEccPoint,
-        TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmuAsymScheme, TpmuPublicId,
-        TpmuPublicParms,
-    },
     TpmMarshal, TpmWriter,
+    constant::{MAX_DIGEST_SIZE, MAX_ECC_KEY_BYTES, TPM_MAX_COMMAND_SIZE},
+    data::{
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmsEccParms,
+        TpmsEccPoint, TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmuAsymScheme,
+        TpmuPublicId, TpmuPublicParms,
+    },
 };
 
 const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
@@ -271,7 +271,7 @@ impl TpmExternalKey for TpmEccExternalKey {
         &self,
         name_alg: TpmHash,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError> {
+    ) -> Result<(Tpm2bDigest, Tpm2bEncryptedSecret), TpmCryptoError> {
         let (derived_seed, ephemeral_point) = self.ecdh(name_alg, rng)?;
 
         let mut point_bytes_buf = [0u8; TPM_MAX_COMMAND_SIZE];
@@ -306,7 +306,7 @@ impl TpmEccExternalKey {
         &self,
         name_alg: TpmHash,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(Vec<u8>, TpmsEccPoint), TpmCryptoError> {
+    ) -> Result<(Tpm2bDigest, TpmsEccPoint), TpmCryptoError> {
         let nid = Nid::try_from(self.curve)?;
         let group = EcGroup::from_curve_name(nid).map_err(TpmCryptoError::Crypto)?;
         let mut ctx = BigNumContext::new().map_err(TpmCryptoError::Crypto)?;
@@ -352,7 +352,16 @@ impl TpmEccExternalKey {
         let context_u = ephemeral.x.as_ref();
         let context_v = self.unique.x.as_ref();
 
-        let seed = name_alg.kdfe(&z, KDF_LABEL_DUPLICATE, context_u, context_v, seed_bits)?;
+        let mut seed_buf = [0u8; MAX_DIGEST_SIZE];
+        let len = name_alg.kdfe_into(
+            &z,
+            KDF_LABEL_DUPLICATE,
+            context_u,
+            context_v,
+            seed_bits,
+            &mut seed_buf,
+        )?;
+        let seed = Tpm2bDigest::try_from(&seed_buf[..len]).map_err(TpmCryptoError::Unmarshal)?;
 
         Ok((seed, ephemeral))
     }

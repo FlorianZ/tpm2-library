@@ -8,7 +8,7 @@
 #![deny(clippy::pedantic)]
 
 use openssl::{pkey::PKey, rsa::Rsa};
-use rand::{rngs::OsRng, rngs::StdRng, SeedableRng};
+use rand::{SeedableRng, rngs::OsRng, rngs::StdRng};
 use tpm2_crypto::{TpmExternalKey, TpmHash, TpmRsaExternalKey};
 
 #[test]

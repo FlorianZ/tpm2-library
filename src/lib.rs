@@ -59,7 +59,13 @@ where
         &self,
         name_alg: TpmHash,
         rng: &mut (impl rand::RngCore + rand::CryptoRng),
-    ) -> Result<(Vec<u8>, tpm2_protocol::data::Tpm2bEncryptedSecret), TpmCryptoError>;
+    ) -> Result<
+        (
+            tpm2_protocol::data::Tpm2bDigest,
+            tpm2_protocol::data::Tpm2bEncryptedSecret,
+        ),
+        TpmCryptoError,
+    >;
 }
 
 /// Calculates the cryptographics name of a transient or persistent TPM object.

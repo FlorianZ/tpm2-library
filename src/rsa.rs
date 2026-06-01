@@ -16,10 +16,11 @@ use openssl::{
 use rand::{CryptoRng, RngCore};
 use tpm2_protocol::{
     basic::{TpmUint16, TpmUint32},
-    constant::MAX_RSA_KEY_BYTES,
+    constant::{MAX_DIGEST_SIZE, MAX_RSA_KEY_BYTES},
     data::{
-        Tpm2bEncryptedSecret, Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmAlgId, TpmsRsaParms,
-        TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId, TpmuPublicParms,
+        Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmAlgId,
+        TpmsRsaParms, TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId,
+        TpmuPublicParms,
     },
 };
 
@@ -194,12 +195,14 @@ impl TpmExternalKey for TpmRsaExternalKey {
         &self,
         name_alg: TpmHash,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(Vec<u8>, Tpm2bEncryptedSecret), TpmCryptoError> {
+    ) -> Result<(Tpm2bDigest, Tpm2bEncryptedSecret), TpmCryptoError> {
         let seed_size = name_alg.size();
-        let mut seed = vec![0u8; seed_size];
-        rng.fill_bytes(&mut seed);
+        let mut seed_buf = [0u8; MAX_DIGEST_SIZE];
+        rng.fill_bytes(&mut seed_buf[..seed_size]);
+        let seed =
+            Tpm2bDigest::try_from(&seed_buf[..seed_size]).map_err(TpmCryptoError::Unmarshal)?;
 
-        let encrypted_seed_bytes = self.oaep(name_alg, &seed)?;
+        let encrypted_seed_bytes = self.oaep(name_alg, seed.as_ref())?;
 
         let encrypted_seed = Tpm2bEncryptedSecret::try_from(encrypted_seed_bytes.as_slice())
             .map_err(TpmCryptoError::Unmarshal)?;
