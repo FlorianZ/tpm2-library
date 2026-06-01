@@ -138,6 +138,51 @@ fn kdfa_input_sensitivity() {
 }
 
 #[test]
+fn kdfa_accepts_non_utf8_byte_label() {
+    let alg = TpmHash::Sha256;
+    let key = b"key";
+    let label = b"\xffLBL\x80";
+    let ctx_a = b"A";
+    let ctx_b = b"B";
+    let key_bits = 128;
+
+    let expected = kdfa_expected(alg, key, label, ctx_a, ctx_b, key_bits);
+    let actual = alg
+        .kdfa(key, label, ctx_a, ctx_b, key_bits)
+        .expect("kdfa ok");
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn kdfa_embedded_nul_is_label_data() {
+    let alg = TpmHash::Sha256;
+    let key = b"K";
+    let ctx_a = b"A";
+    let ctx_b = b"B";
+
+    let res_a = alg.kdfa(key, b"LAB", ctx_a, ctx_b, 128).expect("LAB");
+    let res_b = alg.kdfa(key, b"LA\0B", ctx_a, ctx_b, 128).expect("LA\\0B");
+
+    assert_ne!(res_a, res_b);
+}
+
+#[test]
+fn kdfa_zero_bit_output_is_empty() {
+    let alg = TpmHash::Sha256;
+    let mut output = [0xa5; 4];
+
+    let actual = alg.kdfa(b"key", b"LBL", b"A", b"B", 0).expect("kdfa");
+    let len = alg
+        .kdfa_into(b"key", b"LBL", b"A", b"B", 0, &mut output)
+        .expect("kdfa_into");
+
+    assert!(actual.is_empty());
+    assert_eq!(len, 0);
+    assert_eq!(output, [0xa5; 4]);
+}
+
+#[test]
 fn kdfa_into_matches_kdfa() {
     let alg = TpmHash::Sha256;
     let key = b"k";
@@ -189,6 +234,49 @@ fn kdfe_sha256_eq() {
 
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), key_bits.div_ceil(8));
+}
+
+#[test]
+fn kdfe_accepts_non_utf8_byte_label() {
+    let alg = TpmHash::Sha256;
+    let z = b"sharedsecretZ";
+    let label = b"\xffDUP\x80";
+    let u = b"Ux";
+    let v = b"Vx";
+    let key_bits = 128;
+
+    let expected = kdfe_expected(alg, z, label, u, v, key_bits);
+    let actual = alg.kdfe(z, label, u, v, key_bits).expect("kdfe ok");
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn kdfe_embedded_nul_is_label_data() {
+    let alg = TpmHash::Sha256;
+    let z = b"Z";
+    let u = b"U";
+    let v = b"V";
+
+    let res_a = alg.kdfe(z, b"LAB", u, v, 128).expect("LAB");
+    let res_b = alg.kdfe(z, b"LA\0B", u, v, 128).expect("LA\\0B");
+
+    assert_ne!(res_a, res_b);
+}
+
+#[test]
+fn kdfe_zero_bit_output_is_empty() {
+    let alg = TpmHash::Sha256;
+    let mut output = [0xa5; 4];
+
+    let actual = alg.kdfe(b"Z", b"LBL", b"A", b"B", 0).expect("kdfe");
+    let len = alg
+        .kdfe_into(b"Z", b"LBL", b"A", b"B", 0, &mut output)
+        .expect("kdfe_into");
+
+    assert!(actual.is_empty());
+    assert_eq!(len, 0);
+    assert_eq!(output, [0xa5; 4]);
 }
 
 #[test]
