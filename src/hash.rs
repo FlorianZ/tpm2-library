@@ -212,16 +212,19 @@ impl TpmHash {
     /// hash algorithm is not recognized.
     /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
     /// provided key is empty.
+    /// Returns [`InvalidKdfKeyBits`](crate::TpmCryptoError::InvalidKdfKeyBits)
+    /// when `key_bits` does not fit in a TPM `UINT32`.
     /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn kdfa(
         &self,
         hmac_key: &[u8],
-        label: &str,
+        label: &[u8],
         context_a: &[u8],
         context_b: &[u8],
-        key_bits: u16,
+        key_bits: usize,
     ) -> Result<Vec<u8>, TpmCryptoError> {
-        let mut key_stream = vec![0; (key_bits as usize).div_ceil(8)];
+        let (key_bytes, _) = checked_kdf_key_bits(key_bits)?;
+        let mut key_stream = vec![0; key_bytes];
         let len = self.kdfa_into(
             hmac_key,
             label,
@@ -244,25 +247,26 @@ impl TpmHash {
     /// `output` is too small for the requested key size.
     /// Returns [`KeyIsEmpty`](crate::TpmCryptoError::KeyIsEmpty) when the
     /// provided key is empty.
+    /// Returns [`InvalidKdfKeyBits`](crate::TpmCryptoError::InvalidKdfKeyBits)
+    /// when `key_bits` does not fit in a TPM `UINT32`.
     /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn kdfa_into(
         &self,
         hmac_key: &[u8],
-        label: &str,
+        label: &[u8],
         context_a: &[u8],
         context_b: &[u8],
-        key_bits: u16,
+        key_bits: usize,
         output: &mut [u8],
     ) -> Result<usize, TpmCryptoError> {
         if hmac_key.is_empty() {
             return Err(TpmCryptoError::KeyIsEmpty);
         }
 
-        let key_bytes = (key_bits as usize).div_ceil(8);
+        let (key_bytes, key_bits_bytes) = checked_kdf_key_bits(key_bits)?;
         check_output_len(output, key_bytes)?;
 
         let mut counter: u32 = 1;
-        let key_bits_bytes = u32::from(key_bits).to_be_bytes();
 
         let md = (*self).into();
         let pkey = PKey::hmac(hmac_key).map_err(TpmCryptoError::Crypto)?;
@@ -274,7 +278,7 @@ impl TpmHash {
             let counter_bytes = counter.to_be_bytes();
             let hmac_payload = [
                 counter_bytes.as_slice(),
-                label.as_bytes(),
+                label,
                 &[0u8],
                 context_a,
                 context_b,
@@ -306,16 +310,19 @@ impl TpmHash {
     ///
     /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
     /// hash algorithm is not recognized.
+    /// Returns [`InvalidKdfKeyBits`](crate::TpmCryptoError::InvalidKdfKeyBits)
+    /// when `key_bits` does not fit in a TPM `UINT32`.
     /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn kdfe(
         &self,
         z: &[u8],
-        label: &str,
+        label: &[u8],
         context_u: &[u8],
         context_v: &[u8],
-        key_bits: u16,
+        key_bits: usize,
     ) -> Result<Vec<u8>, TpmCryptoError> {
-        let mut key_stream = vec![0; (key_bits as usize).div_ceil(8)];
+        let (key_bytes, _) = checked_kdf_key_bits(key_bits)?;
+        let mut key_stream = vec![0; key_bytes];
         let len = self.kdfe_into(z, label, context_u, context_v, key_bits, &mut key_stream)?;
         key_stream.truncate(len);
         Ok(key_stream)
@@ -329,23 +336,25 @@ impl TpmHash {
     ///
     /// Returns [`BufferTooSmall`](crate::TpmCryptoError::BufferTooSmall) when
     /// `output` is too small for the requested key size.
+    /// Returns [`InvalidKdfKeyBits`](crate::TpmCryptoError::InvalidKdfKeyBits)
+    /// when `key_bits` does not fit in a TPM `UINT32`.
     /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
     pub fn kdfe_into(
         &self,
         z: &[u8],
-        label: &str,
+        label: &[u8],
         context_u: &[u8],
         context_v: &[u8],
-        key_bits: u16,
+        key_bits: usize,
         output: &mut [u8],
     ) -> Result<usize, TpmCryptoError> {
-        let key_bytes = (key_bits as usize).div_ceil(8);
+        let (key_bytes, _) = checked_kdf_key_bits(key_bits)?;
         check_output_len(output, key_bytes)?;
 
-        let (label_data, terminator) = if label.as_bytes().last() == Some(&0) {
-            (label.as_bytes(), &[][..])
+        let (label_data, terminator) = if label.last() == Some(&0) {
+            (label, &[][..])
         } else {
-            (label.as_bytes(), &[0u8][..])
+            (label, &[0u8][..])
         };
 
         let mut counter: u32 = 1;
@@ -379,6 +388,13 @@ impl TpmHash {
 
         Ok(key_bytes)
     }
+}
+
+fn checked_kdf_key_bits(key_bits: usize) -> Result<(usize, [u8; 4]), TpmCryptoError> {
+    let key_bits_u32 =
+        u32::try_from(key_bits).map_err(|_| TpmCryptoError::InvalidKdfKeyBits(key_bits))?;
+
+    Ok((key_bits.div_ceil(8), key_bits_u32.to_be_bytes()))
 }
 
 fn check_output_len(output: &[u8], expected: usize) -> Result<(), TpmCryptoError> {

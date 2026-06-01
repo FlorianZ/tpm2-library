@@ -347,8 +347,7 @@ impl TpmEccExternalKey {
 
         let ephemeral = tpm_make_point(&ephemeral_pub_point, &group, &mut ctx, self.curve)?;
 
-        let seed_bits =
-            u16::try_from(name_alg.size() * 8).map_err(|_| TpmCryptoError::OperationFailed)?;
+        let seed_bits = name_alg.size() * 8;
         let context_u = ephemeral.x.as_ref();
         let context_v = self.unique.x.as_ref();
 

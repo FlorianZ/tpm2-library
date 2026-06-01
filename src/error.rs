@@ -91,6 +91,10 @@ pub enum TpmCryptoError {
     #[error("invalid RSA key bits: {0}")]
     InvalidKeyBits(u16),
 
+    /// Invalid KDF key bits.
+    #[error("invalid KDF key bits: {0} exceeds TPM UINT32")]
+    InvalidKdfKeyBits(usize),
+
     /// Invalid object type.
     #[error("invalid object type")]
     InvalidObjectType,
@@ -236,6 +240,7 @@ impl PartialEq for TpmCryptoError {
             | (Self::OutOfMemory, Self::OutOfMemory)
             | (Self::PermissionDenied, Self::PermissionDenied) => true,
             (Self::InvalidKeyBits(a), Self::InvalidKeyBits(b)) => a == b,
+            (Self::InvalidKdfKeyBits(a), Self::InvalidKdfKeyBits(b)) => a == b,
             (Self::InvalidRsaModulus(a), Self::InvalidRsaModulus(b)) => a == b,
             (Self::InvalidRsaExponent(a), Self::InvalidRsaExponent(b)) => a == b,
             (Self::Marshal(a), Self::Marshal(b)) | (Self::Unmarshal(a), Self::Unmarshal(b)) => {

@@ -12,15 +12,18 @@ use tpm2_crypto::{TpmCryptoError, TpmHash};
 fn kdfa_expected(
     alg: TpmHash,
     hmac_key: &[u8],
-    label: &str,
+    label: &[u8],
     context_a: &[u8],
     context_b: &[u8],
-    key_bits: u16,
+    key_bits: usize,
 ) -> Vec<u8> {
-    let key_bytes = (key_bits as usize).div_ceil(8);
+    let key_bytes = key_bits.div_ceil(8);
     let mut key_stream = Vec::with_capacity(key_bytes);
+    let key_bits_bytes = u32::try_from(key_bits)
+        .expect("key_bits fits TPM UINT32")
+        .to_be_bytes();
 
-    let mut label_bytes = label.as_bytes().to_vec();
+    let mut label_bytes = label.to_vec();
     label_bytes.push(0);
 
     let mut counter: u32 = 1;
@@ -30,7 +33,7 @@ fn kdfa_expected(
         payload.extend_from_slice(&label_bytes);
         payload.extend_from_slice(context_a);
         payload.extend_from_slice(context_b);
-        payload.extend_from_slice(&u32::from(key_bits).to_be_bytes());
+        payload.extend_from_slice(&key_bits_bytes);
 
         let block = alg.hmac(hmac_key, &[payload.as_slice()]).expect("hmac ok");
         let remaining = key_bytes - key_stream.len();
@@ -45,15 +48,15 @@ fn kdfa_expected(
 fn kdfe_expected(
     alg: TpmHash,
     z: &[u8],
-    label: &str,
+    label: &[u8],
     context_u: &[u8],
     context_v: &[u8],
-    key_bits: u16,
+    key_bits: usize,
 ) -> Vec<u8> {
-    let key_bytes = (key_bits as usize).div_ceil(8);
+    let key_bytes = key_bits.div_ceil(8);
     let mut key_stream = Vec::with_capacity(key_bytes);
 
-    let mut label_bytes = label.as_bytes().to_vec();
+    let mut label_bytes = label.to_vec();
     if label_bytes.last() != Some(&0) {
         label_bytes.push(0);
     }
@@ -81,7 +84,7 @@ fn kdfe_expected(
 fn kdfa_sha256_eq() {
     let alg = TpmHash::Sha256;
     let key = b"supersecretkey";
-    let label = "LABEL";
+    let label = b"LABEL";
     let ctx_a = b"A";
     let ctx_b = b"B";
     let key_bits = 256;
@@ -92,14 +95,14 @@ fn kdfa_sha256_eq() {
         .expect("kdfa ok");
 
     assert_eq!(actual, expected);
-    assert_eq!(actual.len(), (key_bits as usize).div_ceil(8));
+    assert_eq!(actual.len(), key_bits.div_ceil(8));
 }
 
 #[test]
 fn kdfa_key_length_variance() {
     let alg = TpmHash::Sha256;
     let key = b"k";
-    let label = "X";
+    let label = b"X";
     let ctx_a = b"Y";
     let ctx_b = b"Z";
 
@@ -118,12 +121,12 @@ fn kdfa_key_length_variance() {
 fn kdfa_input_sensitivity() {
     let alg = TpmHash::Sha256;
     let key = b"key";
-    let label = "LBL";
+    let label = b"LBL";
     let ctx_a = b"AAA";
     let ctx_b = b"BBB";
 
     let base = alg.kdfa(key, label, ctx_a, ctx_b, 128).expect("base");
-    let diff_label = alg.kdfa(key, "LBL2", ctx_a, ctx_b, 128).expect("label");
+    let diff_label = alg.kdfa(key, b"LBL2", ctx_a, ctx_b, 128).expect("label");
     let diff_a = alg.kdfa(key, label, b"AAAA", ctx_b, 128).expect("a");
     let diff_b = alg.kdfa(key, label, ctx_a, b"BBBB", 128).expect("b");
     let diff_key = alg.kdfa(b"key2", label, ctx_a, ctx_b, 128).expect("key");
@@ -138,7 +141,7 @@ fn kdfa_input_sensitivity() {
 fn kdfa_into_matches_kdfa() {
     let alg = TpmHash::Sha256;
     let key = b"k";
-    let label = "X";
+    let label = b"X";
     let ctx_a = b"Y";
     let ctx_b = b"Z";
     let key_bits = 257;
@@ -161,7 +164,7 @@ fn kdfa_into_rejects_short_buffer() {
     let alg = TpmHash::Sha256;
     let mut output = [0; 15];
 
-    let result = alg.kdfa_into(b"key", "LBL", b"A", b"B", 128, &mut output);
+    let result = alg.kdfa_into(b"key", b"LBL", b"A", b"B", 128, &mut output);
 
     assert!(matches!(
         result,
@@ -176,7 +179,7 @@ fn kdfa_into_rejects_short_buffer() {
 fn kdfe_sha256_eq() {
     let alg = TpmHash::Sha256;
     let z = b"sharedsecretZ";
-    let label = "DUPLICATE";
+    let label = b"DUPLICATE";
     let u = b"Ux";
     let v = b"Vx";
     let key_bits = 256;
@@ -185,14 +188,36 @@ fn kdfe_sha256_eq() {
     let actual = alg.kdfe(z, label, u, v, key_bits).expect("kdfe ok");
 
     assert_eq!(actual, expected);
-    assert_eq!(actual.len(), (key_bits as usize).div_ceil(8));
+    assert_eq!(actual.len(), key_bits.div_ceil(8));
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn kdfa_rejects_key_bits_exceeding_tpm_uint32() {
+    let alg = TpmHash::Sha256;
+    let too_large = usize::try_from(u64::from(u32::MAX) + 1).expect("usize can exceed u32");
+
+    let result = alg.kdfa_into(b"key", b"LBL", b"A", b"B", too_large, &mut []);
+
+    assert_eq!(result, Err(TpmCryptoError::InvalidKdfKeyBits(too_large)));
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn kdfe_rejects_key_bits_exceeding_tpm_uint32() {
+    let alg = TpmHash::Sha256;
+    let too_large = usize::try_from(u64::from(u32::MAX) + 1).expect("usize can exceed u32");
+
+    let result = alg.kdfe_into(b"Z", b"LBL", b"A", b"B", too_large, &mut []);
+
+    assert_eq!(result, Err(TpmCryptoError::InvalidKdfKeyBits(too_large)));
 }
 
 #[test]
 fn kdfe_into_matches_kdfe() {
     let alg = TpmHash::Sha256;
     let z = b"sharedsecretZ";
-    let label = "DUPLICATE";
+    let label = b"DUPLICATE";
     let u = b"Ux";
     let v = b"Vx";
     let key_bits = 257;
@@ -213,7 +238,7 @@ fn kdfe_into_rejects_short_buffer() {
     let alg = TpmHash::Sha256;
     let mut output = [0; 15];
 
-    let result = alg.kdfe_into(b"Z", "LBL", b"A", b"B", 128, &mut output);
+    let result = alg.kdfe_into(b"Z", b"LBL", b"A", b"B", 128, &mut output);
 
     assert!(matches!(
         result,
@@ -231,9 +256,9 @@ fn kdfe_label_null_termination_eq() {
     let u_val = b"U";
     let v_val = b"V";
 
-    let res_a = alg.kdfe(z_val, "LAB", u_val, v_val, 128).expect("LAB");
+    let res_a = alg.kdfe(z_val, b"LAB", u_val, v_val, 128).expect("LAB");
     let res_b = alg
-        .kdfe(z_val, "LAB\u{0}", u_val, v_val, 128)
+        .kdfe(z_val, b"LAB\0", u_val, v_val, 128)
         .expect("LAB\\0");
     assert_eq!(res_a, res_b);
 }
@@ -245,9 +270,7 @@ fn kdfa_label_null_termination_diff() {
     let ctx_a = b"A";
     let ctx_b = b"B";
 
-    let res_a = alg.kdfa(key, "LAB", ctx_a, ctx_b, 128).expect("LAB");
-    let res_b = alg
-        .kdfa(key, "LAB\u{0}", ctx_a, ctx_b, 128)
-        .expect("LAB\\0");
+    let res_a = alg.kdfa(key, b"LAB", ctx_a, ctx_b, 128).expect("LAB");
+    let res_b = alg.kdfa(key, b"LAB\0", ctx_a, ctx_b, 128).expect("LAB\\0");
     assert_ne!(res_a, res_b);
 }

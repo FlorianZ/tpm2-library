@@ -19,9 +19,9 @@ pub use hash::*;
 pub use rsa::*;
 pub use template::*;
 
-pub const KDF_LABEL_DUPLICATE: &str = "DUPLICATE";
-pub const KDF_LABEL_INTEGRITY: &str = "INTEGRITY";
-pub const KDF_LABEL_STORAGE: &str = "STORAGE";
+pub const KDF_LABEL_DUPLICATE: &[u8] = b"DUPLICATE";
+pub const KDF_LABEL_INTEGRITY: &[u8] = b"INTEGRITY";
+pub const KDF_LABEL_STORAGE: &[u8] = b"STORAGE";
 
 /// Trait for cryptographic public keys.
 pub trait TpmExternalKey
