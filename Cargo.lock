@@ -685,7 +685,7 @@ checksum = "151eff32ff1589a5dfbfc9cee62b232fce1413d30409879ceecd7de650448931"
 
 [[package]]
 name = "tpm2-tpmkey"
-version = "0.11.10"
+version = "0.12.0"
 dependencies = [
  "hex",
  "pem",

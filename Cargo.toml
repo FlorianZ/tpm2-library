@@ -1,7 +1,7 @@
 [package]
 name = "tpm2-tpmkey"
 description = "TPM 2.0 key ASN.1 file reader and writer"
-version = "0.11.10"
+version = "0.12.0"
 license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.com/tpm-protocol/tpm2-protocol"
 repository = "https://gitlab.com/tpm-protocol/tpm2-protocol"
