@@ -87,19 +87,21 @@ pub fn tpm_make_name(
     let name_alg = TpmHash::try_from(public.name_alg)?;
     let alg_bytes = public.name_alg.value().to_be_bytes();
 
-    let len = public.len();
-    let mut public_bytes = vec![0u8; len];
-    let mut writer = tpm2_protocol::TpmWriter::new(&mut public_bytes);
-    public
-        .marshal(&mut writer)
-        .map_err(TpmCryptoError::Marshal)?;
+    let mut public_bytes = [0u8; tpm2_protocol::data::TpmtPublic::SIZE];
+    let len = {
+        let mut writer = tpm2_protocol::TpmWriter::new(&mut public_bytes);
+        public
+            .marshal(&mut writer)
+            .map_err(TpmCryptoError::Marshal)?;
+        writer.len()
+    };
 
-    let digest = name_alg.digest(&[&public_bytes])?;
-    let digest_len = digest.len();
+    let mut digest = [0u8; tpm2_protocol::constant::MAX_DIGEST_SIZE];
+    let digest_len = name_alg.digest_into(&[&public_bytes[..len]], &mut digest)?;
 
     let mut final_buf = [0u8; tpm2_protocol::constant::MAX_DIGEST_SIZE + 2];
     final_buf[..2].copy_from_slice(&alg_bytes);
-    final_buf[2..2 + digest_len].copy_from_slice(&digest);
+    final_buf[2..2 + digest_len].copy_from_slice(&digest[..digest_len]);
 
     tpm2_protocol::data::Tpm2bName::try_from(&final_buf[..2 + digest_len])
         .map_err(TpmCryptoError::Unmarshal)
