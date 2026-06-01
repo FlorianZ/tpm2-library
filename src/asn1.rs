@@ -4,11 +4,11 @@
 
 use crate::TpmKeyError;
 use rasn::{
+    AsnType, Decode, Decoder, Encode, Encoder,
     prelude::ObjectIdentifier,
     types::{OctetString, Utf8String},
-    AsnType, Decode, Decoder, Encode, Encoder,
 };
-use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmMarshal, TpmWriter};
+use tpm2_protocol::{TpmMarshal, TpmWriter, constant::TPM_MAX_COMMAND_SIZE};
 
 pub(crate) fn tpm_marshal_array(objs: &[&dyn TpmMarshal]) -> Result<Vec<u8>, TpmKeyError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];

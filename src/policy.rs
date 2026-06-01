@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{asn1::TpmKeyCommandAsn1, TpmKeyError};
+use crate::{TpmKeyError, asn1::TpmKeyCommandAsn1};
 use tpm2_protocol::data::TpmCc;
 
 /// A TPM policy command blob encoded according to the ASN.1 specification

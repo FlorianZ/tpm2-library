@@ -46,7 +46,7 @@ pub enum TpmKeyError {
 
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
-    Marshal(tpm2_protocol::TpmProtocolError),
+    Marshal(tpm2_protocol::TpmError),
 
     /// Decoding PEM encoded data failed.
     #[error("PEM decoding failed: {0}")]
@@ -54,5 +54,5 @@ pub enum TpmKeyError {
 
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
-    Unmarshal(tpm2_protocol::TpmProtocolError),
+    Unmarshal(tpm2_protocol::TpmError),
 }

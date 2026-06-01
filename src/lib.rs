@@ -50,7 +50,7 @@ mod policy;
 pub use error::*;
 pub use policy::*;
 
-use crate::asn1::{tpm_marshal_array, TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1};
+use crate::asn1::{TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1, tpm_marshal_array};
 use pem::{EncodeConfig, LineEnding, Pem};
 use rasn::types::{OctetString, Utf8String};
 
@@ -69,9 +69,18 @@ pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
-    basic::{TpmHandle, TpmUint32},
-    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
-    TpmUnmarshal,
+    TpmError, TpmErrorValue,
+    basic::{TpmHandle, TpmUint16, TpmUint32},
+    constant::{
+        MAX_DIGEST_SIZE, MAX_ECC_KEY_BYTES, MAX_PRIVATE_SIZE, MAX_RSA_KEY_BYTES, MAX_SYM_KEY_BYTES,
+    },
+    data::{
+        Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmEccCurve, TpmaObject, TpmsEccParms, TpmsEccPoint,
+        TpmsKeyedhashParms, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeXor, TpmsSymcipherParms,
+        TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme, TpmtPublic, TpmtRsaScheme,
+        TpmtSymDefObject, TpmuAsymScheme, TpmuKdfScheme, TpmuKeyedhashScheme, TpmuPublicId,
+        TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
+    },
 };
 
 /// The type of the TPM key as defined by the OID.
@@ -98,6 +107,329 @@ pub struct TpmKeyFile {
     private: Tpm2bPrivate,
     parent: TpmHandle,
     rsa_parent: bool,
+}
+
+fn tpm_unmarshal_exact<T>(
+    buf: &[u8],
+    f: impl FnOnce(&[u8]) -> tpm2_protocol::TpmResult<(T, &[u8])>,
+) -> tpm2_protocol::TpmResult<T> {
+    let (val, tail) = f(buf)?;
+    if tail.is_empty() {
+        Ok(val)
+    } else {
+        Err(TpmError::TrailingData(
+            TpmErrorValue::new(buf.len() - tail.len()).actual(tail.len()),
+        ))
+    }
+}
+
+fn tpm_take(buf: &[u8], n: usize) -> tpm2_protocol::TpmResult<(&[u8], &[u8])> {
+    if buf.len() < n {
+        Err(TpmError::UnexpectedEnd(
+            TpmErrorValue::new(0).size(n, buf.len()),
+        ))
+    } else {
+        Ok(buf.split_at(n))
+    }
+}
+
+fn tpm_u16(buf: &[u8]) -> tpm2_protocol::TpmResult<(u16, &[u8])> {
+    let (bytes, tail) = tpm_take(buf, 2)?;
+    Ok((u16::from_be_bytes([bytes[0], bytes[1]]), tail))
+}
+
+fn tpm_u32(buf: &[u8]) -> tpm2_protocol::TpmResult<(u32, &[u8])> {
+    let (bytes, tail) = tpm_take(buf, 4)?;
+    Ok((
+        u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        tail,
+    ))
+}
+
+fn tpm_alg(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmAlgId, &[u8])> {
+    let (raw, tail) = tpm_u16(buf)?;
+    Ok((TpmAlgId::try_from(raw)?, tail))
+}
+
+fn tpm_ecc_curve(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmEccCurve, &[u8])> {
+    let (raw, tail) = tpm_u16(buf)?;
+    Ok((TpmEccCurve::try_from(raw)?, tail))
+}
+
+fn tpm_buffer<const CAPACITY: usize>(
+    buf: &[u8],
+) -> tpm2_protocol::TpmResult<(tpm2_protocol::basic::TpmBuffer<CAPACITY>, &[u8])> {
+    let (size, tail) = tpm_u16(buf)?;
+    let (bytes, tail) = tpm_take(tail, usize::from(size))?;
+    Ok((tpm2_protocol::basic::TpmBuffer::try_from(bytes)?, tail))
+}
+
+fn tpm_public(buf: &[u8]) -> tpm2_protocol::TpmResult<Tpm2bPublic> {
+    tpm_unmarshal_exact(buf, |buf| {
+        let (size, tail) = tpm_u16(buf)?;
+        let (inner, tail) = tpm_take(tail, usize::from(size))?;
+        let public = tpm_unmarshal_exact(inner, tpm_tpmt_public)?;
+        Ok((Tpm2bPublic::from(public), tail))
+    })
+}
+
+fn tpm_private(buf: &[u8]) -> tpm2_protocol::TpmResult<Tpm2bPrivate> {
+    tpm_unmarshal_exact(buf, tpm_buffer::<MAX_PRIVATE_SIZE>)
+}
+
+fn tpm_tpmt_public(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmtPublic, &[u8])> {
+    let (object_type, buf) = tpm_alg(buf)?;
+    let (name_alg, buf) = tpm_alg(buf)?;
+    let (object_attributes, buf) = tpm_u32(buf)?;
+    let (auth_policy, buf) = tpm_buffer::<MAX_DIGEST_SIZE>(buf)?;
+    let (parameters, buf) = tpm_public_parms(object_type, buf)?;
+    let (unique, buf) = tpm_public_id(object_type, buf)?;
+
+    Ok((
+        TpmtPublic {
+            object_type,
+            name_alg,
+            object_attributes: TpmaObject::from_bits_truncate(object_attributes),
+            auth_policy,
+            parameters,
+            unique,
+        },
+        buf,
+    ))
+}
+
+fn tpm_public_parms(
+    tag: TpmAlgId,
+    buf: &[u8],
+) -> tpm2_protocol::TpmResult<(TpmuPublicParms, &[u8])> {
+    match tag {
+        TpmAlgId::KeyedHash => {
+            let (scheme, buf) = tpm_keyedhash_scheme(buf)?;
+            Ok((
+                TpmuPublicParms::KeyedHash(TpmsKeyedhashParms { scheme }),
+                buf,
+            ))
+        }
+        TpmAlgId::SymCipher => {
+            let (sym, buf) = tpm_sym_def(buf)?;
+            Ok((TpmuPublicParms::SymCipher(TpmsSymcipherParms { sym }), buf))
+        }
+        TpmAlgId::Rsa => {
+            let (symmetric, buf) = tpm_sym_def(buf)?;
+            let (scheme, buf) = tpm_rsa_scheme(buf)?;
+            let (key_bits, buf) = tpm_u16(buf)?;
+            let (exponent, buf) = tpm_u32(buf)?;
+            Ok((
+                TpmuPublicParms::Rsa(TpmsRsaParms {
+                    symmetric,
+                    scheme,
+                    key_bits: TpmUint16::new(key_bits),
+                    exponent: TpmUint32::new(exponent),
+                }),
+                buf,
+            ))
+        }
+        TpmAlgId::Ecc => {
+            let (symmetric, buf) = tpm_sym_def(buf)?;
+            let (scheme, buf) = tpm_ecc_scheme(buf)?;
+            let (curve_id, buf) = tpm_ecc_curve(buf)?;
+            let (kdf, buf) = tpm_kdf_scheme(buf)?;
+            Ok((
+                TpmuPublicParms::Ecc(TpmsEccParms {
+                    symmetric,
+                    scheme,
+                    curve_id,
+                    kdf,
+                }),
+                buf,
+            ))
+        }
+        TpmAlgId::Null => Ok((TpmuPublicParms::Null, buf)),
+        _ => Err(TpmError::VariantNotAvailable(
+            TpmErrorValue::new(0).value(u64::from(tag.value())),
+        )),
+    }
+}
+
+fn tpm_public_id(tag: TpmAlgId, buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmuPublicId, &[u8])> {
+    match tag {
+        TpmAlgId::KeyedHash => {
+            let (val, buf) = tpm_buffer::<MAX_DIGEST_SIZE>(buf)?;
+            Ok((TpmuPublicId::KeyedHash(val), buf))
+        }
+        TpmAlgId::SymCipher => {
+            let (val, buf) = tpm_buffer::<MAX_SYM_KEY_BYTES>(buf)?;
+            Ok((TpmuPublicId::SymCipher(val), buf))
+        }
+        TpmAlgId::Rsa => {
+            let (val, buf) = tpm_buffer::<MAX_RSA_KEY_BYTES>(buf)?;
+            Ok((TpmuPublicId::Rsa(val), buf))
+        }
+        TpmAlgId::Ecc => {
+            let (x, buf) = tpm_buffer::<MAX_ECC_KEY_BYTES>(buf)?;
+            let (y, buf) = tpm_buffer::<MAX_ECC_KEY_BYTES>(buf)?;
+            Ok((TpmuPublicId::Ecc(TpmsEccPoint { x, y }), buf))
+        }
+        TpmAlgId::Null => Ok((TpmuPublicId::Null, buf)),
+        _ => Err(TpmError::VariantNotAvailable(
+            TpmErrorValue::new(0).value(u64::from(tag.value())),
+        )),
+    }
+}
+
+fn tpm_scheme_hash(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmsSchemeHash, &[u8])> {
+    let (hash_alg, buf) = tpm_alg(buf)?;
+    Ok((TpmsSchemeHash { hash_alg }, buf))
+}
+
+fn tpm_kdf_scheme(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmtKdfScheme, &[u8])> {
+    let (scheme, buf) = tpm_alg(buf)?;
+    let (details, buf) = match scheme {
+        TpmAlgId::Mgf1 => {
+            let (val, buf) = tpm_scheme_hash(buf)?;
+            (TpmuKdfScheme::Mgf1(val), buf)
+        }
+        TpmAlgId::Kdf1Sp800_56A => {
+            let (val, buf) = tpm_scheme_hash(buf)?;
+            (TpmuKdfScheme::Kdf1Sp800_56a(val), buf)
+        }
+        TpmAlgId::Kdf2 => {
+            let (val, buf) = tpm_scheme_hash(buf)?;
+            (TpmuKdfScheme::Kdf2(val), buf)
+        }
+        TpmAlgId::Kdf1Sp800_108 => {
+            let (val, buf) = tpm_scheme_hash(buf)?;
+            (TpmuKdfScheme::Kdf1Sp800_108(val), buf)
+        }
+        TpmAlgId::Null => (TpmuKdfScheme::Null, buf),
+        _ => {
+            return Err(TpmError::VariantNotAvailable(
+                TpmErrorValue::new(0).value(u64::from(scheme.value())),
+            ));
+        }
+    };
+    Ok((TpmtKdfScheme { scheme, details }, buf))
+}
+
+fn tpm_sym_def(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmtSymDefObject, &[u8])> {
+    let (algorithm, buf) = tpm_alg(buf)?;
+    if algorithm == TpmAlgId::Null {
+        return Ok((TpmtSymDefObject::default(), buf));
+    }
+
+    let (key_bits, buf) = match algorithm {
+        TpmAlgId::Aes => {
+            let (val, buf) = tpm_u16(buf)?;
+            (TpmuSymKeyBits::Aes(TpmUint16::new(val)), buf)
+        }
+        TpmAlgId::Sm4 => {
+            let (val, buf) = tpm_u16(buf)?;
+            (TpmuSymKeyBits::Sm4(TpmUint16::new(val)), buf)
+        }
+        TpmAlgId::Camellia => {
+            let (val, buf) = tpm_u16(buf)?;
+            (TpmuSymKeyBits::Camellia(TpmUint16::new(val)), buf)
+        }
+        TpmAlgId::Xor => {
+            let (val, buf) = tpm_alg(buf)?;
+            (TpmuSymKeyBits::Xor(val), buf)
+        }
+        _ => {
+            return Err(TpmError::VariantNotAvailable(
+                TpmErrorValue::new(0).value(u64::from(algorithm.value())),
+            ));
+        }
+    };
+
+    let (mode, buf) = match algorithm {
+        TpmAlgId::Aes => {
+            let (val, buf) = tpm_alg(buf)?;
+            (TpmuSymMode::Aes(val), buf)
+        }
+        TpmAlgId::Sm4 => {
+            let (val, buf) = tpm_alg(buf)?;
+            (TpmuSymMode::Sm4(val), buf)
+        }
+        TpmAlgId::Camellia => {
+            let (val, buf) = tpm_alg(buf)?;
+            (TpmuSymMode::Camellia(val), buf)
+        }
+        TpmAlgId::Xor => {
+            let (val, buf) = tpm_alg(buf)?;
+            (TpmuSymMode::Xor(val), buf)
+        }
+        _ => unreachable!(),
+    };
+
+    Ok((
+        TpmtSymDefObject {
+            algorithm,
+            key_bits,
+            mode,
+        },
+        buf,
+    ))
+}
+
+fn tpm_asym_scheme(
+    scheme: TpmAlgId,
+    buf: &[u8],
+) -> tpm2_protocol::TpmResult<(TpmuAsymScheme, &[u8])> {
+    match scheme {
+        TpmAlgId::Rsassa
+        | TpmAlgId::Rsapss
+        | TpmAlgId::Ecdsa
+        | TpmAlgId::Ecdaa
+        | TpmAlgId::Sm2
+        | TpmAlgId::Ecschnorr
+        | TpmAlgId::Oaep
+        | TpmAlgId::Ecdh
+        | TpmAlgId::Ecmqv => {
+            let (val, buf) = tpm_scheme_hash(buf)?;
+            Ok((TpmuAsymScheme::Hash(val), buf))
+        }
+        TpmAlgId::Rsaes | TpmAlgId::Null => Ok((TpmuAsymScheme::Null, buf)),
+        _ => Err(TpmError::VariantNotAvailable(
+            TpmErrorValue::new(0).value(u64::from(scheme.value())),
+        )),
+    }
+}
+
+fn tpm_rsa_scheme(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmtRsaScheme, &[u8])> {
+    let (scheme, buf) = tpm_alg(buf)?;
+    let (details, buf) = tpm_asym_scheme(scheme, buf)?;
+    Ok((TpmtRsaScheme { scheme, details }, buf))
+}
+
+fn tpm_ecc_scheme(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmtEccScheme, &[u8])> {
+    let (scheme, buf) = tpm_alg(buf)?;
+    let (details, buf) = tpm_asym_scheme(scheme, buf)?;
+    Ok((TpmtEccScheme { scheme, details }, buf))
+}
+
+fn tpm_keyedhash_scheme(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmtKeyedhashScheme, &[u8])> {
+    let (scheme, buf) = tpm_alg(buf)?;
+    let (details, buf) = match scheme {
+        TpmAlgId::Hmac => {
+            let (val, buf) = tpm_scheme_hash(buf)?;
+            (TpmuKeyedhashScheme::Hmac(val), buf)
+        }
+        TpmAlgId::Xor => {
+            let (hash_alg, buf) = tpm_alg(buf)?;
+            let (kdf, buf) = tpm_kdf_scheme(buf)?;
+            (
+                TpmuKeyedhashScheme::Xor(TpmsSchemeXor { hash_alg, kdf }),
+                buf,
+            )
+        }
+        TpmAlgId::Null => (TpmuKeyedhashScheme::Null, buf),
+        _ => {
+            return Err(TpmError::VariantNotAvailable(
+                TpmErrorValue::new(0).value(u64::from(scheme.value())),
+            ));
+        }
+    };
+    Ok((TpmtKeyedhashScheme { scheme, details }, buf))
 }
 
 impl Default for TpmKeyFile {
@@ -362,9 +694,8 @@ impl TpmKeyFile {
     }
 
     fn from_asn1(asn1: TpmKeyAsn1) -> Result<Self, TpmKeyError> {
-        let (public, _) = Tpm2bPublic::unmarshal(&asn1.pubkey).map_err(TpmKeyError::Unmarshal)?;
-        let (private, _) =
-            Tpm2bPrivate::unmarshal(&asn1.privkey).map_err(TpmKeyError::Unmarshal)?;
+        let public = tpm_public(&asn1.pubkey).map_err(TpmKeyError::Unmarshal)?;
+        let private = tpm_private(&asn1.privkey).map_err(TpmKeyError::Unmarshal)?;
 
         let key_type = public.inner.object_type;
 
@@ -477,12 +808,12 @@ impl From<&TpmKeyAuthPolicy> for Vec<TpmKeyCommandAsn1> {
 mod tests {
     use super::*;
     use tpm2_protocol::{
+        TpmMarshal, TpmWriter,
         constant::TPM_MAX_COMMAND_SIZE,
         data::{
             Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc, TpmsRsaParms, TpmtPublic, TpmtSensitive,
             TpmuPublicId, TpmuPublicParms, TpmuSensitiveComposite,
         },
-        TpmMarshal, TpmWriter,
     };
 
     fn minimal_rsa_key_components() -> (Tpm2bPublic, Tpm2bPrivate) {

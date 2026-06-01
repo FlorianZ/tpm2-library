@@ -6,8 +6,8 @@ license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.com/tpm-protocol/tpm2-protocol"
 repository = "https://gitlab.com/tpm-protocol/tpm2-protocol"
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
-edition = "2021"
-rust-version = "1.81"
+edition = "2024"
+rust-version = "1.85"
 readme = "README.md"
 
 [dependencies]
@@ -15,7 +15,7 @@ hex = "0.4"
 pem = "3.0"
 rasn = "0.26"
 thiserror = "1.0"
-tpm2-protocol = "0.16.7"
+tpm2-protocol = "0.18.0"
 
 [dev-dependencies]
 rstest = "0.21"
