@@ -83,9 +83,17 @@ pub enum TpmCryptoError {
     #[error("invalid ECC key")]
     InvalidEccKey,
 
+    /// Invalid ECC group degree.
+    #[error("invalid ECC group degree: {0}")]
+    InvalidEccGroupDegree(u32),
+
     /// Hash algorithm is not supported in the context of use.
     #[error("invalid hash algorithm")]
     InvalidHash,
+
+    /// OpenSSL message digest NID is not supported in the context of use.
+    #[error("invalid message digest NID: {0:?}")]
+    InvalidMessageDigestNid(Nid),
 
     /// Invalid RSA key bits.
     #[error("invalid RSA key bits: {0}")]
@@ -131,6 +139,10 @@ pub enum TpmCryptoError {
         max: usize,
     },
 
+    /// RSA private prime is missing.
+    #[error("missing RSA private prime")]
+    MissingRsaPrivatePrime,
+
     /// A zero-length key was provided.
     #[error("the provided key has zero length")]
     KeyIsEmpty,
@@ -138,14 +150,6 @@ pub enum TpmCryptoError {
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmError),
-
-    /// A cryptographic operation failed.
-    #[error("operation failed")]
-    OperationFailed,
-
-    /// Not enough memory available.
-    #[error("out of memory")]
-    OutOfMemory,
 
     /// The provided HMAC does not match to the expected value.
     #[error("permission denied")]
@@ -171,7 +175,8 @@ impl PartialEq for TpmCryptoError {
             ) => expected_a == expected_b && actual_a == actual_b,
             (Self::Crypto(a), Self::Crypto(b)) => crypto_error_stack_eq(a, b),
             (Self::InvalidEccCurve(a), Self::InvalidEccCurve(b)) => a == b,
-            (Self::InvalidEccNid(a), Self::InvalidEccNid(b)) => a == b,
+            (Self::InvalidEccNid(a), Self::InvalidEccNid(b))
+            | (Self::InvalidMessageDigestNid(a), Self::InvalidMessageDigestNid(b)) => a == b,
             (
                 Self::InvalidEccPublicArea {
                     object_type: object_type_a,
@@ -236,9 +241,9 @@ impl PartialEq for TpmCryptoError {
             | (Self::InvalidObjectType, Self::InvalidObjectType)
             | (Self::InvalidRsaKey, Self::InvalidRsaKey)
             | (Self::KeyIsEmpty, Self::KeyIsEmpty)
-            | (Self::OperationFailed, Self::OperationFailed)
-            | (Self::OutOfMemory, Self::OutOfMemory)
+            | (Self::MissingRsaPrivatePrime, Self::MissingRsaPrivatePrime)
             | (Self::PermissionDenied, Self::PermissionDenied) => true,
+            (Self::InvalidEccGroupDegree(a), Self::InvalidEccGroupDegree(b)) => a == b,
             (Self::InvalidKeyBits(a), Self::InvalidKeyBits(b)) => a == b,
             (Self::InvalidKdfKeyBits(a), Self::InvalidKdfKeyBits(b)) => a == b,
             (Self::InvalidRsaModulus(a), Self::InvalidRsaModulus(b)) => a == b,

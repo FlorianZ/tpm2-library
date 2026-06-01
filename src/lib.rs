@@ -13,11 +13,11 @@ mod hash;
 mod rsa;
 mod template;
 
-pub use ecc::*;
-pub use error::*;
-pub use hash::*;
-pub use rsa::*;
-pub use template::*;
+pub use ecc::{TpmEccExternalKey, TpmEllipticCurve};
+pub use error::{TpmCryptoError, TpmPublicAreaField};
+pub use hash::TpmHash;
+pub use rsa::TpmRsaExternalKey;
+pub use template::TpmPublicTemplate;
 
 pub const KDF_LABEL_DUPLICATE: &[u8] = b"DUPLICATE";
 pub const KDF_LABEL_INTEGRITY: &[u8] = b"INTEGRITY";

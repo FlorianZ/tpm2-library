@@ -160,7 +160,10 @@ impl TpmExternalKey for TpmRsaExternalKey {
         let pkey = PKey::private_key_from_der(bytes).map_err(TpmCryptoError::Crypto)?;
         let public_key = TpmRsaExternalKey::try_from(&pkey)?;
         let rsa = pkey.rsa().map_err(TpmCryptoError::Crypto)?;
-        let p = rsa.p().ok_or(TpmCryptoError::OperationFailed)?.to_vec();
+        let p = rsa
+            .p()
+            .ok_or(TpmCryptoError::MissingRsaPrivatePrime)?
+            .to_vec();
         let sensitive = Tpm2bPrivateKeyRsa::try_from(p.as_slice()).map_err(|_| {
             TpmCryptoError::InvalidRsaPrivatePrime {
                 len: p.len(),
@@ -222,7 +225,8 @@ impl TpmRsaExternalKey {
     fn oaep(&self, name_alg: TpmHash, seed: &[u8]) -> Result<Vec<u8>, TpmCryptoError> {
         let md = Into::<MessageDigest>::into(name_alg);
 
-        let oaep_md = Md::from_nid(md.type_()).ok_or(TpmCryptoError::OperationFailed)?;
+        let oaep_md = Md::from_nid(md.type_())
+            .ok_or_else(|| TpmCryptoError::InvalidMessageDigestNid(md.type_()))?;
 
         let n = BigNum::from_slice(self.public_key.as_ref()).map_err(TpmCryptoError::Crypto)?;
         let exponent_value = match self.exponent.value() {

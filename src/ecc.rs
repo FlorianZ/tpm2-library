@@ -402,5 +402,6 @@ fn tpm_make_point(
 }
 
 fn ecc_coord_len(group: &EcGroupRef) -> Result<usize, TpmCryptoError> {
-    usize::try_from(group.degree().div_ceil(8)).map_err(|_| TpmCryptoError::OperationFailed)
+    let degree = group.degree();
+    usize::try_from(degree.div_ceil(8)).map_err(|_| TpmCryptoError::InvalidEccGroupDegree(degree))
 }
