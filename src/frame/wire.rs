@@ -33,6 +33,22 @@ impl TpmCommand {
         Ok(unsafe { Self::cast_unchecked(buf) })
     }
 
+    /// Casts the first TPM command frame in a byte slice into a wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the command envelope is malformed or
+    /// incomplete.
+    pub fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        let frame_len = frame_prefix_size(buf)?;
+        let (frame, tail) = buf.split_at(frame_len);
+
+        Self::validate_envelope(frame)?;
+
+        // SAFETY: `validate_envelope` checked the complete command frame.
+        Ok((unsafe { Self::cast_unchecked(frame) }, tail))
+    }
+
     /// Casts a byte slice into a TPM command wire view without validation.
     ///
     /// # Safety
@@ -60,6 +76,22 @@ impl TpmCommand {
         // dispatch invariants required for this transparent wire view. The
         // `&mut` input provides exclusive access.
         Ok(unsafe { Self::cast_mut_unchecked(buf) })
+    }
+
+    /// Casts the first mutable TPM command frame in a byte slice into a wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the command envelope is malformed or
+    /// incomplete.
+    pub fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        let frame_len = frame_prefix_size(buf)?;
+        let (frame, tail) = buf.split_at_mut(frame_len);
+
+        Self::validate_envelope(frame)?;
+
+        // SAFETY: `validate_envelope` checked the complete command frame.
+        Ok((unsafe { Self::cast_mut_unchecked(frame) }, tail))
     }
 
     /// Casts a mutable byte slice into a mutable TPM command wire view without validation.
@@ -340,6 +372,10 @@ impl TpmCast for TpmCommand {
         Self::cast(buf)
     }
 
+    fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        Self::cast_prefix(buf)
+    }
+
     unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
         // SAFETY: The caller upholds the unchecked cast contract for `TpmCommand`.
         unsafe { Self::cast_unchecked(buf) }
@@ -349,6 +385,10 @@ impl TpmCast for TpmCommand {
 impl TpmCastMut for TpmCommand {
     fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Self::cast_mut(buf)
+    }
+
+    fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        Self::cast_prefix_mut(buf)
     }
 
     unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
@@ -388,6 +428,22 @@ impl TpmResponse {
         Ok(unsafe { Self::cast_unchecked(buf) })
     }
 
+    /// Casts the first TPM response frame in a byte slice into a wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the response envelope is malformed or
+    /// incomplete.
+    pub fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        let frame_len = frame_prefix_size(buf)?;
+        let (frame, tail) = buf.split_at(frame_len);
+
+        Self::validate_envelope(frame)?;
+
+        // SAFETY: `validate_envelope` checked the complete response frame.
+        Ok((unsafe { Self::cast_unchecked(frame) }, tail))
+    }
+
     /// Casts a byte slice into a TPM response wire view without validation.
     ///
     /// # Safety
@@ -415,6 +471,22 @@ impl TpmResponse {
         // required for this transparent wire view. The `&mut` input provides
         // exclusive access.
         Ok(unsafe { Self::cast_mut_unchecked(buf) })
+    }
+
+    /// Casts the first mutable TPM response frame in a byte slice into a wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the response envelope is malformed or
+    /// incomplete.
+    pub fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        let frame_len = frame_prefix_size(buf)?;
+        let (frame, tail) = buf.split_at_mut(frame_len);
+
+        Self::validate_envelope(frame)?;
+
+        // SAFETY: `validate_envelope` checked the complete response frame.
+        Ok((unsafe { Self::cast_mut_unchecked(frame) }, tail))
     }
 
     /// Casts a mutable byte slice into a mutable TPM response wire view without validation.
@@ -587,6 +659,10 @@ impl TpmCast for TpmResponse {
         Self::cast(buf)
     }
 
+    fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        Self::cast_prefix(buf)
+    }
+
     unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
         // SAFETY: The caller upholds the unchecked cast contract for `TpmResponse`.
         unsafe { Self::cast_unchecked(buf) }
@@ -596,6 +672,10 @@ impl TpmCast for TpmResponse {
 impl TpmCastMut for TpmResponse {
     fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Self::cast_mut(buf)
+    }
+
+    fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        Self::cast_prefix_mut(buf)
     }
 
     unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
@@ -633,6 +713,18 @@ fn dispatch_for(cc: TpmCc) -> TpmResult<&'static super::TpmDispatch> {
 }
 
 fn validate_frame_size(buf: &[u8]) -> TpmResult<()> {
+    let size = frame_prefix_size(buf)?;
+
+    if buf.len() > size {
+        return Err(TpmError::TrailingData(
+            crate::TpmErrorValue::new(size).actual(buf.len() - size),
+        ));
+    }
+
+    Ok(())
+}
+
+fn frame_prefix_size(buf: &[u8]) -> TpmResult<usize> {
     if buf.len() < HEADER_SIZE {
         return Err(TpmError::UnexpectedEnd(
             crate::TpmErrorValue::new(0).size(HEADER_SIZE, buf.len()),
@@ -646,13 +738,7 @@ fn validate_frame_size(buf: &[u8]) -> TpmResult<()> {
         ));
     }
 
-    if buf.len() > size {
-        return Err(TpmError::TrailingData(
-            crate::TpmErrorValue::new(size).actual(buf.len() - size),
-        ));
-    }
-
-    Ok(())
+    Ok(size)
 }
 
 fn read_u16(buf: &[u8], offset: usize) -> u16 {

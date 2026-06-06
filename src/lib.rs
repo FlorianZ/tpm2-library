@@ -17,6 +17,19 @@
 //!
 //! * The crate must compile with GNU make and rustc without any external
 //!   dependencies.
+//!
+//! ## Zero-Copy Contract
+//!
+//! Read-side protocol APIs operate on caller-owned byte slices and return
+//! borrowed wire views into those slices. Implementations must not copy payload
+//! bytes to inspect frames or nested TPM values. Scalar fields may be read by
+//! value from their big-endian wire representation.
+//!
+//! Validation must prove all exposed borrowed views are bounded by the original
+//! input slice. Any malformed length, tag, selector, or trailing byte condition
+//! must be reported as [`TpmError`] instead of panicking.
+//!
+//! The crate does not use the external `zerocopy` crate.
 
 #![cfg_attr(not(test), no_std)]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -47,6 +60,12 @@ impl TpmWire {
         unsafe { Self::cast_unchecked(buf) }
     }
 
+    /// Casts a byte slice into a TPM wire view and returns no remainder.
+    #[must_use]
+    pub fn cast_prefix(buf: &[u8]) -> (&Self, &[u8]) {
+        (Self::cast(buf), &buf[buf.len()..])
+    }
+
     /// Casts a byte slice into a TPM wire view without validation.
     ///
     /// # Safety
@@ -69,6 +88,15 @@ impl TpmWire {
         // SAFETY: `TpmWire` accepts any mutable byte slice as its backing
         // storage. The `&mut` input provides exclusive access.
         unsafe { Self::cast_mut_unchecked(buf) }
+    }
+
+    /// Casts a mutable byte slice into a mutable TPM wire view and returns no remainder.
+    #[must_use]
+    pub fn cast_prefix_mut(buf: &mut [u8]) -> (&mut Self, &mut [u8]) {
+        let len = buf.len();
+        let (head, tail) = buf.split_at_mut(len);
+
+        (Self::cast_mut(head), tail)
     }
 
     /// Casts a mutable byte slice into a mutable TPM wire view without validation.
@@ -139,11 +167,23 @@ impl<const N: usize> TpmWireBytes<N> {
     /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
     /// `buf` is larger than `N` bytes.
     pub fn cast(buf: &[u8]) -> TpmResult<&Self> {
-        if buf.len() < N {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(N, buf.len()),
-            ));
-        }
+        Self::validate(buf)?;
+
+        // SAFETY: The validation above guarantees that `buf` has exactly the
+        // byte length required by `TpmWireBytes<N>`.
+        Ok(unsafe { Self::cast_unchecked(buf) })
+    }
+
+    /// Validates an exact fixed-size TPM wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
+    /// `buf` is smaller than `N` bytes.
+    /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
+    /// `buf` is larger than `N` bytes.
+    pub fn validate(buf: &[u8]) -> TpmResult<()> {
+        Self::validate_prefix(buf)?;
 
         if buf.len() > N {
             return Err(TpmError::TrailingData(
@@ -151,9 +191,39 @@ impl<const N: usize> TpmWireBytes<N> {
             ));
         }
 
-        // SAFETY: The length check above guarantees that `buf` has exactly the
-        // byte length required by `TpmWireBytes<N>`.
-        Ok(unsafe { Self::cast_unchecked(buf) })
+        Ok(())
+    }
+
+    /// Validates that `buf` starts with a fixed-size TPM wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
+    /// `buf` is smaller than `N` bytes.
+    pub fn validate_prefix(buf: &[u8]) -> TpmResult<()> {
+        if buf.len() < N {
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(N, buf.len()),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Casts the first `N` bytes into a fixed-size TPM wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
+    /// `buf` is smaller than `N` bytes.
+    pub fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        Self::validate_prefix(buf)?;
+
+        let (head, tail) = buf.split_at(N);
+
+        // SAFETY: The validation above guarantees that `head` has exactly
+        // the byte length required by `TpmWireBytes<N>`.
+        Ok((unsafe { Self::cast_unchecked(head) }, tail))
     }
 
     /// Casts a byte slice into a fixed-size TPM wire view without validation.
@@ -181,22 +251,28 @@ impl<const N: usize> TpmWireBytes<N> {
     /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
     /// `buf` is larger than `N` bytes.
     pub fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
-        if buf.len() < N {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(N, buf.len()),
-            ));
-        }
+        Self::validate(buf)?;
 
-        if buf.len() > N {
-            return Err(TpmError::TrailingData(
-                crate::TpmErrorValue::new(N).actual(buf.len() - N),
-            ));
-        }
-
-        // SAFETY: The length check above guarantees that `buf` has exactly the
+        // SAFETY: The validation above guarantees that `buf` has exactly the
         // byte length required by `TpmWireBytes<N>`. The `&mut` input provides
         // exclusive access.
         Ok(unsafe { Self::cast_mut_unchecked(buf) })
+    }
+
+    /// Casts the first `N` mutable bytes into a fixed-size TPM wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
+    /// `buf` is smaller than `N` bytes.
+    pub fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        Self::validate_prefix(buf)?;
+
+        let (head, tail) = buf.split_at_mut(N);
+
+        // SAFETY: The validation above guarantees that `head` has exactly
+        // the byte length required by `TpmWireBytes<N>`.
+        Ok((unsafe { Self::cast_mut_unchecked(head) }, tail))
     }
 
     /// Casts a mutable byte slice into a fixed-size mutable TPM wire view without validation.
@@ -263,6 +339,17 @@ pub trait TpmCast {
     /// invariants for `Self`.
     fn cast(buf: &[u8]) -> TpmResult<&Self>;
 
+    /// Casts the first wire value in `buf` into `Self` and returns the remainder.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when `buf` does not start with a valid `Self`.
+    fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        let value = Self::cast(buf)?;
+
+        Ok((value, &buf[buf.len()..]))
+    }
+
     /// Casts `buf` into `Self` without validating the wire-view invariants.
     ///
     /// # Safety
@@ -282,6 +369,19 @@ pub trait TpmCastMut: TpmCast {
     /// invariants for `Self`.
     fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self>;
 
+    /// Casts the first mutable wire value in `buf` into `Self` and returns the remainder.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when `buf` does not start with a valid `Self`.
+    fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        let len = buf.len();
+        let (head, tail) = buf.split_at_mut(len);
+        let value = Self::cast_mut(head)?;
+
+        Ok((value, tail))
+    }
+
     /// Casts `buf` into mutable `Self` without validating the wire-view invariants.
     ///
     /// # Safety
@@ -297,6 +397,10 @@ impl TpmCast for TpmWire {
         Ok(Self::cast(buf))
     }
 
+    fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        Ok(Self::cast_prefix(buf))
+    }
+
     unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
         // SAFETY: The caller upholds the unchecked cast contract for `TpmWire`.
         unsafe { Self::cast_unchecked(buf) }
@@ -306,6 +410,10 @@ impl TpmCast for TpmWire {
 impl TpmCastMut for TpmWire {
     fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Ok(Self::cast_mut(buf))
+    }
+
+    fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        Ok(Self::cast_prefix_mut(buf))
     }
 
     unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
@@ -320,6 +428,10 @@ impl<const N: usize> TpmCast for TpmWireBytes<N> {
         Self::cast(buf)
     }
 
+    fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        Self::cast_prefix(buf)
+    }
+
     unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
         // SAFETY: The caller upholds the unchecked cast contract for
         // `TpmWireBytes<N>`.
@@ -330,6 +442,10 @@ impl<const N: usize> TpmCast for TpmWireBytes<N> {
 impl<const N: usize> TpmCastMut for TpmWireBytes<N> {
     fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Self::cast_mut(buf)
+    }
+
+    fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        Self::cast_prefix_mut(buf)
     }
 
     unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {

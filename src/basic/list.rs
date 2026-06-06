@@ -8,6 +8,7 @@ use crate::{
 use core::{
     convert::TryFrom,
     fmt::Debug,
+    marker::PhantomData,
     mem::{MaybeUninit, size_of},
     ops::Deref,
     slice,
@@ -34,6 +35,34 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         // SAFETY: `validate` checked the TPML header and count limit for this
         // transparent wire view.
         Ok(unsafe { Self::cast_unchecked(buf) })
+    }
+
+    /// Casts a byte slice into a typed TPML wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the TPML header is malformed, the declared
+    /// count exceeds `CAPACITY`, or the typed item area is malformed.
+    pub fn cast_items<T: TpmCast + ?Sized>(buf: &[u8]) -> TpmResult<&Self> {
+        Self::validate_items::<T>(buf)?;
+
+        // SAFETY: `validate_items` checked the TPML header, count limit, and
+        // typed item boundaries for this transparent wire view.
+        Ok(unsafe { Self::cast_unchecked(buf) })
+    }
+
+    /// Casts the first typed TPML wire value in a byte slice into a wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the first typed TPML value is malformed.
+    pub fn cast_prefix_items<T: TpmCast + ?Sized>(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        let wire_len = Self::validate_prefix_items::<T>(buf)?;
+        let (head, tail) = buf.split_at(wire_len);
+
+        // SAFETY: `validate_prefix_items` checked the TPML header, count limit,
+        // and typed item boundaries for `head`.
+        Ok((unsafe { Self::cast_unchecked(head) }, tail))
     }
 
     /// Casts a byte slice into a TPML wire view without validation.
@@ -65,6 +94,36 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         // SAFETY: `validate` checked the TPML header and count limit for this
         // transparent wire view. The `&mut` input provides exclusive access.
         Ok(unsafe { Self::cast_mut_unchecked(buf) })
+    }
+
+    /// Casts a mutable byte slice into a typed TPML wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the TPML header is malformed, the declared
+    /// count exceeds `CAPACITY`, or the typed item area is malformed.
+    pub fn cast_items_mut<T: TpmCast + ?Sized>(buf: &mut [u8]) -> TpmResult<&mut Self> {
+        Self::validate_items::<T>(buf)?;
+
+        // SAFETY: `validate_items` checked the TPML header, count limit, and
+        // typed item boundaries for this transparent wire view.
+        Ok(unsafe { Self::cast_mut_unchecked(buf) })
+    }
+
+    /// Casts the first mutable typed TPML wire value in a byte slice into a wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the first typed TPML value is malformed.
+    pub fn cast_prefix_items_mut<T: TpmCast + ?Sized>(
+        buf: &mut [u8],
+    ) -> TpmResult<(&mut Self, &mut [u8])> {
+        let wire_len = Self::validate_prefix_items::<T>(buf)?;
+        let (head, tail) = buf.split_at_mut(wire_len);
+
+        // SAFETY: `validate_prefix_items` checked the TPML header, count limit,
+        // and typed item boundaries for `head`.
+        Ok((unsafe { Self::cast_mut_unchecked(head) }, tail))
     }
 
     /// Casts a mutable byte slice into a mutable TPML wire view without validation.
@@ -107,6 +166,15 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         &self.0[TPML_COUNT_LEN..]
     }
 
+    /// Returns an iterator over typed borrowed items.
+    pub fn items<T: TpmCast + ?Sized>(&self) -> TpmlIter<'_, T> {
+        TpmlIter {
+            buf: self.items_bytes(),
+            remaining: self.count(),
+            _marker: PhantomData,
+        }
+    }
+
     /// Returns the mutable bytes after the count field.
     #[must_use]
     pub fn items_bytes_mut(&mut self) -> &mut [u8] {
@@ -125,7 +193,56 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         self.count() == 0
     }
 
-    fn validate(buf: &[u8]) -> TpmResult<()> {
+    /// Validates a TPML header and declared count.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the count field is missing or exceeds
+    /// `CAPACITY`.
+    pub fn validate(buf: &[u8]) -> TpmResult<()> {
+        Self::validate_header(buf).map(|_| ())
+    }
+
+    /// Validates a typed TPML wire value.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the TPML header or typed item area is malformed.
+    pub fn validate_items<T: TpmCast + ?Sized>(buf: &[u8]) -> TpmResult<()> {
+        let wire_len = Self::validate_prefix_items::<T>(buf)?;
+
+        if buf.len() > wire_len {
+            return Err(TpmError::TrailingData(
+                crate::TpmErrorValue::new(wire_len).actual(buf.len() - wire_len),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Validates the first typed TPML wire value and returns its wire length.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the TPML header or typed item area is malformed.
+    pub fn validate_prefix_items<T: TpmCast + ?Sized>(buf: &[u8]) -> TpmResult<usize> {
+        let count = Self::validate_header(buf)?;
+        let mut cursor = &buf[TPML_COUNT_LEN..];
+        let mut consumed = TPML_COUNT_LEN;
+
+        for _ in 0..count {
+            let before = cursor.len();
+            let (_, tail) = T::cast_prefix(cursor)?;
+            consumed = consumed.checked_add(before - tail.len()).ok_or(
+                TpmError::IntegerTooLarge(crate::TpmErrorValue::new(consumed).value_usize(before)),
+            )?;
+            cursor = tail;
+        }
+
+        Ok(consumed)
+    }
+
+    fn validate_header(buf: &[u8]) -> TpmResult<usize> {
         if buf.len() < TPML_COUNT_LEN {
             return Err(TpmError::UnexpectedEnd(
                 crate::TpmErrorValue::new(0).size(TPML_COUNT_LEN, buf.len()),
@@ -139,13 +256,44 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
             ));
         }
 
-        Ok(())
+        Ok(item_count)
     }
 
     fn read_count(buf: &[u8]) -> usize {
         let raw = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
 
         raw as usize
+    }
+}
+
+/// Borrowed iterator over a typed TPML item area.
+pub struct TpmlIter<'a, T: TpmCast + ?Sized> {
+    buf: &'a [u8],
+    remaining: usize,
+    _marker: PhantomData<&'a T>,
+}
+
+impl<'a, T: TpmCast + ?Sized> Iterator for TpmlIter<'a, T> {
+    type Item = TpmResult<&'a T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        self.remaining -= 1;
+
+        match T::cast_prefix(self.buf) {
+            Ok((item, tail)) => {
+                self.buf = tail;
+                Some(Ok(item))
+            }
+            Err(err) => {
+                self.buf = &[];
+                self.remaining = 0;
+                Some(Err(err))
+            }
+        }
     }
 }
 

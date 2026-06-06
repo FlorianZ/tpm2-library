@@ -40,6 +40,20 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
         Ok(unsafe { Self::cast_unchecked(buf) })
     }
 
+    /// Casts the first TPM2B value in a byte slice into a wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the first TPM2B value is malformed.
+    pub fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        let wire_len = Self::validate_prefix(buf)?;
+        let (head, tail) = buf.split_at(wire_len);
+
+        // SAFETY: `validate_prefix` checked the complete TPM2B byte range and
+        // size limit for `head`.
+        Ok((unsafe { Self::cast_unchecked(head) }, tail))
+    }
+
     /// Casts a byte slice into a TPM2B wire view without validation.
     ///
     /// # Safety
@@ -72,6 +86,20 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
         // limit for this transparent wire view. The `&mut` input provides
         // exclusive access.
         Ok(unsafe { Self::cast_mut_unchecked(buf) })
+    }
+
+    /// Casts the first mutable TPM2B value in a byte slice into a wire view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the first TPM2B value is malformed.
+    pub fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        let wire_len = Self::validate_prefix(buf)?;
+        let (head, tail) = buf.split_at_mut(wire_len);
+
+        // SAFETY: `validate_prefix` checked the complete TPM2B byte range and
+        // size limit for `head`.
+        Ok((unsafe { Self::cast_mut_unchecked(head) }, tail))
     }
 
     /// Casts a mutable byte slice into a mutable TPM2B wire view without validation.
@@ -115,10 +143,22 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
         &self.0[TPM2B_SIZE_LEN..]
     }
 
+    /// Returns the payload bytes, as an alias for [`Self::data`].
+    #[must_use]
+    pub fn payload(&self) -> &[u8] {
+        self.data()
+    }
+
     /// Returns the mutable payload bytes.
     #[must_use]
     pub fn data_mut(&mut self) -> &mut [u8] {
         &mut self.0[TPM2B_SIZE_LEN..]
+    }
+
+    /// Returns the mutable payload bytes, as an alias for [`Self::data_mut`].
+    #[must_use]
+    pub fn payload_mut(&mut self) -> &mut [u8] {
+        self.data_mut()
     }
 
     /// Returns the complete TPM2B wire length.
@@ -133,7 +173,30 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
         self.size() == 0
     }
 
-    fn validate(buf: &[u8]) -> TpmResult<()> {
+    /// Validates an exact TPM2B wire value.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the TPM2B value is malformed or has
+    /// trailing data.
+    pub fn validate(buf: &[u8]) -> TpmResult<()> {
+        let wire_len = Self::validate_prefix(buf)?;
+
+        if buf.len() > wire_len {
+            return Err(TpmError::TrailingData(
+                crate::TpmErrorValue::new(wire_len).actual(buf.len() - wire_len),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Validates the first TPM2B wire value and returns its wire length.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the first TPM2B value is malformed.
+    pub fn validate_prefix(buf: &[u8]) -> TpmResult<usize> {
         if buf.len() < TPM2B_SIZE_LEN {
             return Err(TpmError::UnexpectedEnd(
                 crate::TpmErrorValue::new(0).size(TPM2B_SIZE_LEN, buf.len()),
@@ -160,13 +223,7 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
             ));
         }
 
-        if buf.len() > wire_len {
-            return Err(TpmError::TrailingData(
-                crate::TpmErrorValue::new(wire_len).actual(buf.len() - wire_len),
-            ));
-        }
-
-        Ok(())
+        Ok(wire_len)
     }
 
     fn read_size(buf: &[u8]) -> usize {
@@ -179,6 +236,10 @@ impl<const CAPACITY: usize> TpmCast for Tpm2b<CAPACITY> {
         Self::cast(buf)
     }
 
+    fn cast_prefix(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        Self::cast_prefix(buf)
+    }
+
     unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
         // SAFETY: The caller upholds the unchecked cast contract for `Tpm2b`.
         unsafe { Self::cast_unchecked(buf) }
@@ -188,6 +249,10 @@ impl<const CAPACITY: usize> TpmCast for Tpm2b<CAPACITY> {
 impl<const CAPACITY: usize> TpmCastMut for Tpm2b<CAPACITY> {
     fn cast_mut(buf: &mut [u8]) -> TpmResult<&mut Self> {
         Self::cast_mut(buf)
+    }
+
+    fn cast_prefix_mut(buf: &mut [u8]) -> TpmResult<(&mut Self, &mut [u8])> {
+        Self::cast_prefix_mut(buf)
     }
 
     unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {

@@ -58,11 +58,48 @@ macro_rules! integer {
             /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
             /// `buf` is larger than this integer's wire size.
             pub fn cast(buf: &[u8]) -> $crate::TpmResult<&Self> {
-                let _ = $crate::TpmWireBytes::<$bytes>::cast(buf)?;
+                Self::validate(buf)?;
 
-                // SAFETY: `TpmWireBytes::<$bytes>::cast` validated the exact
-                // byte length required by this transparent integer view.
+                // SAFETY: The validation above guarantees the exact byte length
+                // required by this transparent integer view.
                 Ok(unsafe { Self::cast_unchecked(buf) })
+            }
+
+            /// Validates an exact TPM integer wire view.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
+            /// `buf` is smaller than this integer's wire size.
+            /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
+            /// `buf` is larger than this integer's wire size.
+            pub fn validate(buf: &[u8]) -> $crate::TpmResult<()> {
+                $crate::TpmWireBytes::<$bytes>::validate(buf)
+            }
+
+            /// Validates that `buf` starts with a TPM integer wire view.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
+            /// `buf` is smaller than this integer's wire size.
+            pub fn validate_prefix(buf: &[u8]) -> $crate::TpmResult<()> {
+                $crate::TpmWireBytes::<$bytes>::validate_prefix(buf)
+            }
+
+            /// Casts the first bytes in a slice into a TPM integer wire view.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
+            /// `buf` is smaller than this integer's wire size.
+            pub fn cast_prefix(buf: &[u8]) -> $crate::TpmResult<(&Self, &[u8])> {
+                Self::validate_prefix(buf)?;
+                let (head, tail) = buf.split_at($bytes);
+
+                // SAFETY: The validation above guarantees that `head` has exactly
+                // the byte length required by this transparent integer view.
+                Ok((unsafe { Self::cast_unchecked(head) }, tail))
             }
 
             /// Casts a byte slice into a TPM integer wire view without validation.
@@ -90,11 +127,26 @@ macro_rules! integer {
             /// Returns [`TrailingData`](crate::TpmError::TrailingData) when
             /// `buf` is larger than this integer's wire size.
             pub fn cast_mut(buf: &mut [u8]) -> $crate::TpmResult<&mut Self> {
-                let _ = $crate::TpmWireBytes::<$bytes>::cast_mut(buf)?;
+                Self::validate(buf)?;
 
-                // SAFETY: `TpmWireBytes::<$bytes>::cast_mut` validated the exact
+                // SAFETY: The validation above guarantees the exact
                 // byte length required by this transparent integer view.
                 Ok(unsafe { Self::cast_mut_unchecked(buf) })
+            }
+
+            /// Casts the first mutable bytes in a slice into a TPM integer wire view.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`UnexpectedEnd`](crate::TpmError::UnexpectedEnd) when
+            /// `buf` is smaller than this integer's wire size.
+            pub fn cast_prefix_mut(buf: &mut [u8]) -> $crate::TpmResult<(&mut Self, &mut [u8])> {
+                Self::validate_prefix(buf)?;
+                let (head, tail) = buf.split_at_mut($bytes);
+
+                // SAFETY: The validation above guarantees that `head` has exactly
+                // the byte length required by this transparent integer view.
+                Ok((unsafe { Self::cast_mut_unchecked(head) }, tail))
             }
 
             /// Casts a mutable byte slice into a mutable TPM integer wire view without validation.
@@ -197,6 +249,10 @@ macro_rules! integer {
                 Self::cast(buf)
             }
 
+            fn cast_prefix(buf: &[u8]) -> $crate::TpmResult<(&Self, &[u8])> {
+                Self::cast_prefix(buf)
+            }
+
             unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
                 // SAFETY: The caller upholds the unchecked cast contract for `$name`.
                 unsafe { Self::cast_unchecked(buf) }
@@ -206,6 +262,10 @@ macro_rules! integer {
         impl $crate::TpmCastMut for $name {
             fn cast_mut(buf: &mut [u8]) -> $crate::TpmResult<&mut Self> {
                 Self::cast_mut(buf)
+            }
+
+            fn cast_prefix_mut(buf: &mut [u8]) -> $crate::TpmResult<(&mut Self, &mut [u8])> {
+                Self::cast_prefix_mut(buf)
             }
 
             unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
