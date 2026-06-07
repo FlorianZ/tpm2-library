@@ -569,37 +569,3 @@ pub trait TpmMarshal {
     /// Returns `Err(TpmError)` on a marshal failure.
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
-
-pub(crate) trait TpmUnmarshal: Sized + TpmSized {
-    /// Unmarshals an object from the given buffer.
-    ///
-    /// Returns the unmarshald type and the remaining portion of the buffer.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err(TpmError)` on a unmarshal failure.
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])>;
-}
-
-/// Types that are composed of a tag and a value e.g., a union.
-pub(crate) trait TpmTagged {
-    /// The type of the tag/discriminant.
-    type Tag: TpmUnmarshal + TpmMarshal + Copy;
-    /// The type of the value/union.
-    type Value;
-}
-
-/// Unmarshals a tagged object from a buffer.
-pub(crate) trait TpmUnmarshalTagged: Sized {
-    /// Unmarshals a tagged object from the given buffer using the provided tag.
-    ///
-    /// # Errors
-    ///
-    /// This method can return any error of the underlying type's `TpmUnmarshal` implementation,
-    /// such as a `TpmError::UnexpectedEnd` if the buffer is too small or a
-    /// `TpmError::VariantNotAvailable` if a tagged variant is unavailable.
-    fn unmarshal_tagged(tag: <Self as TpmTagged>::Tag, buf: &[u8]) -> TpmResult<(Self, &[u8])>
-    where
-        Self: TpmTagged,
-        <Self as TpmTagged>::Tag: TpmUnmarshal + TpmMarshal;
-}

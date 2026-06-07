@@ -1,41 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 Jarkko Sakkinen
 
+#[path = "common/message_bytes.rs"]
+mod message_bytes;
+
+use crate::message_bytes::message_bytes;
 use tpm2_protocol::{
-    TpmError, TpmErrorValue, TpmWireBytes,
+    TpmError, TpmErrorValue, TpmWireBytes, TpmWriter,
     basic::{Tpm2b, TpmUint16, Tpml},
-    data::TpmSt,
-    frame::{TpmCommand, TpmResponse},
+    data::{TpmRc, TpmRcBase, TpmSt, TpmSu},
+    frame::{
+        TpmStartupCommand, TpmStartupResponse, tpm_marshal_command, tpm_marshal_response,
+    },
 };
 
-#[test]
-fn short_frame_header_reports_size() {
-    let err = TpmCommand::cast(&[0; 4]).err().unwrap();
-
-    assert_eq!(
-        err,
-        TpmError::UnexpectedEnd(TpmErrorValue::new(0).size(10, 4))
-    );
-}
-
-#[test]
-fn invalid_command_tag_reports_raw_value() {
-    let frame = [0xff, 0xff, 0, 0, 0, 10, 0, 0, 1, 0x44];
-    let err = TpmCommand::cast(&frame).err().unwrap();
-
-    assert_eq!(
-        err,
-        TpmError::InvalidTag(TpmErrorValue::new(0).value(0xffff))
-    );
-}
-
-#[test]
-fn invalid_response_code_reports_raw_value() {
-    let frame = [0x80, 0x01, 0, 0, 0, 10, 0, 0, 0, 2];
-    let err = TpmResponse::cast(&frame).err().unwrap();
-
-    assert_eq!(err, TpmError::InvalidRc(TpmErrorValue::new(6).value(2)));
-}
+const MESSAGE_DATA: &str = include_str!("message.txt");
 
 #[test]
 fn tpm2b_capacity_error_reports_limit() {
@@ -174,5 +153,58 @@ fn display_includes_error_value_fields() {
     assert_eq!(
         err.to_string(),
         "unexpected end at offset 4, needed=10, available=2"
+    );
+}
+
+#[test]
+fn command_marshal_writes_to_caller_buffer() {
+    let expected = message_bytes(MESSAGE_DATA, "00000144", "Command", "0000");
+    let command = TpmStartupCommand {
+        handles: [],
+        startup_type: TpmSu::Clear,
+    };
+    let mut storage = [0xa5; 16];
+    let written_len = {
+        let mut writer = TpmWriter::new(&mut storage);
+
+        tpm_marshal_command(&command, TpmSt::NoSessions, &[], &mut writer).unwrap();
+        assert_eq!(writer.as_bytes(), expected.as_slice());
+        writer.len()
+    };
+
+    assert_eq!(&storage[written_len..], &[0xa5; 4]);
+}
+
+#[test]
+fn response_marshal_writes_to_caller_buffer() {
+    let expected = message_bytes(MESSAGE_DATA, "00000144", "Response", "0000");
+    let response = TpmStartupResponse { handles: [] };
+    let mut storage = [0xa5; 12];
+    let written_len = {
+        let mut writer = TpmWriter::new(&mut storage);
+
+        tpm_marshal_response(&response, &[], TpmRc::Fmt0(TpmRcBase::Success), &mut writer).unwrap();
+        assert_eq!(writer.as_bytes(), expected.as_slice());
+        writer.len()
+    };
+
+    assert_eq!(&storage[written_len..], &[0xa5; 2]);
+}
+
+#[test]
+fn command_marshal_reports_caller_buffer_overflow() {
+    let command = TpmStartupCommand {
+        handles: [],
+        startup_type: TpmSu::Clear,
+    };
+    let mut storage = [0; 11];
+    let mut writer = TpmWriter::new(&mut storage);
+    let err = tpm_marshal_command(&command, TpmSt::NoSessions, &[], &mut writer)
+        .err()
+        .unwrap();
+
+    assert_eq!(
+        err,
+        TpmError::BufferOverflow(TpmErrorValue::new(10).size(2, 1))
     );
 }

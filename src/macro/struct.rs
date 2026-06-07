@@ -135,42 +135,6 @@ macro_rules! tpm_struct {
                 Ok(())
             }
         }
-
-        impl $crate::frame::TpmUnmarshalCommand for $name {
-            #[allow(unused_mut, unused_variables)]
-            fn unmarshal_body<'a>(
-                handles_buf: &'a [u8],
-                params_buf: &'a [u8],
-            ) -> $crate::TpmResult<(Self, &'a [u8])> {
-                let mut cursor = handles_buf;
-                let mut handles: [$crate::basic::TpmHandle; $count] = ::core::default::Default::default();
-                for handle in &mut handles {
-                    let (val, tail) = <$crate::basic::TpmHandle as $crate::TpmUnmarshal>::unmarshal(cursor)?;
-                    *handle = val;
-                    cursor = tail;
-                }
-
-                if !cursor.is_empty() {
-                    return Err($crate::TpmError::TrailingData(
-                        $crate::TpmErrorValue::at(handles_buf, cursor).actual(cursor.len()),
-                    ));
-                }
-
-                let mut cursor = params_buf;
-                $(
-                    let ($param_field, tail) = <$param_type as $crate::TpmUnmarshal>::unmarshal(cursor)?;
-                    cursor = tail;
-                )*
-
-                Ok((
-                    Self {
-                        handles,
-                        $($param_field,)*
-                    },
-                    cursor,
-                ))
-            }
-        }
     };
 
     (
@@ -252,67 +216,6 @@ macro_rules! tpm_struct {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 <Self as $crate::frame::TpmMarshalBody>::marshal_handles(self, writer)?;
                 <Self as $crate::frame::TpmMarshalBody>::marshal_parameters(self, writer)
-            }
-        }
-
-        impl $crate::frame::TpmUnmarshalResponse for $name {
-            #[allow(unused_mut, unused_variables)]
-            fn unmarshal_body(
-                tag: $crate::data::TpmSt,
-                buf: &[u8],
-            ) -> $crate::TpmResult<(Self, &[u8])> {
-                let mut cursor = buf;
-                let mut handles: [$crate::basic::TpmHandle; $count] = ::core::default::Default::default();
-                for handle in &mut handles {
-                    let (val, tail) = <$crate::basic::TpmHandle as $crate::TpmUnmarshal>::unmarshal(cursor)?;
-                    *handle = val;
-                    cursor = tail;
-                }
-
-                if tag == $crate::data::TpmSt::Sessions {
-                    let (size, buf_after_size) =
-                        <$crate::basic::TpmUint32 as $crate::TpmUnmarshal>::unmarshal(cursor)?;
-                    let size = u32::from(size) as usize;
-                    if buf_after_size.len() < size {
-                        return Err($crate::TpmError::UnexpectedEnd(
-                            $crate::TpmErrorValue::at(buf, buf_after_size).size(size, buf_after_size.len()),
-                        ));
-                    }
-                    let (mut params_cursor, final_tail) = buf_after_size.split_at(size);
-
-                    $(
-                        let ($param_field, tail) = <$param_type as $crate::TpmUnmarshal>::unmarshal(params_cursor)?;
-                        params_cursor = tail;
-                    )*
-
-                    if !params_cursor.is_empty() {
-                        return Err($crate::TpmError::TrailingData(
-                            $crate::TpmErrorValue::at(buf, params_cursor).actual(params_cursor.len()),
-                        ));
-                    }
-
-                    Ok((
-                        Self {
-                            handles,
-                            $($param_field,)*
-                        },
-                        final_tail,
-                    ))
-                } else {
-                    let mut params_cursor = cursor;
-                    $(
-                        let ($param_field, tail) = <$param_type as $crate::TpmUnmarshal>::unmarshal(params_cursor)?;
-                        params_cursor = tail;
-                    )*
-
-                    Ok((
-                        Self {
-                            handles,
-                            $($param_field,)*
-                        },
-                        params_cursor,
-                    ))
-                }
             }
         }
     };
@@ -471,17 +374,6 @@ macro_rules! tpm_struct {
             }
         }
 
-        impl $crate::TpmUnmarshal for $name {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                $(let ($field_name, buf) = <$field_type>::unmarshal(buf)?;)*
-                Ok((
-                    Self {
-                        $($field_name,)*
-                    },
-                    buf,
-                ))
-            }
-        }
     };
 }
 
@@ -672,30 +564,6 @@ macro_rules! tpm2b_struct {
                     ))?;
                 len_field.marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
-            }
-        }
-
-        impl $crate::TpmUnmarshal for $wrapper_ty {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (size, buf_after_size) = <$crate::basic::TpmUint16 as $crate::TpmUnmarshal>::unmarshal(buf)?;
-                let size = u16::from(size) as usize;
-
-                if buf_after_size.len() < size {
-                    return Err($crate::TpmError::UnexpectedEnd(
-                        $crate::TpmErrorValue::at(buf, buf_after_size).size(size, buf_after_size.len()),
-                    ));
-                }
-                let (inner_bytes, rest) = buf_after_size.split_at(size);
-
-                let (inner_val, tail) = <$inner_ty>::unmarshal(inner_bytes)?;
-
-                if !tail.is_empty() {
-                    return Err($crate::TpmError::TrailingData(
-                        $crate::TpmErrorValue::at(buf, tail).actual(tail.len()),
-                    ));
-                }
-
-                Ok((Self { inner: inner_val }, rest))
             }
         }
 

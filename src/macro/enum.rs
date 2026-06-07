@@ -70,15 +70,6 @@ macro_rules! tpm_enum {
             }
         }
 
-        impl $crate::TpmUnmarshal for $name {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = <$wrapper as $crate::TpmUnmarshal>::unmarshal(buf)?;
-                let raw: $repr = val.into();
-                let enum_val = Self::try_from(raw)?;
-                Ok((enum_val, buf))
-            }
-        }
-
         impl<'a> $crate::TpmField<'a> for $name {
             type View = Self;
 

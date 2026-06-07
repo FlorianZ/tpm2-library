@@ -8,8 +8,7 @@ use super::{
     TpmuSigScheme, TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
-    TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
-    constant::TPM_MAX_COMMAND_SIZE, tpm_struct,
+    TpmMarshal, TpmResult, TpmSized, TpmWriter, constant::TPM_MAX_COMMAND_SIZE, tpm_struct,
 };
 
 macro_rules! tpm_struct_tagged {
@@ -37,21 +36,6 @@ macro_rules! tpm_struct_tagged {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 $crate::TpmMarshal::marshal(&self.$tag_field, writer)?;
                 $crate::TpmMarshal::marshal(&self.$value_field, writer)
-            }
-        }
-
-        impl $crate::TpmUnmarshal for $name {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let ($tag_field, buf) = <$tag_ty>::unmarshal(buf)?;
-                let ($value_field, buf) =
-                    <$value_ty as $crate::TpmUnmarshalTagged>::unmarshal_tagged($tag_field, buf)?;
-                Ok((
-                    Self {
-                        $tag_field,
-                        $value_field,
-                    },
-                    buf,
-                ))
             }
         }
 
@@ -109,27 +93,6 @@ impl TpmMarshal for TpmtPublic {
         self.auth_policy.marshal(writer)?;
         self.parameters.marshal(writer)?;
         self.unique.marshal(writer)
-    }
-}
-
-impl TpmUnmarshal for TpmtPublic {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (object_type, buf) = TpmAlgId::unmarshal(buf)?;
-        let (name_alg, buf) = TpmAlgId::unmarshal(buf)?;
-        let (object_attributes, buf) = TpmaObject::unmarshal(buf)?;
-        let (auth_policy, buf) = Tpm2bDigest::unmarshal(buf)?;
-        let (parameters, buf) = TpmuPublicParms::unmarshal_tagged(object_type, buf)?;
-        let (unique, buf) = TpmuPublicId::unmarshal_tagged(object_type, buf)?;
-
-        let public_area = Self {
-            object_type,
-            name_alg,
-            object_attributes,
-            auth_policy,
-            parameters,
-            unique,
-        };
-        Ok((public_area, buf))
     }
 }
 
@@ -216,25 +179,6 @@ impl TpmMarshal for TpmtSensitive {
     }
 }
 
-impl TpmUnmarshal for TpmtSensitive {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (sensitive_type, buf) = TpmAlgId::unmarshal(buf)?;
-        let (auth_value, buf) = Tpm2bAuth::unmarshal(buf)?;
-        let (seed_value, buf) = Tpm2bDigest::unmarshal(buf)?;
-        let (sensitive, buf) = TpmuSensitiveComposite::unmarshal_tagged(sensitive_type, buf)?;
-
-        Ok((
-            Self {
-                sensitive_type,
-                auth_value,
-                seed_value,
-                sensitive,
-            },
-            buf,
-        ))
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub struct TpmtSymDef {
     pub algorithm: TpmAlgId,
@@ -261,35 +205,6 @@ impl TpmMarshal for TpmtSymDef {
             self.mode.marshal(writer)?;
         }
         Ok(())
-    }
-}
-
-impl TpmUnmarshal for TpmtSymDef {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (algorithm, buf) = TpmAlgId::unmarshal(buf)?;
-
-        if algorithm == TpmAlgId::Null {
-            return Ok((
-                Self {
-                    algorithm,
-                    key_bits: TpmuSymKeyBits::Null,
-                    mode: TpmuSymMode::Null,
-                },
-                buf,
-            ));
-        }
-
-        let (key_bits, buf) = TpmuSymKeyBits::unmarshal_tagged(algorithm, buf)?;
-        let (mode, buf) = TpmuSymMode::unmarshal_tagged(algorithm, buf)?;
-
-        Ok((
-            Self {
-                algorithm,
-                key_bits,
-                mode,
-            },
-            buf,
-        ))
     }
 }
 

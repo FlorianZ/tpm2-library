@@ -10,7 +10,9 @@ mod marshal;
 mod unmarshal;
 mod wire;
 
-pub use self::{data::*, marshal::*, unmarshal::*, wire::*};
+pub use self::{data::*, marshal::*, wire::*};
+
+pub(crate) use self::unmarshal::TpmDispatch;
 
 use crate::constant::{MAX_HANDLES, MAX_SESSIONS};
 
@@ -56,28 +58,6 @@ pub trait TpmMarshalBody: TpmSized {
     ///
     /// Returns `Err(TpmError)` on a marshal failure.
     fn marshal_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
-}
-
-/// Unmarshals a command body from the slices point out to the handle area and
-/// parameter area of the original buffer.
-pub(crate) trait TpmUnmarshalCommand: Sized {
-    /// Unmarshals the command body from the handle and parameter area.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err(TpmError)` on a unmarshal failure.
-    fn unmarshal_body<'a>(handles: &'a [u8], params: &'a [u8]) -> TpmResult<(Self, &'a [u8])>;
-}
-
-/// Unmarshals a response body using the response tag to handle structural variations.
-pub trait TpmUnmarshalResponse: Sized {
-    /// Unmarshals the response body from a buffer, using the response tag
-    /// dynamically to determine the structure.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err(TpmError)` on a unmarshal failure.
-    fn unmarshal_body(tag: crate::data::TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])>;
 }
 
 tpm_dispatch! {

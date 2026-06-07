@@ -3,8 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmWriter,
-    basic::TpmUint16,
+    TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, TpmWriter, basic::TpmUint16,
 };
 use core::{
     convert::TryFrom,
@@ -397,29 +396,6 @@ impl<const CAPACITY: usize> TpmMarshal for TpmBuffer<CAPACITY> {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         TpmUint16::from(self.size).marshal(writer)?;
         writer.write_bytes(self)
-    }
-}
-
-impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (native_size, remainder) = TpmUint16::unmarshal(buf)?;
-        let size_usize = u16::from(native_size) as usize;
-
-        if size_usize > CAPACITY {
-            return Err(TpmError::TooManyBytes(
-                crate::TpmErrorValue::new(0).limit(CAPACITY, size_usize),
-            ));
-        }
-
-        if remainder.len() < size_usize {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(TPM2B_SIZE_LEN).size(size_usize, remainder.len()),
-            ));
-        }
-
-        let mut buffer = Self::new();
-        buffer.try_extend_from_slice(&remainder[..size_usize])?;
-        Ok((buffer, &remainder[size_usize..]))
     }
 }
 

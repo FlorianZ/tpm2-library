@@ -2,9 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{
-    TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, basic::TpmUint32,
-};
+use crate::{TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, basic::TpmUint32};
 use core::{
     convert::TryFrom,
     fmt::Debug,
@@ -480,26 +478,5 @@ impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPA
             TpmMarshal::marshal(item, writer)?;
         }
         Ok(())
-    }
-}
-
-impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, CAPACITY> {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (count_u32, mut buf) = TpmUint32::unmarshal(buf)?;
-        let count = u32::from(count_u32) as usize;
-        if count > CAPACITY {
-            return Err(TpmError::TooManyItems(
-                crate::TpmErrorValue::new(0).limit(CAPACITY, count),
-            ));
-        }
-
-        let mut list = Self::new();
-        for _ in 0..count {
-            let (item, rest) = T::unmarshal(buf)?;
-            list.try_push(item)?;
-            buf = rest;
-        }
-
-        Ok((list, buf))
     }
 }

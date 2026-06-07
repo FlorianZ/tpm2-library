@@ -5,15 +5,34 @@
 #![allow(clippy::all)]
 #![allow(clippy::pedantic)]
 
-mod common;
+#[path = "common/error_expectation.rs"]
+mod error_expectation;
+#[path = "common/hex.rs"]
+mod hex;
+#[path = "common/status.rs"]
+mod status;
 
-use crate::common::{bytes_to_hex, hex_to_bytes, run_test, unmarshal_tpm_error_kind_str};
+use crate::error_expectation::{assert_tpm_error_matches, unmarshal_tpm_error_expectation};
+use crate::hex::{bytes_to_hex, hex_to_bytes};
+use crate::status::{print_failed, print_ok};
 use tpm2_protocol::{
     data::{TpmCc, TpmRc},
     frame::{TpmCommand, TpmResponse},
 };
 
 const MESSAGE_DATA: &str = include_str!("message.txt");
+
+fn run_test(name: &str, test_fn: impl FnOnce() + std::panic::UnwindSafe) -> bool {
+    print!("Test {name} ... ");
+    let result = std::panic::catch_unwind(test_fn);
+    if result.is_err() {
+        print_failed();
+        false
+    } else {
+        print_ok();
+        true
+    }
+}
 
 fn main() {
     let mut failed_count = 0;
@@ -42,16 +61,29 @@ fn main() {
 
             match type_str {
                 "Command" => {
-                    let command = TpmCommand::cast(&original_bytes).unwrap();
-                    command.validate().unwrap();
+                    if outcome_str == "0000" {
+                        let command = TpmCommand::cast(&original_bytes).unwrap();
+                        command.validate().unwrap();
 
-                    assert_eq!(
-                        command.as_bytes(),
-                        original_bytes.as_slice(),
-                        "\nOriginal: {}\nView:     {}\n",
-                        bytes_to_hex(&original_bytes),
-                        bytes_to_hex(command.as_bytes())
-                    );
+                        assert_eq!(
+                            command.as_bytes(),
+                            original_bytes.as_slice(),
+                            "\nOriginal: {}\nView:     {}\n",
+                            bytes_to_hex(&original_bytes),
+                            bytes_to_hex(command.as_bytes())
+                        );
+                    } else {
+                        let expected_err = unmarshal_tpm_error_expectation(&outcome_str)
+                            .unwrap_or_else(|e| {
+                                panic!("failed to unmarshal outcome string '{outcome_str}': {e}")
+                            });
+                        let actual_err = TpmCommand::cast(&original_bytes)
+                            .and_then(|command| command.validate())
+                            .err()
+                            .expect("expected TpmError, got Ok");
+
+                        assert_tpm_error_matches(actual_err, &expected_err);
+                    }
                 }
                 "Response" => {
                     if let Ok(expected_rc_u32) = u32::from_str_radix(&outcome_str, 16) {
@@ -85,7 +117,7 @@ fn main() {
                             );
                         }
                     } else {
-                        let expected_err = unmarshal_tpm_error_kind_str(&outcome_str)
+                        let expected_err = unmarshal_tpm_error_expectation(&outcome_str)
                             .unwrap_or_else(|e| {
                                 panic!("failed to unmarshal outcome string '{outcome_str}': {e}")
                             });
@@ -93,11 +125,8 @@ fn main() {
                             .and_then(|response| response.validate(cc))
                             .err()
                             .expect("expected TpmError, got Ok");
-                        assert_eq!(
-                            std::mem::discriminant(&actual_err),
-                            std::mem::discriminant(&expected_err),
-                            "mismatched unmarshaling error type"
-                        );
+
+                        assert_tpm_error_matches(actual_err, &expected_err);
                     }
                 }
                 _ => panic!("invalid message type in test case"),

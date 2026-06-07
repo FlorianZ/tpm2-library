@@ -101,13 +101,6 @@ macro_rules! tpm_bitflags {
             }
         }
 
-        impl $crate::TpmUnmarshal for $name {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = <$wrapper as $crate::TpmUnmarshal>::unmarshal(buf)?;
-                Ok((Self(val.into()), buf))
-            }
-        }
-
         impl<'a> $crate::TpmField<'a> for $name {
             type View = Self;
 
@@ -165,20 +158,6 @@ macro_rules! tpm_bool {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let value = if self.0 { 1 } else { 0 };
                 $crate::basic::TpmUint8::from(value).marshal(writer)
-            }
-        }
-
-        impl $crate::TpmUnmarshal for $name {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let (val, buf) = $crate::basic::TpmUint8::unmarshal(buf)?;
-                let raw = u8::from(val);
-                match raw {
-                    0 => Ok((Self(false), buf)),
-                    1 => Ok((Self(true), buf)),
-                    _ => Err($crate::TpmError::InvalidBoolean(
-                        $crate::TpmErrorValue::new(0).value(u64::from(raw)),
-                    )),
-                }
             }
         }
 
@@ -290,6 +269,59 @@ macro_rules! tpm_dispatch {
             }
         }
 
+        /// A borrowed TPM command frame selected by command code.
+        pub enum TpmCommandView<'a> {
+            $( $variant(&'a $crate::frame::TpmCommand), )*
+        }
+
+        impl<'a> TpmCommandView<'a> {
+            /// Casts bytes into a borrowed command dispatch value.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmError)` when the command frame is malformed or its
+            /// command code has no dispatch entry.
+            pub fn cast_frame(buf: &'a [u8]) -> $crate::TpmResult<Self> {
+                let command = <$crate::frame::TpmCommand>::cast(buf)?;
+
+                Self::cast(command)
+            }
+
+            /// Selects a borrowed command dispatch value from a command wire view.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmError)` when the command frame is malformed or its
+            /// command code has no dispatch entry.
+            pub fn cast(command: &'a $crate::frame::TpmCommand) -> $crate::TpmResult<Self> {
+                command.validate()?;
+
+                let cc = command.cc()?;
+                match cc {
+                    $( <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC => Ok(Self::$variant(command)), )*
+                    _ => Err($crate::TpmError::InvalidCc(
+                        $crate::TpmErrorValue::new(6).value(u64::from(cc.value())),
+                    )),
+                }
+            }
+
+            /// Returns the selected command frame.
+            #[must_use]
+            pub fn command(&self) -> &'a $crate::frame::TpmCommand {
+                match self {
+                    $( Self::$variant(command) => command, )*
+                }
+            }
+
+            /// Returns the selected command code.
+            #[must_use]
+            pub fn cc(&self) -> $crate::data::TpmCc {
+                match self {
+                    $( Self::$variant(_) => <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC, )*
+                }
+            }
+        }
+
         /// An owned TPM response body value.
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug, PartialEq, Eq, Clone)]
@@ -374,20 +406,78 @@ macro_rules! tpm_dispatch {
             }
         }
 
+        /// A borrowed TPM response frame selected by command code.
+        pub enum TpmResponseView<'a> {
+            $( $variant(&'a $crate::frame::TpmResponse), )*
+        }
+
+        /// A borrowed response dispatch result or a TPM response code.
+        pub type TpmResponseViewResult<'a> = Result<TpmResponseView<'a>, $crate::data::TpmRc>;
+
+        impl<'a> TpmResponseView<'a> {
+            /// Casts bytes into a borrowed response dispatch value.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmError)` when the response frame is malformed or `cc`
+            /// has no dispatch entry.
+            pub fn cast_frame(
+                cc: $crate::data::TpmCc,
+                buf: &'a [u8],
+            ) -> $crate::TpmResult<TpmResponseViewResult<'a>> {
+                let response = <$crate::frame::TpmResponse>::cast(buf)?;
+
+                Self::cast(cc, response)
+            }
+
+            /// Selects a borrowed response dispatch value from a response wire view.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmError)` when the response frame is malformed or `cc`
+            /// has no dispatch entry.
+            pub fn cast(
+                cc: $crate::data::TpmCc,
+                response: &'a $crate::frame::TpmResponse,
+            ) -> $crate::TpmResult<TpmResponseViewResult<'a>> {
+                let rc = response.rc()?;
+                if !matches!(rc, $crate::data::TpmRc::Fmt0($crate::data::TpmRcBase::Success)) {
+                    return Ok(Err(rc));
+                }
+
+                response.validate(cc)?;
+
+                match cc {
+                    $( <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC => Ok(Ok(Self::$variant(response))), )*
+                    _ => Err($crate::TpmError::InvalidCc(
+                        $crate::TpmErrorValue::new(0).value(u64::from(cc.value())),
+                    )),
+                }
+            }
+
+            /// Returns the selected response frame.
+            #[must_use]
+            pub fn response(&self) -> &'a $crate::frame::TpmResponse {
+                match self {
+                    $( Self::$variant(response) => response, )*
+                }
+            }
+
+            /// Returns the command code used for response dispatch.
+            #[must_use]
+            pub fn cc(&self) -> $crate::data::TpmCc {
+                match self {
+                    $( Self::$variant(_) => <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC, )*
+                }
+            }
+        }
+
         pub(crate) static TPM_DISPATCH_TABLE: &[$crate::frame::TpmDispatch] = &[
             $(
                 $crate::frame::TpmDispatch {
                     cc: <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC,
                     handles: <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::HANDLES,
                     response_handles: <$crate::frame::data::$resp as $crate::frame::TpmHeader>::HANDLES,
-                    command_unmarshaler: |handles, params| {
-                        <$crate::frame::data::$cmd as $crate::frame::TpmUnmarshalCommand>::unmarshal_body(handles, params)
-                            .map(|(c, r)| (TpmCommandValue::$variant(c), r))
-                    },
-                    response_unmarshaler: |tag, buf| {
-                        <$crate::frame::data::$resp as $crate::frame::TpmUnmarshalResponse>::unmarshal_body(tag, buf)
-                            .map(|(r, rest)| (TpmResponseValue::$variant(r), rest))
-                    },
                 },
             )*
         ];

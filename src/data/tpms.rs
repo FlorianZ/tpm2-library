@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
+    TpmError, TpmMarshal, TpmResult, TpmSized, TpmWriter,
     basic::{TpmHandle, TpmUint8, TpmUint16, TpmUint32, TpmUint64},
     constant::{TPM_GENERATED_VALUE, TPM_PCR_SELECT_MAX},
     data::{
@@ -98,29 +98,6 @@ impl TpmMarshal for TpmsPcrSelect {
     }
 }
 
-impl TpmUnmarshal for TpmsPcrSelect {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (size, remainder) = TpmUint8::unmarshal(buf)?;
-        let raw = u8::from(size);
-
-        if raw > TPM_PCR_SELECT_MAX {
-            return Err(TpmError::TooManyItems(
-                crate::TpmErrorValue::new(0).limit(TPM_PCR_SELECT_MAX as usize, raw as usize),
-            ));
-        }
-        if remainder.len() < raw as usize {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(size_of::<TpmUint8>())
-                    .size(raw as usize, remainder.len()),
-            ));
-        }
-
-        let (pcr_bytes, final_remainder) = remainder.split_at(raw as usize);
-        let pcr_select = Self::try_from(pcr_bytes)?;
-        Ok((pcr_select, final_remainder))
-    }
-}
-
 impl<'a> crate::TpmField<'a> for TpmsPcrSelect {
     type View = &'a [u8];
 
@@ -201,14 +178,6 @@ impl TpmMarshal for TpmsCapabilityData {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.capability.marshal(writer)?;
         self.data.marshal(writer)
-    }
-}
-
-impl TpmUnmarshal for TpmsCapabilityData {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (capability, buf) = TpmCap::unmarshal(buf)?;
-        let (data, buf) = TpmuCapabilities::unmarshal_tagged(capability, buf)?;
-        Ok((Self { capability, data }, buf))
     }
 }
 
@@ -313,14 +282,6 @@ impl TpmMarshal for TpmsPcrSelection {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.hash.marshal(writer)?;
         self.pcr_select.marshal(writer)
-    }
-}
-
-impl TpmUnmarshal for TpmsPcrSelection {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (hash, buf) = TpmAlgId::unmarshal(buf)?;
-        let (pcr_select, buf) = TpmsPcrSelect::unmarshal(buf)?;
-        Ok((Self { hash, pcr_select }, buf))
     }
 }
 
@@ -529,35 +490,6 @@ impl TpmMarshal for TpmsAttest {
         self.clock_info.marshal(writer)?;
         self.firmware_version.marshal(writer)?;
         self.attested.marshal(writer)
-    }
-}
-
-impl TpmUnmarshal for TpmsAttest {
-    fn unmarshal(buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let (magic, buf) = crate::basic::TpmUint32::unmarshal(buf)?;
-        if u32::from(magic) != TPM_GENERATED_VALUE {
-            return Err(TpmError::InvalidMagicNumber(
-                crate::TpmErrorValue::new(0).value(u64::from(u32::from(magic))),
-            ));
-        }
-        let (attest_type, buf) = TpmSt::unmarshal(buf)?;
-        let (qualified_signer, buf) = Tpm2bName::unmarshal(buf)?;
-        let (extra_data, buf) = Tpm2bData::unmarshal(buf)?;
-        let (clock_info, buf) = TpmsClockInfo::unmarshal(buf)?;
-        let (firmware_version, buf) = TpmUint64::unmarshal(buf)?;
-        let (attested, buf) = TpmuAttest::unmarshal_tagged(attest_type, buf)?;
-
-        Ok((
-            Self {
-                attest_type,
-                qualified_signer,
-                extra_data,
-                clock_info,
-                firmware_version,
-                attested,
-            },
-            buf,
-        ))
     }
 }
 

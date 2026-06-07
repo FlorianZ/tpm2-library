@@ -5,9 +5,10 @@
 #![allow(clippy::all)]
 #![allow(clippy::pedantic)]
 
-mod common;
+#[path = "common/status.rs"]
+mod status;
 
-use crate::common::{print_failed, print_ok};
+use crate::status::{print_failed, print_ok};
 use std::convert::TryFrom;
 use tpm2_protocol::data::TpmRc;
 

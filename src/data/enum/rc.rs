@@ -208,14 +208,6 @@ impl crate::TpmMarshal for TpmRc {
     }
 }
 
-impl crate::TpmUnmarshal for TpmRc {
-    fn unmarshal(buf: &[u8]) -> crate::TpmResult<(Self, &[u8])> {
-        let (val, remainder) = crate::basic::TpmUint32::unmarshal(buf)?;
-        let rc = Self::try_from(u32::from(val))?;
-        Ok((rc, remainder))
-    }
-}
-
 impl TryFrom<u32> for TpmRc {
     type Error = TpmError;
     fn try_from(value: u32) -> Result<Self, Self::Error> {

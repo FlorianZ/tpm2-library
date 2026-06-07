@@ -3,8 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmError, TpmMarshal, TpmResult, TpmSized, TpmTagged, TpmUnmarshal, TpmUnmarshalTagged,
-    TpmWriter,
+    TpmError, TpmMarshal, TpmResult, TpmSized, TpmWriter,
     basic::{TpmBuffer, TpmUint16},
     constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{
@@ -97,11 +96,6 @@ pub enum TpmuAsymScheme {
     Null,
 }
 
-impl TpmTagged for TpmuAsymScheme {
-    type Tag = TpmAlgId;
-    type Value = ();
-}
-
 impl TpmSized for TpmuAsymScheme {
     const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
@@ -121,29 +115,6 @@ impl TpmMarshal for TpmuAsymScheme {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuAsymScheme {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Rsassa
-            | TpmAlgId::Rsapss
-            | TpmAlgId::Ecdsa
-            | TpmAlgId::Ecdaa
-            | TpmAlgId::Sm2
-            | TpmAlgId::Ecschnorr
-            | TpmAlgId::Oaep
-            | TpmAlgId::Ecdh
-            | TpmAlgId::Ecmqv => {
-                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-                Ok((Self::Hash(val), buf))
-            }
-            TpmAlgId::Rsaes | TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuAsymSchemeView, TpmuAsymScheme, TpmAlgId {
     Hash(TpmsSchemeHash): TpmAlgId::Rsassa|TpmAlgId::Rsapss|TpmAlgId::Ecdsa|TpmAlgId::Ecdaa|TpmAlgId::Sm2|TpmAlgId::Ecschnorr|TpmAlgId::Oaep|TpmAlgId::Ecdh|TpmAlgId::Ecmqv;
     @null Null: TpmAlgId::Rsaes|TpmAlgId::Null;
@@ -158,11 +129,6 @@ pub enum TpmuCapabilities {
     Commands(TpmlCca),
     TpmProperties(TpmlTaggedTpmProperty),
     EccCurves(TpmlEccCurve),
-}
-
-impl TpmTagged for TpmuCapabilities {
-    type Tag = TpmCap;
-    type Value = ();
 }
 
 impl TpmSized for TpmuCapabilities {
@@ -192,37 +158,6 @@ impl TpmMarshal for TpmuCapabilities {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuCapabilities {
-    fn unmarshal_tagged(tag: TpmCap, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmCap::Algs => {
-                let (algs, buf) = TpmlAlgProperty::unmarshal(buf)?;
-                Ok((TpmuCapabilities::Algs(algs), buf))
-            }
-            TpmCap::Handles => {
-                let (handles, buf) = TpmlHandle::unmarshal(buf)?;
-                Ok((TpmuCapabilities::Handles(handles), buf))
-            }
-            TpmCap::Pcrs => {
-                let (pcrs, buf) = TpmlPcrSelection::unmarshal(buf)?;
-                Ok((TpmuCapabilities::Pcrs(pcrs), buf))
-            }
-            TpmCap::Commands => {
-                let (cmds, buf) = TpmlCca::unmarshal(buf)?;
-                Ok((TpmuCapabilities::Commands(cmds), buf))
-            }
-            TpmCap::TpmProperties => {
-                let (props, buf) = TpmlTaggedTpmProperty::unmarshal(buf)?;
-                Ok((TpmuCapabilities::TpmProperties(props), buf))
-            }
-            TpmCap::EccCurves => {
-                let (curves, buf) = TpmlEccCurve::unmarshal(buf)?;
-                Ok((TpmuCapabilities::EccCurves(curves), buf))
-            }
-        }
-    }
-}
-
 tpmu_view!(TpmuCapabilitiesView, TpmuCapabilities, TpmCap {
     Algs(TpmlAlgProperty): TpmCap::Algs;
     Handles(TpmlHandle): TpmCap::Handles;
@@ -239,51 +174,12 @@ pub enum TpmuHa {
     Digest(TpmBuffer<MAX_DIGEST_SIZE>),
 }
 
-impl TpmTagged for TpmuHa {
-    type Tag = TpmAlgId;
-    type Value = ();
-}
-
 impl TpmMarshal for TpmuHa {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         match self {
             Self::Null => Ok(()),
             Self::Digest(d) => writer.write_bytes(d),
         }
-    }
-}
-
-impl TpmUnmarshalTagged for TpmuHa {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let digest_size = match tag {
-            TpmAlgId::Null => return Ok((Self::Null, buf)),
-            TpmAlgId::Sha1 => 20,
-            TpmAlgId::Shake256_192 => 24,
-            TpmAlgId::Sha256 | TpmAlgId::Sm3_256 | TpmAlgId::Sha3_256 | TpmAlgId::Shake256_256 => {
-                32
-            }
-            TpmAlgId::Sha384 | TpmAlgId::Sha3_384 => 48,
-            TpmAlgId::Sha512 | TpmAlgId::Sha3_512 | TpmAlgId::Shake256_512 => 64,
-            _ => {
-                return Err(TpmError::VariantNotAvailable(
-                    crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-                ));
-            }
-        };
-
-        if buf.len() < digest_size {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(digest_size, buf.len()),
-            ));
-        }
-
-        let (digest_bytes, buf) = buf.split_at(digest_size);
-
-        let digest = Self::Digest(TpmBuffer::try_from(digest_bytes).map_err(|_| {
-            TpmError::IntegerTooLarge(crate::TpmErrorValue::new(0).value_usize(digest_size))
-        })?);
-
-        Ok((digest, buf))
     }
 }
 
@@ -367,11 +263,6 @@ pub enum TpmuPublicId {
     Null,
 }
 
-impl TpmTagged for TpmuPublicId {
-    type Tag = TpmAlgId;
-    type Value = ();
-}
-
 impl TpmSized for TpmuPublicId {
     const SIZE: usize = TPM_MAX_COMMAND_SIZE;
     fn len(&self) -> usize {
@@ -397,33 +288,6 @@ impl TpmMarshal for TpmuPublicId {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuPublicId {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::KeyedHash => {
-                let (val, rest) = Tpm2bDigest::unmarshal(buf)?;
-                Ok((TpmuPublicId::KeyedHash(val), rest))
-            }
-            TpmAlgId::SymCipher => {
-                let (val, rest) = Tpm2bSymKey::unmarshal(buf)?;
-                Ok((TpmuPublicId::SymCipher(val), rest))
-            }
-            TpmAlgId::Rsa => {
-                let (val, rest) = Tpm2bPublicKeyRsa::unmarshal(buf)?;
-                Ok((TpmuPublicId::Rsa(val), rest))
-            }
-            TpmAlgId::Ecc => {
-                let (point, rest) = TpmsEccPoint::unmarshal(buf)?;
-                Ok((TpmuPublicId::Ecc(point), rest))
-            }
-            TpmAlgId::Null => Ok((TpmuPublicId::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuPublicIdView, TpmuPublicId, TpmAlgId {
     KeyedHash(Tpm2bDigest): TpmAlgId::KeyedHash;
     SymCipher(Tpm2bSymKey): TpmAlgId::SymCipher;
@@ -439,11 +303,6 @@ pub enum TpmuPublicParms {
     Rsa(TpmsRsaParms),
     Ecc(TpmsEccParms),
     Null,
-}
-
-impl TpmTagged for TpmuPublicParms {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl TpmSized for TpmuPublicParms {
@@ -471,33 +330,6 @@ impl TpmMarshal for TpmuPublicParms {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuPublicParms {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::KeyedHash => {
-                let (details, buf) = TpmsKeyedhashParms::unmarshal(buf)?;
-                Ok((Self::KeyedHash(details), buf))
-            }
-            TpmAlgId::SymCipher => {
-                let (details, buf) = TpmsSymcipherParms::unmarshal(buf)?;
-                Ok((Self::SymCipher(details), buf))
-            }
-            TpmAlgId::Rsa => {
-                let (details, buf) = TpmsRsaParms::unmarshal(buf)?;
-                Ok((Self::Rsa(details), buf))
-            }
-            TpmAlgId::Ecc => {
-                let (details, buf) = TpmsEccParms::unmarshal(buf)?;
-                Ok((Self::Ecc(details), buf))
-            }
-            TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuPublicParmsView, TpmuPublicParms, TpmAlgId {
     KeyedHash(TpmsKeyedhashParms): TpmAlgId::KeyedHash;
     SymCipher(TpmsSymcipherParms): TpmAlgId::SymCipher;
@@ -513,11 +345,6 @@ pub enum TpmuSensitiveComposite {
     Ecc(Tpm2bEccParameter),
     Bits(Tpm2bSensitiveData),
     Sym(Tpm2bSymKey),
-}
-
-impl TpmTagged for TpmuSensitiveComposite {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl Default for TpmuSensitiveComposite {
@@ -547,32 +374,6 @@ impl TpmMarshal for TpmuSensitiveComposite {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuSensitiveComposite {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Rsa => {
-                let (val, buf) = crate::data::Tpm2bPrivateKeyRsa::unmarshal(buf)?;
-                Ok((TpmuSensitiveComposite::Rsa(val), buf))
-            }
-            TpmAlgId::Ecc => {
-                let (val, buf) = Tpm2bEccParameter::unmarshal(buf)?;
-                Ok((TpmuSensitiveComposite::Ecc(val), buf))
-            }
-            TpmAlgId::KeyedHash => {
-                let (val, buf) = Tpm2bSensitiveData::unmarshal(buf)?;
-                Ok((TpmuSensitiveComposite::Bits(val), buf))
-            }
-            TpmAlgId::SymCipher => {
-                let (val, buf) = Tpm2bSymKey::unmarshal(buf)?;
-                Ok((TpmuSensitiveComposite::Sym(val), buf))
-            }
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuSensitiveCompositeView, TpmuSensitiveComposite, TpmAlgId {
     Rsa(crate::data::Tpm2bPrivateKeyRsa): TpmAlgId::Rsa;
     Ecc(Tpm2bEccParameter): TpmAlgId::Ecc;
@@ -588,11 +389,6 @@ pub enum TpmuSymKeyBits {
     Xor(TpmAlgId),
     #[default]
     Null,
-}
-
-impl TpmTagged for TpmuSymKeyBits {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl TpmSized for TpmuSymKeyBits {
@@ -616,33 +412,6 @@ impl TpmMarshal for TpmuSymKeyBits {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuSymKeyBits {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Aes => {
-                let (val, buf) = TpmUint16::unmarshal(buf)?;
-                Ok((TpmuSymKeyBits::Aes(val), buf))
-            }
-            TpmAlgId::Sm4 => {
-                let (val, buf) = TpmUint16::unmarshal(buf)?;
-                Ok((TpmuSymKeyBits::Sm4(val), buf))
-            }
-            TpmAlgId::Camellia => {
-                let (val, buf) = TpmUint16::unmarshal(buf)?;
-                Ok((TpmuSymKeyBits::Camellia(val), buf))
-            }
-            TpmAlgId::Xor => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                Ok((TpmuSymKeyBits::Xor(val), buf))
-            }
-            TpmAlgId::Null => Ok((TpmuSymKeyBits::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuSymKeyBitsView, TpmuSymKeyBits, TpmAlgId {
     Aes(TpmUint16): TpmAlgId::Aes;
     Sm4(TpmUint16): TpmAlgId::Sm4;
@@ -659,11 +428,6 @@ pub enum TpmuSymMode {
     Xor(TpmAlgId),
     #[default]
     Null,
-}
-
-impl TpmTagged for TpmuSymMode {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl TpmSized for TpmuSymMode {
@@ -687,33 +451,6 @@ impl TpmMarshal for TpmuSymMode {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuSymMode {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Aes => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                Ok((TpmuSymMode::Aes(val), buf))
-            }
-            TpmAlgId::Sm4 => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                Ok((TpmuSymMode::Sm4(val), buf))
-            }
-            TpmAlgId::Camellia => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                Ok((TpmuSymMode::Camellia(val), buf))
-            }
-            TpmAlgId::Xor => {
-                let (val, buf) = TpmAlgId::unmarshal(buf)?;
-                Ok((TpmuSymMode::Xor(val), buf))
-            }
-            TpmAlgId::Null => Ok((TpmuSymMode::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuSymModeView, TpmuSymMode, TpmAlgId {
     Aes(TpmAlgId): TpmAlgId::Aes;
     Sm4(TpmAlgId): TpmAlgId::Sm4;
@@ -732,11 +469,6 @@ pub enum TpmuSignature {
     Ecschnorr(TpmsSignatureEcc),
     Hmac(TpmtHa),
     Null,
-}
-
-impl TpmTagged for TpmuSignature {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl TpmSized for TpmuSignature {
@@ -764,45 +496,6 @@ impl TpmMarshal for TpmuSignature {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuSignature {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Rsassa => {
-                let (val, buf) = TpmsSignatureRsa::unmarshal(buf)?;
-                Ok((Self::Rsassa(val), buf))
-            }
-            TpmAlgId::Rsapss => {
-                let (val, buf) = TpmsSignatureRsa::unmarshal(buf)?;
-                Ok((Self::Rsapss(val), buf))
-            }
-            TpmAlgId::Ecdsa => {
-                let (val, buf) = TpmsSignatureEcc::unmarshal(buf)?;
-                Ok((Self::Ecdsa(val), buf))
-            }
-            TpmAlgId::Ecdaa => {
-                let (val, buf) = TpmsSignatureEcc::unmarshal(buf)?;
-                Ok((Self::Ecdaa(val), buf))
-            }
-            TpmAlgId::Sm2 => {
-                let (val, buf) = TpmsSignatureEcc::unmarshal(buf)?;
-                Ok((Self::Sm2(val), buf))
-            }
-            TpmAlgId::Ecschnorr => {
-                let (val, buf) = TpmsSignatureEcc::unmarshal(buf)?;
-                Ok((Self::Ecschnorr(val), buf))
-            }
-            TpmAlgId::Hmac => {
-                let (val, buf) = TpmtHa::unmarshal(buf)?;
-                Ok((Self::Hmac(val), buf))
-            }
-            TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuSignatureView, TpmuSignature, TpmAlgId {
     Rsassa(TpmsSignatureRsa): TpmAlgId::Rsassa;
     Rsapss(TpmsSignatureRsa): TpmAlgId::Rsapss;
@@ -825,11 +518,6 @@ pub enum TpmuAttest {
     Time(TpmsTimeAttestInfo),
     Nv(TpmsNvCertifyInfo),
     NvDigest(TpmsNvDigestCertifyInfo),
-}
-
-impl TpmTagged for TpmuAttest {
-    type Tag = TpmSt;
-    type Value = ();
 }
 
 impl TpmSized for TpmuAttest {
@@ -863,48 +551,6 @@ impl TpmMarshal for TpmuAttest {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuAttest {
-    fn unmarshal_tagged(tag: TpmSt, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmSt::AttestCertify => {
-                let (val, buf) = TpmsCertifyInfo::unmarshal(buf)?;
-                Ok((TpmuAttest::Certify(val), buf))
-            }
-            TpmSt::AttestCreation => {
-                let (val, buf) = TpmsCreationInfo::unmarshal(buf)?;
-                Ok((TpmuAttest::Creation(val), buf))
-            }
-            TpmSt::AttestQuote => {
-                let (val, buf) = TpmsQuoteInfo::unmarshal(buf)?;
-                Ok((TpmuAttest::Quote(val), buf))
-            }
-            TpmSt::AttestCommandAudit => {
-                let (val, buf) = TpmsCommandAuditInfo::unmarshal(buf)?;
-                Ok((TpmuAttest::CommandAudit(val), buf))
-            }
-            TpmSt::AttestSessionAudit => {
-                let (val, buf) = TpmsSessionAuditInfo::unmarshal(buf)?;
-                Ok((TpmuAttest::SessionAudit(val), buf))
-            }
-            TpmSt::AttestTime => {
-                let (val, buf) = TpmsTimeAttestInfo::unmarshal(buf)?;
-                Ok((TpmuAttest::Time(val), buf))
-            }
-            TpmSt::AttestNv => {
-                let (val, buf) = TpmsNvCertifyInfo::unmarshal(buf)?;
-                Ok((TpmuAttest::Nv(val), buf))
-            }
-            TpmSt::AttestNvDigest => {
-                let (val, buf) = TpmsNvDigestCertifyInfo::unmarshal(buf)?;
-                Ok((TpmuAttest::NvDigest(val), buf))
-            }
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuAttestView, TpmuAttest, TpmSt {
     Certify(TpmsCertifyInfo): TpmSt::AttestCertify;
     Creation(TpmsCreationInfo): TpmSt::AttestCreation;
@@ -922,11 +568,6 @@ pub enum TpmuKeyedhashScheme {
     Xor(TpmsSchemeXor),
     #[default]
     Null,
-}
-
-impl TpmTagged for TpmuKeyedhashScheme {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl TpmSized for TpmuKeyedhashScheme {
@@ -950,25 +591,6 @@ impl TpmMarshal for TpmuKeyedhashScheme {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuKeyedhashScheme {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Hmac => {
-                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-                Ok((Self::Hmac(val), buf))
-            }
-            TpmAlgId::Xor => {
-                let (val, buf) = TpmsSchemeXor::unmarshal(buf)?;
-                Ok((Self::Xor(val), buf))
-            }
-            TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuKeyedhashSchemeView, TpmuKeyedhashScheme, TpmAlgId {
     Hmac(TpmsSchemeHash): TpmAlgId::Hmac;
     Xor(TpmsSchemeXor): TpmAlgId::Xor;
@@ -981,11 +603,6 @@ pub enum TpmuSigScheme {
     Hmac(TpmsSchemeHmac),
     #[default]
     Null,
-}
-
-impl TpmTagged for TpmuSigScheme {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl TpmSized for TpmuSigScheme {
@@ -1007,30 +624,6 @@ impl TpmMarshal for TpmuSigScheme {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuSigScheme {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Hmac => {
-                let (val, buf) = TpmsSchemeHmac::unmarshal(buf)?;
-                Ok((Self::Hmac(val), buf))
-            }
-            TpmAlgId::Rsassa
-            | TpmAlgId::Rsapss
-            | TpmAlgId::Ecdsa
-            | TpmAlgId::Ecdaa
-            | TpmAlgId::Sm2
-            | TpmAlgId::Ecschnorr => {
-                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-                Ok((Self::Hash(val), buf))
-            }
-            TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuSigSchemeView, TpmuSigScheme, TpmAlgId {
     Hmac(TpmsSchemeHmac): TpmAlgId::Hmac;
     Hash(TpmsSchemeHash): TpmAlgId::Rsassa|TpmAlgId::Rsapss|TpmAlgId::Ecdsa|TpmAlgId::Ecdaa|TpmAlgId::Sm2|TpmAlgId::Ecschnorr;
@@ -1042,11 +635,6 @@ pub enum TpmuNvPublic2 {
     NvIndex(TpmsNvPublic),
     ExternalNv(TpmsNvPublicExpAttr),
     PermanentNv(TpmsNvPublic),
-}
-
-impl TpmTagged for TpmuNvPublic2 {
-    type Tag = TpmHt;
-    type Value = ();
 }
 
 #[allow(clippy::match_same_arms)]
@@ -1070,28 +658,6 @@ impl TpmMarshal for TpmuNvPublic2 {
     }
 }
 
-impl TpmUnmarshalTagged for TpmuNvPublic2 {
-    fn unmarshal_tagged(tag: TpmHt, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmHt::NvIndex => {
-                let (val, buf) = TpmsNvPublic::unmarshal(buf)?;
-                Ok((Self::NvIndex(val), buf))
-            }
-            TpmHt::ExternalNv => {
-                let (val, buf) = TpmsNvPublicExpAttr::unmarshal(buf)?;
-                Ok((Self::ExternalNv(val), buf))
-            }
-            TpmHt::PermanentNv => {
-                let (val, buf) = TpmsNvPublic::unmarshal(buf)?;
-                Ok((Self::PermanentNv(val), buf))
-            }
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
-        }
-    }
-}
-
 tpmu_view!(TpmuNvPublic2View, TpmuNvPublic2, TpmHt {
     NvIndex(TpmsNvPublic): TpmHt::NvIndex;
     ExternalNv(TpmsNvPublicExpAttr): TpmHt::ExternalNv;
@@ -1106,11 +672,6 @@ pub enum TpmuKdfScheme {
     Kdf1Sp800_108(TpmsSchemeHash),
     #[default]
     Null,
-}
-
-impl TpmTagged for TpmuKdfScheme {
-    type Tag = TpmAlgId;
-    type Value = ();
 }
 
 impl TpmSized for TpmuKdfScheme {
@@ -1132,33 +693,6 @@ impl TpmMarshal for TpmuKdfScheme {
                 s.marshal(writer)
             }
             Self::Null => Ok(()),
-        }
-    }
-}
-
-impl TpmUnmarshalTagged for TpmuKdfScheme {
-    fn unmarshal_tagged(tag: TpmAlgId, buf: &[u8]) -> TpmResult<(Self, &[u8])> {
-        match tag {
-            TpmAlgId::Mgf1 => {
-                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-                Ok((Self::Mgf1(val), buf))
-            }
-            TpmAlgId::Kdf1Sp800_56A => {
-                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-                Ok((Self::Kdf1Sp800_56a(val), buf))
-            }
-            TpmAlgId::Kdf2 => {
-                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-                Ok((Self::Kdf2(val), buf))
-            }
-            TpmAlgId::Kdf1Sp800_108 => {
-                let (val, buf) = TpmsSchemeHash::unmarshal(buf)?;
-                Ok((Self::Kdf1Sp800_108(val), buf))
-            }
-            TpmAlgId::Null => Ok((Self::Null, buf)),
-            _ => Err(TpmError::VariantNotAvailable(
-                crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-            )),
         }
     }
 }

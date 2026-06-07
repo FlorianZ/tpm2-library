@@ -228,22 +228,6 @@ macro_rules! integer {
             }
         }
 
-        impl $crate::TpmUnmarshal for $name {
-            fn unmarshal(buf: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let size = core::mem::size_of::<$raw>();
-                let bytes = buf.get(..size).ok_or($crate::TpmError::UnexpectedEnd(
-                    $crate::TpmErrorValue::new(0).size(size, buf.len()),
-                ))?;
-                let array = bytes.try_into().map_err(|_| {
-                    $crate::TpmError::UnexpectedEnd(
-                        $crate::TpmErrorValue::new(0).size(size, buf.len()),
-                    )
-                })?;
-                let val = Self::from_be_bytes(array);
-                Ok((val, &buf[size..]))
-            }
-        }
-
         impl $crate::TpmCast for $name {
             fn cast(buf: &[u8]) -> $crate::TpmResult<&Self> {
                 Self::cast(buf)
