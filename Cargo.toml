@@ -8,7 +8,7 @@ name = "tpm2-crypto"
 readme = "README.md"
 repository = "https://gitlab.com/tpm-protocol/tpm2-crypto"
 rust-version = "1.85"
-version = "0.12.0"
+version = "0.12.1"
 
 [dependencies]
 num-bigint = { version = "0.4", features = ["rand"] }
