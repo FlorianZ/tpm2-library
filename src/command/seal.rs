@@ -103,11 +103,6 @@ impl Seal {
     /// Resolves the sensitive data to be sealed.
     fn resolve_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
         let bytes = if let Some(hex_str) = &self.data {
-            if self.input.is_some() {
-                return Err(CommandError::InvalidInput(
-                    "--data and --input are mutually exclusive".to_string(),
-                ));
-            }
             hex::decode(hex_str).map_err(|_| CommandError::InvalidSensitiveData)?
         } else {
             read_file_input(self.input.as_deref())?
