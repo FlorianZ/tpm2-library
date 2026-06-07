@@ -262,6 +262,14 @@ impl<const CAPACITY: usize> TpmCastMut for Tpm2b<CAPACITY> {
     }
 }
 
+impl<'a, const CAPACITY: usize> crate::TpmField<'a> for TpmBuffer<CAPACITY> {
+    type View = &'a Tpm2b<CAPACITY>;
+
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        Tpm2b::<CAPACITY>::cast_prefix(buf)
+    }
+}
+
 impl<const CAPACITY: usize> AsRef<[u8]> for Tpm2b<CAPACITY> {
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()

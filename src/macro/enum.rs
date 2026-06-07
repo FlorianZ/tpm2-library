@@ -78,6 +78,18 @@ macro_rules! tpm_enum {
                 Ok((enum_val, buf))
             }
         }
+
+        impl<'a> $crate::TpmField<'a> for $name {
+            type View = Self;
+
+            fn cast_prefix_field(buf: &'a [u8]) -> $crate::TpmResult<(Self::View, &'a [u8])> {
+                let (value, buf) = <$wrapper as $crate::TpmCast>::cast_prefix(buf)?;
+                let raw: $repr = value.get();
+                let enum_val = Self::try_from(raw)?;
+
+                Ok((enum_val, buf))
+            }
+        }
     };
 
     ($(#[$meta:meta])* $vis:vis enum $name:ident(TpmUint8) { $($rest:tt)* }) => {

@@ -167,6 +167,7 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
     }
 
     /// Returns an iterator over typed borrowed items.
+    #[must_use]
     pub fn items<T: TpmCast + ?Sized>(&self) -> TpmlIter<'_, T> {
         TpmlIter {
             buf: self.items_bytes(),
@@ -233,9 +234,12 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         for _ in 0..count {
             let before = cursor.len();
             let (_, tail) = T::cast_prefix(cursor)?;
-            consumed = consumed.checked_add(before - tail.len()).ok_or(
-                TpmError::IntegerTooLarge(crate::TpmErrorValue::new(consumed).value_usize(before)),
-            )?;
+            consumed =
+                consumed
+                    .checked_add(before - tail.len())
+                    .ok_or(TpmError::IntegerTooLarge(
+                        crate::TpmErrorValue::new(consumed).value_usize(before),
+                    ))?;
             cursor = tail;
         }
 
@@ -317,6 +321,35 @@ impl<const CAPACITY: usize> TpmCastMut for Tpml<CAPACITY> {
         // SAFETY: The caller upholds the unchecked mutable cast contract for
         // `Tpml`.
         unsafe { Self::cast_mut_unchecked(buf) }
+    }
+}
+
+impl<'a, T: crate::TpmField<'a> + Copy, const CAPACITY: usize> crate::TpmField<'a>
+    for TpmList<T, CAPACITY>
+{
+    type View = &'a Tpml<CAPACITY>;
+
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        let count = Tpml::<CAPACITY>::validate_header(buf)?;
+        let mut cursor = &buf[TPML_COUNT_LEN..];
+        let mut consumed = TPML_COUNT_LEN;
+
+        for _ in 0..count {
+            let before = cursor.len();
+            let (_, tail) = T::cast_prefix_field(cursor)?;
+            consumed =
+                consumed
+                    .checked_add(before - tail.len())
+                    .ok_or(TpmError::IntegerTooLarge(
+                        crate::TpmErrorValue::new(consumed).value_usize(before),
+                    ))?;
+            cursor = tail;
+        }
+
+        let (head, tail) = buf.split_at(consumed);
+
+        // SAFETY: The loop above checked the TPML count and all item boundaries.
+        Ok((unsafe { Tpml::<CAPACITY>::cast_unchecked(head) }, tail))
     }
 }
 

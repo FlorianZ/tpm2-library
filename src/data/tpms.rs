@@ -121,8 +121,33 @@ impl TpmUnmarshal for TpmsPcrSelect {
     }
 }
 
+impl<'a> crate::TpmField<'a> for TpmsPcrSelect {
+    type View = &'a [u8];
+
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        let (size, remainder) = <TpmUint8 as crate::TpmCast>::cast_prefix(buf)?;
+        let size = size.get() as usize;
+
+        if size > TPM_PCR_SELECT_MAX as usize {
+            return Err(TpmError::TooManyItems(
+                crate::TpmErrorValue::new(0).limit(TPM_PCR_SELECT_MAX as usize, size),
+            ));
+        }
+
+        if remainder.len() < size {
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(size_of::<TpmUint8>()).size(size, remainder.len()),
+            ));
+        }
+
+        let (pcr_select, remainder) = remainder.split_at(size);
+        Ok((pcr_select, remainder))
+    }
+}
+
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsAcOutputWire,
     pub struct TpmsAcOutput {
         pub tag: TpmAt,
         pub data: TpmUint32,
@@ -131,6 +156,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
+    wire: TpmsAlgPropertyWire,
     pub struct TpmsAlgProperty {
         pub alg: TpmAlgId,
         pub alg_properties: TpmaAlgorithm,
@@ -139,6 +165,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsAuthCommandWire,
     pub struct TpmsAuthCommand {
         pub session_handle: TpmHandle,
         pub nonce: Tpm2bNonce,
@@ -149,6 +176,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsAuthResponseWire,
     pub struct TpmsAuthResponse {
         pub nonce: Tpm2bNonce,
         pub session_attributes: TpmaSession,
@@ -186,6 +214,7 @@ impl TpmUnmarshal for TpmsCapabilityData {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsClockInfoWire,
     pub struct TpmsClockInfo {
         pub clock: TpmUint64,
         pub reset_count: TpmUint32,
@@ -196,6 +225,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
+    wire: TpmsContextWire,
     pub struct TpmsContext {
         pub sequence: TpmUint64,
         pub saved_handle: TpmHandle,
@@ -206,6 +236,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmsCreationDataWire,
     pub struct TpmsCreationData {
         pub pcr_select: TpmlPcrSelection,
         pub pcr_digest: Tpm2bDigest,
@@ -219,6 +250,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsEccPointWire,
     pub struct TpmsEccPoint {
         pub x: Tpm2bEccParameter,
         pub y: Tpm2bEccParameter,
@@ -227,11 +259,13 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    wire: TpmsEmptyWire,
     pub struct TpmsEmpty {}
 }
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
+    wire: TpmsKeyedhashParmsWire,
     pub struct TpmsKeyedhashParms {
         pub scheme: TpmtKeyedhashScheme,
     }
@@ -239,6 +273,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
+    wire: TpmsNvPublicWire,
     pub struct TpmsNvPublic {
         pub nv_index: TpmHandle,
         pub name_alg: TpmAlgId,
@@ -250,6 +285,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsNvPublicExpAttrWire,
     pub struct TpmsNvPublicExpAttr {
         pub nv_index: TpmiRhNvExpIndex,
         pub name_alg: TpmAlgId,
@@ -288,8 +324,20 @@ impl TpmUnmarshal for TpmsPcrSelection {
     }
 }
 
+impl<'a> crate::TpmField<'a> for TpmsPcrSelection {
+    type View = (TpmAlgId, &'a [u8]);
+
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        let (hash, buf) = <TpmAlgId as crate::TpmField>::cast_prefix_field(buf)?;
+        let (pcr_select, buf) = <TpmsPcrSelect as crate::TpmField>::cast_prefix_field(buf)?;
+
+        Ok(((hash, pcr_select), buf))
+    }
+}
+
 tpm_struct! {
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
+    wire: TpmsSensitiveCreateWire,
     pub struct TpmsSensitiveCreate {
         pub user_auth: Tpm2bAuth,
         pub data: Tpm2bSensitiveData,
@@ -298,6 +346,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
+    wire: TpmsIdObjectWire,
     pub struct TpmsIdObject {
         pub integrity_hmac: Tpm2bDigest,
         pub enc_identity: Tpm2bDigest,
@@ -306,6 +355,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
+    wire: TpmsSymcipherParmsWire,
     pub struct TpmsSymcipherParms {
         pub sym: TpmtSymDefObject,
     }
@@ -313,6 +363,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    wire: TpmsTaggedPropertyWire,
     pub struct TpmsTaggedProperty {
         pub property: TpmPt,
         pub value: TpmUint32,
@@ -321,6 +372,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsTimeInfoWire,
     pub struct TpmsTimeInfo {
         pub time: TpmUint64,
         pub clock_info: TpmsClockInfo,
@@ -329,6 +381,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
+    wire: TpmsSignatureRsaWire,
     pub struct TpmsSignatureRsa {
         pub hash: TpmAlgId,
         pub sig: crate::data::Tpm2bPublicKeyRsa,
@@ -337,6 +390,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
+    wire: TpmsSignatureEccWire,
     pub struct TpmsSignatureEcc {
         pub hash: TpmAlgId,
         pub signature_r: Tpm2bEccParameter,
@@ -346,6 +400,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmsTimeAttestInfoWire,
     pub struct TpmsTimeAttestInfo {
         pub time: TpmsTimeInfo,
         pub firmware_version: TpmUint64,
@@ -354,6 +409,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmsCertifyInfoWire,
     pub struct TpmsCertifyInfo {
         pub name: Tpm2bName,
         pub qualified_name: Tpm2bName,
@@ -362,6 +418,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmsQuoteInfoWire,
     pub struct TpmsQuoteInfo {
         pub pcr_select: TpmlPcrSelection,
         pub pcr_digest: Tpm2bDigest,
@@ -370,6 +427,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmsCommandAuditInfoWire,
     pub struct TpmsCommandAuditInfo {
         pub audit_counter: TpmUint64,
         pub digest_alg: TpmAlgId,
@@ -380,6 +438,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default, Copy)]
+    wire: TpmsSessionAuditInfoWire,
     pub struct TpmsSessionAuditInfo {
         pub exclusive_session: TpmiYesNo,
         pub session_digest: Tpm2bDigest,
@@ -388,6 +447,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmsCreationInfoWire,
     pub struct TpmsCreationInfo {
         pub object_name: Tpm2bName,
         pub creation_hash: Tpm2bDigest,
@@ -396,6 +456,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmsNvCertifyInfoWire,
     pub struct TpmsNvCertifyInfo {
         pub index_name: Tpm2bName,
         pub offset: TpmUint16,
@@ -405,6 +466,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmsNvDigestCertifyInfoWire,
     pub struct TpmsNvDigestCertifyInfo {
         pub index_name: Tpm2bName,
         pub nv_digest: Tpm2bDigest,
@@ -413,6 +475,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsAlgorithmDetailEccWire,
     pub struct TpmsAlgorithmDetailEcc {
         pub curve_id: TpmEccCurve,
         pub key_size: TpmUint16,
@@ -500,6 +563,7 @@ impl TpmUnmarshal for TpmsAttest {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsSchemeHashWire,
     pub struct TpmsSchemeHash {
         pub hash_alg: TpmiAlgHash,
     }
@@ -509,6 +573,7 @@ pub type TpmsSchemeHmac = TpmsSchemeHash;
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsSchemeXorWire,
     pub struct TpmsSchemeXor {
         pub hash_alg: TpmiAlgHash,
         pub kdf: TpmtKdfScheme,
@@ -517,6 +582,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsRsaParmsWire,
     pub struct TpmsRsaParms {
         pub symmetric: TpmtSymDefObject,
         pub scheme: TpmtRsaScheme,
@@ -527,6 +593,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmsEccParmsWire,
     pub struct TpmsEccParms {
         pub symmetric: TpmtSymDefObject,
         pub scheme: TpmtEccScheme,

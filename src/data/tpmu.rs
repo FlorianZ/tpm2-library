@@ -19,6 +19,77 @@ use crate::{
 };
 use core::ops::Deref;
 
+macro_rules! tpmu_view {
+    (
+        $view:ident, $union:ident, $tag_ty:ty {
+            $(
+                $variant:ident($field_ty:ty): $($tag:path)|+;
+            )*
+            $(
+                @null $null_variant:ident: $($null_tag:path)|+;
+            )?
+        }
+    ) => {
+        pub enum $view<'a>
+        where
+            $($field_ty: crate::TpmField<'a>,)*
+        {
+            $(
+                $variant(<$field_ty as crate::TpmField<'a>>::View),
+            )*
+            $(
+                $null_variant,
+            )?
+        }
+
+        impl $union {
+            /// Casts a tag-selected union payload into a borrowed view.
+            ///
+            /// # Errors
+            ///
+            /// Returns `Err(TpmError)` when `tag` does not select a valid variant or
+            /// `buf` does not start with a valid selected payload.
+            pub fn cast_tagged<'a>(
+                tag: $tag_ty,
+                buf: &'a [u8],
+            ) -> TpmResult<($view<'a>, &'a [u8])>
+            where
+                $($field_ty: crate::TpmField<'a>,)*
+            {
+                <Self as crate::TpmTaggedField<'a, $tag_ty>>::cast_tagged_prefix_field(tag, buf)
+            }
+        }
+
+        impl<'a> crate::TpmTaggedField<'a, $tag_ty> for $union
+        where
+            $($field_ty: crate::TpmField<'a>,)*
+        {
+            type View = $view<'a>;
+
+            fn cast_tagged_prefix_field(
+                tag: $tag_ty,
+                buf: &'a [u8],
+            ) -> TpmResult<(Self::View, &'a [u8])> {
+                #[allow(unreachable_patterns)]
+                match tag {
+                    $(
+                        $($tag)|+ => {
+                            let (value, buf) = <$field_ty as crate::TpmField>::cast_prefix_field(buf)?;
+                            Ok(($view::$variant(value), buf))
+                        }
+                    )*
+                    $(
+                        $($null_tag)|+ => Ok(($view::$null_variant, buf)),
+                    )?
+                    _ => Err(TpmError::VariantNotAvailable(
+                        crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+                    )),
+                }
+            }
+        }
+    };
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuAsymScheme {
     Hash(TpmsSchemeHash),
@@ -72,6 +143,11 @@ impl TpmUnmarshalTagged for TpmuAsymScheme {
         }
     }
 }
+
+tpmu_view!(TpmuAsymSchemeView, TpmuAsymScheme, TpmAlgId {
+    Hash(TpmsSchemeHash): TpmAlgId::Rsassa|TpmAlgId::Rsapss|TpmAlgId::Ecdsa|TpmAlgId::Ecdaa|TpmAlgId::Sm2|TpmAlgId::Ecschnorr|TpmAlgId::Oaep|TpmAlgId::Ecdh|TpmAlgId::Ecmqv;
+    @null Null: TpmAlgId::Rsaes|TpmAlgId::Null;
+});
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -147,6 +223,15 @@ impl TpmUnmarshalTagged for TpmuCapabilities {
     }
 }
 
+tpmu_view!(TpmuCapabilitiesView, TpmuCapabilities, TpmCap {
+    Algs(TpmlAlgProperty): TpmCap::Algs;
+    Handles(TpmlHandle): TpmCap::Handles;
+    Pcrs(TpmlPcrSelection): TpmCap::Pcrs;
+    Commands(TpmlCca): TpmCap::Commands;
+    TpmProperties(TpmlTaggedTpmProperty): TpmCap::TpmProperties;
+    EccCurves(TpmlEccCurve): TpmCap::EccCurves;
+});
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuHa {
     #[default]
@@ -209,6 +294,54 @@ impl TpmSized for TpmuHa {
             Self::Null => 0,
             Self::Digest(d) => d.deref().len(),
         }
+    }
+}
+
+pub enum TpmuHaView<'a> {
+    Null,
+    Digest(&'a [u8]),
+}
+
+impl TpmuHa {
+    /// Casts a tag-selected digest payload into a borrowed view.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when `tag` is not a digest algorithm or `buf` is
+    /// too short for the selected digest size.
+    pub fn cast_tagged<'a>(tag: TpmAlgId, buf: &'a [u8]) -> TpmResult<(TpmuHaView<'a>, &'a [u8])> {
+        <Self as crate::TpmTaggedField<'a, TpmAlgId>>::cast_tagged_prefix_field(tag, buf)
+    }
+}
+
+impl<'a> crate::TpmTaggedField<'a, TpmAlgId> for TpmuHa {
+    type View = TpmuHaView<'a>;
+
+    fn cast_tagged_prefix_field(tag: TpmAlgId, buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        let digest_size = match tag {
+            TpmAlgId::Null => return Ok((TpmuHaView::Null, buf)),
+            TpmAlgId::Sha1 => 20,
+            TpmAlgId::Shake256_192 => 24,
+            TpmAlgId::Sha256 | TpmAlgId::Sm3_256 | TpmAlgId::Sha3_256 | TpmAlgId::Shake256_256 => {
+                32
+            }
+            TpmAlgId::Sha384 | TpmAlgId::Sha3_384 => 48,
+            TpmAlgId::Sha512 | TpmAlgId::Sha3_512 | TpmAlgId::Shake256_512 => 64,
+            _ => {
+                return Err(TpmError::VariantNotAvailable(
+                    crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
+                ));
+            }
+        };
+
+        if buf.len() < digest_size {
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(digest_size, buf.len()),
+            ));
+        }
+
+        let (digest, buf) = buf.split_at(digest_size);
+        Ok((TpmuHaView::Digest(digest), buf))
     }
 }
 
@@ -291,6 +424,14 @@ impl TpmUnmarshalTagged for TpmuPublicId {
     }
 }
 
+tpmu_view!(TpmuPublicIdView, TpmuPublicId, TpmAlgId {
+    KeyedHash(Tpm2bDigest): TpmAlgId::KeyedHash;
+    SymCipher(Tpm2bSymKey): TpmAlgId::SymCipher;
+    Rsa(Tpm2bPublicKeyRsa): TpmAlgId::Rsa;
+    Ecc(TpmsEccPoint): TpmAlgId::Ecc;
+    @null Null: TpmAlgId::Null;
+});
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuPublicParms {
     KeyedHash(TpmsKeyedhashParms),
@@ -356,6 +497,14 @@ impl TpmUnmarshalTagged for TpmuPublicParms {
         }
     }
 }
+
+tpmu_view!(TpmuPublicParmsView, TpmuPublicParms, TpmAlgId {
+    KeyedHash(TpmsKeyedhashParms): TpmAlgId::KeyedHash;
+    SymCipher(TpmsSymcipherParms): TpmAlgId::SymCipher;
+    Rsa(TpmsRsaParms): TpmAlgId::Rsa;
+    Ecc(TpmsEccParms): TpmAlgId::Ecc;
+    @null Null: TpmAlgId::Null;
+});
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -424,6 +573,13 @@ impl TpmUnmarshalTagged for TpmuSensitiveComposite {
     }
 }
 
+tpmu_view!(TpmuSensitiveCompositeView, TpmuSensitiveComposite, TpmAlgId {
+    Rsa(crate::data::Tpm2bPrivateKeyRsa): TpmAlgId::Rsa;
+    Ecc(Tpm2bEccParameter): TpmAlgId::Ecc;
+    Bits(Tpm2bSensitiveData): TpmAlgId::KeyedHash;
+    Sym(Tpm2bSymKey): TpmAlgId::SymCipher;
+});
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuSymKeyBits {
     Aes(TpmUint16),
@@ -487,6 +643,14 @@ impl TpmUnmarshalTagged for TpmuSymKeyBits {
     }
 }
 
+tpmu_view!(TpmuSymKeyBitsView, TpmuSymKeyBits, TpmAlgId {
+    Aes(TpmUint16): TpmAlgId::Aes;
+    Sm4(TpmUint16): TpmAlgId::Sm4;
+    Camellia(TpmUint16): TpmAlgId::Camellia;
+    Xor(TpmAlgId): TpmAlgId::Xor;
+    @null Null: TpmAlgId::Null;
+});
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuSymMode {
     Aes(TpmAlgId),
@@ -549,6 +713,14 @@ impl TpmUnmarshalTagged for TpmuSymMode {
         }
     }
 }
+
+tpmu_view!(TpmuSymModeView, TpmuSymMode, TpmAlgId {
+    Aes(TpmAlgId): TpmAlgId::Aes;
+    Sm4(TpmAlgId): TpmAlgId::Sm4;
+    Camellia(TpmAlgId): TpmAlgId::Camellia;
+    Xor(TpmAlgId): TpmAlgId::Xor;
+    @null Null: TpmAlgId::Null;
+});
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TpmuSignature {
@@ -630,6 +802,17 @@ impl TpmUnmarshalTagged for TpmuSignature {
         }
     }
 }
+
+tpmu_view!(TpmuSignatureView, TpmuSignature, TpmAlgId {
+    Rsassa(TpmsSignatureRsa): TpmAlgId::Rsassa;
+    Rsapss(TpmsSignatureRsa): TpmAlgId::Rsapss;
+    Ecdsa(TpmsSignatureEcc): TpmAlgId::Ecdsa;
+    Ecdaa(TpmsSignatureEcc): TpmAlgId::Ecdaa;
+    Sm2(TpmsSignatureEcc): TpmAlgId::Sm2;
+    Ecschnorr(TpmsSignatureEcc): TpmAlgId::Ecschnorr;
+    Hmac(TpmtHa): TpmAlgId::Hmac;
+    @null Null: TpmAlgId::Null;
+});
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -722,6 +905,17 @@ impl TpmUnmarshalTagged for TpmuAttest {
     }
 }
 
+tpmu_view!(TpmuAttestView, TpmuAttest, TpmSt {
+    Certify(TpmsCertifyInfo): TpmSt::AttestCertify;
+    Creation(TpmsCreationInfo): TpmSt::AttestCreation;
+    Quote(TpmsQuoteInfo): TpmSt::AttestQuote;
+    CommandAudit(TpmsCommandAuditInfo): TpmSt::AttestCommandAudit;
+    SessionAudit(TpmsSessionAuditInfo): TpmSt::AttestSessionAudit;
+    Time(TpmsTimeAttestInfo): TpmSt::AttestTime;
+    Nv(TpmsNvCertifyInfo): TpmSt::AttestNv;
+    NvDigest(TpmsNvDigestCertifyInfo): TpmSt::AttestNvDigest;
+});
+
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuKeyedhashScheme {
     Hmac(TpmsSchemeHash),
@@ -774,6 +968,12 @@ impl TpmUnmarshalTagged for TpmuKeyedhashScheme {
         }
     }
 }
+
+tpmu_view!(TpmuKeyedhashSchemeView, TpmuKeyedhashScheme, TpmAlgId {
+    Hmac(TpmsSchemeHash): TpmAlgId::Hmac;
+    Xor(TpmsSchemeXor): TpmAlgId::Xor;
+    @null Null: TpmAlgId::Null;
+});
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuSigScheme {
@@ -831,6 +1031,12 @@ impl TpmUnmarshalTagged for TpmuSigScheme {
     }
 }
 
+tpmu_view!(TpmuSigSchemeView, TpmuSigScheme, TpmAlgId {
+    Hmac(TpmsSchemeHmac): TpmAlgId::Hmac;
+    Hash(TpmsSchemeHash): TpmAlgId::Rsassa|TpmAlgId::Rsapss|TpmAlgId::Ecdsa|TpmAlgId::Ecdaa|TpmAlgId::Sm2|TpmAlgId::Ecschnorr;
+    @null Null: TpmAlgId::Null;
+});
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TpmuNvPublic2 {
     NvIndex(TpmsNvPublic),
@@ -885,6 +1091,12 @@ impl TpmUnmarshalTagged for TpmuNvPublic2 {
         }
     }
 }
+
+tpmu_view!(TpmuNvPublic2View, TpmuNvPublic2, TpmHt {
+    NvIndex(TpmsNvPublic): TpmHt::NvIndex;
+    ExternalNv(TpmsNvPublicExpAttr): TpmHt::ExternalNv;
+    PermanentNv(TpmsNvPublic): TpmHt::PermanentNv;
+});
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuKdfScheme {
@@ -950,3 +1162,11 @@ impl TpmUnmarshalTagged for TpmuKdfScheme {
         }
     }
 }
+
+tpmu_view!(TpmuKdfSchemeView, TpmuKdfScheme, TpmAlgId {
+    Mgf1(TpmsSchemeHash): TpmAlgId::Mgf1;
+    Kdf1Sp800_56a(TpmsSchemeHash): TpmAlgId::Kdf1Sp800_56A;
+    Kdf2(TpmsSchemeHash): TpmAlgId::Kdf2;
+    Kdf1Sp800_108(TpmsSchemeHash): TpmAlgId::Kdf1Sp800_108;
+    @null Null: TpmAlgId::Null;
+});

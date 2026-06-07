@@ -392,6 +392,39 @@ pub trait TpmCastMut: TpmCast {
     unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self;
 }
 
+/// Reads one field from a TPM wire structure.
+pub trait TpmField<'a> {
+    type View;
+
+    /// Reads the first field from `buf` and returns the remaining bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when `buf` does not start with a valid field.
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])>;
+}
+
+/// Reads a union field selected by a previously-read tag.
+pub trait TpmTaggedField<'a, Tag> {
+    type View;
+
+    /// Reads the tagged field from `buf` and returns the remaining bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when `tag` does not select a valid variant or
+    /// `buf` does not start with a valid selected field.
+    fn cast_tagged_prefix_field(tag: Tag, buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])>;
+}
+
+impl<'a, T: TpmCast + ?Sized + 'a> TpmField<'a> for T {
+    type View = &'a T;
+
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        T::cast_prefix(buf)
+    }
+}
+
 impl TpmCast for TpmWire {
     fn cast(buf: &[u8]) -> TpmResult<&Self> {
         Ok(Self::cast(buf))

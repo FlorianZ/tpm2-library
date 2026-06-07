@@ -43,6 +43,7 @@ tpm2b!(Tpm2bIv, 16);
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: Tpm2bPublicWire,
     Tpm2bPublic,
     TpmtPublic
 }
@@ -51,48 +52,56 @@ pub type Tpm2bTemplate = Tpm2bPublic;
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: Tpm2bSensitiveCreateWire,
     Tpm2bSensitiveCreate,
     TpmsSensitiveCreate
 }
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
+    wire: Tpm2bSensitiveWire,
     Tpm2bSensitive,
     TpmtSensitive
 }
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: Tpm2bCreationDataWire,
     Tpm2bCreationData,
     TpmsCreationData
 }
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
+    wire: Tpm2bAttestWire,
     Tpm2bAttest,
     TpmsAttest
 }
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
+    wire: Tpm2bNvPublicWire,
     Tpm2bNvPublic,
     TpmsNvPublic
 }
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: Tpm2bIdObjectWire,
     Tpm2bIdObject,
     TpmsIdObject
 }
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    wire: Tpm2bEccPointWire,
     Tpm2bEccPoint,
     TpmsEccPoint
 }
 
 tpm2b_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    wire: Tpm2bNvPublic2Wire,
     Tpm2bNvPublic2,
     TpmtNvPublic2
 }

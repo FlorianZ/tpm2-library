@@ -108,6 +108,16 @@ macro_rules! tpm_bitflags {
             }
         }
 
+        impl<'a> $crate::TpmField<'a> for $name {
+            type View = Self;
+
+            fn cast_prefix_field(buf: &'a [u8]) -> $crate::TpmResult<(Self::View, &'a [u8])> {
+                let (value, buf) = <$wrapper as $crate::TpmCast>::cast_prefix(buf)?;
+
+                Ok((Self(value.get()), buf))
+            }
+        }
+
         impl $crate::TpmSized for $name {
             const SIZE: usize = core::mem::size_of::<$repr>();
             fn len(&self) -> usize {
@@ -166,6 +176,21 @@ macro_rules! tpm_bool {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
                     _ => Err($crate::TpmError::InvalidBoolean(
+                        $crate::TpmErrorValue::new(0).value(u64::from(raw)),
+                    )),
+                }
+            }
+        }
+
+        impl<'a> $crate::TpmField<'a> for $name {
+            type View = Self;
+
+            fn cast_prefix_field(buf: &'a [u8]) -> $crate::TpmResult<(Self::View, &'a [u8])> {
+                let (value, buf) = <$crate::basic::TpmUint8 as $crate::TpmCast>::cast_prefix(buf)?;
+                match value.get() {
+                    0 => Ok((Self(false), buf)),
+                    1 => Ok((Self(true), buf)),
+                    raw => Err($crate::TpmError::InvalidBoolean(
                         $crate::TpmErrorValue::new(0).value(u64::from(raw)),
                     )),
                 }

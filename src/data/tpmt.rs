@@ -54,6 +54,28 @@ macro_rules! tpm_struct_tagged {
                 ))
             }
         }
+
+        impl<'a> $crate::TpmField<'a> for $name
+        where
+            $tag_ty: $crate::TpmField<'a, View = $tag_ty>,
+            $value_ty: $crate::TpmTaggedField<'a, $tag_ty>,
+        {
+            type View = (
+                $tag_ty,
+                <$value_ty as $crate::TpmTaggedField<'a, $tag_ty>>::View,
+            );
+
+            fn cast_prefix_field(buf: &'a [u8]) -> $crate::TpmResult<(Self::View, &'a [u8])> {
+                let ($tag_field, buf) = <$tag_ty as $crate::TpmField>::cast_prefix_field(buf)?;
+                let ($value_field, buf) =
+                    <$value_ty as $crate::TpmTaggedField<'a, $tag_ty>>::cast_tagged_prefix_field(
+                        $tag_field,
+                        buf,
+                    )?;
+
+                Ok((($tag_field, $value_field), buf))
+            }
+        }
     };
 }
 
@@ -271,6 +293,45 @@ impl TpmUnmarshal for TpmtSymDef {
     }
 }
 
+pub enum TpmtSymDefView<'a> {
+    Null,
+    Value {
+        algorithm: TpmAlgId,
+        key_bits: <TpmuSymKeyBits as crate::TpmTaggedField<'a, TpmAlgId>>::View,
+        mode: <TpmuSymMode as crate::TpmTaggedField<'a, TpmAlgId>>::View,
+    },
+}
+
+impl<'a> crate::TpmField<'a> for TpmtSymDef {
+    type View = TpmtSymDefView<'a>;
+
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        let (algorithm, buf) = <TpmAlgId as crate::TpmField>::cast_prefix_field(buf)?;
+
+        if algorithm == TpmAlgId::Null {
+            return Ok((TpmtSymDefView::Null, buf));
+        }
+
+        let (key_bits, buf) =
+            <TpmuSymKeyBits as crate::TpmTaggedField<'a, TpmAlgId>>::cast_tagged_prefix_field(
+                algorithm, buf,
+            )?;
+        let (mode, buf) =
+            <TpmuSymMode as crate::TpmTaggedField<'a, TpmAlgId>>::cast_tagged_prefix_field(
+                algorithm, buf,
+            )?;
+
+        Ok((
+            TpmtSymDefView::Value {
+                algorithm,
+                key_bits,
+                mode,
+            },
+            buf,
+        ))
+    }
+}
+
 pub type TpmtSymDefObject = TpmtSymDef;
 
 tpm_struct_tagged! {
@@ -283,6 +344,7 @@ tpm_struct_tagged! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    wire: TpmtTkCreationWire,
     pub struct TpmtTkCreation {
         pub tag: TpmSt,
         pub hierarchy: TpmRh,
@@ -292,6 +354,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmtTkVerifiedWire,
     pub struct TpmtTkVerified {
         pub tag: TpmSt,
         pub hierarchy: TpmRh,
@@ -301,6 +364,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmtTkAuthWire,
     pub struct TpmtTkAuth {
         pub tag: TpmSt,
         pub hierarchy: TpmRh,
@@ -310,6 +374,7 @@ tpm_struct! {
 
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+    wire: TpmtTkHashcheckWire,
     pub struct TpmtTkHashcheck {
         pub tag: TpmSt,
         pub hierarchy: TpmRh,
