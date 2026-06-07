@@ -23,21 +23,25 @@ use std::{
 use thiserror::Error;
 use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
-    basic::{TpmHandle, TpmUint32},
+    basic::{Tpm2b as Tpm2bWire, TpmBuffer, TpmHandle, TpmList, TpmUint16, TpmUint32, TpmUint64},
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
-        Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmCap, TpmCc, TpmEccCurve, TpmHt,
-        TpmPt, TpmRc, TpmRcBase, TpmRh, TpmSe, TpmSt, TpmaSession, TpmsAlgProperty,
-        TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsPcrSelect, TpmsPcrSelection,
-        TpmtPublic, TpmtSymDefObject, TpmuCapabilities,
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce,
+        Tpm2bPublicKeyRsa, Tpm2bSymKey, TpmAlgId, TpmCap, TpmCc, TpmEccCurve, TpmHt, TpmPt, TpmRc,
+        TpmRcBase, TpmRh, TpmSe, TpmSt, TpmaAlgorithm, TpmaCc, TpmaObject, TpmaSession, TpmiYesNo,
+        TpmsAlgProperty, TpmsAuthCommand, TpmsCapabilityData, TpmsContext, TpmsEccParms,
+        TpmsEccPoint, TpmsKeyedhashParms, TpmsPcrSelect, TpmsPcrSelection, TpmsRsaParms,
+        TpmsSchemeHash, TpmsSchemeXor, TpmsSymcipherParms, TpmsTaggedProperty, TpmtEccScheme,
+        TpmtKdfScheme, TpmtKeyedhashScheme, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject,
+        TpmuAsymScheme, TpmuCapabilities, TpmuKdfScheme, TpmuKeyedhashScheme, TpmuPublicId,
+        TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
     },
     frame::{
-        tpm_marshal_command, tpm_unmarshal_response, TpmAuthCommands, TpmAuthResponses, TpmCommand,
-        TpmContextLoadCommand, TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame,
-        TpmGetCapabilityCommand, TpmGetCapabilityResponse, TpmReadPublicCommand, TpmResponse,
-        TpmStartAuthSessionCommand,
+        tpm_marshal_command, TpmAuthCommands, TpmCommandValue as TpmCommand, TpmContextLoadCommand,
+        TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame, TpmGetCapabilityCommand,
+        TpmReadPublicCommand, TpmResponse, TpmResponseView, TpmStartAuthSessionCommand,
     },
-    TpmWriter,
+    TpmCast, TpmError, TpmField, TpmWriter,
 };
 use tracing::{debug, trace};
 
@@ -69,7 +73,7 @@ pub enum TpmDeviceError {
 
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
-    Marshal(tpm2_protocol::TpmProtocolError),
+    Marshal(TpmError),
 
     /// No TPM device is available.
     #[error("device not available")]
@@ -105,7 +109,7 @@ pub enum TpmDeviceError {
 
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
-    Unmarshal(tpm2_protocol::TpmProtocolError),
+    Unmarshal(TpmError),
 
     /// An unexpected end-of-file was encountered.
     #[error("unexpected EOF")]
@@ -302,7 +306,7 @@ impl TpmDevice {
         &mut self,
         command: &C,
         sessions: &[TpmsAuthCommand],
-    ) -> Result<(TpmResponse, TpmAuthResponses), TpmDeviceError> {
+    ) -> Result<&TpmResponse, TpmDeviceError> {
         self.prepare_command(command, sessions)?;
         let cc = command.cc();
 
@@ -348,9 +352,10 @@ impl TpmDevice {
             }
         }
 
-        let result = tpm_unmarshal_response(cc, &self.response).map_err(TpmDeviceError::Unmarshal);
+        let response = TpmResponse::cast(&self.response).map_err(TpmDeviceError::Unmarshal)?;
+        let result = TpmResponseView::cast(cc, response).map_err(TpmDeviceError::Unmarshal)?;
         trace!("{} R: {}", cc, hex::encode(&self.response));
-        Ok(result??)
+        result.map(|_| response).map_err(TpmDeviceError::TpmRc)
     }
 
     fn prepare_command<C: TpmFrame>(
@@ -405,7 +410,7 @@ impl TpmDevice {
         let mut prop = property_start;
         loop {
             let (more_data, cap_data) =
-                self.get_capability_page(cap, TpmUint32(prop), TpmUint32(count))?;
+                self.get_capability_page(cap, TpmUint32::from(prop), TpmUint32::from(count))?;
             let items: &[T] = extract(&cap_data.data)?;
             results.extend_from_slice(items);
 
@@ -439,7 +444,7 @@ impl TpmDevice {
                 TpmuCapabilities::Algs(algs) => Ok(algs),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Algs)),
             },
-            |last| last.alg as u32 + 1,
+            |last| u32::from(last.alg.value()) + 1,
         )
     }
 
@@ -482,7 +487,7 @@ impl TpmDevice {
                 TpmuCapabilities::EccCurves(curves) => Ok(curves),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::EccCurves)),
             },
-            |last| *last as u32 + 1,
+            |last| u32::from(last.value()) + 1,
         )
     }
 
@@ -569,14 +574,11 @@ impl TpmDevice {
             handles: [],
         };
 
-        let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
-        let TpmGetCapabilityResponse {
-            more_data,
-            capability_data,
-            handles: [],
-        } = resp
-            .GetCapability()
-            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::GetCapability))?;
+        let response = self.transmit(&cmd, Self::NO_SESSIONS)?;
+        let (_, parameters) = response_parts(response, 0)?;
+        let (more_data, parameters) = parse_field_value::<TpmiYesNo>(parameters)?;
+        let (capability_data, rest) = parse_capability_data(parameters)?;
+        ensure_empty(rest)?;
 
         Ok((more_data.into(), capability_data))
     }
@@ -592,8 +594,8 @@ impl TpmDevice {
     pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<TpmUint32, TpmDeviceError> {
         let (_, cap_data) = self.get_capability_page(
             TpmCap::TpmProperties,
-            TpmUint32(property as u32),
-            TpmUint32(1),
+            TpmUint32::from(property as u32),
+            TpmUint32::from(1),
         )?;
 
         let TpmuCapabilities::TpmProperties(props) = &cap_data.data else {
@@ -620,12 +622,13 @@ impl TpmDevice {
         handle: TpmHandle,
     ) -> Result<(TpmtPublic, Tpm2bName), TpmDeviceError> {
         let cmd = TpmReadPublicCommand { handles: [handle] };
-        let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
-        let read_public_resp = resp
-            .ReadPublic()
-            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ReadPublic))?;
-        let public = read_public_resp.out_public.inner;
-        let name = read_public_resp.name;
+        let response = self.transmit(&cmd, Self::NO_SESSIONS)?;
+        let (_, parameters) = response_parts(response, 0)?;
+        let (public, parameters) = parse_tpm2b_public(parameters)?;
+        let (name, parameters): (Tpm2bName, _) = parse_tpm2b_buffer(parameters)?;
+        let (_qualified_name, rest): (Tpm2bName, _) = parse_tpm2b_buffer(parameters)?;
+        ensure_empty(rest)?;
+
         Ok((public, name))
     }
 
@@ -673,11 +676,12 @@ impl TpmDevice {
         let cmd = TpmContextSaveCommand {
             handles: [save_handle],
         };
-        let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
-        let save_resp = resp
-            .ContextSave()
-            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ContextSave))?;
-        Ok(save_resp.context)
+        let response = self.transmit(&cmd, Self::NO_SESSIONS)?;
+        let (_, parameters) = response_parts(response, 0)?;
+        let (context, rest) = parse_tpms_context(parameters)?;
+        ensure_empty(rest)?;
+
+        Ok(context)
     }
 
     /// Loads a TPM context and returns the handle.
@@ -693,11 +697,13 @@ impl TpmDevice {
             context,
             handles: [],
         };
-        let (resp, _) = self.transmit(&cmd, Self::NO_SESSIONS)?;
-        let resp_inner = resp
-            .ContextLoad()
-            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::ContextLoad))?;
-        Ok(resp_inner.handles[0])
+        let response = self.transmit(&cmd, Self::NO_SESSIONS)?;
+        let (handles, parameters) = response_parts(response, 1)?;
+        let (handle, rest) = parse_wire_copy::<TpmHandle>(handles)?;
+        ensure_empty(rest)?;
+        ensure_empty(parameters)?;
+
+        Ok(handle)
     }
 
     /// Flushes a transient object or session from the TPM and removes it from
@@ -736,6 +742,464 @@ impl TpmDevice {
             Err(e) => Err(e),
         }
     }
+}
+
+fn ensure_empty(buf: &[u8]) -> Result<(), TpmDeviceError> {
+    if buf.is_empty() {
+        Ok(())
+    } else {
+        Err(TpmDeviceError::TrailingData)
+    }
+}
+
+fn response_parts(
+    response: &TpmResponse,
+    response_handles: usize,
+) -> Result<(&[u8], &[u8]), TpmDeviceError> {
+    let handle_len = response_handles
+        .checked_mul(core::mem::size_of::<TpmHandle>())
+        .ok_or(TpmDeviceError::InvalidResponse)?;
+    let body = response.body();
+    if body.len() < handle_len {
+        return Err(TpmDeviceError::InvalidResponse);
+    }
+
+    let (handles, after_handles) = body.split_at(handle_len);
+    if response.tag().map_err(TpmDeviceError::Unmarshal)? != TpmSt::Sessions {
+        return Ok((handles, after_handles));
+    }
+
+    let (parameter_size, after_size) = parse_wire_copy::<TpmUint32>(after_handles)?;
+    let parameter_size =
+        usize::try_from(parameter_size.get()).map_err(|_| TpmDeviceError::InvalidResponse)?;
+    if after_size.len() < parameter_size {
+        return Err(TpmDeviceError::InvalidResponse);
+    }
+
+    let (parameters, _auth_area) = after_size.split_at(parameter_size);
+    Ok((handles, parameters))
+}
+
+fn parse_wire_copy<'a, T>(buf: &'a [u8]) -> Result<(T, &'a [u8]), TpmDeviceError>
+where
+    T: TpmCast + Copy + 'a,
+{
+    let (value, rest) = T::cast_prefix(buf).map_err(TpmDeviceError::Unmarshal)?;
+    Ok((*value, rest))
+}
+
+fn parse_field_value<'a, T>(buf: &'a [u8]) -> Result<(T, &'a [u8]), TpmDeviceError>
+where
+    T: TpmField<'a, View = T>,
+{
+    <T as TpmField<'a>>::cast_prefix_field(buf).map_err(TpmDeviceError::Unmarshal)
+}
+
+fn parse_tpm2b_buffer<const CAPACITY: usize>(
+    buf: &[u8],
+) -> Result<(TpmBuffer<CAPACITY>, &[u8]), TpmDeviceError> {
+    let (value, rest) =
+        Tpm2bWire::<CAPACITY>::cast_prefix(buf).map_err(TpmDeviceError::Unmarshal)?;
+    let value =
+        TpmBuffer::<CAPACITY>::try_from(value.payload()).map_err(TpmDeviceError::Unmarshal)?;
+
+    Ok((value, rest))
+}
+
+fn parse_tpms_scheme_hash(buf: &[u8]) -> Result<(TpmsSchemeHash, &[u8]), TpmDeviceError> {
+    let (hash_alg, rest) = parse_field_value::<TpmAlgId>(buf)?;
+
+    Ok((TpmsSchemeHash { hash_alg }, rest))
+}
+
+fn parse_tpmt_kdf_scheme(buf: &[u8]) -> Result<(TpmtKdfScheme, &[u8]), TpmDeviceError> {
+    let (scheme, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (details, rest) = parse_tpmu_kdf_scheme(scheme, buf)?;
+
+    Ok((TpmtKdfScheme { scheme, details }, rest))
+}
+
+fn parse_tpmu_kdf_scheme(
+    scheme: TpmAlgId,
+    buf: &[u8],
+) -> Result<(TpmuKdfScheme, &[u8]), TpmDeviceError> {
+    match scheme {
+        TpmAlgId::Mgf1 => {
+            let (details, rest) = parse_tpms_scheme_hash(buf)?;
+            Ok((TpmuKdfScheme::Mgf1(details), rest))
+        }
+        TpmAlgId::Kdf1Sp800_56A => {
+            let (details, rest) = parse_tpms_scheme_hash(buf)?;
+            Ok((TpmuKdfScheme::Kdf1Sp800_56a(details), rest))
+        }
+        TpmAlgId::Kdf2 => {
+            let (details, rest) = parse_tpms_scheme_hash(buf)?;
+            Ok((TpmuKdfScheme::Kdf2(details), rest))
+        }
+        TpmAlgId::Kdf1Sp800_108 => {
+            let (details, rest) = parse_tpms_scheme_hash(buf)?;
+            Ok((TpmuKdfScheme::Kdf1Sp800_108(details), rest))
+        }
+        TpmAlgId::Null => Ok((TpmuKdfScheme::Null, buf)),
+        _ => Err(TpmDeviceError::InvalidResponse),
+    }
+}
+
+fn parse_tpms_scheme_xor(buf: &[u8]) -> Result<(TpmsSchemeXor, &[u8]), TpmDeviceError> {
+    let (hash_alg, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (kdf, rest) = parse_tpmt_kdf_scheme(buf)?;
+
+    Ok((TpmsSchemeXor { hash_alg, kdf }, rest))
+}
+
+fn parse_tpmu_keyedhash_scheme(
+    scheme: TpmAlgId,
+    buf: &[u8],
+) -> Result<(TpmuKeyedhashScheme, &[u8]), TpmDeviceError> {
+    match scheme {
+        TpmAlgId::Hmac => {
+            let (details, rest) = parse_tpms_scheme_hash(buf)?;
+            Ok((TpmuKeyedhashScheme::Hmac(details), rest))
+        }
+        TpmAlgId::Xor => {
+            let (details, rest) = parse_tpms_scheme_xor(buf)?;
+            Ok((TpmuKeyedhashScheme::Xor(details), rest))
+        }
+        TpmAlgId::Null => Ok((TpmuKeyedhashScheme::Null, buf)),
+        _ => Err(TpmDeviceError::InvalidResponse),
+    }
+}
+
+fn parse_tpmt_keyedhash_scheme(buf: &[u8]) -> Result<(TpmtKeyedhashScheme, &[u8]), TpmDeviceError> {
+    let (scheme, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (details, rest) = parse_tpmu_keyedhash_scheme(scheme, buf)?;
+
+    Ok((TpmtKeyedhashScheme { scheme, details }, rest))
+}
+
+fn parse_tpmu_asym_scheme(
+    scheme: TpmAlgId,
+    buf: &[u8],
+) -> Result<(TpmuAsymScheme, &[u8]), TpmDeviceError> {
+    match scheme {
+        TpmAlgId::Rsassa
+        | TpmAlgId::Rsapss
+        | TpmAlgId::Ecdsa
+        | TpmAlgId::Ecdaa
+        | TpmAlgId::Sm2
+        | TpmAlgId::Ecschnorr
+        | TpmAlgId::Oaep
+        | TpmAlgId::Ecdh
+        | TpmAlgId::Ecmqv => {
+            let (details, rest) = parse_tpms_scheme_hash(buf)?;
+            Ok((TpmuAsymScheme::Hash(details), rest))
+        }
+        TpmAlgId::Rsaes | TpmAlgId::Null => Ok((TpmuAsymScheme::Null, buf)),
+        _ => Err(TpmDeviceError::InvalidResponse),
+    }
+}
+
+fn parse_tpmt_rsa_scheme(buf: &[u8]) -> Result<(TpmtRsaScheme, &[u8]), TpmDeviceError> {
+    let (scheme, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (details, rest) = parse_tpmu_asym_scheme(scheme, buf)?;
+
+    Ok((TpmtRsaScheme { scheme, details }, rest))
+}
+
+fn parse_tpmt_ecc_scheme(buf: &[u8]) -> Result<(TpmtEccScheme, &[u8]), TpmDeviceError> {
+    let (scheme, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (details, rest) = parse_tpmu_asym_scheme(scheme, buf)?;
+
+    Ok((TpmtEccScheme { scheme, details }, rest))
+}
+
+fn parse_tpmu_sym_key_bits(
+    algorithm: TpmAlgId,
+    buf: &[u8],
+) -> Result<(TpmuSymKeyBits, &[u8]), TpmDeviceError> {
+    match algorithm {
+        TpmAlgId::Aes => {
+            let (value, rest) = parse_wire_copy::<TpmUint16>(buf)?;
+            Ok((TpmuSymKeyBits::Aes(value), rest))
+        }
+        TpmAlgId::Sm4 => {
+            let (value, rest) = parse_wire_copy::<TpmUint16>(buf)?;
+            Ok((TpmuSymKeyBits::Sm4(value), rest))
+        }
+        TpmAlgId::Camellia => {
+            let (value, rest) = parse_wire_copy::<TpmUint16>(buf)?;
+            Ok((TpmuSymKeyBits::Camellia(value), rest))
+        }
+        TpmAlgId::Xor => {
+            let (value, rest) = parse_field_value::<TpmAlgId>(buf)?;
+            Ok((TpmuSymKeyBits::Xor(value), rest))
+        }
+        TpmAlgId::Null => Ok((TpmuSymKeyBits::Null, buf)),
+        _ => Err(TpmDeviceError::InvalidResponse),
+    }
+}
+
+fn parse_tpmu_sym_mode(
+    algorithm: TpmAlgId,
+    buf: &[u8],
+) -> Result<(TpmuSymMode, &[u8]), TpmDeviceError> {
+    match algorithm {
+        TpmAlgId::Aes => {
+            let (value, rest) = parse_field_value::<TpmAlgId>(buf)?;
+            Ok((TpmuSymMode::Aes(value), rest))
+        }
+        TpmAlgId::Sm4 => {
+            let (value, rest) = parse_field_value::<TpmAlgId>(buf)?;
+            Ok((TpmuSymMode::Sm4(value), rest))
+        }
+        TpmAlgId::Camellia => {
+            let (value, rest) = parse_field_value::<TpmAlgId>(buf)?;
+            Ok((TpmuSymMode::Camellia(value), rest))
+        }
+        TpmAlgId::Xor => {
+            let (value, rest) = parse_field_value::<TpmAlgId>(buf)?;
+            Ok((TpmuSymMode::Xor(value), rest))
+        }
+        TpmAlgId::Null => Ok((TpmuSymMode::Null, buf)),
+        _ => Err(TpmDeviceError::InvalidResponse),
+    }
+}
+
+fn parse_tpmt_sym_def(buf: &[u8]) -> Result<(TpmtSymDefObject, &[u8]), TpmDeviceError> {
+    let (algorithm, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    if algorithm == TpmAlgId::Null {
+        return Ok((TpmtSymDefObject::default(), buf));
+    }
+
+    let (key_bits, buf) = parse_tpmu_sym_key_bits(algorithm, buf)?;
+    let (mode, rest) = parse_tpmu_sym_mode(algorithm, buf)?;
+
+    Ok((
+        TpmtSymDefObject {
+            algorithm,
+            key_bits,
+            mode,
+        },
+        rest,
+    ))
+}
+
+fn parse_tpmu_public_parms(
+    object_type: TpmAlgId,
+    buf: &[u8],
+) -> Result<(TpmuPublicParms, &[u8]), TpmDeviceError> {
+    match object_type {
+        TpmAlgId::KeyedHash => {
+            let (scheme, rest) = parse_tpmt_keyedhash_scheme(buf)?;
+            Ok((
+                TpmuPublicParms::KeyedHash(TpmsKeyedhashParms { scheme }),
+                rest,
+            ))
+        }
+        TpmAlgId::SymCipher => {
+            let (sym, rest) = parse_tpmt_sym_def(buf)?;
+            Ok((TpmuPublicParms::SymCipher(TpmsSymcipherParms { sym }), rest))
+        }
+        TpmAlgId::Rsa => {
+            let (symmetric, buf) = parse_tpmt_sym_def(buf)?;
+            let (scheme, buf) = parse_tpmt_rsa_scheme(buf)?;
+            let (key_bits, buf) = parse_wire_copy::<TpmUint16>(buf)?;
+            let (exponent, rest) = parse_wire_copy::<TpmUint32>(buf)?;
+            Ok((
+                TpmuPublicParms::Rsa(TpmsRsaParms {
+                    symmetric,
+                    scheme,
+                    key_bits,
+                    exponent,
+                }),
+                rest,
+            ))
+        }
+        TpmAlgId::Ecc => {
+            let (symmetric, buf) = parse_tpmt_sym_def(buf)?;
+            let (scheme, buf) = parse_tpmt_ecc_scheme(buf)?;
+            let (curve_id, buf) = parse_field_value::<TpmEccCurve>(buf)?;
+            let (kdf, rest) = parse_tpmt_kdf_scheme(buf)?;
+            Ok((
+                TpmuPublicParms::Ecc(TpmsEccParms {
+                    symmetric,
+                    scheme,
+                    curve_id,
+                    kdf,
+                }),
+                rest,
+            ))
+        }
+        TpmAlgId::Null => Ok((TpmuPublicParms::Null, buf)),
+        _ => Err(TpmDeviceError::InvalidResponse),
+    }
+}
+
+fn parse_tpms_ecc_point(buf: &[u8]) -> Result<(TpmsEccPoint, &[u8]), TpmDeviceError> {
+    let (x, buf): (Tpm2bEccParameter, _) = parse_tpm2b_buffer(buf)?;
+    let (y, rest): (Tpm2bEccParameter, _) = parse_tpm2b_buffer(buf)?;
+
+    Ok((TpmsEccPoint { x, y }, rest))
+}
+
+fn parse_tpmu_public_id(
+    object_type: TpmAlgId,
+    buf: &[u8],
+) -> Result<(TpmuPublicId, &[u8]), TpmDeviceError> {
+    match object_type {
+        TpmAlgId::KeyedHash => {
+            let (value, rest): (Tpm2bDigest, _) = parse_tpm2b_buffer(buf)?;
+            Ok((TpmuPublicId::KeyedHash(value), rest))
+        }
+        TpmAlgId::SymCipher => {
+            let (value, rest): (Tpm2bSymKey, _) = parse_tpm2b_buffer(buf)?;
+            Ok((TpmuPublicId::SymCipher(value), rest))
+        }
+        TpmAlgId::Rsa => {
+            let (value, rest): (Tpm2bPublicKeyRsa, _) = parse_tpm2b_buffer(buf)?;
+            Ok((TpmuPublicId::Rsa(value), rest))
+        }
+        TpmAlgId::Ecc => {
+            let (value, rest) = parse_tpms_ecc_point(buf)?;
+            Ok((TpmuPublicId::Ecc(value), rest))
+        }
+        TpmAlgId::Null => Ok((TpmuPublicId::Null, buf)),
+        _ => Err(TpmDeviceError::InvalidResponse),
+    }
+}
+
+fn parse_tpmt_public(buf: &[u8]) -> Result<(TpmtPublic, &[u8]), TpmDeviceError> {
+    let (object_type, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (name_alg, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (object_attributes, buf) = parse_field_value::<TpmaObject>(buf)?;
+    let (auth_policy, buf): (Tpm2bDigest, _) = parse_tpm2b_buffer(buf)?;
+    let (parameters, buf) = parse_tpmu_public_parms(object_type, buf)?;
+    let (unique, rest) = parse_tpmu_public_id(object_type, buf)?;
+
+    Ok((
+        TpmtPublic {
+            object_type,
+            name_alg,
+            object_attributes,
+            auth_policy,
+            parameters,
+            unique,
+        },
+        rest,
+    ))
+}
+
+fn parse_tpm2b_public(buf: &[u8]) -> Result<(TpmtPublic, &[u8]), TpmDeviceError> {
+    let (size, buf) = parse_wire_copy::<TpmUint16>(buf)?;
+    let size = usize::from(size.get());
+    if buf.len() < size {
+        return Err(TpmDeviceError::InvalidResponse);
+    }
+
+    let (public, rest) = buf.split_at(size);
+    let (public, public_rest) = parse_tpmt_public(public)?;
+    ensure_empty(public_rest)?;
+
+    Ok((public, rest))
+}
+
+fn parse_tpms_context(buf: &[u8]) -> Result<(TpmsContext, &[u8]), TpmDeviceError> {
+    let (sequence, buf) = parse_wire_copy::<TpmUint64>(buf)?;
+    let (saved_handle, buf) = parse_wire_copy::<TpmHandle>(buf)?;
+    let (hierarchy, buf) = parse_field_value::<TpmRh>(buf)?;
+    let (context_blob, rest): (TpmBuffer<TPM_MAX_COMMAND_SIZE>, _) = parse_tpm2b_buffer(buf)?;
+
+    Ok((
+        TpmsContext {
+            sequence,
+            saved_handle,
+            hierarchy,
+            context_blob,
+        },
+        rest,
+    ))
+}
+
+fn parse_list<'a, T, const CAPACITY: usize>(
+    buf: &'a [u8],
+    mut parse_item: impl FnMut(&'a [u8]) -> Result<(T, &'a [u8]), TpmDeviceError>,
+) -> Result<(TpmList<T, CAPACITY>, &'a [u8]), TpmDeviceError>
+where
+    T: Copy,
+{
+    let (count, mut cursor) = parse_wire_copy::<TpmUint32>(buf)?;
+    let mut list = TpmList::<T, CAPACITY>::new();
+
+    for _ in 0..count.get() {
+        let (item, rest) = parse_item(cursor)?;
+        list.try_push(item).map_err(TpmDeviceError::Unmarshal)?;
+        cursor = rest;
+    }
+
+    Ok((list, cursor))
+}
+
+fn parse_tpms_alg_property(buf: &[u8]) -> Result<(TpmsAlgProperty, &[u8]), TpmDeviceError> {
+    let (alg, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (alg_properties, rest) = parse_field_value::<TpmaAlgorithm>(buf)?;
+
+    Ok((
+        TpmsAlgProperty {
+            alg,
+            alg_properties,
+        },
+        rest,
+    ))
+}
+
+fn parse_tpms_tagged_property(buf: &[u8]) -> Result<(TpmsTaggedProperty, &[u8]), TpmDeviceError> {
+    let (property, buf) = parse_field_value::<TpmPt>(buf)?;
+    let (value, rest) = parse_wire_copy::<TpmUint32>(buf)?;
+
+    Ok((TpmsTaggedProperty { property, value }, rest))
+}
+
+fn parse_tpms_pcr_selection(buf: &[u8]) -> Result<(TpmsPcrSelection, &[u8]), TpmDeviceError> {
+    let (hash, buf) = parse_field_value::<TpmAlgId>(buf)?;
+    let (pcr_select, rest) =
+        <TpmsPcrSelect as TpmField>::cast_prefix_field(buf).map_err(TpmDeviceError::Unmarshal)?;
+    let pcr_select = TpmsPcrSelect::try_from(pcr_select).map_err(TpmDeviceError::Unmarshal)?;
+
+    Ok((TpmsPcrSelection { hash, pcr_select }, rest))
+}
+
+fn parse_capability_data(buf: &[u8]) -> Result<(TpmsCapabilityData, &[u8]), TpmDeviceError> {
+    let (capability, buf) = parse_field_value::<TpmCap>(buf)?;
+    let (data, rest) = match capability {
+        TpmCap::Algs => {
+            let (list, rest) = parse_list::<TpmsAlgProperty, 64>(buf, parse_tpms_alg_property)?;
+            (TpmuCapabilities::Algs(list), rest)
+        }
+        TpmCap::Handles => {
+            let (list, rest) = parse_list::<TpmHandle, 128>(buf, parse_wire_copy::<TpmHandle>)?;
+            (TpmuCapabilities::Handles(list), rest)
+        }
+        TpmCap::Pcrs => {
+            let (list, rest) = parse_list::<TpmsPcrSelection, 8>(buf, parse_tpms_pcr_selection)?;
+            (TpmuCapabilities::Pcrs(list), rest)
+        }
+        TpmCap::Commands => {
+            let (list, rest) = parse_list::<TpmaCc, 256>(buf, parse_field_value::<TpmaCc>)?;
+            (TpmuCapabilities::Commands(list), rest)
+        }
+        TpmCap::TpmProperties => {
+            let (list, rest) =
+                parse_list::<TpmsTaggedProperty, 64>(buf, parse_tpms_tagged_property)?;
+            (TpmuCapabilities::TpmProperties(list), rest)
+        }
+        TpmCap::EccCurves => {
+            let (list, rest) =
+                parse_list::<TpmEccCurve, 64>(buf, parse_field_value::<TpmEccCurve>)?;
+            (TpmuCapabilities::EccCurves(list), rest)
+        }
+    };
+
+    Ok((TpmsCapabilityData { capability, data }, rest))
 }
 
 /// A builder for creating a TPM policy session.
@@ -825,7 +1289,9 @@ impl TpmPolicySessionBuilder {
         let nonce_caller = if let Some(nonce) = self.nonce_caller {
             nonce
         } else {
-            let digest_len = TpmHash::from(self.auth_hash).size();
+            let digest_len = TpmHash::try_from(self.auth_hash)
+                .map_err(|_| TpmDeviceError::OperationFailed)?
+                .size();
             let mut nonce_bytes = vec![0; digest_len];
             thread_rng().fill_bytes(&mut nonce_bytes);
             Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(TpmDeviceError::Unmarshal)?
@@ -840,16 +1306,18 @@ impl TpmPolicySessionBuilder {
             handles: [self.tpm_key, self.bind],
         };
 
-        let (resp, _) = device.transmit(&cmd, TpmDevice::NO_SESSIONS)?;
-        let start_resp = resp
-            .StartAuthSession()
-            .map_err(|_| TpmDeviceError::ResponseMismatch(TpmCc::StartAuthSession))?;
+        let response = device.transmit(&cmd, TpmDevice::NO_SESSIONS)?;
+        let (handles, parameters) = response_parts(response, 1)?;
+        let (handle, rest) = parse_wire_copy::<TpmHandle>(handles)?;
+        ensure_empty(rest)?;
+        let (nonce_tpm, rest): (Tpm2bNonce, _) = parse_tpm2b_buffer(parameters)?;
+        ensure_empty(rest)?;
 
         Ok(TpmPolicySession {
-            handle: start_resp.handles[0],
+            handle,
             attributes: TpmaSession::CONTINUE_SESSION,
             hash_alg: self.auth_hash,
-            nonce_tpm: start_resp.nonce_tpm,
+            nonce_tpm,
         })
     }
 }
