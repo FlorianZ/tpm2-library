@@ -6,8 +6,8 @@ license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.com/tpm-protocol/tpm2-device"
 repository = "https://gitlab.com/tpm-protocol/tpm2-device"
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
-edition = "2021"
-rust-version = "1.81"
+edition = "2024"
+rust-version = "1.85"
 readme = "README.md"
 
 [dependencies]
