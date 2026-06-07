@@ -10,10 +10,11 @@ use std::{
 
 use crate::{error::CommandError, response::parse_response, unmarshal::TpmUnmarshal};
 
-use rand::{thread_rng, RngCore};
-use tpm2_crypto::{tpm_make_name, TpmHash};
+use rand::{RngCore, thread_rng};
+use tpm2_crypto::{TpmHash, tpm_make_name};
 use tpm2_device::{TpmDevice, TpmDeviceError, TpmPolicySession};
 use tpm2_protocol::{
+    TpmWriter,
     basic::{TpmHandle, TpmInt32, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -26,10 +27,9 @@ use tpm2_protocol::{
         TpmEvictControlCommand, TpmEvictControlResponse, TpmFrame, TpmImportCommand,
         TpmImportResponse, TpmResponse,
     },
-    TpmWriter,
 };
 use tpm2_tpmkey::TpmKeyPolicyCommand;
-use tpm2_vtpm::{vtpm_policy_command_from, VtpmCache, VtpmPolicyCommand, VtpmPolicySecretCommand};
+use tpm2_vtpm::{VtpmCache, VtpmPolicyCommand, VtpmPolicySecretCommand, vtpm_policy_command_from};
 
 type TpmCommandList = Vec<(TpmCommand, TpmAuthCommands)>;
 
@@ -328,23 +328,17 @@ impl<'a> TaskState<'a> {
             return Ok(phandle);
         }
 
-        let handle_val = target.value();
-
-        if (handle_val >> 24) as u8 == TpmHt::Persistent as u8 {
-            return Ok(TpmUint32::new(handle_val));
-        }
-
-        if let Some(&phandle) = self.virt_handles.get(&handle_val) {
-            return Ok(phandle);
+        if (target_vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+            return Ok(TpmUint32::new(target_vhandle));
         }
 
         let key = self
             .cache
-            .find_by_handle(TpmUint32::new(handle_val))
-            .ok_or(CommandError::HandleNotFound(TpmUint32::new(handle_val)))?;
+            .find_by_handle(TpmUint32::new(target_vhandle))
+            .ok_or(CommandError::HandleNotFound(TpmUint32::new(target_vhandle)))?;
         let loaded_phandle = device.load_context(key.context().clone())?;
         self.track(device, loaded_phandle)?;
-        self.virt_handles.insert(handle_val, loaded_phandle);
+        self.virt_handles.insert(target_vhandle, loaded_phandle);
         Ok(loaded_phandle)
     }
 

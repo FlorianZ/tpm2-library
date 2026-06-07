@@ -6,7 +6,7 @@ use crate::{cli::Task, command::CommandError, task::TaskState};
 use argh::FromArgs;
 use std::collections::HashSet;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
-use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
+use tpm2_device::{TpmDevice, TpmDeviceError, with_device};
 use tpm2_protocol::{
     basic::TpmUint16,
     data::{

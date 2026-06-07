@@ -39,8 +39,8 @@ pub use crate::error::CommandError;
 use std::io::Write;
 
 use tabled::{
-    settings::{object::Rows, Color, Modify, Padding, Style},
     Table, Tabled,
+    settings::{Color, Modify, Padding, Style, object::Rows},
 };
 
 /// Creates, styles, and prints a table from a vector of `Tabled` items.

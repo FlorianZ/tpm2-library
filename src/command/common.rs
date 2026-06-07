@@ -9,7 +9,7 @@ use crate::{
     task::{Auth, TaskState},
 };
 use std::{collections::HashMap, str::FromStr};
-use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
+use tpm2_crypto::{TpmPublicTemplate, tpm_make_name};
 use tpm2_device::TpmDevice;
 use tpm2_policy_language::{TpmPolicyContext, TpmPolicyExpression};
 use tpm2_protocol::{
@@ -260,10 +260,14 @@ mod tests {
 
     #[test]
     fn build_auth_map_wraps_entry_in_error() {
-        unsafe { env::set_var("TPM2SH_AUTH", "owner:not-hex"); }
+        unsafe {
+            env::set_var("TPM2SH_AUTH", "owner:not-hex");
+        }
         let empty_entries = vec![];
         let err = build_auth_map(&empty_entries).unwrap_err();
         assert!(matches!(err, CommandError::InvalidInput(msg) if msg.contains("owner:not-hex")));
-        unsafe { env::remove_var("TPM2SH_AUTH"); }
+        unsafe {
+            env::remove_var("TPM2SH_AUTH");
+        }
     }
 }

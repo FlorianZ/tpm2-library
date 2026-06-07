@@ -207,17 +207,21 @@ fn auth_with_policy() {
 
     let delete_output = tpm2sh(cache_path, &["delete", "80*"]).read().unwrap();
 
-    assert!(delete_output.contains(
-        primary_handle_str
-            .strip_prefix("80")
-            .expect("primary handle did not start with 80")
-    ));
-    assert!(delete_output.contains(
-        sealed_handle
-            .as_str()
-            .strip_prefix("80")
-            .expect("sealed handle did not start with 80")
-    ));
+    assert!(
+        delete_output.contains(
+            primary_handle_str
+                .strip_prefix("80")
+                .expect("primary handle did not start with 80")
+        )
+    );
+    assert!(
+        delete_output.contains(
+            sealed_handle
+                .as_str()
+                .strip_prefix("80")
+                .expect("sealed handle did not start with 80")
+        )
+    );
 }
 
 #[test]

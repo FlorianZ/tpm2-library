@@ -5,22 +5,23 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_policy_command_list, parse_password},
         CommandError,
+        common::{build_policy_command_list, parse_password},
     },
     io::{read_file_input, write_key_data, write_object},
     task::{Auth, TaskState},
 };
 use argh::FromArgs;
-use openssl::symm::{encrypt, Cipher};
+use openssl::symm::{Cipher, encrypt};
 use rand;
 use std::path::PathBuf;
 use tpm2_crypto::{
-    tpm_make_name, TpmEccExternalKey, TpmExternalKey, TpmHash, TpmPublicTemplate,
-    TpmRsaExternalKey, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
+    KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE, TpmEccExternalKey, TpmExternalKey, TpmHash,
+    TpmPublicTemplate, TpmRsaExternalKey, tpm_make_name,
 };
-use tpm2_device::{with_device, TpmDevice};
+use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
+    TpmMarshal, TpmWriter,
     basic::{TpmHandle, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -30,7 +31,6 @@ use tpm2_protocol::{
         TpmuSensitiveComposite, TpmuSymKeyBits,
     },
     frame::{TpmAuthCommands, TpmCommandValue as TpmCommand},
-    TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 

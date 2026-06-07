@@ -7,11 +7,11 @@
 use crate::{
     cli::Task,
     command::{
+        CommandError,
         common::{
             build_policy_command_list, parse_creation_attributes, parse_password,
             resolve_public_template,
         },
-        CommandError,
     },
     io::write_key_data,
     response::parse_response,
@@ -21,7 +21,7 @@ use crate::{
 use argh::FromArgs;
 use std::path::PathBuf;
 use tpm2_crypto::TpmPublicTemplate;
-use tpm2_device::{with_device, TpmDevice};
+use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
     data::{

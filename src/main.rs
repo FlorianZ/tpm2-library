@@ -17,7 +17,7 @@ pub mod unmarshal;
 
 use crate::{
     cli::{Task, TopLevel},
-    command::{common::build_auth_map, CommandError},
+    command::{CommandError, common::build_auth_map},
     task::{TaskState, TaskStateProgress},
 };
 

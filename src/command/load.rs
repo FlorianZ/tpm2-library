@@ -12,7 +12,7 @@ use crate::{
 };
 use argh::FromArgs;
 use std::{ffi::CString, path::PathBuf};
-use tpm2_device::{with_device, TpmDevice};
+use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
     data::{
@@ -22,7 +22,7 @@ use tpm2_protocol::{
     frame::{TpmLoadCommand, TpmLoadResponse},
 };
 use tpm2_tpmkey::TpmKeyFile;
-use tpm2_vtpm::{vtpm_policy_command_from_parts, VtpmPolicyCommand};
+use tpm2_vtpm::{VtpmPolicyCommand, vtpm_policy_command_from_parts};
 
 /// Loads a PEM or DER TPMKey file to cache.
 #[derive(FromArgs, Debug)]

@@ -10,7 +10,7 @@ use std::{
     path::Path,
 };
 
-use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmError, TpmMarshal, TpmWriter};
+use tpm2_protocol::{TpmError, TpmMarshal, TpmWriter, constant::TPM_MAX_COMMAND_SIZE};
 use tpm2_tpmkey::TpmKeyFile;
 
 /// Reads data from a file path or from stdin if the path is not provided.

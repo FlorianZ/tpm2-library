@@ -5,8 +5,8 @@
 use crate::{
     cli::Task,
     command::{
-        common::{build_policy_command_list, parse_password},
         CommandError,
+        common::{build_policy_command_list, parse_password},
     },
     io::{read_file_input, write_key_data},
     response::parse_response,
@@ -15,7 +15,7 @@ use crate::{
 use argh::FromArgs;
 use std::path::PathBuf;
 use tpm2_crypto::{TpmHash, TpmPublicTemplate};
-use tpm2_device::{with_device, TpmDevice};
+use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{

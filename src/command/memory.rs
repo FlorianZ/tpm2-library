@@ -4,7 +4,7 @@
 
 use crate::{
     cli::Task,
-    command::{print_table, CommandError},
+    command::{CommandError, print_table},
     response::parse_response,
     task::{Auth, TaskState},
 };
@@ -14,8 +14,8 @@ use pem;
 use std::collections::HashMap;
 use strum::Display;
 use tabled::Tabled;
-use tpm2_crypto::{tpm_make_name, TpmEllipticCurve, TpmHash, TpmPublicTemplate};
-use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
+use tpm2_crypto::{TpmEllipticCurve, TpmHash, TpmPublicTemplate, tpm_make_name};
+use tpm2_device::{TpmDevice, TpmDeviceError, with_device};
 use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},

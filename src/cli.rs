@@ -6,8 +6,8 @@
 
 use crate::{
     command::{
-        common::parse_auth, Algorithm, CommandError, Create, CreatePrimary, Delete, Evict, Import,
-        Load, Memory, PcrEvent, ResetLock, ReturnCode, Seal, Unseal,
+        Algorithm, CommandError, Create, CreatePrimary, Delete, Evict, Import, Load, Memory,
+        PcrEvent, ResetLock, ReturnCode, Seal, Unseal, common::parse_auth,
     },
     task::{Auth, TaskState},
 };

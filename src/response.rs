@@ -3,6 +3,7 @@
 
 use crate::{command::CommandError, unmarshal::TpmUnmarshal};
 use tpm2_protocol::{
+    TpmError, TpmErrorValue, TpmResult, TpmSized,
     basic::{TpmHandle, TpmUint32},
     data::{TpmCc, TpmSt},
     frame::{
@@ -11,7 +12,6 @@ use tpm2_protocol::{
         TpmNvReadPublicResponse, TpmNvReadResponse, TpmPcrEventResponse, TpmPcrReadResponse,
         TpmResponse, TpmUnsealResponse,
     },
-    TpmError, TpmErrorValue, TpmResult, TpmSized,
 };
 
 pub(crate) trait TpmResponseBody: TpmHeader + Sized {

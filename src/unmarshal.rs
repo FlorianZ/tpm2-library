@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use tpm2_protocol::{
+    TpmError, TpmErrorValue, TpmField, TpmResult, TpmSized,
     basic::{
-        Tpm2b as Tpm2bWire, TpmBuffer, TpmInt32, TpmList, TpmUint16, TpmUint32, TpmUint64, TpmUint8,
+        Tpm2b as Tpm2bWire, TpmBuffer, TpmInt32, TpmList, TpmUint8, TpmUint16, TpmUint32, TpmUint64,
     },
     data::{
         Tpm2bCreationData, Tpm2bDigest, Tpm2bName, Tpm2bNvPublic, Tpm2bPublic, TpmAlgId, TpmCc,
@@ -15,7 +16,6 @@ use tpm2_protocol::{
         TpmtTkCreation, TpmuAsymScheme, TpmuHa, TpmuKdfScheme, TpmuKeyedhashScheme, TpmuPublicId,
         TpmuPublicParms, TpmuSignature, TpmuSymKeyBits, TpmuSymMode,
     },
-    TpmError, TpmErrorValue, TpmField, TpmResult, TpmSized,
 };
 use tpm2_vtpm::VtpmPolicySecretCommand;
 

@@ -5,18 +5,18 @@
 use crate::{
     cli::{Hierarchy, Task},
     command::{
+        CommandError,
         common::{
             build_policy_command_list, parse_creation_attributes, parse_password,
             resolve_public_template,
         },
-        CommandError,
     },
     response::parse_response,
     task::TaskState,
 };
 use argh::FromArgs;
 use tpm2_crypto::TpmPublicTemplate;
-use tpm2_device::{with_device, TpmDevice};
+use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
     basic::TpmUint32,
     data::{

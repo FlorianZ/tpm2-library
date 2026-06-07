@@ -6,9 +6,9 @@ use thiserror::Error;
 use tpm2_crypto::TpmCryptoError;
 use tpm2_device::TpmDeviceError;
 use tpm2_protocol::{
+    TpmError,
     basic::TpmHandle,
     data::{Tpm2bName, TpmAlgId, TpmCc, TpmRcBase},
-    TpmError,
 };
 use tpm2_tpmkey::TpmKeyError;
 use tpm2_vtpm::VtpmError;
