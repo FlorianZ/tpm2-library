@@ -10,7 +10,7 @@
 use rstest::rstest;
 use std::collections::HashMap;
 use tpm2_crypto::TpmHash;
-use tpm2_policy_language::{TpmPolicyError, TpmPolicyExpression, TpmPolicyState};
+use tpm2_policy_language::{TpmPolicyContext, TpmPolicyError, TpmPolicyExpression};
 use tpm2_protocol::{
     basic::TpmHandle,
     data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmCc},
@@ -51,13 +51,13 @@ fn command_list_roundtrip(#[case] input: &str) {
     }
     pcrs.insert(TpmAlgId::Sha256, bank_map);
 
-    let policy_state = TpmPolicyState::new(names, pcrs).unwrap();
-    let original_ast = TpmPolicyExpression::new(input, &policy_state).unwrap();
+    let policy_context = TpmPolicyContext::new(names, pcrs).unwrap();
+    let original_ast = TpmPolicyExpression::parse(input, &policy_context).unwrap();
 
-    let (command_list, _digest) = original_ast
-        .to_command_list(TpmAlgId::Sha256, &policy_state)
+    let compiled = original_ast
+        .to_command_list(TpmAlgId::Sha256, &policy_context)
         .unwrap();
-    let roundtripped_ast = TpmPolicyExpression::from_command_list(&command_list).unwrap();
+    let roundtripped_ast = TpmPolicyExpression::from_command_list(compiled.commands()).unwrap();
 
     let expected_ast = original_ast.clone();
 
@@ -90,12 +90,14 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     }
     pcrs.insert(TpmAlgId::Sha256, bank_map);
 
-    let policy_state = TpmPolicyState::new(names, pcrs).unwrap();
+    let policy_context = TpmPolicyContext::new(names, pcrs).unwrap();
 
-    let expr = TpmPolicyExpression::new(input, &policy_state).unwrap();
-    let (command_list, digest) = expr
-        .to_command_list(TpmAlgId::Sha256, &policy_state)
+    let expr = TpmPolicyExpression::parse(input, &policy_context).unwrap();
+    let compiled = expr
+        .to_command_list(TpmAlgId::Sha256, &policy_context)
         .unwrap();
+    let command_list = compiled.commands();
+    let digest = compiled.digest();
 
     assert_eq!(command_list.len(), 1);
 
@@ -109,7 +111,7 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let digest_size = hash.size();
     let zero_digest = Tpm2bDigest::try_from(vec![0u8; digest_size].as_slice()).unwrap();
 
-    let name = policy_state.names().get(&handle).unwrap();
+    let name = policy_context.names().get(&handle).unwrap();
     let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
 
     let first_chunks: Vec<&[u8]> = vec![zero_digest.as_ref(), &cc_bytes, name.as_ref()];
@@ -125,16 +127,16 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
 
 #[test]
 fn invalid_handle_literal_is_rejected() {
-    let policy_state = TpmPolicyState::default();
-    let result = TpmPolicyExpression::new("1234", &policy_state);
+    let policy_context = TpmPolicyContext::default();
+    let result = TpmPolicyExpression::parse("1234", &policy_context);
 
     assert!(matches!(result, Err(TpmPolicyError::InvalidToken(_))));
 }
 
 #[test]
 fn invalid_handle_type_is_rejected() {
-    let policy_state = TpmPolicyState::default();
-    let result = TpmPolicyExpression::new("ff000001", &policy_state);
+    let policy_context = TpmPolicyContext::default();
+    let result = TpmPolicyExpression::parse("ff000001", &policy_context);
 
     assert!(matches!(
         result,

@@ -6,12 +6,12 @@
 //!
 //! This crate provides the necessary components to parse a policy language
 //! string into an Abstract Syntax Tree (AST), represented by the
-//! [`Expression`] enum. The main entry point is the [`Expression::new()`]
-//! function.
+//! [`TpmPolicyExpression`] enum. The main entry point is the
+//! [`TpmPolicyExpression::parse()`] function.
 //!
-//! It also provides the [`Expression::to_command_list()`] function to convert a
-//! parsed AST into a sequence of serialized TPM command blobs, and the
-//! [`Expression::from_command_list()`] function to perform the reverse
+//! It also provides the [`TpmPolicyExpression::to_command_list()`] function to
+//! compile a parsed AST into [`TpmCompiledPolicy`], and the
+//! [`TpmPolicyExpression::from_command_list()`] function to perform the reverse
 //! operation.
 
 #![deny(clippy::all)]
@@ -40,16 +40,16 @@ use tpm2_protocol::{
 /// Pre-resolved data needed for policy execution.
 ///
 /// This structure must be populated by the caller and passed to
-/// [`Expression::to_command_list()`].
+/// [`TpmPolicyExpression::to_command_list()`].
 #[derive(Debug, Clone, Default)]
-pub struct TpmPolicyState {
+pub struct TpmPolicyContext {
     names: HashMap<TpmHandle, Tpm2bName>,
     pcrs: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>,
     pcr_count: usize,
 }
 
-impl TpmPolicyState {
-    /// Initialize and return a new instace.
+impl TpmPolicyContext {
+    /// Initializes and returns a new context.
     ///
     /// # Errors
     ///
@@ -85,10 +85,10 @@ impl TpmPolicyState {
 }
 
 /// Parses a PCR selection string (e.g., "sha1:0,1+sha256:7") into a
-/// `TpmlPcrSelection` using context from the `PolicyState`.
+/// `TpmlPcrSelection` using context from the `TpmPolicyContext`.
 fn parse_tpml_pcr_selection_str(
     selection_str: &str,
-    context: &TpmPolicyState,
+    context: &TpmPolicyContext,
 ) -> Result<TpmlPcrSelection, TpmPolicyError> {
     let mut list = TpmlPcrSelection::new();
     let pcr_select_size = context.pcr_count.div_ceil(8);
@@ -193,7 +193,7 @@ fn tokenize(input: &str) -> Vec<Token<'_>> {
 
 fn parse_expression<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &TpmPolicyState,
+    context: &TpmPolicyContext,
 ) -> Result<TpmPolicyExpression, TpmPolicyError> {
     parse_or(tokens, context)
 }
@@ -203,12 +203,12 @@ fn parse_binary_expression<'a, F, G>(
     mut operand_parser: F,
     operator: &Token,
     mut expression_combiner: G,
-    context: &TpmPolicyState,
+    context: &TpmPolicyContext,
 ) -> Result<TpmPolicyExpression, TpmPolicyError>
 where
     F: FnMut(
         &mut Peekable<Iter<'a, Token<'a>>>,
-        &TpmPolicyState,
+        &TpmPolicyContext,
     ) -> Result<TpmPolicyExpression, TpmPolicyError>,
     G: FnMut(TpmPolicyExpression, TpmPolicyExpression) -> TpmPolicyExpression,
 {
@@ -223,7 +223,7 @@ where
 
 fn parse_or<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &TpmPolicyState,
+    context: &TpmPolicyContext,
 ) -> Result<TpmPolicyExpression, TpmPolicyError> {
     parse_binary_expression(
         tokens,
@@ -242,7 +242,7 @@ fn parse_or<'a>(
 
 fn parse_and<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &TpmPolicyState,
+    context: &TpmPolicyContext,
 ) -> Result<TpmPolicyExpression, TpmPolicyError> {
     parse_binary_expression(
         tokens,
@@ -261,7 +261,7 @@ fn parse_and<'a>(
 
 fn parse_primary<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &TpmPolicyState,
+    context: &TpmPolicyContext,
 ) -> Result<TpmPolicyExpression, TpmPolicyError> {
     let token = tokens.next().ok_or(TpmPolicyError::UnexpectedEnd)?;
 
@@ -298,7 +298,7 @@ fn parse_literal(s: &str) -> Result<TpmPolicyExpression, TpmPolicyError> {
 
 fn parse_pcr_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &TpmPolicyState,
+    context: &TpmPolicyContext,
 ) -> Result<TpmPolicyExpression, TpmPolicyError> {
     match tokens.next() {
         Some(Token::LParen) => {}
@@ -345,7 +345,7 @@ fn parse_pcr_call<'a>(
 
 fn parse_secret_call<'a>(
     tokens: &mut Peekable<Iter<'a, Token<'a>>>,
-    context: &TpmPolicyState,
+    context: &TpmPolicyContext,
 ) -> Result<TpmPolicyExpression, TpmPolicyError> {
     match tokens.next() {
         Some(Token::LParen) => {}

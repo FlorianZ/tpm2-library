@@ -9,7 +9,7 @@
 
 use rstest::rstest;
 use std::collections::HashMap;
-use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
+use tpm2_policy_language::{TpmPolicyContext, TpmPolicyExpression};
 use tpm2_protocol::data::{Tpm2bDigest, TpmAlgId};
 
 #[rstest]
@@ -42,12 +42,12 @@ fn pcr_roundtrip(
         pcrs.insert(alg, bank_map);
     }
 
-    let policy_state = TpmPolicyState::new(HashMap::new(), pcrs).unwrap();
-    let original_ast = TpmPolicyExpression::new(input, &policy_state).unwrap();
-    let (cmds, _) = original_ast
-        .to_command_list(session_alg, &policy_state)
+    let policy_context = TpmPolicyContext::new(HashMap::new(), pcrs).unwrap();
+    let original_ast = TpmPolicyExpression::parse(input, &policy_context).unwrap();
+    let compiled = original_ast
+        .to_command_list(session_alg, &policy_context)
         .unwrap();
-    let roundtripped_ast = TpmPolicyExpression::from_command_list(&cmds).unwrap();
+    let roundtripped_ast = TpmPolicyExpression::from_command_list(compiled.commands()).unwrap();
 
     assert_eq!(roundtripped_ast, original_ast);
     assert_eq!(roundtripped_ast.to_string(), original_ast.to_string());

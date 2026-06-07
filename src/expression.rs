@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmPolicyError, TpmPolicySession, TpmPolicyState, build_and_branch};
+use crate::{TpmPolicyContext, TpmPolicyError, TpmPolicySession, build_and_branch};
 use std::borrow::Cow;
 use std::fmt;
 use tpm2_crypto::TpmHash;
@@ -16,6 +16,33 @@ use tpm2_protocol::{
         TpmPolicyPcrCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
 };
+
+/// Compiled TPM policy command stream and resulting policy digest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TpmCompiledPolicy {
+    commands: Vec<(TpmCommand, TpmAuthCommands)>,
+    digest: Tpm2bDigest,
+}
+
+impl TpmCompiledPolicy {
+    /// Returns compiled TPM policy commands with their auth sessions.
+    #[must_use]
+    pub fn commands(&self) -> &[(TpmCommand, TpmAuthCommands)] {
+        &self.commands
+    }
+
+    /// Returns the resulting policy digest.
+    #[must_use]
+    pub const fn digest(&self) -> Tpm2bDigest {
+        self.digest
+    }
+
+    /// Consumes the compiled policy and returns its command stream and digest.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<(TpmCommand, TpmAuthCommands)>, Tpm2bDigest) {
+        (self.commands, self.digest)
+    }
+}
 
 /// The Abstract Syntax Tree (AST) for the unified policy language.
 #[derive(Debug, Eq, Clone, PartialEq)]
@@ -87,17 +114,16 @@ impl fmt::Display for TpmPolicyExpression {
 }
 
 impl TpmPolicyExpression {
-    /// Parses a policy expression string into an
-    /// [`Expression`](crate::Expression) AST.
+    /// Parses a policy expression string into a [`TpmPolicyExpression`] AST.
     ///
     /// # Errors
     ///
-    /// Returns a [`Error`] variant if parsing fails due to syntactic errors,
-    /// malformed literals (handles, auth strings, PCR selections), or other
-    /// structural problems in the input string.
-    pub fn new(
+    /// Returns a [`TpmPolicyError`] variant if parsing fails due to syntactic
+    /// errors, malformed literals (handles, auth strings, PCR selections), or
+    /// other structural problems in the input string.
+    pub fn parse(
         input: &str,
-        context: &TpmPolicyState,
+        context: &TpmPolicyContext,
     ) -> Result<TpmPolicyExpression, TpmPolicyError> {
         let tokens = crate::tokenize(input);
         let mut iter = tokens.iter().peekable();
@@ -213,26 +239,29 @@ impl TpmPolicyExpression {
     ///
     /// Returns a [`Error`] variant if the expression tree is invalid for
     /// command generation (e.g., containing a standalone `Auth` node), if
-    /// required context from `PolicyState` is missing (e.g., a handle name),
+    /// required context from `TpmPolicyContext` is missing (e.g., a handle name),
     /// or if any part of the TPM command construction fails.
     pub fn to_command_list(
         &self,
         session_hash_alg: TpmAlgId,
-        context: &TpmPolicyState,
-    ) -> Result<(Vec<(TpmCommand, TpmAuthCommands)>, Tpm2bDigest), TpmPolicyError> {
+        context: &TpmPolicyContext,
+    ) -> Result<TpmCompiledPolicy, TpmPolicyError> {
         let mut command_list: Vec<(TpmCommand, TpmAuthCommands)> = Vec::new();
         let mut software_session = TpmPolicySession::new(session_hash_alg)?;
 
         let final_digest =
             self.to_command_list_walk(&mut command_list, &mut software_session, context)?;
-        Ok((command_list, final_digest))
+        Ok(TpmCompiledPolicy {
+            commands: command_list,
+            digest: final_digest,
+        })
     }
 
     fn to_command_list_walk<'a>(
         &'a self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut TpmPolicySession,
-        context: &'a TpmPolicyState,
+        context: &'a TpmPolicyContext,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
         match self {
             TpmPolicyExpression::And(branches) => {
@@ -260,7 +289,7 @@ impl TpmPolicyExpression {
         &self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut TpmPolicySession,
-        context: &TpmPolicyState,
+        context: &TpmPolicyContext,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
         let (selections, digest) = match self {
             TpmPolicyExpression::Pcr { selections, digest } => (selections, digest),
@@ -318,7 +347,7 @@ impl TpmPolicyExpression {
         &'a self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut TpmPolicySession,
-        context: &'a TpmPolicyState,
+        context: &'a TpmPolicyContext,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
         let (auth_handle, copy_ref) = match self {
             TpmPolicyExpression::Secret {
@@ -381,7 +410,7 @@ impl TpmPolicyExpression {
         &'a self,
         command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
         software_session: &mut TpmPolicySession,
-        context: &'a TpmPolicyState,
+        context: &'a TpmPolicyContext,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
         let branches = match self {
             TpmPolicyExpression::Or(branches) => branches,
