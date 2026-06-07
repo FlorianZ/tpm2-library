@@ -27,6 +27,7 @@ use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
 
 use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
+    TpmMarshal, TpmSized, TpmWriter,
     basic::TpmHandle,
     constant::TPM_PCR_SELECT_MAX,
     data::{
@@ -34,7 +35,6 @@ use tpm2_protocol::{
         TpmsPcrSelect, TpmsPcrSelection,
     },
     frame::{TpmPolicyOrCommand, TpmPolicyPcrCommand},
-    TpmMarshal, TpmSized, TpmWriter,
 };
 
 /// Pre-resolved data needed for policy execution.
@@ -421,14 +421,15 @@ fn parse_secret_call<'a>(
 /// A session that simulates TPM policy digest calculations in software.
 struct TpmPolicySession {
     digest: Tpm2bDigest,
-    hash_alg: TpmAlgId,
+    hash_alg: TpmHash,
     digest_size: usize,
 }
 
 impl TpmPolicySession {
     /// Creates a new software policy session.
     fn new(hash_alg: TpmAlgId) -> Result<Self, TpmPolicyError> {
-        let digest_size = TpmHash::from(hash_alg).size();
+        let hash_alg = TpmHash::try_from(hash_alg)?;
+        let digest_size = hash_alg.size();
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
             .map_err(TpmPolicyError::Marshal)?;
         Ok(Self {
@@ -458,7 +459,8 @@ impl TpmPolicySession {
             cmd.pcr_digest.as_ref(),
         ];
 
-        let new_digest_bytes = TpmHash::from(self.hash_alg)
+        let new_digest_bytes = self
+            .hash_alg
             .digest(&chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =
@@ -480,7 +482,8 @@ impl TpmPolicySession {
         let cc_bytes = (TpmCc::PolicyOr as u32).to_be_bytes();
         let chunks: Vec<&[u8]> = vec![self.digest.as_ref(), &cc_bytes, digests_as_bytes.as_slice()];
 
-        let new_digest_bytes = TpmHash::from(self.hash_alg)
+        let new_digest_bytes = self
+            .hash_alg
             .digest(&chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =
@@ -499,7 +502,8 @@ impl TpmPolicySession {
         let first_chunks: Vec<&[u8]> =
             vec![self.digest.as_ref(), &cc_bytes, auth_handle_name.as_ref()];
 
-        let first_digest_bytes = TpmHash::from(self.hash_alg)
+        let first_digest_bytes = self
+            .hash_alg
             .digest(&first_chunks)
             .map_err(TpmPolicyError::Crypto)?;
         let first_digest = Tpm2bDigest::try_from(first_digest_bytes.as_slice())
@@ -507,7 +511,8 @@ impl TpmPolicySession {
 
         let second_chunks: Vec<&[u8]> = vec![first_digest.as_ref(), policy_ref.as_ref()];
 
-        let new_digest_bytes = TpmHash::from(self.hash_alg)
+        let new_digest_bytes = self
+            .hash_alg
             .digest(&second_chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =

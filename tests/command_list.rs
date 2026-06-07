@@ -14,7 +14,7 @@ use tpm2_policy_language::{TpmPolicyError, TpmPolicyExpression, TpmPolicyState};
 use tpm2_protocol::{
     basic::TpmHandle,
     data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmCc},
-    frame::TpmCommand,
+    frame::TpmCommandValue as TpmCommand,
 };
 
 #[rstest]
@@ -105,7 +105,7 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
         other => panic!("expected PolicySecret, got {other:?}"),
     };
 
-    let hash = TpmHash::from(TpmAlgId::Sha256);
+    let hash = TpmHash::try_from(TpmAlgId::Sha256).unwrap();
     let digest_size = hash.size();
     let zero_digest = Tpm2bDigest::try_from(vec![0u8; digest_size].as_slice()).unwrap();
 

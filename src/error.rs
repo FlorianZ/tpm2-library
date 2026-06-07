@@ -51,7 +51,7 @@ pub enum TpmPolicyError {
 
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
-    Marshal(tpm2_protocol::TpmProtocolError),
+    Marshal(tpm2_protocol::TpmError),
 
     /// Operation failed because of internal error.
     #[error("operation failed")]
@@ -85,7 +85,7 @@ pub enum TpmPolicyError {
     #[error("PCR selection size is too large")]
     PcrSelectionTooLarge,
 
-    /// Unmarshaling a TPM protocol encoded object failed.
+    /// Too many branches were provided.
     #[error("too many branches: {0}")]
     TooManyBranches(Box<TpmPolicyExpression>),
 

@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{build_and_branch, TpmPolicyError, TpmPolicySession, TpmPolicyState};
+use crate::{TpmPolicyError, TpmPolicySession, TpmPolicyState, build_and_branch};
 use std::borrow::Cow;
 use std::fmt;
 use tpm2_crypto::TpmHash;
@@ -12,8 +12,8 @@ use tpm2_protocol::{
         Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmlDigest, TpmlPcrSelection,
     },
     frame::{
-        TpmAuthCommands, TpmCommand, TpmFrame, TpmPolicyOrCommand, TpmPolicyPcrCommand,
-        TpmPolicyRestartCommand, TpmPolicySecretCommand,
+        TpmAuthCommands, TpmCommandValue as TpmCommand, TpmFrame, TpmPolicyOrCommand,
+        TpmPolicyPcrCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
     },
 };
 
@@ -40,7 +40,8 @@ impl fmt::Display for TpmPolicyExpression {
                 let selection_strings: Vec<String> = selections
                     .iter()
                     .map(|tpms| {
-                        let alg_str = TpmHash::from(tpms.hash).to_string();
+                        let alg_str = TpmHash::try_from(tpms.hash)
+                            .map_or_else(|_| format!("{:?}", tpms.hash), |alg| alg.to_string());
                         let mut indices = Vec::new();
                         for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
                             for bit_index in 0..8 {
@@ -290,7 +291,8 @@ impl TpmPolicyExpression {
                 }
             }
 
-            let calculated_digest = TpmHash::from(software_session.hash_alg)
+            let calculated_digest = software_session
+                .hash_alg
                 .digest(&[&pcr_data])
                 .map_err(TpmPolicyError::Crypto)?;
             Tpm2bDigest::try_from(calculated_digest.as_slice()).map_err(TpmPolicyError::Marshal)?
@@ -366,7 +368,7 @@ impl TpmPolicyExpression {
             nonce_tpm: Tpm2bNonce::default(),
             cp_hash_a: Tpm2bDigest::default(),
             policy_ref,
-            expiration: TpmInt32(0),
+            expiration: TpmInt32::new(0),
             handles: [h_val.into(), 0.into()],
         };
 
