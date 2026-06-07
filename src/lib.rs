@@ -8,6 +8,7 @@
 #![deny(clippy::pedantic)]
 
 mod policy;
+mod unmarshal;
 
 pub use policy::*;
 
@@ -22,8 +23,9 @@ use tpm2_protocol::{
     basic::{TpmBuffer, TpmHandle, TpmUint32, TpmUint64},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmsContext, TpmtPublic},
-    TpmMarshal, TpmUnmarshal, TpmWriter,
+    TpmError, TpmMarshal, TpmWriter,
 };
+use unmarshal::TpmUnmarshal;
 
 const VERSION: u32 = 0x0000_0002;
 const TRANSIENT_START: u32 = 0x8000_0000;
@@ -125,7 +127,7 @@ impl VtpmKey {
     }
 
     fn delete(&self, cache_dir: &Path) -> Result<(), VtpmError> {
-        let virtual_handle = self.handle.0;
+        let virtual_handle = self.handle.value();
         let path = cache_dir.join(format!("{virtual_handle:08x}.bin"));
         if let Err(e) = fs::remove_file(path) {
             if e.kind() != std::io::ErrorKind::NotFound {
@@ -165,7 +167,7 @@ pub enum VtpmError {
 
     /// Marshaling a TPM protocol encoded object failed.
     #[error("marshal: {0}")]
-    Marshal(tpm2_protocol::TpmProtocolError),
+    Marshal(TpmError),
 
     /// An operation failed because of an internal error.
     #[error("operation failed")]
@@ -181,7 +183,7 @@ pub enum VtpmError {
 
     /// Unmarshaling a TPM protocol encoded object failed.
     #[error("unmarshal: {0}")]
-    Unmarshal(tpm2_protocol::TpmProtocolError),
+    Unmarshal(TpmError),
 
     /// While unmarshaling, the end of data was reached unexpectedly.
     #[error("unexpected end of data")]
@@ -224,7 +226,7 @@ impl<'a> VtpmCache<'a> {
         handles: HashMap<Tpm2bName, TpmHandle>,
     ) -> Result<Self, VtpmError> {
         for handle in handles.values() {
-            let ht = (handle.0 >> 24) as u8;
+            let ht = (handle.value() >> 24) as u8;
             if ht != TpmHt::Persistent as u8 {
                 return Err(VtpmError::InvalidHandleType(ht));
             }
@@ -269,7 +271,7 @@ impl<'a> VtpmCache<'a> {
     #[must_use]
     pub fn find_by_name(&self, target_name: &Tpm2bName) -> Option<&VtpmKey> {
         if let Some(handle) = self.handles.get(target_name) {
-            if let Some(key) = self.contexts.get(&handle.0) {
+            if let Some(key) = self.contexts.get(&handle.value()) {
                 return Some(key);
             }
         }
@@ -285,7 +287,7 @@ impl<'a> VtpmCache<'a> {
     /// no context with the given `virtual_handle` exists.
     #[must_use]
     pub fn find_by_handle(&self, handle: TpmHandle) -> Option<VtpmKey> {
-        self.contexts.get(&handle.0).cloned()
+        self.contexts.get(&handle.value()).cloned()
     }
 
     /// Finds the ancestor chain for a given VTPM handle.
@@ -312,7 +314,7 @@ impl<'a> VtpmCache<'a> {
         let mut chain: VecDeque<TpmHandle> = VecDeque::new();
         let mut physical_primary: Option<TpmHandle> = None;
 
-        let ht = (target_handle.0 >> 24) as u8;
+        let ht = (target_handle.value() >> 24) as u8;
         if ht == TpmHt::Persistent as u8 {
             for handle in self.handles.values() {
                 if *handle == target_handle {
@@ -336,7 +338,7 @@ impl<'a> VtpmCache<'a> {
                 .find(|(_, parent_key)| parent_key.public == key.parent)
             {
                 chain.push_front(current_virtual_handle);
-                current_virtual_handle = TpmUint32(parent_virtual_handle);
+                current_virtual_handle = TpmUint32::new(parent_virtual_handle);
             } else {
                 let parent_name =
                     tpm_make_name(&key.parent).map_err(|_| VtpmError::OperationFailed)?;
@@ -439,8 +441,8 @@ impl<'a> VtpmCache<'a> {
 
             if let Entry::Vacant(e) = self.contexts.entry(virtual_handle) {
                 let key = VtpmKey {
-                    version: TpmUint32(VERSION),
-                    handle: TpmUint32(virtual_handle),
+                    version: TpmUint32::new(VERSION),
+                    handle: TpmUint32::new(virtual_handle),
                     public: public.clone(),
                     parent: parent_public.clone(),
                     context,
@@ -451,7 +453,7 @@ impl<'a> VtpmCache<'a> {
 
                 e.insert(key);
 
-                self.handles.insert(name, TpmUint32(virtual_handle));
+                self.handles.insert(name, TpmUint32::new(virtual_handle));
                 self.dirty.insert(virtual_handle);
 
                 let next = virtual_handle.wrapping_add(1);
@@ -485,18 +487,18 @@ impl<'a> VtpmCache<'a> {
         parent_public: &TpmtPublic,
         policy: &Option<Vec<Box<dyn VtpmPolicyCommand>>>,
     ) -> Result<(), VtpmError> {
-        let ht = (handle.0 >> 24) as u8;
+        let ht = (handle.value() >> 24) as u8;
         if ht != TpmHt::Persistent as u8 {
             return Err(VtpmError::InvalidHandleType(ht));
         }
 
         let key = VtpmKey {
-            version: TpmUint32(VERSION),
+            version: TpmUint32::new(VERSION),
             handle,
             public: public.clone(),
             parent: parent_public.clone(),
             context: TpmsContext {
-                sequence: TpmUint64(0),
+                sequence: TpmUint64::new(0),
                 saved_handle: TpmHandle::default(),
                 hierarchy: TpmRh::Owner,
                 context_blob: TpmBuffer::default(),
@@ -506,9 +508,9 @@ impl<'a> VtpmCache<'a> {
 
         let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
 
-        self.contexts.insert(handle.0, key);
+        self.contexts.insert(handle.value(), key);
         self.handles.insert(name, handle);
-        self.dirty.insert(handle.0);
+        self.dirty.insert(handle.value());
 
         Ok(())
     }
@@ -550,7 +552,7 @@ impl<'a> VtpmCache<'a> {
                         let name =
                             tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
                         self.contexts.insert(virtual_handle, key);
-                        self.handles.insert(name, TpmUint32(virtual_handle));
+                        self.handles.insert(name, TpmUint32::new(virtual_handle));
                     }
                     Err(VtpmError::StaleHandle) => {
                         log::debug!("removing stale vtpm file: {}", path.display());
@@ -674,7 +676,7 @@ mod tests {
         let mut buffer = vec![0u8; std::mem::size_of::<u32>()];
         let len = {
             let mut writer = TpmWriter::new(&mut buffer);
-            let stale_version = TpmUint32(VERSION + 1);
+            let stale_version = TpmUint32::new(VERSION + 1);
             stale_version.marshal(&mut writer).unwrap();
             writer.len()
         };

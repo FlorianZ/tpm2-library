@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::VtpmError;
+use crate::{unmarshal::TpmUnmarshal, VtpmError};
 use std::fmt::Debug;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmInt32, TpmUint32},
@@ -11,14 +11,15 @@ use tpm2_protocol::{
         Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmCc, TpmlDigest, TpmlPcrSelection, TpmtSignature,
     },
     frame::{
-        TpmCommand, TpmFrame, TpmMarshalBody, TpmPolicyAuthValueCommand, TpmPolicyGetDigestCommand,
-        TpmPolicyOrCommand, TpmPolicyPasswordCommand, TpmPolicyPcrCommand,
-        TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
+        TpmCommand, TpmCommandValue, TpmCommandView, TpmPolicyAuthValueCommand,
+        TpmPolicyGetDigestCommand, TpmPolicyOrCommand, TpmPolicyPasswordCommand,
+        TpmPolicyPcrCommand, TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand,
+        TpmPolicySecretCommand,
     },
-    TpmMarshal, TpmProtocolError, TpmSized, TpmUnmarshal, TpmWriter,
+    TpmError, TpmMarshal, TpmSized, TpmWriter,
 };
 
-const ZERO_HANDLE: TpmHandle = TpmUint32(0);
+const ZERO_HANDLE: TpmHandle = TpmUint32::new(0);
 
 /// A trait representing a single TPM policy command step.
 pub trait VtpmPolicyCommand: Debug + Send + Sync {
@@ -48,7 +49,7 @@ pub trait VtpmPolicyCommand: Debug + Send + Sync {
     /// cannot be decoded as the parameter area for the command.
     /// Returns [`InvalidCc`](crate::VtpmError::InvalidCc) when the command code
     /// has no mapping to a TPM command in this crate.
-    fn to_command(&self) -> Result<TpmCommand, VtpmError>;
+    fn to_command(&self) -> Result<TpmCommandValue, VtpmError>;
 
     /// Returns a boxed clone of the command.
     fn box_clone(&self) -> Box<dyn VtpmPolicyCommand>;
@@ -68,10 +69,10 @@ impl PartialEq for Box<dyn VtpmPolicyCommand> {
 
 impl Eq for Box<dyn VtpmPolicyCommand> {}
 
-impl std::convert::TryInto<TpmCommand> for Box<dyn VtpmPolicyCommand> {
+impl std::convert::TryInto<TpmCommandValue> for Box<dyn VtpmPolicyCommand> {
     type Error = VtpmError;
 
-    fn try_into(self) -> Result<TpmCommand, Self::Error> {
+    fn try_into(self) -> Result<TpmCommandValue, Self::Error> {
         self.to_command()
     }
 }
@@ -161,45 +162,56 @@ pub fn vtpm_policy_command_from(
     cmd: &TpmCommand,
     object_name: &Tpm2bName,
 ) -> Result<Box<dyn VtpmPolicyCommand>, VtpmError> {
-    match cmd {
-        TpmCommand::PolicyPcr(_) | TpmCommand::PolicyOr(_) => {
+    let view = TpmCommandView::cast(cmd).map_err(VtpmError::Unmarshal)?;
+
+    match view {
+        TpmCommandView::PolicyPcr(_) | TpmCommandView::PolicyOr(_) => {
             let buf = vtpm_marshal_command_parameters(cmd)?;
             Ok(Box::new(VtpmPolicyDefaultCommand {
-                cc: cmd.cc(),
+                cc: view.cc(),
                 body: buf,
             }))
         }
-        TpmCommand::PolicySecret(inner) => {
-            let command = VtpmPolicySecretCommand {
-                object_handle_hint: inner.handles[0],
-                object_name: *object_name,
-                policy_ref: inner.policy_ref,
-            };
-            Ok(Box::new(command))
-        }
-        TpmCommand::PolicyAuthValue(_)
-        | TpmCommand::PolicyPassword(_)
-        | TpmCommand::PolicyGetDigest(_)
-        | TpmCommand::PolicyRestart(_)
-        | TpmCommand::PolicyPhysicalPresence(_) => Ok(Box::new(VtpmPolicyDefaultCommand {
-            cc: cmd.cc(),
+        TpmCommandView::PolicySecret(_) => vtpm_policy_secret_from_command(cmd, object_name),
+        TpmCommandView::PolicyAuthValue(_)
+        | TpmCommandView::PolicyPassword(_)
+        | TpmCommandView::PolicyGetDigest(_)
+        | TpmCommandView::PolicyRestart(_)
+        | TpmCommandView::PolicyPhysicalPresence(_) => Ok(Box::new(VtpmPolicyDefaultCommand {
+            cc: view.cc(),
             body: Vec::new(),
         })),
-        _ => Err(VtpmError::InvalidCc(cmd.cc())),
+        _ => Err(VtpmError::InvalidCc(view.cc())),
     }
 }
 
 fn vtpm_marshal_command_parameters(command: &TpmCommand) -> Result<Vec<u8>, VtpmError> {
-    let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
-    let len = {
-        let mut writer = TpmWriter::new(&mut buf);
-        command
-            .marshal_parameters(&mut writer)
-            .map_err(VtpmError::Marshal)?;
-        writer.len()
-    };
-    buf.truncate(len);
-    Ok(buf)
+    Ok(command.parameters().map_err(VtpmError::Unmarshal)?.to_vec())
+}
+
+fn vtpm_policy_secret_from_command(
+    command: &TpmCommand,
+    object_name: &Tpm2bName,
+) -> Result<Box<dyn VtpmPolicyCommand>, VtpmError> {
+    let handles = command.handles().map_err(VtpmError::Unmarshal)?;
+    let (object_handle_hint, _) = TpmHandle::cast_prefix(handles).map_err(VtpmError::Unmarshal)?;
+
+    let mut params = command.parameters().map_err(VtpmError::Unmarshal)?;
+    let (_, tail) = Tpm2bDigest::unmarshal(params).map_err(VtpmError::Unmarshal)?;
+    params = tail;
+    let (_, tail) = Tpm2bDigest::unmarshal(params).map_err(VtpmError::Unmarshal)?;
+    params = tail;
+    let (policy_ref, tail) = Tpm2bDigest::unmarshal(params).map_err(VtpmError::Unmarshal)?;
+    let (_, tail) = TpmInt32::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+    if !tail.is_empty() {
+        return Err(VtpmError::InvalidPolicy);
+    }
+
+    Ok(Box::new(VtpmPolicySecretCommand {
+        object_handle_hint: *object_handle_hint,
+        object_name: *object_name,
+        policy_ref,
+    }))
 }
 
 pub(crate) fn vtpm_marshal_policy_list(
@@ -265,37 +277,37 @@ impl VtpmPolicyCommand for VtpmPolicyDefaultCommand {
         TpmCc::SIZE + TpmUint32::SIZE + self.body.len()
     }
 
-    fn to_command(&self) -> Result<TpmCommand, VtpmError> {
+    fn to_command(&self) -> Result<TpmCommandValue, VtpmError> {
         match self.cc {
             TpmCc::PolicyAuthValue => {
                 let inner = TpmPolicyAuthValueCommand {
                     handles: [ZERO_HANDLE],
                 };
-                Ok(TpmCommand::PolicyAuthValue(inner))
+                Ok(TpmCommandValue::PolicyAuthValue(inner))
             }
             TpmCc::PolicyGetDigest => {
                 let inner = TpmPolicyGetDigestCommand {
                     handles: [ZERO_HANDLE],
                 };
-                Ok(TpmCommand::PolicyGetDigest(inner))
+                Ok(TpmCommandValue::PolicyGetDigest(inner))
             }
             TpmCc::PolicyPassword => {
                 let inner = TpmPolicyPasswordCommand {
                     handles: [ZERO_HANDLE],
                 };
-                Ok(TpmCommand::PolicyPassword(inner))
+                Ok(TpmCommandValue::PolicyPassword(inner))
             }
             TpmCc::PolicyRestart => {
                 let inner = TpmPolicyRestartCommand {
                     handles: [ZERO_HANDLE],
                 };
-                Ok(TpmCommand::PolicyRestart(inner))
+                Ok(TpmCommandValue::PolicyRestart(inner))
             }
             TpmCc::PolicyPhysicalPresence => {
                 let inner = TpmPolicyPhysicalPresenceCommand {
                     handles: [ZERO_HANDLE],
                 };
-                Ok(TpmCommand::PolicyPhysicalPresence(inner))
+                Ok(TpmCommandValue::PolicyPhysicalPresence(inner))
             }
             TpmCc::PolicyPcr => {
                 let (pcr_digest, rest) =
@@ -312,7 +324,7 @@ impl VtpmPolicyCommand for VtpmPolicyDefaultCommand {
                     handles: [ZERO_HANDLE],
                 };
 
-                Ok(TpmCommand::PolicyPcr(inner))
+                Ok(TpmCommandValue::PolicyPcr(inner))
             }
             TpmCc::PolicyOr => {
                 let (p_hash_list, rest) =
@@ -326,7 +338,7 @@ impl VtpmPolicyCommand for VtpmPolicyDefaultCommand {
                     p_hash_list,
                 };
 
-                Ok(TpmCommand::PolicyOr(inner))
+                Ok(TpmCommandValue::PolicyOr(inner))
             }
             other => Err(VtpmError::InvalidCc(other)),
         }
@@ -371,7 +383,7 @@ impl VtpmPolicyCommand for VtpmPolicyAuthorizeCommand {
             + self.policy_signature.len()
     }
 
-    fn to_command(&self) -> Result<TpmCommand, VtpmError> {
+    fn to_command(&self) -> Result<TpmCommandValue, VtpmError> {
         Err(VtpmError::InvalidPolicy)
     }
 
@@ -389,7 +401,7 @@ impl TpmSized for VtpmPolicyAuthorizeCommand {
 }
 
 impl TpmMarshal for VtpmPolicyAuthorizeCommand {
-    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmProtocolError> {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
         self.key_sign.marshal(writer)?;
         self.policy_ref.marshal(writer)?;
         self.policy_signature.marshal(writer)?;
@@ -399,7 +411,7 @@ impl TpmMarshal for VtpmPolicyAuthorizeCommand {
 }
 
 impl TpmUnmarshal for VtpmPolicyAuthorizeCommand {
-    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmProtocolError> {
+    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmError> {
         let (key_sign, remainder) = Tpm2bPublic::unmarshal(buffer)?;
         let (policy_ref, remainder) = Tpm2bDigest::unmarshal(remainder)?;
         let (policy_signature, remainder) = TpmtSignature::unmarshal(remainder)?;
@@ -449,15 +461,15 @@ impl VtpmPolicyCommand for VtpmPolicySecretCommand {
             + self.policy_ref.len()
     }
 
-    fn to_command(&self) -> Result<TpmCommand, VtpmError> {
+    fn to_command(&self) -> Result<TpmCommandValue, VtpmError> {
         let inner = TpmPolicySecretCommand {
             nonce_tpm: Tpm2bDigest::default(),
             cp_hash_a: Tpm2bDigest::default(),
             policy_ref: self.policy_ref,
-            expiration: TpmInt32(0),
+            expiration: TpmInt32::new(0),
             handles: [self.object_handle_hint, ZERO_HANDLE],
         };
-        Ok(TpmCommand::PolicySecret(inner))
+        Ok(TpmCommandValue::PolicySecret(inner))
     }
 
     fn box_clone(&self) -> Box<dyn VtpmPolicyCommand> {
@@ -474,7 +486,7 @@ impl TpmSized for VtpmPolicySecretCommand {
 }
 
 impl TpmMarshal for VtpmPolicySecretCommand {
-    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmProtocolError> {
+    fn marshal(&self, writer: &mut TpmWriter) -> Result<(), TpmError> {
         self.object_handle_hint.marshal(writer)?;
         self.object_name.marshal(writer)?;
         self.policy_ref.marshal(writer)?;
@@ -484,7 +496,7 @@ impl TpmMarshal for VtpmPolicySecretCommand {
 }
 
 impl TpmUnmarshal for VtpmPolicySecretCommand {
-    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmProtocolError> {
+    fn unmarshal(buffer: &[u8]) -> Result<(Self, &[u8]), TpmError> {
         let (object_handle_hint, remainder) = TpmHandle::unmarshal(buffer)?;
         let (object_name, remainder) = Tpm2bName::unmarshal(remainder)?;
         let (policy_ref, remainder) = Tpm2bDigest::unmarshal(remainder)?;

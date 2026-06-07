@@ -39,7 +39,7 @@ mod tests {
             name_alg: TpmAlgId::Sha256,
             object_attributes: TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT,
             parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
-                key_bits: TpmUint16(2048),
+                key_bits: TpmUint16::new(2048),
                 ..Default::default()
             }),
             unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
@@ -51,7 +51,7 @@ mod tests {
             name_alg: TpmAlgId::Sha256,
             object_attributes: TpmaObject::USER_WITH_AUTH,
             parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
-                key_bits: TpmUint16(2048),
+                key_bits: TpmUint16::new(2048),
                 ..Default::default()
             }),
             unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
@@ -59,8 +59,8 @@ mod tests {
         };
 
         let child_context = TpmsContext {
-            sequence: TpmUint64(12345),
-            saved_handle: TpmUint32(0x8000_0001),
+            sequence: TpmUint64::new(12345),
+            saved_handle: TpmUint32::new(0x8000_0001),
             hierarchy: TpmRh::Owner,
             context_blob: TpmBuffer::try_from(b"\x01\x02\x03\x04\x05" as &[u8]).unwrap(),
         };
@@ -84,7 +84,7 @@ mod tests {
         let parent_vhandle = cache
             .save_transient(
                 TpmsContext {
-                    sequence: TpmUint64(0),
+                    sequence: TpmUint64::new(0),
                     saved_handle: TpmHandle::default(),
                     hierarchy: TpmRh::default(),
                     context_blob: TpmBuffer::default(),
@@ -110,10 +110,12 @@ mod tests {
         let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
         assert_eq!(cache.key_iter().count(), 2,);
 
-        let parent_key = cache.find_by_handle(TpmUint32(parent_vhandle)).unwrap();
+        let parent_key = cache
+            .find_by_handle(TpmUint32::new(parent_vhandle))
+            .unwrap();
         assert_eq!(*parent_key.public(), parent_public);
 
-        let child_key = cache.find_by_handle(TpmUint32(child_vhandle)).unwrap();
+        let child_key = cache.find_by_handle(TpmUint32::new(child_vhandle)).unwrap();
         assert_eq!(*child_key.public(), child_public);
         assert_eq!(*child_key.context(), child_context);
 
@@ -121,11 +123,13 @@ mod tests {
         let child_key_name = cache.find_by_name(&child_name).unwrap();
         assert_eq!(child_key_name.handle().value(), child_vhandle);
 
-        let chain = cache.fetch_ancestors(TpmUint32(child_vhandle)).unwrap();
+        let chain = cache
+            .fetch_ancestors(TpmUint32::new(child_vhandle))
+            .unwrap();
 
         assert_eq!(chain.len(), 2);
-        assert_eq!(chain[0].0, parent_vhandle,);
-        assert_eq!(chain[1].0, child_vhandle,);
+        assert_eq!(chain[0].value(), parent_vhandle,);
+        assert_eq!(chain[1].value(), child_vhandle,);
 
         drop(cache);
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
@@ -154,16 +158,19 @@ mod tests {
         let cache_path = cache_dir.path();
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
-        let err = cache.find_by_handle(TpmUint32(0x8000_0000));
+        let err = cache.find_by_handle(TpmUint32::new(0x8000_0000));
         assert!(err.is_none());
 
-        let err = cache.fetch_ancestors(TpmUint32(0x8000_0000)).err().unwrap();
+        let err = cache
+            .fetch_ancestors(TpmUint32::new(0x8000_0000))
+            .err()
+            .unwrap();
         assert!(matches!(err, VtpmError::HandleNotFound(_)));
 
         let h1 = cache
             .save_transient(
                 TpmsContext {
-                    sequence: TpmUint64(0),
+                    sequence: TpmUint64::new(0),
                     saved_handle: TpmHandle::default(),
                     hierarchy: TpmRh::default(),
                     context_blob: TpmBuffer::default(),
@@ -178,7 +185,7 @@ mod tests {
         let h2 = cache
             .save_transient(
                 TpmsContext {
-                    sequence: TpmUint64(0),
+                    sequence: TpmUint64::new(0),
                     saved_handle: TpmHandle::default(),
                     hierarchy: TpmRh::default(),
                     context_blob: TpmBuffer::default(),
@@ -191,12 +198,12 @@ mod tests {
         assert_eq!(h2, 0x8000_0001);
 
         cache.remove(h1).unwrap();
-        assert!(cache.find_by_handle(TpmUint32(h1)).is_none(),);
+        assert!(cache.find_by_handle(TpmUint32::new(h1)).is_none(),);
 
         let h3 = cache
             .save_transient(
                 TpmsContext {
-                    sequence: TpmUint64(0),
+                    sequence: TpmUint64::new(0),
                     saved_handle: TpmHandle::default(),
                     hierarchy: TpmRh::default(),
                     context_blob: TpmBuffer::default(),
@@ -263,7 +270,7 @@ mod tests {
 
         if has_persistent_parent {
             let parent_name = tpm_make_name(&parent_public).unwrap();
-            persistent_keys.insert(parent_name, TpmUint32(0x8100_0000));
+            persistent_keys.insert(parent_name, TpmUint32::new(0x8100_0000));
         }
 
         let mut cache = VtpmCache::new(cache_path, persistent_keys).unwrap();
@@ -273,12 +280,16 @@ mod tests {
             .unwrap();
 
         if has_persistent_parent {
-            let chain = cache.fetch_ancestors(TpmUint32(child_vhandle)).unwrap();
+            let chain = cache
+                .fetch_ancestors(TpmUint32::new(child_vhandle))
+                .unwrap();
             assert_eq!(chain.len(), 2);
-            assert_eq!(chain[0].0, 0x8100_0000,);
-            assert_eq!(chain[1].0, child_vhandle,);
+            assert_eq!(chain[0].value(), 0x8100_0000,);
+            assert_eq!(chain[1].value(), child_vhandle,);
         } else {
-            let err = cache.fetch_ancestors(TpmUint32(child_vhandle)).unwrap_err();
+            let err = cache
+                .fetch_ancestors(TpmUint32::new(child_vhandle))
+                .unwrap_err();
             assert!(matches!(err, VtpmError::ParentNotFound));
         }
     }
@@ -288,7 +299,7 @@ mod tests {
     fn new_validates_persistent_handles(cache_dir: TempDir) {
         let cache_path = cache_dir.path();
         let mut handles = HashMap::new();
-        handles.insert(Tpm2bName::default(), TpmUint32(0x8000_0000));
+        handles.insert(Tpm2bName::default(), TpmUint32::new(0x8000_0000));
 
         let err = VtpmCache::new(cache_path, handles).unwrap_err();
 
@@ -319,7 +330,7 @@ mod tests {
         let policy_ref = Tpm2bDigest::default();
 
         let policy_secret = VtpmPolicySecretCommand {
-            object_handle_hint: TpmUint32(0x8100_0000),
+            object_handle_hint: TpmUint32::new(0x8100_0000),
             object_name,
             policy_ref,
         };
@@ -349,7 +360,7 @@ mod tests {
         drop(cache);
 
         let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
-        let key = cache.find_by_handle(TpmUint32(child_vhandle)).unwrap();
+        let key = cache.find_by_handle(TpmUint32::new(child_vhandle)).unwrap();
 
         assert_eq!(*key.policy(), policy);
     }
@@ -362,7 +373,7 @@ mod tests {
     ) {
         let (parent_public, _, _, null_parent) = test_data;
         let cache_path = cache_dir.path();
-        let persistent_handle = TpmUint32(0x8100_0001);
+        let persistent_handle = TpmUint32::new(0x8100_0001);
 
         let policy_auth = VtpmPolicyDefaultCommand {
             cc: TpmCc::PolicyAuthValue,
@@ -389,7 +400,7 @@ mod tests {
         let key = cache.find_by_handle(persistent_handle).unwrap();
         assert_eq!(*key.public(), parent_public);
         assert_eq!(*key.policy(), policy);
-        assert_eq!(key.context().sequence.0, 0);
+        assert_eq!(key.context().sequence.value(), 0);
 
         let name = tpm_make_name(&parent_public).unwrap();
         let cached_handle = cache.find_by_name(&name).unwrap().handle();

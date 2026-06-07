@@ -6,15 +6,15 @@ license = "MIT OR Apache-2.0"
 homepage = "https://gitlab.com/tpm-protocol/tpm2-vtpm"
 repository = "https://gitlab.com/tpm-protocol/tpm2-vtpm"
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
-edition = "2021"
-rust-version = "1.81"
+edition = "2024"
+rust-version = "1.85"
 readme = "README.md"
 
 [dependencies]
 log = "0.4"
 thiserror = "1.0"
-tpm2-crypto = "0.11.4"
-tpm2-protocol = "0.16.7"
+tpm2-crypto = "0.12.1"
+tpm2-protocol = "0.19.0"
 
 [dev-dependencies]
 rstest = "0.18"
