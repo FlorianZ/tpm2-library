@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(
             cli.auth_entries(),
             vec![(
-                TpmUint32(TpmRh::Owner as u32),
+                TpmUint32::new(TpmRh::Owner as u32),
                 Auth::Password(vec![0xde, 0xad, 0xbe, 0xef]),
             ),]
         );

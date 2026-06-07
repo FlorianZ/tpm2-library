@@ -4,14 +4,14 @@
 
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
-use crate::error::CommandError;
+use crate::{error::CommandError, response::parse_response};
 
 use std::collections::HashMap;
 
 use tpm2_device::TpmDevice;
 use tpm2_protocol::{
-    data::{Tpm2bDigest, TpmAlgId, TpmCc, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection},
-    frame::TpmPcrReadCommand,
+    data::{Tpm2bDigest, TpmAlgId, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection},
+    frame::{TpmPcrReadCommand, TpmPcrReadResponse},
 };
 
 /// Reads all PCRs from the active banks.
@@ -48,10 +48,8 @@ pub fn read_all_pcrs(
             handles: [],
         };
 
-        let (resp, _) = device.transmit(&cmd, &[])?;
-        let pcr_resp = resp
-            .PcrRead()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::PcrRead))?;
+        let resp = device.transmit(&cmd, &[])?;
+        let pcr_resp = parse_response::<TpmPcrReadResponse>(resp)?;
 
         let mut value_iter = pcr_resp.pcr_values.iter();
         for selection_out in pcr_resp.pcr_selection_out.iter() {

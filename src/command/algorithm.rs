@@ -27,7 +27,7 @@ pub struct Algorithm {}
 impl Algorithm {
     /// Checks if the TPM supports a given set of RSA parameters.
     fn test_rsa_parms(device: &mut TpmDevice, key_bits: u16) -> Result<(), TpmDeviceError> {
-        let key_bits = TpmUint16(key_bits);
+        let key_bits = TpmUint16::new(key_bits);
         let cmd = TpmTestParmsCommand {
             parameters: TpmtPublicParms {
                 object_type: TpmAlgId::Rsa,
@@ -39,7 +39,7 @@ impl Algorithm {
             handles: [],
         };
         let sessions = vec![];
-        device.transmit(&cmd, &sessions).map(|(_, _)| ())
+        device.transmit(&cmd, &sessions).map(|_| ())
     }
 
     /// Checks if the TPM supports a given set of KeyedHash parameters.
@@ -73,7 +73,7 @@ impl Algorithm {
         let sessions = vec![];
         device
             .transmit(&cmd, &sessions)
-            .map(|(_, _)| ())
+            .map(|_| ())
             .map_err(CommandError::from)
     }
 
@@ -90,12 +90,16 @@ impl Algorithm {
         Ok(supported)
     }
 
+    fn format_hash(hash: TpmAlgId) -> String {
+        TpmHash::try_from(hash).map_or_else(|_| format!("{hash:?}"), |hash| hash.to_string())
+    }
+
     fn format_rsa_alg(bits: u16, hash: TpmAlgId) -> String {
-        format!("rsa-{}:{}", bits, TpmHash::from(hash))
+        format!("rsa-{}:{}", bits, Self::format_hash(hash))
     }
 
     fn format_ecc_alg(curve: TpmEllipticCurve, hash: TpmAlgId) -> String {
-        format!("ecc-{}:{}", curve, TpmHash::from(hash))
+        format!("ecc-{}:{}", curve, Self::format_hash(hash))
     }
 
     fn fetch_rsa_algs(
@@ -118,8 +122,10 @@ impl Algorithm {
         let mut results = Vec::new();
         let supported_curves = device.fetch_ecc_curves()?;
         for curve_id in supported_curves {
-            for &hash in name_algs {
-                results.push(Self::format_ecc_alg(TpmEllipticCurve::from(curve_id), hash));
+            if let Ok(curve) = TpmEllipticCurve::try_from(curve_id) {
+                for &hash in name_algs {
+                    results.push(Self::format_ecc_alg(curve, hash));
+                }
             }
         }
         Ok(results)
@@ -129,16 +135,16 @@ impl Algorithm {
         let mut results = Vec::new();
         if Self::test_keyedhash_parms(device, TpmAlgId::Null, TpmAlgId::Null).is_ok() {
             for &hash in name_algs {
-                results.push(format!("keyedhash-null:{}", TpmHash::from(hash)));
+                results.push(format!("keyedhash-null:{}", Self::format_hash(hash)));
             }
         }
 
         for &hash in name_algs {
             if Self::test_keyedhash_parms(device, TpmAlgId::Hmac, hash).is_ok() {
-                results.push(format!("keyedhash-hmac:{}", TpmHash::from(hash)));
+                results.push(format!("keyedhash-hmac:{}", Self::format_hash(hash)));
             }
             if Self::test_keyedhash_parms(device, TpmAlgId::Xor, hash).is_ok() {
-                results.push(format!("keyedhash-xor:{}", TpmHash::from(hash)));
+                results.push(format!("keyedhash-xor:{}", Self::format_hash(hash)));
             }
         }
         results

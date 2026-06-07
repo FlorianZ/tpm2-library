@@ -10,7 +10,7 @@ use std::{
     path::Path,
 };
 
-use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmMarshal, TpmProtocolError, TpmWriter};
+use tpm2_protocol::{constant::TPM_MAX_COMMAND_SIZE, TpmError, TpmMarshal, TpmWriter};
 use tpm2_tpmkey::TpmKeyFile;
 
 /// Reads data from a file path or from stdin if the path is not provided.
@@ -68,7 +68,7 @@ pub fn write_key_data(
 /// # Errors
 ///
 /// Returns a `TpmError` if the object cannot be serialized into the buffer.
-pub fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmProtocolError> {
+pub fn write_object<T: TpmMarshal>(obj: &T) -> Result<Vec<u8>, TpmError> {
     let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
     let len = {
         let mut writer = TpmWriter::new(&mut buf);

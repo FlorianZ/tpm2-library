@@ -8,7 +8,7 @@ use tpm2_device::TpmDeviceError;
 use tpm2_protocol::{
     basic::TpmHandle,
     data::{Tpm2bName, TpmAlgId, TpmCc, TpmRcBase},
-    TpmProtocolError,
+    TpmError,
 };
 use tpm2_tpmkey::TpmKeyError;
 use tpm2_vtpm::VtpmError;
@@ -74,7 +74,7 @@ pub enum CommandError {
     #[error("malformed data")]
     MalformedData,
     #[error("marshal: {0}")]
-    Marshal(TpmProtocolError),
+    Marshal(TpmError),
     #[error("out of memory")]
     OutOfMemory,
     #[error("handle pattern not allowed: {0}")]
@@ -102,7 +102,7 @@ pub enum CommandError {
     #[error("unknown parent")]
     UnknownParent,
     #[error("unmarshal: {0}")]
-    Unmarshal(TpmProtocolError),
+    Unmarshal(TpmError),
     #[error("unsupported hash algorithm")]
     UnsupportedHashAlgorithm,
     #[error("unsupported key algorithm")]

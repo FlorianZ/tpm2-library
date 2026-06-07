@@ -8,23 +8,25 @@ use std::{
     rc::Rc,
 };
 
-use crate::error::CommandError;
+use crate::{error::CommandError, response::parse_response, unmarshal::TpmUnmarshal};
 
 use rand::{thread_rng, RngCore};
 use tpm2_crypto::{tpm_make_name, TpmHash};
 use tpm2_device::{TpmDevice, TpmDeviceError, TpmPolicySession};
-use tpm2_protocol::TpmUnmarshal;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmInt32, TpmUint32},
+    constant::TPM_MAX_COMMAND_SIZE,
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce,
-        Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmaSession,
+        Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmSt, TpmaSession,
         TpmsAuthCommand, TpmsContext, TpmtSymDefObject,
     },
     frame::{
-        TpmAuthCommands, TpmAuthResponses, TpmCommand, TpmEvictControlCommand, TpmFrame,
-        TpmImportCommand, TpmResponse,
+        TpmAuthCommands, TpmCommand as TpmCommandFrame, TpmCommandValue as TpmCommand,
+        TpmEvictControlCommand, TpmEvictControlResponse, TpmFrame, TpmImportCommand,
+        TpmImportResponse, TpmResponse,
     },
+    TpmWriter,
 };
 use tpm2_tpmkey::TpmKeyPolicyCommand;
 use tpm2_vtpm::{vtpm_policy_command_from, VtpmCache, VtpmPolicyCommand, VtpmPolicySecretCommand};
@@ -167,7 +169,7 @@ impl<'a> TaskState<'a> {
                 continue;
             }
 
-            if let Some(key) = self.cache.find_by_handle(TpmUint32(vhandle)) {
+            if let Some(key) = self.cache.find_by_handle(TpmUint32::new(vhandle)) {
                 match Self::refresh_key(device, vhandle, key.context().clone()) {
                     Ok(true) => {
                         self.cache.mark_dirty(vhandle);
@@ -239,7 +241,7 @@ impl<'a> TaskState<'a> {
                 }
                 let vhandle = session.handle();
                 self.sessions.insert(vhandle, session);
-                return Ok((phys_handle, name_alg, Auth::Session(vhandle.0)));
+                return Ok((phys_handle, name_alg, Auth::Session(vhandle.value())));
             }
         }
 
@@ -292,13 +294,11 @@ impl<'a> TaskState<'a> {
             duplicate: *duplicate,
             in_sym_seed: *in_sym_seed,
             symmetric_alg: *symmetric_alg,
-            handles: [parent_handle.0.into()],
+            handles: [parent_handle.value().into()],
         };
 
-        let (resp, _) = self.execute(device, &import_cmd, auth_list)?;
-        let import_resp = resp
-            .Import()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::Import))?;
+        let resp = self.execute(device, &import_cmd, auth_list)?;
+        let import_resp = parse_response::<TpmImportResponse>(resp)?;
 
         Ok(import_resp.out_private)
     }
@@ -322,16 +322,16 @@ impl<'a> TaskState<'a> {
         device: &mut TpmDevice,
         target: TpmHandle,
     ) -> Result<TpmHandle, CommandError> {
-        let target_vhandle = target.0;
+        let target_vhandle = target.value();
 
         if let Some(&phandle) = self.virt_handles.get(&target_vhandle) {
             return Ok(phandle);
         }
 
-        let handle_val = target.0;
+        let handle_val = target.value();
 
         if (handle_val >> 24) as u8 == TpmHt::Persistent as u8 {
-            return Ok(TpmUint32(handle_val));
+            return Ok(TpmUint32::new(handle_val));
         }
 
         if let Some(&phandle) = self.virt_handles.get(&handle_val) {
@@ -340,8 +340,8 @@ impl<'a> TaskState<'a> {
 
         let key = self
             .cache
-            .find_by_handle(TpmUint32(handle_val))
-            .ok_or(CommandError::HandleNotFound(TpmUint32(handle_val)))?;
+            .find_by_handle(TpmUint32::new(handle_val))
+            .ok_or(CommandError::HandleNotFound(TpmUint32::new(handle_val)))?;
         let loaded_phandle = device.load_context(key.context().clone())?;
         self.track(device, loaded_phandle)?;
         self.virt_handles.insert(handle_val, loaded_phandle);
@@ -367,8 +367,8 @@ impl<'a> TaskState<'a> {
         name: &Tpm2bName,
     ) -> Result<TpmHandle, CommandError> {
         if let Some(key) = self.cache.find_by_name(name) {
-            let vhandle = key.handle().0;
-            return self.load_key_by_handle(device, TpmUint32(vhandle));
+            let vhandle = key.handle().value();
+            return self.load_key_by_handle(device, TpmUint32::new(vhandle));
         }
 
         Err(CommandError::HandleNameNotFound(*name))
@@ -387,12 +387,12 @@ impl<'a> TaskState<'a> {
     /// auth class is encountered.
     /// Returns [`CapacityExceeded`](CommandError::CapacityExceeded) when
     /// an auth struct is too large.
-    pub fn execute<C: TpmFrame>(
+    pub fn execute<'device, C: TpmFrame>(
         &mut self,
-        device: &mut TpmDevice,
+        device: &'device mut TpmDevice,
         command: &C,
         auth_list: &[Auth],
-    ) -> Result<(TpmResponse, TpmAuthResponses), CommandError> {
+    ) -> Result<&'device TpmResponse, CommandError> {
         if let Some(p) = &self.progress {
             p.start();
         }
@@ -404,9 +404,9 @@ impl<'a> TaskState<'a> {
                 Auth::Session(vhandle) => {
                     let session = self
                         .sessions
-                        .get(&TpmUint32(*vhandle))
-                        .ok_or(CommandError::HandleNotFound(TpmUint32(*vhandle)))?;
-                    let nonce_size = TpmHash::from(session.hash_alg()).size();
+                        .get(&TpmUint32::new(*vhandle))
+                        .ok_or(CommandError::HandleNotFound(TpmUint32::new(*vhandle)))?;
+                    let nonce_size = TpmHash::try_from(session.hash_alg())?.size();
                     let mut nonce_bytes = vec![0; nonce_size];
                     thread_rng().fill_bytes(&mut nonce_bytes);
                     let nonce = Tpm2bNonce::try_from(nonce_bytes.as_slice())
@@ -454,7 +454,7 @@ impl<'a> TaskState<'a> {
         object_to_evict: TpmHandle,
         persistent_handle: TpmHandle,
     ) -> Result<(), CommandError> {
-        let auth_handle: TpmHandle = if (persistent_handle.0 & 0x00FF_FFFF) <= 0x007F_FFFF {
+        let auth_handle: TpmHandle = if (persistent_handle.value() & 0x00FF_FFFF) <= 0x007F_FFFF {
             (TpmRh::Owner as u32).into()
         } else {
             (TpmRh::Platform as u32).into()
@@ -467,10 +467,8 @@ impl<'a> TaskState<'a> {
             handles: [auth_handle, object_to_evict],
         };
 
-        let (resp, _) = self.execute(device, &cmd, &[auth])?;
-
-        resp.EvictControl()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::EvictControl))?;
+        let resp = self.execute(device, &cmd, &[auth])?;
+        parse_response::<TpmEvictControlResponse>(resp)?;
         Ok(())
     }
 
@@ -490,7 +488,7 @@ impl<'a> TaskState<'a> {
         }
 
         let mut vtpm_policy = Vec::with_capacity(commands.len());
-        for (cmd, _) in commands {
+        for (cmd, auths) in commands {
             let object_name = if let TpmCommand::PolicySecret(inner) = &cmd {
                 if let Some(key) = self.cache.find_by_handle(inner.handles[0]) {
                     tpm_make_name(key.public())?
@@ -502,7 +500,9 @@ impl<'a> TaskState<'a> {
                 Tpm2bName::default()
             };
 
-            vtpm_policy.push(vtpm_policy_command_from(&cmd, &object_name)?);
+            let frame = marshal_command_frame(&cmd, &auths)?;
+            let command_frame = TpmCommandFrame::cast(&frame).map_err(CommandError::Unmarshal)?;
+            vtpm_policy.push(vtpm_policy_command_from(command_frame, &object_name)?);
         }
 
         Ok(vtpm_policy)
@@ -532,7 +532,7 @@ impl<'a> TaskState<'a> {
         }
 
         for vhandle in persistent_vhandles {
-            let tpm_handle = TpmUint32(vhandle);
+            let tpm_handle = TpmUint32::new(vhandle);
 
             let Some(key) = self.cache.find_by_handle(tpm_handle) else {
                 continue;
@@ -609,12 +609,12 @@ impl<'a> TaskState<'a> {
         handle: TpmHandle,
     ) -> Result<(TpmHandle, Vec<Box<dyn VtpmPolicyCommand>>, TpmAlgId), CommandError> {
         let phys_handle = self.load_key_by_handle(device, handle)?;
-        if (handle.0 >> 24) as u8 == TpmHt::Transient as u8 {
-            let vhandle = handle.0;
+        if (handle.value() >> 24) as u8 == TpmHt::Transient as u8 {
+            let vhandle = handle.value();
             let key = self
                 .cache
-                .find_by_handle(TpmUint32(vhandle))
-                .ok_or(CommandError::HandleNotFound(TpmUint32(vhandle)))?;
+                .find_by_handle(TpmUint32::new(vhandle))
+                .ok_or(CommandError::HandleNotFound(TpmUint32::new(vhandle)))?;
             Ok((phys_handle, key.policy().clone(), key.public().name_alg))
         } else {
             let (public, _) = device.read_public(phys_handle)?;
@@ -662,7 +662,7 @@ impl<'a> TaskState<'a> {
         let live_handle = if vtpm_secret_cmd.object_name.is_empty() {
             log::warn!(
                 "PolicySecret uses handle hint {:08x} but has no object name. Policy may fail.",
-                vtpm_secret_cmd.object_handle_hint.0
+                vtpm_secret_cmd.object_handle_hint.value()
             );
             vtpm_secret_cmd.object_handle_hint
         } else {
@@ -673,8 +673,8 @@ impl<'a> TaskState<'a> {
             nonce_tpm: Tpm2bNonce::default(),
             cp_hash_a: Tpm2bDigest::default(),
             policy_ref: vtpm_secret_cmd.policy_ref,
-            expiration: TpmInt32(0),
-            handles: [live_handle, TpmUint32(0)],
+            expiration: TpmInt32::new(0),
+            handles: [live_handle, TpmUint32::new(0)],
         });
 
         let vhandle = if vtpm_secret_cmd.object_name.is_empty() {
@@ -682,7 +682,7 @@ impl<'a> TaskState<'a> {
         } else {
             self.cache
                 .find_by_name(&vtpm_secret_cmd.object_name)
-                .map(|k| TpmUint32(k.handle().0))
+                .map(|k| TpmUint32::new(k.handle().value()))
         };
 
         let task_auth = vhandle
@@ -732,4 +732,27 @@ fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand, CommandErr
         session_attributes: TpmaSession::empty(),
         hmac: Tpm2bAuth::try_from(password).map_err(|_| CommandError::OutOfMemory)?,
     })
+}
+
+fn marshal_command_frame(
+    command: &TpmCommand,
+    auths: &TpmAuthCommands,
+) -> Result<Vec<u8>, CommandError> {
+    let mut buf = vec![0_u8; TPM_MAX_COMMAND_SIZE];
+    let tag = if auths.is_empty() {
+        TpmSt::NoSessions
+    } else {
+        TpmSt::Sessions
+    };
+
+    let len = {
+        let mut writer = TpmWriter::new(&mut buf);
+        command
+            .marshal_frame(tag, auths, &mut writer)
+            .map_err(CommandError::Marshal)?;
+        writer.len()
+    };
+
+    buf.truncate(len);
+    Ok(buf)
 }

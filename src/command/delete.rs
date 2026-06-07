@@ -57,15 +57,15 @@ fn delete_tpm_handles(
 
                 let result = match class {
                     TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => dev
-                        .flush_context(TpmUint32(handle))
+                        .flush_context(TpmUint32::new(handle))
                         .map_err(CommandError::from)
                         .map(|()| {
                             if class == TpmHt::Transient {
-                                task_state.untrack(TpmUint32(handle));
+                                task_state.untrack(TpmUint32::new(handle));
                             }
                         }),
                     TpmHt::Persistent => {
-                        let persistent_handle = TpmUint32(handle);
+                        let persistent_handle = TpmUint32::new(handle);
                         task_state.evict_control(dev, persistent_handle, persistent_handle)
                     }
                     _ => Ok(()),

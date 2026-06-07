@@ -6,8 +6,8 @@ license = "GPL-3.0-or-later"
 homepage = "https://gitlab.com/tpm-protocol/tpm2sh"
 repository = "https://gitlab.com/tpm-protocol/tpm2sh"
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
-edition = "2021"
-rust-version = "1.81"
+edition = "2024"
+rust-version = "1.85"
 readme = "README.md"
 
 [[bin]]
@@ -30,12 +30,12 @@ rand = "0.8"
 strum = { version = "0.26", features = ["derive"] }
 tabled = { version = "0.15", default-features = false, features = ["std", "derive", "ansi"] }
 thiserror = "1.0"
-tpm2-crypto = "0.11.2"
-tpm2-device = "0.5.7"
-tpm2-policy-language = "0.10.8"
-tpm2-protocol = "0.16.4"
-tpm2-tpmkey = "0.11.8"
-tpm2-vtpm = "0.6.3"
+tpm2-crypto = "0.12.1"
+tpm2-device = "0.6.1"
+tpm2-policy-language = "0.11.0"
+tpm2-protocol = "0.19.0"
+tpm2-tpmkey = "0.12.1"
+tpm2-vtpm = "0.7.0"
 
 [dev-dependencies]
 assert_cmd = "2.0"

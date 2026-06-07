@@ -14,6 +14,7 @@ use crate::{
         CommandError,
     },
     io::write_key_data,
+    response::parse_response,
     task::TaskState,
 };
 
@@ -24,10 +25,10 @@ use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmlPcrSelection,
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmlPcrSelection,
         TpmsSensitiveCreate,
     },
-    frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
+    frame::{TpmAuthCommands, TpmCommandValue as TpmCommand, TpmCreateCommand, TpmCreateResponse},
 };
 use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 
@@ -129,7 +130,7 @@ impl Create {
             in_public: Tpm2bPublic { inner: public_area },
             outside_info: Tpm2bData::default(),
             creation_pcr: TpmlPcrSelection::default(),
-            handles: [parent_handle.0.into()],
+            handles: [parent_handle],
         };
 
         Ok((create_cmd, policy_commands, user_auth.is_empty()))
@@ -145,15 +146,14 @@ impl Create {
             return Err(CommandError::ParentMissing);
         };
 
-        let (parent_phys_handle, _, auth) = task_state.resolve_auth(device, TpmUint32(parent))?;
+        let (parent_phys_handle, _, auth) =
+            task_state.resolve_auth(device, TpmUint32::new(parent))?;
 
         let (create_cmd, policy_commands, empty_auth) =
             self.build_create_command(task_state, device, parent_phys_handle)?;
 
-        let (resp, _) = task_state.execute(device, &create_cmd, &[auth])?;
-        let resp = resp
-            .Create()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
+        let resp = task_state.execute(device, &create_cmd, &[auth])?;
+        let resp = parse_response::<TpmCreateResponse>(resp)?;
 
         let policy = task_state.save_key_policy(device, policy_commands)?;
 

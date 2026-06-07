@@ -5,6 +5,7 @@ use crate::{
     cli::Task,
     command::CommandError,
     io::{parse_u32, read_file_input},
+    response::parse_response,
     task::TaskState,
 };
 use argh::FromArgs;
@@ -13,13 +14,13 @@ use tpm2_crypto::TpmHash;
 use tpm2_device::with_device;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
-    data::{Tpm2bEvent, TpmCc, TpmuHa},
-    frame::TpmPcrEventCommand,
+    data::{Tpm2bEvent, TpmuHa},
+    frame::{TpmPcrEventCommand, TpmPcrEventResponse},
 };
 
 fn parse_pcr_index(handle_str: &str) -> Result<TpmHandle, String> {
     parse_u32(handle_str)
-        .map(TpmUint32)
+        .map(TpmUint32::new)
         .map_err(|_| "malformed value".to_string())
 }
 
@@ -44,15 +45,13 @@ impl Task for PcrEvent {
         _is_tty: bool,
     ) -> Result<(), CommandError> {
         with_device(task_state.device.clone(), |device| {
-            let handles = [self.pcr_index.0];
-
             let data_bytes = read_file_input(self.input.as_deref())?;
 
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())
                 .map_err(|_| CommandError::CapacityExceeded)?;
             let command = TpmPcrEventCommand {
                 event_data,
-                handles: [handles[0].into()],
+                handles: [self.pcr_index],
             };
 
             let auth = task_state
@@ -61,21 +60,22 @@ impl Task for PcrEvent {
                 .cloned()
                 .unwrap_or_default();
 
-            let (resp, _) = task_state.execute(device, &command, &[auth])?;
-
-            let pcr_resp = resp
-                .PcrEvent()
-                .map_err(|_| CommandError::ResponseMismatch(TpmCc::PcrEvent))?;
+            let resp = task_state.execute(device, &command, &[auth])?;
+            let pcr_resp = parse_response::<TpmPcrEventResponse>(resp)?;
 
             let clauses: Vec<String> = pcr_resp
                 .digests
                 .iter()
                 .filter_map(|digest_struct| {
                     if let TpmuHa::Digest(bytes) = &digest_struct.digest {
+                        let hash = TpmHash::try_from(digest_struct.hash_alg).map_or_else(
+                            |_| format!("{:?}", digest_struct.hash_alg),
+                            |hash| hash.to_string(),
+                        );
                         Some(format!(
                             "{}:{}:{}",
-                            TpmHash::from(digest_struct.hash_alg),
-                            self.pcr_index.0,
+                            hash,
+                            self.pcr_index.value(),
                             hex::encode(bytes)
                         ))
                     } else {

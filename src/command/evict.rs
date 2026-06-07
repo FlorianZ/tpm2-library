@@ -48,14 +48,14 @@ impl Task for Evict {
         with_device(
             task_state.device.clone(),
             |dev| -> Result<(), CommandError> {
-                let persistent_handle = TpmUint32(output_handle);
+                let persistent_handle = TpmUint32::new(output_handle);
                 let transient_handle =
-                    task_state.load_key_by_handle(dev, TpmUint32(input_handle))?;
+                    task_state.load_key_by_handle(dev, TpmUint32::new(input_handle))?;
 
                 let (public, parent, policy) = {
                     let key = task_state
                         .cache
-                        .find_by_handle(TpmUint32(input_handle))
+                        .find_by_handle(TpmUint32::new(input_handle))
                         .ok_or(CommandError::UnknownHandle(self.input.to_string()))?;
                     (
                         key.public().clone(),

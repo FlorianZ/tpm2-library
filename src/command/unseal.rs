@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, command::CommandError, task::TaskState};
+use crate::{cli::Task, command::CommandError, response::parse_response, task::TaskState};
 use argh::FromArgs;
 use std::path::PathBuf;
 use tpm2_device::with_device;
-use tpm2_protocol::{basic::TpmUint32, data::TpmCc, frame::TpmUnsealCommand};
+use tpm2_protocol::{
+    basic::TpmUint32,
+    frame::{TpmUnsealCommand, TpmUnsealResponse},
+};
 
 /// Retrieves data from a sealed data object.
 #[derive(FromArgs, Debug)]
@@ -32,18 +35,14 @@ impl Task for Unseal {
         };
 
         with_device(task_state.device.clone(), |device| {
-            let (item_handle, _, auth) = task_state.resolve_auth(device, TpmUint32(handle))?;
+            let (item_handle, _, auth) = task_state.resolve_auth(device, TpmUint32::new(handle))?;
 
             let unseal_cmd = TpmUnsealCommand {
-                handles: [item_handle.0.into()],
+                handles: [item_handle],
             };
 
-            let (resp, _) = task_state.execute(device, &unseal_cmd, &[auth])?;
-
-            let out_data = resp
-                .Unseal()
-                .map_err(|_| CommandError::ResponseMismatch(TpmCc::Unseal))?
-                .out_data;
+            let resp = task_state.execute(device, &unseal_cmd, &[auth])?;
+            let out_data = parse_response::<TpmUnsealResponse>(resp)?.out_data;
 
             if let Some(path) = &self.output {
                 std::fs::write(path, out_data.as_ref())?;

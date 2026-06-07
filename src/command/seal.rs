@@ -9,6 +9,7 @@ use crate::{
         CommandError,
     },
     io::{read_file_input, write_key_data},
+    response::parse_response,
     task::TaskState,
 };
 use argh::FromArgs;
@@ -19,11 +20,11 @@ use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
-        TpmCc, TpmaObject, TpmlPcrSelection, TpmsKeyedhashParms, TpmsSensitiveCreate,
-        TpmtKeyedhashScheme, TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms,
-        TpmuSymKeyBits, TpmuSymMode,
+        TpmaObject, TpmlPcrSelection, TpmsKeyedhashParms, TpmsSensitiveCreate, TpmtKeyedhashScheme,
+        TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms, TpmuSymKeyBits,
+        TpmuSymMode,
     },
-    frame::{TpmAuthCommands, TpmCommand, TpmCreateCommand},
+    frame::{TpmAuthCommands, TpmCommandValue as TpmCommand, TpmCreateCommand, TpmCreateResponse},
 };
 use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 
@@ -164,7 +165,7 @@ impl Seal {
 
         let template = TpmPublicTemplate::new()
             .with_public(unique, parms)?
-            .with_name_alg(name_alg)
+            .with_name_alg(TpmHash::try_from(name_alg)?)
             .with_object_attributes(object_attributes)
             .with_auth_policy(auth_policy_digest)
             .with_symmetric(symmetric);
@@ -181,7 +182,7 @@ impl Seal {
             },
             outside_info: Tpm2bData::default(),
             creation_pcr: TpmlPcrSelection::default(),
-            handles: [parent_handle.0.into()],
+            handles: [parent_handle],
         };
 
         Ok((create_cmd, policy_commands, user_auth.is_empty()))
@@ -197,15 +198,14 @@ impl Seal {
             return Err(CommandError::ParentMissing);
         };
 
-        let (parent_phys_handle, _, auth) = task_state.resolve_auth(device, TpmUint32(parent))?;
+        let (parent_phys_handle, _, auth) =
+            task_state.resolve_auth(device, TpmUint32::new(parent))?;
 
         let (create_cmd, policy_commands, empty_auth) =
             self.build_create_command(task_state, device, parent_phys_handle)?;
 
-        let (resp, _) = task_state.execute(device, &create_cmd, &[auth])?;
-        let resp = resp
-            .Create()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::Create))?;
+        let resp = task_state.execute(device, &create_cmd, &[auth])?;
+        let resp = parse_response::<TpmCreateResponse>(resp)?;
 
         let policy = task_state.save_key_policy(device, policy_commands)?;
 

@@ -11,6 +11,7 @@ use crate::{
         },
         CommandError,
     },
+    response::parse_response,
     task::TaskState,
 };
 use argh::FromArgs;
@@ -19,10 +20,13 @@ use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::TpmUint32,
     data::{
-        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmCc, TpmRh,
-        TpmlPcrSelection, TpmsSensitiveCreate,
+        Tpm2bData, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmRh, TpmlPcrSelection,
+        TpmsSensitiveCreate,
     },
-    frame::{TpmAuthCommands, TpmCommand, TpmCreatePrimaryCommand},
+    frame::{
+        TpmAuthCommands, TpmCommandValue as TpmCommand, TpmCreatePrimaryCommand,
+        TpmCreatePrimaryResponse,
+    },
 };
 
 /// Creates a new primary key in a specified hierarchy.
@@ -126,15 +130,12 @@ impl CreatePrimary {
 
         let auth = task_state
             .auth_map
-            .get(&TpmUint32(primary_handle as u32))
+            .get(&TpmUint32::new(primary_handle as u32))
             .cloned()
             .unwrap_or_default();
 
-        let (resp, _) = task_state.execute(device, &cmd, &[auth])?;
-
-        let resp = resp
-            .CreatePrimary()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::CreatePrimary))?;
+        let resp = task_state.execute(device, &cmd, &[auth])?;
+        let resp = parse_response::<TpmCreatePrimaryResponse>(resp)?;
 
         let object_handle = resp.handles[0];
         task_state.track(device, object_handle)?;

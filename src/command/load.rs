@@ -6,7 +6,9 @@ use crate::{
     cli::Task,
     command::CommandError,
     io::read_file_input,
+    response::parse_response,
     task::{Auth, TaskState},
+    unmarshal::TpmUnmarshal,
 };
 use argh::FromArgs;
 use std::{ffi::CString, path::PathBuf};
@@ -14,9 +16,10 @@ use tpm2_device::{with_device, TpmDevice};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint32},
     data::{
-        Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmtSymDefObject,
+        Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmHt,
+        TpmtSymDefObject,
     },
-    frame::TpmLoadCommand,
+    frame::{TpmLoadCommand, TpmLoadResponse},
 };
 use tpm2_tpmkey::TpmKeyFile;
 use tpm2_vtpm::{vtpm_policy_command_from_parts, VtpmPolicyCommand};
@@ -48,6 +51,8 @@ impl Task for Load {
         let input_bytes = read_file_input(self.input.as_deref())?;
 
         let tpm_key = TpmKeyFile::from_pem(&input_bytes).map_err(CommandError::from)?;
+        let public = Self::parse_public(tpm_key.public())?;
+        let private = Self::parse_private(tpm_key.private())?;
 
         with_device(
             task_state.device.clone(),
@@ -56,7 +61,7 @@ impl Task for Load {
                     let Some(parent) = self.parent.value() else {
                         return Err(CommandError::PatternNotAllowed(self.parent.to_string()));
                     };
-                    Self::parent_from_handle(task_state, device, TpmUint32(parent))?
+                    Self::parent_from_handle(task_state, device, TpmUint32::new(parent))?
                 };
 
                 if let Some(name) = &self.kernel {
@@ -67,7 +72,7 @@ impl Task for Load {
                     task_state.resolve_auth(device, parent_handle_ref)?;
 
                 let object_private = if tpm_key.secret().is_empty() {
-                    *tpm_key.private()
+                    private
                 } else {
                     let in_sym_seed = Tpm2bEncryptedSecret::try_from(tpm_key.secret())
                         .map_err(|_| CommandError::CapacityExceeded)?;
@@ -75,8 +80,8 @@ impl Task for Load {
                     task_state.import_key(
                         device,
                         parent_handle,
-                        tpm_key.public(),
-                        tpm_key.private(),
+                        &public,
+                        &private,
                         &in_sym_seed,
                         &Tpm2bData::default(),
                         &TpmtSymDefObject::default(),
@@ -89,7 +94,7 @@ impl Task for Load {
                     device,
                     parent_handle,
                     &object_private,
-                    tpm_key.public(),
+                    &public,
                     &[auth],
                 )?;
 
@@ -125,7 +130,7 @@ impl Load {
         writer: &mut dyn std::io::Write,
         parent_handle: TpmHandle,
     ) -> Result<(), CommandError> {
-        if tpm_key.public().object_type != TpmAlgId::KeyedHash {
+        if tpm_key.public_alg() != TpmAlgId::KeyedHash {
             return Err(CommandError::UnsupportedKeyAlgorithm);
         }
 
@@ -133,8 +138,10 @@ impl Load {
             .with_kind(tpm_key.kind())
             .with_empty_auth(tpm_key.empty_auth())
             .with_parent(parent_handle)
-            .with_public(tpm_key.public().clone())
-            .with_private(*tpm_key.private());
+            .with_public_bytes(tpm_key.public())
+            .map_err(CommandError::from)?
+            .with_private_bytes(tpm_key.private())
+            .map_err(CommandError::from)?;
 
         let der = trimmed_key.to_der().map_err(CommandError::from)?;
         let payload = format!("load {}", hex::encode(der));
@@ -165,20 +172,36 @@ impl Load {
         Ok(())
     }
 
+    fn parse_public(public: &[u8]) -> Result<Tpm2bPublic, CommandError> {
+        let (public, rest) = Tpm2bPublic::unmarshal(public).map_err(CommandError::Unmarshal)?;
+        if !rest.is_empty() {
+            return Err(CommandError::MalformedData);
+        }
+        Ok(public)
+    }
+
+    fn parse_private(private: &[u8]) -> Result<Tpm2bPrivate, CommandError> {
+        let (private, rest) = Tpm2bPrivate::unmarshal(private).map_err(CommandError::Unmarshal)?;
+        if !rest.is_empty() {
+            return Err(CommandError::MalformedData);
+        }
+        Ok(private)
+    }
+
     fn parent_from_handle(
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent: TpmHandle,
     ) -> Result<(Tpm2bPublic, TpmHandle), CommandError> {
-        let value = parent.0;
+        let value = parent.value();
 
         if (value >> 24) as u8 == TpmHt::Persistent as u8 {
-            let (public, _) = device.read_public(TpmUint32(value))?;
+            let (public, _) = device.read_public(TpmUint32::new(value))?;
             Ok((Tpm2bPublic { inner: public }, parent))
         } else {
             let key = task_state
                 .cache
-                .find_by_handle(TpmUint32(value))
+                .find_by_handle(TpmUint32::new(value))
                 .ok_or(CommandError::ParentMissing)?;
             Ok((
                 Tpm2bPublic {
@@ -203,11 +226,8 @@ impl Load {
             handles: [parent_handle],
         };
 
-        let (resp, _) = task_state.execute(device, &cmd, auths)?;
-
-        let resp = resp
-            .Load()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::Load))?;
+        let resp = task_state.execute(device, &cmd, auths)?;
+        let resp = parse_response::<TpmLoadResponse>(resp)?;
 
         task_state.track(device, resp.handles[0])?;
         Ok((resp.handles[0], in_public.clone()))

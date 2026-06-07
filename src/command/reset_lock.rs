@@ -2,13 +2,13 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, command::CommandError, task::TaskState};
+use crate::{cli::Task, command::CommandError, response::parse_response, task::TaskState};
 use argh::FromArgs;
 use tpm2_device::with_device;
 use tpm2_protocol::{
     basic::TpmUint32,
-    data::{TpmCc, TpmRh},
-    frame::TpmDictionaryAttackLockResetCommand,
+    data::TpmRh,
+    frame::{TpmDictionaryAttackLockResetCommand, TpmDictionaryAttackLockResetResponse},
 };
 
 /// Resets the dictionary attack lockout counter.
@@ -31,14 +31,12 @@ impl Task for ResetLock {
 
             let auth = task_state
                 .auth_map
-                .get(&TpmUint32(lock_handle.into()))
+                .get(&TpmUint32::new(u32::from(lock_handle)))
                 .cloned()
                 .unwrap_or_default();
 
-            let (resp, _) = task_state.execute(device, &command, &[auth])?;
-
-            resp.DictionaryAttackLockReset()
-                .map_err(|_| CommandError::ResponseMismatch(TpmCc::DictionaryAttackLockReset))?;
+            let resp = task_state.execute(device, &command, &[auth])?;
+            parse_response::<TpmDictionaryAttackLockResetResponse>(resp)?;
             Ok(())
         })
     }

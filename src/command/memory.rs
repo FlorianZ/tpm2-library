@@ -5,6 +5,7 @@
 use crate::{
     cli::Task,
     command::{print_table, CommandError},
+    response::parse_response,
     task::{Auth, TaskState},
 };
 use argh::FromArgs;
@@ -19,10 +20,12 @@ use tpm2_policy_language::TpmPolicyExpression;
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{
-        Tpm2bName, Tpm2bNvPublic, TpmAlgId, TpmCc, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv,
-        TpmtPublic,
+        Tpm2bName, Tpm2bNvPublic, TpmAlgId, TpmHt, TpmPt, TpmRcBase, TpmRh, TpmaNv, TpmtPublic,
     },
-    frame::{TpmAuthCommands, TpmCommand, TpmNvReadCommand, TpmNvReadPublicCommand},
+    frame::{
+        TpmCommandValue as TpmCommand, TpmNvReadCommand, TpmNvReadPublicCommand,
+        TpmNvReadPublicResponse, TpmNvReadResponse,
+    },
 };
 use tpm2_vtpm::VtpmPolicyCommand;
 
@@ -134,7 +137,7 @@ impl Memory {
 
         if let Ok(persistent_map) = crate::command::common::fetch_persistent_names(device) {
             for (handle, name) in persistent_map {
-                name_to_handle.insert(name, format!("{:08x}", handle.0));
+                name_to_handle.insert(name, format!("{:08x}", handle.value()));
             }
         }
 
@@ -161,7 +164,7 @@ impl Memory {
         handle_val: u32,
         handle_str: String,
     ) -> Result<(), CommandError> {
-        let handle = TpmUint32(handle_val);
+        let handle = TpmUint32::new(handle_val);
 
         let (public, hierarchy_str, parent_str, policy_str) = if let Some(key) =
             session.cache.find_by_handle(handle)
@@ -239,7 +242,7 @@ impl Memory {
         rows: &mut Vec<MemoryRow>,
     ) -> Result<(), CommandError> {
         for handle in device.fetch_handles(TpmHt::Persistent)? {
-            let TpmUint32(handle_val) = handle;
+            let handle_val = handle.value();
             let (public, _) = device.read_public(handle)?;
             let details: String = public_to_template(&public)?.try_into()?;
 
@@ -263,7 +266,7 @@ impl Memory {
         rows: &mut Vec<MemoryRow>,
     ) -> Result<(), CommandError> {
         for handle in device.fetch_handles(TpmHt::Transient)? {
-            let TpmUint32(handle_val) = handle;
+            let handle_val = handle.value();
             let (public, _) = device.read_public(handle)?;
             let details: String = public_to_template(&public)?.try_into()?;
 
@@ -286,7 +289,7 @@ impl Memory {
         let mut name_to_handle: HashMap<Tpm2bName, String> = HashMap::new();
         if let Ok(persistent_map) = crate::command::common::fetch_persistent_names(device) {
             for (handle, name) in persistent_map {
-                name_to_handle.insert(name, format!("{:08x}", handle.0));
+                name_to_handle.insert(name, format!("{:08x}", handle.value()));
             }
         }
 
@@ -321,12 +324,12 @@ impl Memory {
             };
 
             let details = public_to_template(key.public()).map_or_else(
-                |_| Ok(TpmHash::from(key.public().object_type).to_string()),
+                |_| TpmHash::try_from(key.public().object_type).map(|hash| hash.to_string()),
                 String::try_from,
             )?;
 
             rows.push(MemoryRow {
-                handle: format!("{:08x}", key.handle().0),
+                handle: format!("{:08x}", key.handle().value()),
                 class: MemoryHandleType::Transient.to_string(),
                 details: format!("{parent_str}:{details}"),
             });
@@ -339,7 +342,7 @@ impl Memory {
         rows: &mut Vec<MemoryRow>,
     ) -> Result<(), CommandError> {
         for handle in device.fetch_handles(TpmHt::LoadedSession)? {
-            let TpmUint32(handle_val) = handle;
+            let handle_val = handle.value();
             let ht = (handle_val >> 24) as u8;
 
             let detail = if ht == TpmHt::HmacSession as u8 {
@@ -362,7 +365,7 @@ impl Memory {
         rows: &mut Vec<MemoryRow>,
     ) -> Result<(), CommandError> {
         for handle in device.fetch_handles(TpmHt::SavedSession)? {
-            let TpmUint32(handle_val) = handle;
+            let handle_val = handle.value();
             rows.push(MemoryRow {
                 handle: format!("{handle_val:08x}"),
                 class: MemoryHandleType::Session.to_string(),
@@ -378,7 +381,7 @@ impl Memory {
         rows: &mut Vec<MemoryRow>,
     ) -> Result<(), CommandError> {
         for handle in device.fetch_handles(TpmHt::NvIndex)? {
-            let TpmUint32(handle_val) = handle;
+            let handle_val = handle.value();
             let details = Self::fetch_nv_details(session, device, handle);
             rows.push(MemoryRow {
                 handle: format!("{handle_val:08x}"),
@@ -411,10 +414,8 @@ impl Memory {
         let nv_read_public_cmd = TpmNvReadPublicCommand {
             handles: [handle.into()],
         };
-        let (resp, _) = session.execute(device, &nv_read_public_cmd, &[])?;
-        let read_public_resp = resp
-            .NvReadPublic()
-            .map_err(|_| CommandError::ResponseMismatch(TpmCc::NvReadPublic))?;
+        let resp = session.execute(device, &nv_read_public_cmd, &[])?;
+        let read_public_resp = parse_response::<TpmNvReadPublicResponse>(resp)?;
         Ok(read_public_resp.nv_public)
     }
 
@@ -438,7 +439,7 @@ impl Memory {
 
         let auth = session
             .auth_map
-            .get(&TpmUint32(auth_handle_val))
+            .get(&TpmUint32::new(auth_handle_val))
             .cloned()
             .unwrap_or_default();
 
@@ -454,16 +455,13 @@ impl Memory {
         while offset < data_size {
             let chunk_size = std::cmp::min(max_read_size.value() as usize, data_size - offset);
             let nv_read_cmd = TpmNvReadCommand {
-                size: TpmUint16(u16::try_from(chunk_size)?),
-                offset: TpmUint16(u16::try_from(offset)?),
+                size: TpmUint16::new(u16::try_from(chunk_size)?),
+                offset: TpmUint16::new(u16::try_from(offset)?),
                 handles: [auth_handle_val.into(), handle.into()],
             };
 
-            let (resp, _) = session.execute(device, &nv_read_cmd, effective_auths)?;
-
-            let read_resp = resp
-                .NvRead()
-                .map_err(|_| CommandError::ResponseMismatch(TpmCc::NvRead))?;
+            let resp = session.execute(device, &nv_read_cmd, effective_auths)?;
+            let read_resp = parse_response::<TpmNvReadResponse>(resp)?;
 
             let received_len = read_resp.data.len();
             if received_len == 0 {
@@ -504,7 +502,7 @@ impl Memory {
         device: &mut TpmDevice,
         handle: TpmHandle,
     ) -> String {
-        let TpmUint32(handle_val) = handle;
+        let handle_val = handle.value();
 
         let Ok(cert_bytes) = Self::read_nv_index(session, device, handle_val) else {
             return String::new();
@@ -569,20 +567,16 @@ impl Memory {
             return None;
         }
 
-        let mut command_list: Vec<(TpmCommand, TpmAuthCommands)> = Vec::with_capacity(policy.len());
+        let mut command_list: Vec<TpmCommand> = Vec::with_capacity(policy.len());
 
         for vtpm_cmd in policy {
             match vtpm_cmd.to_command() {
-                Ok(cmd) => {
-                    command_list.push((cmd, TpmAuthCommands::new()));
-                }
-                Err(_) => {
-                    return None;
-                }
+                Ok(cmd) => command_list.push(cmd),
+                Err(_) => return None,
             }
         }
 
-        match TpmPolicyExpression::from_command_list(&command_list) {
+        match TpmPolicyExpression::from_commands(&command_list) {
             Ok(expr) => Some(expr.to_string()),
             Err(_) => None,
         }
@@ -590,8 +584,9 @@ impl Memory {
 }
 
 fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate, CommandError> {
+    let name_alg = TpmHash::try_from(public.name_alg)?;
     TpmPublicTemplate::new()
         .with_public(public.unique.clone(), public.parameters)
         .map_err(CommandError::Crypto)
-        .map(|t| t.with_name_alg(public.name_alg))
+        .map(|t| t.with_name_alg(name_alg))
 }

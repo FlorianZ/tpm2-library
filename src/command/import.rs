@@ -16,7 +16,7 @@ use openssl::symm::{encrypt, Cipher};
 use rand;
 use std::path::PathBuf;
 use tpm2_crypto::{
-    tpm_make_name, TpmCryptoError, TpmEccExternalKey, TpmExternalKey, TpmHash, TpmPublicTemplate,
+    tpm_make_name, TpmEccExternalKey, TpmExternalKey, TpmHash, TpmPublicTemplate,
     TpmRsaExternalKey, KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE,
 };
 use tpm2_device::{with_device, TpmDevice};
@@ -29,7 +29,7 @@ use tpm2_protocol::{
         TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuPublicParms,
         TpmuSensitiveComposite, TpmuSymKeyBits,
     },
-    frame::{TpmAuthCommands, TpmCommand},
+    frame::{TpmAuthCommands, TpmCommandValue as TpmCommand},
     TpmMarshal, TpmWriter,
 };
 use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
@@ -85,7 +85,7 @@ impl Task for Import {
 
         with_device(task_state.device.clone(), |device| {
             let (parent_handle, name_alg, auth) =
-                task_state.resolve_auth(device, TpmUint32(parent))?;
+                task_state.resolve_auth(device, TpmUint32::new(parent))?;
 
             let input_bytes = read_file_input(self.input.as_deref())?;
 
@@ -149,14 +149,20 @@ impl Import {
         object_name: &Tpm2bName,
         key_bits: u16,
     ) -> Result<(Vec<u8>, Vec<u8>), CommandError> {
-        let sym_key = TpmHash::from(parent_name_alg)
-            .kdfa(seed, KDF_LABEL_STORAGE, object_name.as_ref(), &[], key_bits)
+        let parent_hash = TpmHash::try_from(parent_name_alg)?;
+        let sym_key = parent_hash
+            .kdfa(
+                seed,
+                KDF_LABEL_STORAGE,
+                object_name.as_ref(),
+                &[],
+                usize::from(key_bits),
+            )
             .map_err(CommandError::Crypto)?;
 
-        let key_bits = TpmHash::from(parent_name_alg).size() * 8;
-        let key_bits = u16::try_from(key_bits)?;
+        let key_bits = parent_hash.size() * 8;
 
-        let hmac_key = TpmHash::from(parent_name_alg)
+        let hmac_key = parent_hash
             .kdfa(seed, KDF_LABEL_INTEGRITY, &[], &[], key_bits)
             .map_err(CommandError::Crypto)?;
 
@@ -216,7 +222,7 @@ impl Import {
         sensitive: &[u8],
         object_name: &Tpm2bName,
     ) -> Result<Tpm2bPrivate, CommandError> {
-        let final_mac = TpmHash::from(parent_name_alg)
+        let final_mac = TpmHash::try_from(parent_name_alg)?
             .hmac(hmac_key, &[sensitive, object_name.as_ref()])
             .map_err(CommandError::Crypto)?;
 
@@ -252,13 +258,13 @@ impl Import {
             TpmAlgId::Rsa => {
                 let key =
                     TpmRsaExternalKey::try_from(parent_public).map_err(CommandError::Crypto)?;
-                key.to_seed(TpmHash::from(name_alg), rng)
+                key.to_seed(TpmHash::try_from(name_alg)?, rng)
                     .map_err(CommandError::Crypto)?
             }
             TpmAlgId::Ecc => {
                 let key =
                     TpmEccExternalKey::try_from(parent_public).map_err(CommandError::Crypto)?;
-                key.to_seed(TpmHash::from(name_alg), rng)
+                key.to_seed(TpmHash::try_from(name_alg)?, rng)
                     .map_err(CommandError::Crypto)?
             }
             _ => return Err(CommandError::InvalidParentType),
@@ -315,24 +321,20 @@ impl Import {
 
         let symmetric = TpmtSymDefObject::default();
         let template = TpmPublicTemplate::new()
-            .with_name_alg(name_alg)
+            .with_name_alg(TpmHash::try_from(name_alg)?)
             .with_object_attributes(object_attributes)
             .with_symmetric(symmetric);
 
-        match TpmRsaExternalKey::from_der(&der_bytes) {
-            Ok((public_key, sensitive)) => {
-                let mut public = public_key.to_public(&template);
-                public.auth_policy = auth_policy;
-                Ok((public, sensitive))
-            }
-            Err(TpmCryptoError::InvalidRsaParameters) => {
-                let (public_key, sensitive) =
-                    TpmEccExternalKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
-                let mut public = public_key.to_public(&template);
-                public.auth_policy = auth_policy;
-                Ok((public, sensitive))
-            }
-            Err(e) => Err(CommandError::Crypto(e)),
+        if let Ok((public_key, sensitive)) = TpmRsaExternalKey::from_der(&der_bytes) {
+            let mut public = public_key.to_public(&template);
+            public.auth_policy = auth_policy;
+            Ok((public, sensitive.to_vec()))
+        } else {
+            let (public_key, sensitive) =
+                TpmEccExternalKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
+            let mut public = public_key.to_public(&template);
+            public.auth_policy = auth_policy;
+            Ok((public, sensitive.to_vec()))
         }
     }
 

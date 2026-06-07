@@ -11,7 +11,7 @@ use crate::{
 use std::{collections::HashMap, str::FromStr};
 use tpm2_crypto::{tpm_make_name, TpmPublicTemplate};
 use tpm2_device::TpmDevice;
-use tpm2_policy_language::{TpmPolicyExpression, TpmPolicyState};
+use tpm2_policy_language::{TpmPolicyContext, TpmPolicyExpression};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{
@@ -19,20 +19,20 @@ use tpm2_protocol::{
         TpmtPublic, TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicParms, TpmuSymKeyBits,
         TpmuSymMode,
     },
-    frame::{TpmAuthCommands, TpmCommand},
+    frame::{TpmAuthCommands, TpmCommandValue as TpmCommand},
 };
 
 fn parse_handle_target(s: &str) -> Result<TpmHandle, String> {
     match s {
-        "owner" => Ok(TpmUint32(TpmRh::Owner as u32)),
-        "platform" => Ok(TpmUint32(TpmRh::Platform as u32)),
-        "endorsement" => Ok(TpmUint32(TpmRh::Endorsement as u32)),
-        "null" => Ok(TpmUint32(TpmRh::Null as u32)),
-        "lockout" => Ok(TpmUint32(TpmRh::Lockout as u32)),
+        "owner" => Ok(TpmUint32::new(TpmRh::Owner as u32)),
+        "platform" => Ok(TpmUint32::new(TpmRh::Platform as u32)),
+        "endorsement" => Ok(TpmUint32::new(TpmRh::Endorsement as u32)),
+        "null" => Ok(TpmUint32::new(TpmRh::Null as u32)),
+        "lockout" => Ok(TpmUint32::new(TpmRh::Lockout as u32)),
         _ => {
             let handle = Handle::from_str(s).map_err(|e| e.to_string())?;
             let value = handle.value().ok_or("handle pattern not allowed here")?;
-            Ok(TpmUint32(value))
+            Ok(TpmUint32::new(value))
         }
     }
 }
@@ -158,9 +158,10 @@ pub fn build_policy_command_list(
         let pcrs = read_all_pcrs(device)?;
         let names = fetch_handle_names(task_state, device)?;
 
-        let policy_context = TpmPolicyState::new(names, pcrs)?;
-        let ast = TpmPolicyExpression::new(expression, &policy_context)?;
-        let (commands, final_digest) = ast.to_command_list(name_alg, &policy_context)?;
+        let policy_context = TpmPolicyContext::new(names, pcrs)?;
+        let ast = TpmPolicyExpression::parse(expression, &policy_context)?;
+        let compiled = ast.compile(name_alg, &policy_context)?;
+        let (commands, final_digest) = compiled.into_parts();
 
         Ok((final_digest, commands))
     } else {
@@ -238,7 +239,7 @@ fn fetch_handle_names(
 
     for (vhandle, key) in state.cache.key_iter() {
         let name = tpm_make_name(key.public())?;
-        map.insert(TpmUint32(*vhandle), name);
+        map.insert(TpmUint32::new(*vhandle), name);
     }
 
     Ok(map)
@@ -253,16 +254,16 @@ mod tests {
     #[test]
     fn parse_auth_trims_whitespace() {
         let (handle, auth) = parse_auth(" owner : deadbeef ").unwrap();
-        assert_eq!(handle, TpmUint32(TpmRh::Owner as u32));
+        assert_eq!(handle, TpmUint32::new(TpmRh::Owner as u32));
         assert!(matches!(auth, Auth::Password(bytes) if bytes == hex::decode("deadbeef").unwrap()));
     }
 
     #[test]
     fn build_auth_map_wraps_entry_in_error() {
-        env::set_var("TPM2SH_AUTH", "owner:not-hex");
+        unsafe { env::set_var("TPM2SH_AUTH", "owner:not-hex"); }
         let empty_entries = vec![];
         let err = build_auth_map(&empty_entries).unwrap_err();
         assert!(matches!(err, CommandError::InvalidInput(msg) if msg.contains("owner:not-hex")));
-        env::remove_var("TPM2SH_AUTH");
+        unsafe { env::remove_var("TPM2SH_AUTH"); }
     }
 }
