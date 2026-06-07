@@ -33,21 +33,24 @@ fn pcr_roundtrip(
     #[case] pcr_banks: Vec<TpmAlgId>,
     #[case] session_alg: TpmAlgId,
 ) {
-    let mut pcrs = HashMap::new();
+    let mut context_builder = TpmPolicyContext::builder();
     for alg in pcr_banks {
         let mut bank_map = HashMap::new();
         for i in 0..24 {
             bank_map.insert(i, Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap());
         }
-        pcrs.insert(alg, bank_map);
+        context_builder = context_builder.pcr_bank(alg, bank_map);
     }
 
-    let policy_context = TpmPolicyContext::new(HashMap::new(), pcrs).unwrap();
+    let policy_context = context_builder.build().unwrap();
     let original_ast = TpmPolicyExpression::parse(input, &policy_context).unwrap();
-    let compiled = original_ast
-        .to_command_list(session_alg, &policy_context)
-        .unwrap();
-    let roundtripped_ast = TpmPolicyExpression::from_command_list(compiled.commands()).unwrap();
+    let compiled = original_ast.compile(session_alg, &policy_context).unwrap();
+    let commands: Vec<_> = compiled
+        .commands()
+        .iter()
+        .map(|(command, _auth)| command.clone())
+        .collect();
+    let roundtripped_ast = TpmPolicyExpression::from_commands(&commands).unwrap();
 
     assert_eq!(roundtripped_ast, original_ast);
     assert_eq!(roundtripped_ast.to_string(), original_ast.to_string());

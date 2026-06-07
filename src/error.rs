@@ -9,10 +9,6 @@ use tpm2_protocol::data::TpmCc;
 /// Language interpretation and compilation errors.
 #[derive(Debug, Error)]
 pub enum TpmPolicyError {
-    /// Authorization list is too long.
-    #[error("authorization list is too long")]
-    AuthListTooLong,
-
     /// A digest calculation failed.
     #[error("crypto: {0}")]
     Crypto(#[from] tpm2_crypto::TpmCryptoError),
@@ -45,17 +41,17 @@ pub enum TpmPolicyError {
     #[error("invalid PCR selection")]
     InvalidPcrSelection,
 
-    /// An invalid policy digest algorithm was encountered.
-    #[error("invalid policy digest algorithm")]
-    InvalidPolicyDigestAlgorithm,
+    /// TPM protocol encoding or decoding failed.
+    #[error("protocol: {0}")]
+    Protocol(#[from] tpm2_protocol::TpmError),
 
-    /// Marshaling a TPM protocol encoded object failed.
-    #[error("marshal: {0}")]
-    Marshal(tpm2_protocol::TpmError),
+    /// A command stream requires more branches than it has provided.
+    #[error("command stream branch underflow")]
+    CommandStreamBranchUnderflow,
 
-    /// Operation failed because of internal error.
-    #[error("operation failed")]
-    OperationFailed,
+    /// A command stream left unmerged branches after parsing.
+    #[error("command stream has unmerged branches")]
+    CommandStreamUnbalancedBranches,
 
     /// Parenthesis mismatch in expression.
     #[error("parenthesis mismatch")]

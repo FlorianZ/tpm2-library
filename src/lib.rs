@@ -2,26 +2,30 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-//! A parser for the TPM 2.0 policy language.
+//! A parser and compiler for TPM 2.0 policy language expressions.
 //!
-//! This crate provides the necessary components to parse a policy language
-//! string into an Abstract Syntax Tree (AST), represented by the
-//! [`TpmPolicyExpression`] enum. The main entry point is the
-//! [`TpmPolicyExpression::parse()`] function.
+//! This crate parses a policy language string into a [`TpmPolicyExpression`]
+//! abstract syntax tree. Parsing and compilation use caller-provided
+//! [`TpmPolicyContext`] data for TPM object names and PCR banks.
 //!
-//! It also provides the [`TpmPolicyExpression::to_command_list()`] function to
-//! compile a parsed AST into [`TpmCompiledPolicy`], and the
-//! [`TpmPolicyExpression::from_command_list()`] function to perform the reverse
-//! operation.
+//! The main entry points are:
+//!
+//! - [`TpmPolicyExpression::parse()`] to parse a policy expression.
+//! - [`TpmPolicyExpression::compile()`] to compile a parsed expression into a
+//!   [`TpmCompiledPolicy`].
+//! - [`TpmPolicyExpression::from_commands()`] to reconstruct an expression from
+//!   TPM policy commands.
+//!
+//! Fallible operations return [`TpmPolicyError`].
 
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 
-pub mod error;
-pub mod expression;
+mod error;
+mod expression;
 
-pub use error::*;
-pub use expression::*;
+pub use error::TpmPolicyError;
+pub use expression::{TpmCompiledPolicy, TpmPolicyExpression};
 
 use std::{collections::HashMap, fmt, iter::Peekable, slice::Iter};
 
@@ -40,7 +44,7 @@ use tpm2_protocol::{
 /// Pre-resolved data needed for policy execution.
 ///
 /// This structure must be populated by the caller and passed to
-/// [`TpmPolicyExpression::to_command_list()`].
+/// [`TpmPolicyExpression::compile()`].
 #[derive(Debug, Clone, Default)]
 pub struct TpmPolicyContext {
     names: HashMap<TpmHandle, Tpm2bName>,
@@ -48,7 +52,19 @@ pub struct TpmPolicyContext {
     pcr_count: usize,
 }
 
+/// Builder for [`TpmPolicyContext`].
+#[derive(Debug, Clone, Default)]
+pub struct TpmPolicyContextBuilder {
+    names: HashMap<TpmHandle, Tpm2bName>,
+    pcrs: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>,
+}
+
 impl TpmPolicyContext {
+    /// Creates a new context builder.
+    #[must_use]
+    pub fn builder() -> TpmPolicyContextBuilder {
+        TpmPolicyContextBuilder::new()
+    }
     /// Initializes and returns a new context.
     ///
     /// # Errors
@@ -81,6 +97,51 @@ impl TpmPolicyContext {
     #[must_use]
     pub fn names(&self) -> &HashMap<TpmHandle, Tpm2bName> {
         &self.names
+    }
+}
+
+impl TpmPolicyContextBuilder {
+    /// Initializes a new context builder.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds or replaces a name for a handle.
+    #[must_use]
+    pub fn name(mut self, handle: impl Into<TpmHandle>, name: Tpm2bName) -> Self {
+        self.names.insert(handle.into(), name);
+        self
+    }
+
+    /// Adds or replaces names for handles.
+    #[must_use]
+    pub fn names<I>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = (TpmHandle, Tpm2bName)>,
+    {
+        self.names.extend(names);
+        self
+    }
+
+    /// Adds or replaces a PCR bank.
+    #[must_use]
+    pub fn pcr_bank<I>(mut self, alg: TpmAlgId, pcrs: I) -> Self
+    where
+        I: IntoIterator<Item = (u32, Tpm2bDigest)>,
+    {
+        self.pcrs.insert(alg, pcrs.into_iter().collect());
+        self
+    }
+
+    /// Builds a policy context.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PcrCountMismatch`](crate::TpmPolicyError::PcrCountMismatch) when
+    /// PCR banks don't have exact same amount of PCRs.
+    pub fn build(self) -> Result<TpmPolicyContext, TpmPolicyError> {
+        TpmPolicyContext::new(self.names, self.pcrs)
     }
 }
 
@@ -431,7 +492,7 @@ impl TpmPolicySession {
         let hash_alg = TpmHash::try_from(hash_alg)?;
         let digest_size = hash_alg.size();
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
-            .map_err(TpmPolicyError::Marshal)?;
+            .map_err(TpmPolicyError::Protocol)?;
         Ok(Self {
             digest,
             hash_alg,
@@ -446,7 +507,7 @@ impl TpmPolicySession {
             let mut writer = TpmWriter::new(&mut pcrs_bytes);
             cmd.pcrs
                 .marshal(&mut writer)
-                .map_err(TpmPolicyError::Marshal)?;
+                .map_err(TpmPolicyError::Protocol)?;
             writer.len()
         };
         pcrs_bytes.truncate(pcrs_bytes_len);
@@ -464,7 +525,7 @@ impl TpmPolicySession {
             .digest(&chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =
-            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Protocol)?;
         Ok(())
     }
 
@@ -476,7 +537,7 @@ impl TpmPolicySession {
         }
 
         let zero_digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(TpmPolicyError::Marshal)?;
+            .map_err(TpmPolicyError::Protocol)?;
         self.digest = zero_digest;
 
         let cc_bytes = (TpmCc::PolicyOr as u32).to_be_bytes();
@@ -487,7 +548,7 @@ impl TpmPolicySession {
             .digest(&chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =
-            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Protocol)?;
         Ok(())
     }
 
@@ -507,7 +568,7 @@ impl TpmPolicySession {
             .digest(&first_chunks)
             .map_err(TpmPolicyError::Crypto)?;
         let first_digest = Tpm2bDigest::try_from(first_digest_bytes.as_slice())
-            .map_err(TpmPolicyError::Marshal)?;
+            .map_err(TpmPolicyError::Protocol)?;
 
         let second_chunks: Vec<&[u8]> = vec![first_digest.as_ref(), policy_ref.as_ref()];
 
@@ -516,14 +577,14 @@ impl TpmPolicySession {
             .digest(&second_chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =
-            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Protocol)?;
         Ok(())
     }
 
     /// Applies a `TPM2_PolicyRestart` action to the session.
     fn policy_restart(&mut self) -> Result<(), TpmPolicyError> {
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(TpmPolicyError::Marshal)?;
+            .map_err(TpmPolicyError::Protocol)?;
         Ok(())
     }
 

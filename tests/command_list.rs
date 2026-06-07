@@ -13,9 +13,30 @@ use tpm2_crypto::TpmHash;
 use tpm2_policy_language::{TpmPolicyContext, TpmPolicyError, TpmPolicyExpression};
 use tpm2_protocol::{
     basic::TpmHandle,
-    data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmCc},
-    frame::TpmCommandValue as TpmCommand,
+    data::{Tpm2bDigest, Tpm2bName, TpmAlgId, TpmCc, TpmlDigest},
+    frame::{TpmCommandValue as TpmCommand, TpmPolicyOrCommand, TpmPolicyRestartCommand},
 };
+
+fn test_context() -> TpmPolicyContext {
+    let handle = TpmHandle::from(0x8100_0001);
+    let name = Tpm2bName::try_from(
+        hex::decode("000b0000000000000000000000000000000000000000000000000000000000000000")
+            .unwrap()
+            .as_slice(),
+    )
+    .unwrap();
+
+    let mut bank_map = HashMap::new();
+    for i in 0..24 {
+        bank_map.insert(i, Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap());
+    }
+
+    TpmPolicyContext::builder()
+        .name(handle, name)
+        .pcr_bank(TpmAlgId::Sha256, bank_map)
+        .build()
+        .unwrap()
+}
 
 #[rstest]
 #[case(
@@ -31,33 +52,18 @@ use tpm2_protocol::{
 /// Verifies that parsing a policy string, converting it to a command list, and
 /// parsing that command list back results in a correctly sanitized policy AST.
 fn command_list_roundtrip(#[case] input: &str) {
-    let handle = TpmHandle::from(0x8100_0001);
-
-    let mut names = HashMap::new();
-    names.insert(
-        handle,
-        Tpm2bName::try_from(
-            hex::decode("000b0000000000000000000000000000000000000000000000000000000000000000")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-    );
-
-    let mut pcrs = HashMap::new();
-    let mut bank_map = HashMap::new();
-    for i in 0..24 {
-        bank_map.insert(i, Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap());
-    }
-    pcrs.insert(TpmAlgId::Sha256, bank_map);
-
-    let policy_context = TpmPolicyContext::new(names, pcrs).unwrap();
+    let policy_context = test_context();
     let original_ast = TpmPolicyExpression::parse(input, &policy_context).unwrap();
 
     let compiled = original_ast
-        .to_command_list(TpmAlgId::Sha256, &policy_context)
+        .compile(TpmAlgId::Sha256, &policy_context)
         .unwrap();
-    let roundtripped_ast = TpmPolicyExpression::from_command_list(compiled.commands()).unwrap();
+    let commands: Vec<_> = compiled
+        .commands()
+        .iter()
+        .map(|(command, _auth)| command.clone())
+        .collect();
+    let roundtripped_ast = TpmPolicyExpression::from_commands(&commands).unwrap();
 
     let expected_ast = original_ast.clone();
 
@@ -70,32 +76,10 @@ fn command_list_roundtrip(#[case] input: &str) {
 #[case("secret(81000001)")]
 #[case("secret(81000001, copy_ref:010203)")]
 fn policy_secret_digest_matches_reference(#[case] input: &str) {
-    let handle = TpmHandle::from(0x8100_0001);
-
-    let mut names = HashMap::new();
-    names.insert(
-        handle,
-        Tpm2bName::try_from(
-            hex::decode("000b0000000000000000000000000000000000000000000000000000000000000000")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-    );
-
-    let mut pcrs = HashMap::new();
-    let mut bank_map = HashMap::new();
-    for i in 0..24 {
-        bank_map.insert(i, Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap());
-    }
-    pcrs.insert(TpmAlgId::Sha256, bank_map);
-
-    let policy_context = TpmPolicyContext::new(names, pcrs).unwrap();
+    let policy_context = test_context();
 
     let expr = TpmPolicyExpression::parse(input, &policy_context).unwrap();
-    let compiled = expr
-        .to_command_list(TpmAlgId::Sha256, &policy_context)
-        .unwrap();
+    let compiled = expr.compile(TpmAlgId::Sha256, &policy_context).unwrap();
     let command_list = compiled.commands();
     let digest = compiled.digest();
 
@@ -111,7 +95,10 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let digest_size = hash.size();
     let zero_digest = Tpm2bDigest::try_from(vec![0u8; digest_size].as_slice()).unwrap();
 
-    let name = policy_context.names().get(&handle).unwrap();
+    let name = policy_context
+        .names()
+        .get(&TpmHandle::from(0x8100_0001))
+        .unwrap();
     let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
 
     let first_chunks: Vec<&[u8]> = vec![zero_digest.as_ref(), &cc_bytes, name.as_ref()];
@@ -141,5 +128,38 @@ fn invalid_handle_type_is_rejected() {
     assert!(matches!(
         result,
         Err(TpmPolicyError::InvalidHandleType(0xff_u8))
+    ));
+}
+
+#[test]
+fn policy_or_without_enough_branches_is_rejected() {
+    let digest = Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap();
+    let mut p_hash_list = TpmlDigest::new();
+    p_hash_list.try_push(digest).unwrap();
+    p_hash_list.try_push(digest).unwrap();
+    let command = TpmCommand::PolicyOr(TpmPolicyOrCommand {
+        handles: [0.into()],
+        p_hash_list,
+    });
+
+    let result = TpmPolicyExpression::from_commands(&[command]);
+
+    assert!(matches!(
+        result,
+        Err(TpmPolicyError::CommandStreamBranchUnderflow)
+    ));
+}
+
+#[test]
+fn unmerged_command_branches_are_rejected() {
+    let command = TpmCommand::PolicyRestart(TpmPolicyRestartCommand {
+        handles: [0.into()],
+    });
+
+    let result = TpmPolicyExpression::from_commands(&[command]);
+
+    assert!(matches!(
+        result,
+        Err(TpmPolicyError::CommandStreamUnbalancedBranches)
     ));
 }
