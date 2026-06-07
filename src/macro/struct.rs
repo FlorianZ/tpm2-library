@@ -264,6 +264,12 @@ macro_rules! tpm_struct {
                 $($field_type: for<'a> $crate::TpmField<'a>,)*
             {
                 let wire_len = Self::validate_prefix(buf)?;
+                if buf.len() < wire_len {
+                    return Err($crate::TpmError::UnexpectedEnd(
+                        $crate::TpmErrorValue::new(0).size(wire_len, buf.len()),
+                    ));
+                }
+
                 let (head, tail) = buf.split_at(wire_len);
 
                 // SAFETY: `validate_prefix` checked the complete wire structure.
@@ -328,7 +334,12 @@ macro_rules! tpm_struct {
                 $(
                     let before = cursor.len();
                     let (_, tail) = <$field_type as $crate::TpmField>::cast_prefix_field(cursor)?;
-                    consumed = consumed.checked_add(before - tail.len()).ok_or(
+                    let field_len = before.checked_sub(tail.len()).ok_or(
+                        $crate::TpmError::IntegerTooLarge(
+                            $crate::TpmErrorValue::new(consumed).value_usize(tail.len()),
+                        ),
+                    )?;
+                    consumed = consumed.checked_add(field_len).ok_or(
                         $crate::TpmError::IntegerTooLarge(
                             $crate::TpmErrorValue::new(consumed).value_usize(before),
                         ),

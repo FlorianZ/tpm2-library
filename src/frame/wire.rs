@@ -264,9 +264,22 @@ impl TpmCommand {
 
     fn handle_area_range(&self) -> TpmResult<Range<usize>> {
         let dispatch = dispatch_for(self.cc()?)?;
-        let handle_area_size = dispatch.handles * size_of::<u32>();
+        let handle_area_size = handle_area_size(dispatch.handles, HEADER_SIZE)?;
+        let handle_area_end =
+            HEADER_SIZE
+                .checked_add(handle_area_size)
+                .ok_or(TpmError::IntegerTooLarge(
+                    crate::TpmErrorValue::new(HEADER_SIZE).value_usize(handle_area_size),
+                ))?;
 
-        Ok(HEADER_SIZE..HEADER_SIZE + handle_area_size)
+        if self.0.len() < handle_area_end {
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(HEADER_SIZE)
+                    .size(handle_area_size, self.0.len().saturating_sub(HEADER_SIZE)),
+            ));
+        }
+
+        Ok(HEADER_SIZE..handle_area_end)
     }
 
     fn session_and_parameter_ranges(&self) -> TpmResult<(Range<usize>, Range<usize>)> {
@@ -326,7 +339,7 @@ impl TpmCommand {
 
         let dispatch = dispatch_for(command_code(buf)?)?;
         let body = &buf[HEADER_SIZE..];
-        let handle_area_size = dispatch.handles * size_of::<u32>();
+        let handle_area_size = handle_area_size(dispatch.handles, HEADER_SIZE)?;
 
         if body.len() < handle_area_size {
             return Err(TpmError::UnexpectedEnd(
@@ -590,7 +603,7 @@ impl TpmResponse {
             return Ok(());
         }
 
-        let handle_area_size = dispatch.response_handles * size_of::<u32>();
+        let handle_area_size = handle_area_size(dispatch.response_handles, HEADER_SIZE)?;
         let body = self.body();
         if body.len() < handle_area_size {
             return Err(TpmError::UnexpectedEnd(
@@ -722,6 +735,14 @@ fn validate_frame_size(buf: &[u8]) -> TpmResult<()> {
     }
 
     Ok(())
+}
+
+fn handle_area_size(handles: usize, offset: usize) -> TpmResult<usize> {
+    handles
+        .checked_mul(size_of::<u32>())
+        .ok_or(TpmError::IntegerTooLarge(
+            crate::TpmErrorValue::new(offset).value_usize(handles),
+        ))
 }
 
 fn frame_prefix_size(buf: &[u8]) -> TpmResult<usize> {

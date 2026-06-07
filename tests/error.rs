@@ -6,15 +6,49 @@ mod message_bytes;
 
 use crate::message_bytes::message_bytes;
 use tpm2_protocol::{
-    TpmError, TpmErrorValue, TpmWireBytes, TpmWriter,
+    TpmCast, TpmError, TpmErrorValue, TpmResult, TpmWireBytes, TpmWriter,
     basic::{Tpm2b, TpmUint16, Tpml},
-    data::{TpmRc, TpmRcBase, TpmSt, TpmSu},
+    data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmSu},
     frame::{
-        TpmStartupCommand, TpmStartupResponse, tpm_marshal_command, tpm_marshal_response,
+        TpmCommand, TpmStartupCommand, TpmStartupResponse, tpm_marshal_command,
+        tpm_marshal_response,
     },
 };
 
 const MESSAGE_DATA: &str = include_str!("message.txt");
+
+struct InvalidTail;
+
+static INVALID_TAIL: InvalidTail = InvalidTail;
+static INVALID_TAIL_BYTES: [u8; 1] = [0];
+
+impl TpmCast for InvalidTail {
+    fn cast(_buf: &[u8]) -> TpmResult<&Self> {
+        Ok(&INVALID_TAIL)
+    }
+
+    fn cast_prefix(_buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
+        Ok((&INVALID_TAIL, &INVALID_TAIL_BYTES))
+    }
+
+    unsafe fn cast_unchecked(_buf: &[u8]) -> &Self {
+        &INVALID_TAIL
+    }
+}
+
+#[test]
+fn command_accessors_report_shape_changed_bounds() {
+    let mut frame = message_bytes(MESSAGE_DATA, "00000144", "Command", "0000");
+    let command = TpmCommand::cast_mut(&mut frame).unwrap();
+
+    command.set_cc(TpmCc::NvRead).unwrap();
+    let err = command.handles().err().unwrap();
+
+    assert_eq!(
+        err,
+        TpmError::UnexpectedEnd(TpmErrorValue::new(10).size(8, 2))
+    );
+}
 
 #[test]
 fn tpm2b_capacity_error_reports_limit() {
@@ -109,6 +143,15 @@ fn tpml_iterator_stops_after_truncated_element() {
         TpmError::UnexpectedEnd(TpmErrorValue::new(0).size(2, 1))
     );
     assert!(items.next().is_none());
+}
+
+#[test]
+fn tpml_rejects_invalid_item_tail_without_panicking() {
+    let err = Tpml::<1>::validate_prefix_items::<InvalidTail>(&[0, 0, 0, 1])
+        .err()
+        .unwrap();
+
+    assert!(matches!(err, TpmError::IntegerTooLarge(_)));
 }
 
 #[test]

@@ -56,6 +56,12 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
     /// Returns `Err(TpmError)` when the first typed TPML value is malformed.
     pub fn cast_prefix_items<T: TpmCast + ?Sized>(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
         let wire_len = Self::validate_prefix_items::<T>(buf)?;
+        if buf.len() < wire_len {
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(wire_len, buf.len()),
+            ));
+        }
+
         let (head, tail) = buf.split_at(wire_len);
 
         // SAFETY: `validate_prefix_items` checked the TPML header, count limit,
@@ -117,6 +123,12 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         buf: &mut [u8],
     ) -> TpmResult<(&mut Self, &mut [u8])> {
         let wire_len = Self::validate_prefix_items::<T>(buf)?;
+        if buf.len() < wire_len {
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(wire_len, buf.len()),
+            ));
+        }
+
         let (head, tail) = buf.split_at_mut(wire_len);
 
         // SAFETY: `validate_prefix_items` checked the TPML header, count limit,
@@ -232,12 +244,16 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         for _ in 0..count {
             let before = cursor.len();
             let (_, tail) = T::cast_prefix(cursor)?;
-            consumed =
-                consumed
-                    .checked_add(before - tail.len())
-                    .ok_or(TpmError::IntegerTooLarge(
-                        crate::TpmErrorValue::new(consumed).value_usize(before),
-                    ))?;
+            let item_len = before
+                .checked_sub(tail.len())
+                .ok_or(TpmError::IntegerTooLarge(
+                    crate::TpmErrorValue::new(consumed).value_usize(tail.len()),
+                ))?;
+            consumed = consumed
+                .checked_add(item_len)
+                .ok_or(TpmError::IntegerTooLarge(
+                    crate::TpmErrorValue::new(consumed).value_usize(before),
+                ))?;
             cursor = tail;
         }
 
@@ -335,13 +351,23 @@ impl<'a, T: crate::TpmField<'a> + Copy, const CAPACITY: usize> crate::TpmField<'
         for _ in 0..count {
             let before = cursor.len();
             let (_, tail) = T::cast_prefix_field(cursor)?;
-            consumed =
-                consumed
-                    .checked_add(before - tail.len())
-                    .ok_or(TpmError::IntegerTooLarge(
-                        crate::TpmErrorValue::new(consumed).value_usize(before),
-                    ))?;
+            let item_len = before
+                .checked_sub(tail.len())
+                .ok_or(TpmError::IntegerTooLarge(
+                    crate::TpmErrorValue::new(consumed).value_usize(tail.len()),
+                ))?;
+            consumed = consumed
+                .checked_add(item_len)
+                .ok_or(TpmError::IntegerTooLarge(
+                    crate::TpmErrorValue::new(consumed).value_usize(before),
+                ))?;
             cursor = tail;
+        }
+
+        if buf.len() < consumed {
+            return Err(TpmError::UnexpectedEnd(
+                crate::TpmErrorValue::new(0).size(consumed, buf.len()),
+            ));
         }
 
         let (head, tail) = buf.split_at(consumed);
