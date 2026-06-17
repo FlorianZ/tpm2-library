@@ -137,6 +137,12 @@ impl<'a> TaskState<'a> {
         Ok(())
     }
 
+    /// Returns the authorization for a handle, or the default empty password.
+    #[must_use]
+    pub fn auth_for(&self, handle: TpmHandle) -> Auth {
+        self.auth_map.get(&handle).cloned().unwrap_or_default()
+    }
+
     /// Removes a handle from the live handle tracking list.
     pub fn untrack(&mut self, handle: TpmHandle) {
         self.phys_handles.remove(&handle);
@@ -396,7 +402,7 @@ impl<'a> TaskState<'a> {
             (TpmRh::Platform as u32).into()
         };
 
-        let auth = self.auth_map.get(&auth_handle).cloned().unwrap_or_default();
+        let auth = self.auth_for(auth_handle);
 
         let cmd = TpmEvictControlCommand {
             persistent_handle,

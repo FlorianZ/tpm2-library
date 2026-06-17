@@ -127,11 +127,7 @@ impl CreatePrimary {
         let (cmd, policy_commands) = self.build_command(task_state, device)?;
         let primary_handle: TpmRh = self.hierarchy.into();
 
-        let auth = task_state
-            .auth_map
-            .get(&TpmUint32::new(primary_handle as u32))
-            .cloned()
-            .unwrap_or_default();
+        let auth = task_state.auth_for(TpmUint32::new(primary_handle as u32));
 
         let resp = task_state.execute(device, &cmd, &[auth])?;
         let resp = parse_response::<TpmCreatePrimaryResponse>(resp)?;

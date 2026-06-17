@@ -54,11 +54,7 @@ impl Task for PcrEvent {
                 handles: [self.pcr_index],
             };
 
-            let auth = task_state
-                .auth_map
-                .get(&self.pcr_index)
-                .cloned()
-                .unwrap_or_default();
+            let auth = task_state.auth_for(self.pcr_index);
 
             let resp = task_state.execute(device, &command, &[auth])?;
             let pcr_resp = parse_response::<TpmPcrEventResponse>(resp)?;

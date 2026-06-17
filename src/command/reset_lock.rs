@@ -30,11 +30,7 @@ impl Task for ResetLock {
                 handles: [lock_handle],
             };
 
-            let auth = task_state
-                .auth_map
-                .get(&TpmUint32::new(u32::from(lock_handle)))
-                .cloned()
-                .unwrap_or_default();
+            let auth = task_state.auth_for(TpmUint32::new(u32::from(lock_handle)));
 
             let resp = task_state.execute(device, &command, &[auth])?;
             parse_response::<TpmDictionaryAttackLockResetResponse>(resp)?;

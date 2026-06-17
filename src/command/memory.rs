@@ -436,11 +436,7 @@ impl Memory {
         let flags_to_check = TpmaNv::AUTHREAD | TpmaNv::OWNERREAD | TpmaNv::PPREAD;
         let needs_auth = (nv_public.attributes.bits() & flags_to_check.bits()) != 0;
 
-        let auth = session
-            .auth_map
-            .get(&TpmUint32::new(auth_handle_val))
-            .cloned()
-            .unwrap_or_default();
+        let auth = session.auth_for(TpmUint32::new(auth_handle_val));
 
         let effective_auths: &[Auth] = if needs_auth {
             std::slice::from_ref(&auth)
