@@ -6,6 +6,7 @@ use crate::{
     cli::Task,
     command::print_table,
     error::device_err,
+    handle::handle_type,
     response::parse_response,
     task::{Auth, TaskState},
 };
@@ -89,7 +90,7 @@ impl Memory {
         handle_str: &str,
     ) -> Result<()> {
         with_device(session.device.clone(), |device| -> Result<()> {
-            if (handle_val >> 24) == (TpmHt::NvIndex as u32) {
+            if handle_type(handle_val) == Some(TpmHt::NvIndex) {
                 Self::inspect_nv_index(session, device, writer, handle_val)
             } else {
                 Self::inspect_object(session, device, writer, handle_val, handle_str)
@@ -303,7 +304,7 @@ impl Memory {
         }
 
         for (vhandle, key) in session.cache.key_iter() {
-            if (vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+            if handle_type(*vhandle) == Some(TpmHt::Persistent) {
                 continue;
             }
 
@@ -340,9 +341,8 @@ impl Memory {
             .map_err(device_err)?
         {
             let handle_val = handle.value();
-            let ht = (handle_val >> 24) as u8;
 
-            let detail = if ht == TpmHt::HmacSession as u8 {
+            let detail = if handle_type(handle_val) == Some(TpmHt::HmacSession) {
                 "hmac"
             } else {
                 "policy"

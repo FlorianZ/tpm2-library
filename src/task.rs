@@ -8,7 +8,9 @@ use std::{
     rc::Rc,
 };
 
-use crate::{error::device_err, response::parse_response, unmarshal::TpmUnmarshal};
+use crate::{
+    error::device_err, handle::handle_type, response::parse_response, unmarshal::TpmUnmarshal,
+};
 
 use anyhow::{Result, anyhow};
 use rand::{RngCore, thread_rng};
@@ -153,7 +155,7 @@ impl<'a> TaskState<'a> {
         let mut handles_to_remove = Vec::new();
 
         for &vhandle in &vhandles {
-            if (vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+            if handle_type(vhandle) == Some(TpmHt::Persistent) {
                 continue;
             }
 
@@ -286,7 +288,7 @@ impl<'a> TaskState<'a> {
             return Ok(phandle);
         }
 
-        if (target_vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+        if handle_type(target_vhandle) == Some(TpmHt::Persistent) {
             return Ok(TpmUint32::new(target_vhandle));
         }
 
@@ -458,7 +460,7 @@ impl<'a> TaskState<'a> {
     fn validate_persistent_handles(&mut self, device: &mut TpmDevice) -> Result<()> {
         let mut persistent_vhandles = Vec::new();
         for (vhandle, _) in self.cache.key_iter() {
-            if (*vhandle >> 24) as u8 == TpmHt::Persistent as u8 {
+            if handle_type(*vhandle) == Some(TpmHt::Persistent) {
                 persistent_vhandles.push(*vhandle);
             }
         }
@@ -535,7 +537,7 @@ impl<'a> TaskState<'a> {
         handle: TpmHandle,
     ) -> Result<(TpmHandle, Vec<Box<dyn VtpmPolicyCommand>>, TpmAlgId)> {
         let phys_handle = self.load_key_by_handle(device, handle)?;
-        if (handle.value() >> 24) as u8 == TpmHt::Transient as u8 {
+        if handle_type(handle.value()) == Some(TpmHt::Transient) {
             let vhandle = handle.value();
             let key = self
                 .cache

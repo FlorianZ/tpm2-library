@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::Task, task::TaskState};
+use crate::{cli::Task, handle::handle_type, task::TaskState};
 use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use tpm2_device::with_device;
@@ -33,7 +33,7 @@ impl Task for Evict {
             .value()
             .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.input))?;
 
-        if (input_handle >> 24) as u8 != TpmHt::Transient as u8 {
+        if handle_type(input_handle) != Some(TpmHt::Transient) {
             return Err(anyhow!("invalid handle"));
         }
 
@@ -42,7 +42,7 @@ impl Task for Evict {
             .value()
             .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.output))?;
 
-        if (output_handle >> 24) as u8 != TpmHt::Persistent as u8 {
+        if handle_type(output_handle) != Some(TpmHt::Persistent) {
             return Err(anyhow!("invalid handle"));
         }
 

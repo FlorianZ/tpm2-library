@@ -41,6 +41,12 @@ impl fmt::Display for HandleError {
 
 impl std::error::Error for HandleError {}
 
+/// Returns the handle-type byte (`TpmHt`) encoded in the high octet of a handle.
+#[must_use]
+pub fn handle_type(handle: u32) -> Option<TpmHt> {
+    TpmHt::try_from((handle >> 24) as u8).ok()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle {
     mask: u32,
@@ -158,7 +164,7 @@ impl TryFrom<Handle> for TpmHt {
     fn try_from(handle: Handle) -> Result<Self, Self::Error> {
         let raw_handle = handle.value().ok_or(HandleError::HandlePatternNotAllowed)?;
         let ht_byte = (raw_handle >> 24) as u8;
-        TpmHt::try_from(ht_byte).map_err(|_| HandleError::InvalidHandleType(ht_byte))
+        handle_type(raw_handle).ok_or(HandleError::InvalidHandleType(ht_byte))
     }
 }
 

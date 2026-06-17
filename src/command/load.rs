@@ -5,6 +5,7 @@
 use crate::{
     cli::Task,
     error::device_err,
+    handle::handle_type,
     io::read_file_input,
     response::parse_response,
     task::{Auth, TaskState},
@@ -190,7 +191,7 @@ impl Load {
     ) -> Result<(Tpm2bPublic, TpmHandle)> {
         let value = parent.value();
 
-        if (value >> 24) as u8 == TpmHt::Persistent as u8 {
+        if handle_type(value) == Some(TpmHt::Persistent) {
             let (public, _) = device
                 .read_public(TpmUint32::new(value))
                 .map_err(device_err)?;
