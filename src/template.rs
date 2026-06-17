@@ -84,19 +84,8 @@ impl TpmPublicTemplate {
     }
 
     #[must_use]
-    pub const fn with_name_alg(mut self, name_alg: TpmHash) -> Self {
-        self.name_alg = match name_alg {
-            TpmHash::Sha1 => TpmAlgId::Sha1,
-            TpmHash::Sha256 => TpmAlgId::Sha256,
-            TpmHash::Sha384 => TpmAlgId::Sha384,
-            TpmHash::Sha512 => TpmAlgId::Sha512,
-            TpmHash::Sm3_256 => TpmAlgId::Sm3_256,
-            TpmHash::Sha3_256 => TpmAlgId::Sha3_256,
-            TpmHash::Sha3_384 => TpmAlgId::Sha3_384,
-            TpmHash::Sha3_512 => TpmAlgId::Sha3_512,
-            TpmHash::Shake128 => TpmAlgId::Shake128,
-            TpmHash::Shake256 => TpmAlgId::Shake256,
-        };
+    pub fn with_name_alg(mut self, name_alg: TpmHash) -> Self {
+        self.name_alg = name_alg.into();
         self
     }
 
