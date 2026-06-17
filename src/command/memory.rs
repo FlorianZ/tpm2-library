@@ -127,6 +127,29 @@ impl Memory {
         )
     }
 
+    /// Builds a map from object name to handle string, covering persistent
+    /// handles on the device and all cached entries.
+    fn build_name_to_handle(
+        session: &TaskState,
+        device: &mut TpmDevice,
+    ) -> HashMap<Tpm2bName, String> {
+        let mut name_to_handle = HashMap::new();
+
+        if let Ok(persistent_map) = crate::command::common::fetch_persistent_names(device) {
+            for (handle, name) in persistent_map {
+                name_to_handle.insert(name, format!("{:08x}", handle.value()));
+            }
+        }
+
+        for (vhandle, key) in session.cache.key_iter() {
+            if let Ok(name) = tpm_make_name(key.public()) {
+                name_to_handle.insert(name, format!("{vhandle:08x}"));
+            }
+        }
+
+        name_to_handle
+    }
+
     fn resolve_parent_str(
         session: &TaskState,
         device: &mut TpmDevice,
@@ -137,19 +160,7 @@ impl Memory {
             return hierarchy_str.to_string();
         }
 
-        let mut name_to_handle = HashMap::new();
-
-        if let Ok(persistent_map) = crate::command::common::fetch_persistent_names(device) {
-            for (handle, name) in persistent_map {
-                name_to_handle.insert(name, format!("{:08x}", handle.value()));
-            }
-        }
-
-        for (vhandle, k) in session.cache.key_iter() {
-            if let Ok(name) = tpm_make_name(k.public()) {
-                name_to_handle.insert(name, format!("{vhandle:08x}"));
-            }
-        }
+        let name_to_handle = Self::build_name_to_handle(session, device);
 
         if let Ok(pname) = tpm_make_name(parent_public) {
             name_to_handle
@@ -290,18 +301,7 @@ impl Memory {
     ) -> Result<()> {
         session.refresh_cache(device)?;
 
-        let mut name_to_handle: HashMap<Tpm2bName, String> = HashMap::new();
-        if let Ok(persistent_map) = crate::command::common::fetch_persistent_names(device) {
-            for (handle, name) in persistent_map {
-                name_to_handle.insert(name, format!("{:08x}", handle.value()));
-            }
-        }
-
-        for (vhandle, key) in session.cache.key_iter() {
-            if let Ok(name) = tpm_make_name(key.public()) {
-                name_to_handle.insert(name, format!("{vhandle:08x}"));
-            }
-        }
+        let name_to_handle = Self::build_name_to_handle(session, device);
 
         for (vhandle, key) in session.cache.key_iter() {
             if handle_type(*vhandle) == Some(TpmHt::Persistent) {
