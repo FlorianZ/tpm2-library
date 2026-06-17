@@ -5,7 +5,7 @@ use crate::{command::CommandError, unmarshal::TpmUnmarshal};
 use tpm2_protocol::{
     TpmError, TpmErrorValue, TpmResult, TpmSized,
     basic::{TpmHandle, TpmUint32},
-    data::{TpmCc, TpmSt},
+    data::TpmSt,
     frame::{
         TpmCreatePrimaryResponse, TpmCreateResponse, TpmDictionaryAttackLockResetResponse,
         TpmEvictControlResponse, TpmHeader, TpmImportResponse, TpmLoadResponse,
@@ -66,16 +66,6 @@ fn ensure_empty(buf: &[u8]) -> TpmResult<()> {
     }
 }
 
-fn ensure_cc<R: TpmHeader>(cc: TpmCc) -> TpmResult<()> {
-    if R::CC == cc {
-        Ok(())
-    } else {
-        Err(TpmError::InvalidCc(
-            TpmErrorValue::new(0).value(u64::from(cc.value())),
-        ))
-    }
-}
-
 impl TpmResponseBody for TpmImportResponse {
     fn unmarshal_response(handles: &[u8], params: &[u8]) -> TpmResult<Self> {
         ensure_empty(handles)?;
@@ -93,7 +83,6 @@ impl TpmResponseBody for TpmEvictControlResponse {
     fn unmarshal_response(handles: &[u8], params: &[u8]) -> TpmResult<Self> {
         ensure_empty(handles)?;
         ensure_empty(params)?;
-        ensure_cc::<Self>(TpmCc::EvictControl)?;
         Ok(Self { handles: [] })
     }
 }
@@ -102,7 +91,6 @@ impl TpmResponseBody for TpmDictionaryAttackLockResetResponse {
     fn unmarshal_response(handles: &[u8], params: &[u8]) -> TpmResult<Self> {
         ensure_empty(handles)?;
         ensure_empty(params)?;
-        ensure_cc::<Self>(TpmCc::DictionaryAttackLockReset)?;
         Ok(Self { handles: [] })
     }
 }
