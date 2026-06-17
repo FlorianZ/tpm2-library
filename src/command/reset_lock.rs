@@ -2,7 +2,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, command::CommandError, response::parse_response, task::TaskState};
+use crate::{cli::Task, response::parse_response, task::TaskState};
+use anyhow::Result;
 use argh::FromArgs;
 use tpm2_device::with_device;
 use tpm2_protocol::{
@@ -22,7 +23,7 @@ impl Task for ResetLock {
         task_state: &mut TaskState,
         _writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         with_device(task_state.device.clone(), |device| {
             let lock_handle = (TpmRh::Lockout as u32).into();
             let command = TpmDictionaryAttackLockResetCommand {

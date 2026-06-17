@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::{command::CommandError, unmarshal::TpmUnmarshal};
+use crate::unmarshal::TpmUnmarshal;
+use anyhow::{Result, anyhow};
 use tpm2_protocol::{
     TpmError, TpmErrorValue, TpmResult, TpmSized,
     basic::{TpmHandle, TpmUint32},
@@ -18,33 +19,30 @@ pub(crate) trait TpmResponseBody: TpmHeader + Sized {
     fn unmarshal_response(handles: &[u8], params: &[u8]) -> TpmResult<Self>;
 }
 
-pub(crate) fn parse_response<R: TpmResponseBody>(
-    response: &TpmResponse,
-) -> Result<R, CommandError> {
-    response.validate(R::CC).map_err(CommandError::Unmarshal)?;
+pub(crate) fn parse_response<R: TpmResponseBody>(response: &TpmResponse) -> Result<R> {
+    response.validate(R::CC)?;
     let (handles, params) = response_parts::<R>(response)?;
-    R::unmarshal_response(handles, params).map_err(CommandError::Unmarshal)
+    Ok(R::unmarshal_response(handles, params)?)
 }
 
-fn response_parts<R: TpmHeader>(response: &TpmResponse) -> Result<(&[u8], &[u8]), CommandError> {
+fn response_parts<R: TpmHeader>(response: &TpmResponse) -> Result<(&[u8], &[u8])> {
     let handle_area_size = R::HANDLES
         .checked_mul(TpmHandle::SIZE)
-        .ok_or(CommandError::IntegerOverflow)?;
+        .ok_or_else(|| anyhow!("integer overflow"))?;
     let body = response.body();
     if body.len() < handle_area_size {
-        return Err(CommandError::MalformedData);
+        return Err(anyhow!("malformed data"));
     }
 
     let (handles, after_handles) = body.split_at(handle_area_size);
-    if response.tag().map_err(CommandError::Unmarshal)? != TpmSt::Sessions {
+    if response.tag()? != TpmSt::Sessions {
         return Ok((handles, after_handles));
     }
 
-    let (parameter_size, after_size) =
-        TpmUint32::cast_prefix(after_handles).map_err(CommandError::Unmarshal)?;
+    let (parameter_size, after_size) = TpmUint32::cast_prefix(after_handles)?;
     let parameter_size = usize::try_from(parameter_size.value())?;
     if after_size.len() < parameter_size {
-        return Err(CommandError::MalformedData);
+        return Err(anyhow!("malformed data"));
     }
 
     Ok((handles, &after_size[..parameter_size]))

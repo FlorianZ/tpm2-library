@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, command::CommandError, response::parse_response, task::TaskState};
+use crate::{cli::Task, response::parse_response, task::TaskState};
+use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use std::path::PathBuf;
 use tpm2_device::with_device;
@@ -29,9 +30,9 @@ impl Task for Unseal {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         let Some(handle) = self.handle.value() else {
-            return Err(CommandError::PatternNotAllowed(self.handle.to_string()));
+            return Err(anyhow!("handle pattern not allowed: {}", self.handle));
         };
 
         with_device(task_state.device.clone(), |device| {

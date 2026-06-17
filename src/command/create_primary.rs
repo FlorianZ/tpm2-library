@@ -4,16 +4,15 @@
 
 use crate::{
     cli::{Hierarchy, Task},
-    command::{
-        CommandError,
-        common::{
-            build_policy_command_list, parse_creation_attributes, parse_password,
-            resolve_public_template,
-        },
+    command::common::{
+        build_policy_command_list, parse_creation_attributes, parse_password,
+        resolve_public_template,
     },
+    error::device_err,
     response::parse_response,
     task::TaskState,
 };
+use anyhow::Result;
 use argh::FromArgs;
 use tpm2_crypto::TpmPublicTemplate;
 use tpm2_device::{TpmDevice, with_device};
@@ -65,7 +64,7 @@ impl Task for CreatePrimary {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         with_device(task_state.device.clone(), |device| {
             self.execute_command(task_state, writer, device)
         })
@@ -77,12 +76,12 @@ impl CreatePrimary {
     ///
     /// # Errors
     ///
-    /// Returns [`CommandError`] if argument parsing or policy resolution fails.
+    /// Returns an error if argument parsing or policy resolution fails.
     fn build_command(
         &self,
         task_state: &mut TaskState,
         device: &mut TpmDevice,
-    ) -> Result<(TpmCreatePrimaryCommand, Vec<(TpmCommand, TpmAuthCommands)>), CommandError> {
+    ) -> Result<(TpmCreatePrimaryCommand, Vec<(TpmCommand, TpmAuthCommands)>)> {
         let primary_handle: TpmRh = self.hierarchy.into();
 
         let user_auth = parse_password(self.password.as_deref())?;
@@ -124,7 +123,7 @@ impl CreatePrimary {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         device: &mut TpmDevice,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         let (cmd, policy_commands) = self.build_command(task_state, device)?;
         let primary_handle: TpmRh = self.hierarchy.into();
 
@@ -139,7 +138,7 @@ impl CreatePrimary {
 
         let object_handle = resp.handles[0];
         task_state.track(device, object_handle)?;
-        let object_context = device.save_context(object_handle)?;
+        let object_context = device.save_context(object_handle).map_err(device_err)?;
 
         let policy_blob = task_state.save_vtpm_policy(device, policy_commands)?;
 

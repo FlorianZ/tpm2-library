@@ -3,11 +3,11 @@
 
 use crate::{
     cli::Task,
-    command::CommandError,
     io::{parse_u32, read_file_input},
     response::parse_response,
     task::TaskState,
 };
+use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use std::path::PathBuf;
 use tpm2_crypto::TpmHash;
@@ -43,12 +43,12 @@ impl Task for PcrEvent {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         with_device(task_state.device.clone(), |device| {
             let data_bytes = read_file_input(self.input.as_deref())?;
 
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())
-                .map_err(|_| CommandError::CapacityExceeded)?;
+                .map_err(|_| anyhow!("capacity exceeded"))?;
             let command = TpmPcrEventCommand {
                 event_data,
                 handles: [self.pcr_index],

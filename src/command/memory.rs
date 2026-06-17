@@ -4,10 +4,12 @@
 
 use crate::{
     cli::Task,
-    command::{CommandError, print_table},
+    command::print_table,
+    error::device_err,
     response::parse_response,
     task::{Auth, TaskState},
 };
+use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use openssl::{nid::Nid, pkey::Id as PKeyId, x509::X509};
 use pem;
@@ -67,12 +69,12 @@ impl Task for Memory {
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
         is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         if let Some(handle) = self.handle {
             let handle_val = handle
                 .value()
-                .ok_or_else(|| CommandError::PatternNotAllowed(handle.to_string()))?;
-            Self::inspect_handle(session, writer, handle_val, handle.to_string())
+                .ok_or_else(|| anyhow!("handle pattern not allowed: {handle}"))?;
+            Self::inspect_handle(session, writer, handle_val, &handle.to_string())
         } else {
             Self::list_all_memory(session, writer, is_tty, self.no_cache)
         }
@@ -84,18 +86,15 @@ impl Memory {
         session: &mut TaskState,
         writer: &mut dyn std::io::Write,
         handle_val: u32,
-        handle_str: String,
-    ) -> Result<(), CommandError> {
-        with_device(
-            session.device.clone(),
-            |device| -> Result<(), CommandError> {
-                if (handle_val >> 24) == (TpmHt::NvIndex as u32) {
-                    Self::inspect_nv_index(session, device, writer, handle_val)
-                } else {
-                    Self::inspect_object(session, device, writer, handle_val, handle_str)
-                }
-            },
-        )
+        handle_str: &str,
+    ) -> Result<()> {
+        with_device(session.device.clone(), |device| -> Result<()> {
+            if (handle_val >> 24) == (TpmHt::NvIndex as u32) {
+                Self::inspect_nv_index(session, device, writer, handle_val)
+            } else {
+                Self::inspect_object(session, device, writer, handle_val, handle_str)
+            }
+        })
     }
 
     fn hierarchy_name(rh: TpmRh) -> &'static str {
@@ -166,8 +165,8 @@ impl Memory {
         device: &mut TpmDevice,
         writer: &mut dyn std::io::Write,
         handle_val: u32,
-        handle_str: String,
-    ) -> Result<(), CommandError> {
+        handle_str: &str,
+    ) -> Result<()> {
         let handle = TpmUint32::new(handle_val);
 
         let (public, hierarchy_str, parent_str, policy_str) = if let Some(key) =
@@ -190,9 +189,9 @@ impl Memory {
                 Err(TpmDeviceError::TpmRc(rc))
                     if rc.base() == TpmRcBase::Handle || rc.base() == TpmRcBase::ReferenceH0 =>
                 {
-                    return Err(CommandError::UnknownHandle(handle_str));
+                    return Err(anyhow!("unknown handle: {handle_str}"));
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(device_err(e)),
             }
         };
 
@@ -218,7 +217,7 @@ impl Memory {
         writer: &mut dyn std::io::Write,
         is_tty: bool,
         no_cache: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         with_device(session.device.clone(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
 
@@ -241,13 +240,13 @@ impl Memory {
         })
     }
 
-    fn fetch_persistent_rows(
-        device: &mut TpmDevice,
-        rows: &mut Vec<MemoryRow>,
-    ) -> Result<(), CommandError> {
-        for handle in device.fetch_handles(TpmHt::Persistent)? {
+    fn fetch_persistent_rows(device: &mut TpmDevice, rows: &mut Vec<MemoryRow>) -> Result<()> {
+        for handle in device
+            .fetch_handles(TpmHt::Persistent)
+            .map_err(device_err)?
+        {
             let handle_val = handle.value();
-            let (public, _) = device.read_public(handle)?;
+            let (public, _) = device.read_public(handle).map_err(device_err)?;
             let details: String = public_to_template(&public)?.try_into()?;
 
             let hierarchy = if handle_val >= 0x8180_0000 {
@@ -268,10 +267,10 @@ impl Memory {
     fn fetch_device_transient_rows(
         device: &mut TpmDevice,
         rows: &mut Vec<MemoryRow>,
-    ) -> Result<(), CommandError> {
-        for handle in device.fetch_handles(TpmHt::Transient)? {
+    ) -> Result<()> {
+        for handle in device.fetch_handles(TpmHt::Transient).map_err(device_err)? {
             let handle_val = handle.value();
-            let (public, _) = device.read_public(handle)?;
+            let (public, _) = device.read_public(handle).map_err(device_err)?;
             let details: String = public_to_template(&public)?.try_into()?;
 
             rows.push(MemoryRow {
@@ -287,7 +286,7 @@ impl Memory {
         session: &mut TaskState,
         device: &mut TpmDevice,
         rows: &mut Vec<MemoryRow>,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         session.refresh_cache(device)?;
 
         let mut name_to_handle: HashMap<Tpm2bName, String> = HashMap::new();
@@ -335,11 +334,11 @@ impl Memory {
         Ok(())
     }
 
-    fn fetch_session_rows(
-        device: &mut TpmDevice,
-        rows: &mut Vec<MemoryRow>,
-    ) -> Result<(), CommandError> {
-        for handle in device.fetch_handles(TpmHt::LoadedSession)? {
+    fn fetch_session_rows(device: &mut TpmDevice, rows: &mut Vec<MemoryRow>) -> Result<()> {
+        for handle in device
+            .fetch_handles(TpmHt::LoadedSession)
+            .map_err(device_err)?
+        {
             let handle_val = handle.value();
             let ht = (handle_val >> 24) as u8;
 
@@ -358,11 +357,11 @@ impl Memory {
         Ok(())
     }
 
-    fn fetch_saved_session_rows(
-        device: &mut TpmDevice,
-        rows: &mut Vec<MemoryRow>,
-    ) -> Result<(), CommandError> {
-        for handle in device.fetch_handles(TpmHt::SavedSession)? {
+    fn fetch_saved_session_rows(device: &mut TpmDevice, rows: &mut Vec<MemoryRow>) -> Result<()> {
+        for handle in device
+            .fetch_handles(TpmHt::SavedSession)
+            .map_err(device_err)?
+        {
             let handle_val = handle.value();
             rows.push(MemoryRow {
                 handle: format!("{handle_val:08x}"),
@@ -377,8 +376,8 @@ impl Memory {
         session: &mut TaskState,
         device: &mut TpmDevice,
         rows: &mut Vec<MemoryRow>,
-    ) -> Result<(), CommandError> {
-        for handle in device.fetch_handles(TpmHt::NvIndex)? {
+    ) -> Result<()> {
+        for handle in device.fetch_handles(TpmHt::NvIndex).map_err(device_err)? {
             let handle_val = handle.value();
             let details = Self::fetch_nv_details(session, device, handle);
             rows.push(MemoryRow {
@@ -408,7 +407,7 @@ impl Memory {
         session: &mut TaskState,
         device: &mut TpmDevice,
         handle: u32,
-    ) -> Result<Tpm2bNvPublic, CommandError> {
+    ) -> Result<Tpm2bNvPublic> {
         let nv_read_public_cmd = TpmNvReadPublicCommand {
             handles: [handle.into()],
         };
@@ -421,8 +420,10 @@ impl Memory {
         session: &mut TaskState,
         device: &mut TpmDevice,
         handle: u32,
-    ) -> Result<Vec<u8>, CommandError> {
-        let max_read_size = device.get_tpm_property(TpmPt::NvBufferMax)?;
+    ) -> Result<Vec<u8>> {
+        let max_read_size = device
+            .get_tpm_property(TpmPt::NvBufferMax)
+            .map_err(device_err)?;
         let nv_public = Self::read_nv_public(session, device, handle)?;
         let data_size = nv_public.data_size.value() as usize;
 
@@ -477,7 +478,7 @@ impl Memory {
         device: &mut TpmDevice,
         writer: &mut dyn std::io::Write,
         handle: u32,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         let cert_bytes = Self::read_nv_index(session, device, handle)?;
 
         if cert_bytes.is_empty() {
@@ -513,20 +514,19 @@ impl Memory {
         Memory::fetch_alg_name(&cert_bytes).unwrap_or_default()
     }
 
-    fn fetch_hash_alg(oid_nid: Nid) -> Result<TpmHash, CommandError> {
+    fn fetch_hash_alg(oid_nid: Nid) -> Result<TpmHash> {
         match oid_nid {
             Nid::SHA1WITHRSAENCRYPTION => Ok(TpmHash::Sha1),
             Nid::ECDSA_WITH_SHA256 | Nid::SHA256WITHRSAENCRYPTION => Ok(TpmHash::Sha256),
             Nid::ECDSA_WITH_SHA384 | Nid::SHA384WITHRSAENCRYPTION => Ok(TpmHash::Sha384),
             Nid::ECDSA_WITH_SHA512 | Nid::SHA512WITHRSAENCRYPTION => Ok(TpmHash::Sha512),
-            _ => Err(CommandError::UnsupportedHashAlgorithm),
+            _ => Err(anyhow!("unsupported hash algorithm")),
         }
     }
 
-    fn fetch_alg_name(cert_der: &[u8]) -> Result<String, CommandError> {
-        let cert = X509::from_der(cert_der).map_err(|e| {
-            CommandError::InvalidInput(format!("DER certificate decode failed: {e}"))
-        })?;
+    fn fetch_alg_name(cert_der: &[u8]) -> Result<String> {
+        let cert = X509::from_der(cert_der)
+            .map_err(|e| anyhow!("invalid input: DER certificate decode failed: {e}"))?;
 
         let sig_nid = cert.signature_algorithm().object().nid();
         let sig_alg = Self::fetch_hash_alg(sig_nid)?;
@@ -534,29 +534,29 @@ impl Memory {
 
         let pkey = cert
             .public_key()
-            .map_err(|_| CommandError::InvalidCertificate)?;
+            .map_err(|_| anyhow!("invalid certificate"))?;
         match pkey.id() {
             PKeyId::RSA => {
-                let rsa = pkey.rsa().map_err(|_| CommandError::InvalidRsaParameters)?;
+                let rsa = pkey.rsa().map_err(|_| anyhow!("invalid RSA parameters"))?;
                 let key_bits = u16::try_from(rsa.size() * 8)?;
                 Ok(format!("rsa-{key_bits}:{sig_alg_str}"))
             }
             PKeyId::EC => {
                 let ec_key = pkey
                     .ec_key()
-                    .map_err(|_| CommandError::InvalidEccParameters)?;
+                    .map_err(|_| anyhow!("invalid ECC parameters"))?;
                 let curve_nid = ec_key.group().curve_name();
                 let curve = match curve_nid {
                     Some(Nid::X9_62_PRIME256V1) => TpmEllipticCurve::NistP256,
                     Some(Nid::SECP384R1) => TpmEllipticCurve::NistP384,
                     Some(Nid::SECP521R1) => TpmEllipticCurve::NistP521,
                     _ => {
-                        return Err(CommandError::UnsupportedKeyAlgorithm);
+                        return Err(anyhow!("unsupported key algorithm"));
                     }
                 };
                 Ok(format!("ecc-{curve}:{sig_alg_str}"))
             }
-            _ => Err(CommandError::UnsupportedKeyAlgorithm),
+            _ => Err(anyhow!("unsupported key algorithm")),
         }
     }
 
@@ -581,10 +581,9 @@ impl Memory {
     }
 }
 
-fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate, CommandError> {
+fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate> {
     let name_alg = TpmHash::try_from(public.name_alg)?;
-    TpmPublicTemplate::new()
-        .with_public(public.unique.clone(), public.parameters)
-        .map_err(CommandError::Crypto)
-        .map(|t| t.with_name_alg(name_alg))
+    Ok(TpmPublicTemplate::new()
+        .with_public(public.unique.clone(), public.parameters)?
+        .with_name_alg(name_alg))
 }

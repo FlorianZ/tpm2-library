@@ -2,7 +2,8 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{cli::Task, command::CommandError, task::TaskState};
+use crate::{cli::Task, error::device_err, task::TaskState};
+use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use std::collections::HashSet;
 use tpm2_crypto::{TpmEllipticCurve, TpmHash};
@@ -47,7 +48,7 @@ impl Algorithm {
         device: &mut TpmDevice,
         scheme: TpmAlgId,
         hash_alg: TpmAlgId,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         let details = match scheme {
             TpmAlgId::Null => TpmuKeyedhashScheme::Null,
             TpmAlgId::Hmac => TpmuKeyedhashScheme::Hmac(TpmsSchemeHash { hash_alg }),
@@ -58,7 +59,7 @@ impl Algorithm {
                     details: TpmuKdfScheme::Null,
                 },
             }),
-            _ => return Err(CommandError::InvalidAlgorithm(scheme)),
+            _ => return Err(anyhow!("invalid algorithm: {scheme:?}")),
         };
 
         let cmd = TpmTestParmsCommand {
@@ -74,17 +75,17 @@ impl Algorithm {
         device
             .transmit(&cmd, &sessions)
             .map(|_| ())
-            .map_err(CommandError::from)
+            .map_err(device_err)
     }
 
     /// Identifies which RSA key sizes from the standard set are supported.
-    fn fetch_supported_rsa_sizes(device: &mut TpmDevice) -> Result<Vec<u16>, CommandError> {
+    fn fetch_supported_rsa_sizes(device: &mut TpmDevice) -> Result<Vec<u16>> {
         let mut supported = Vec::new();
         for &bits in &RSA_KEY_SIZES {
             match Self::test_rsa_parms(device, bits) {
                 Ok(()) => supported.push(bits),
                 Err(TpmDeviceError::TpmRc(rc)) if rc.base() == TpmRcBase::Value => {}
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(device_err(e)),
             }
         }
         Ok(supported)
@@ -102,10 +103,7 @@ impl Algorithm {
         format!("ecc-{}:{}", curve, Self::format_hash(hash))
     }
 
-    fn fetch_rsa_algs(
-        device: &mut TpmDevice,
-        name_algs: &[TpmAlgId],
-    ) -> Result<Vec<String>, CommandError> {
+    fn fetch_rsa_algs(device: &mut TpmDevice, name_algs: &[TpmAlgId]) -> Result<Vec<String>> {
         let mut results = Vec::new();
         for bits in Self::fetch_supported_rsa_sizes(device)? {
             for &hash in name_algs {
@@ -115,12 +113,9 @@ impl Algorithm {
         Ok(results)
     }
 
-    fn fetch_ecc_algs(
-        device: &mut TpmDevice,
-        name_algs: &[TpmAlgId],
-    ) -> Result<Vec<String>, CommandError> {
+    fn fetch_ecc_algs(device: &mut TpmDevice, name_algs: &[TpmAlgId]) -> Result<Vec<String>> {
         let mut results = Vec::new();
-        let supported_curves = device.fetch_ecc_curves()?;
+        let supported_curves = device.fetch_ecc_curves().map_err(device_err)?;
         for curve_id in supported_curves {
             if let Ok(curve) = TpmEllipticCurve::try_from(curve_id) {
                 for &hash in name_algs {
@@ -150,9 +145,9 @@ impl Algorithm {
         results
     }
 
-    fn fetch_key_algorithms(device: &mut TpmDevice) -> Result<Vec<String>, CommandError> {
+    fn fetch_key_algorithms(device: &mut TpmDevice) -> Result<Vec<String>> {
         let mut results: Vec<String> = Vec::new();
-        let all_alg_props = device.fetch_algorithm_properties()?;
+        let all_alg_props = device.fetch_algorithm_properties().map_err(device_err)?;
         let all_algs: HashSet<TpmAlgId> = all_alg_props.into_iter().map(|p| p.alg).collect();
 
         let name_algs: Vec<TpmAlgId> = [TpmAlgId::Sha256, TpmAlgId::Sha384, TpmAlgId::Sha512]
@@ -181,7 +176,7 @@ impl Task for Algorithm {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         with_device(task_state.device.clone(), |device| {
             let mut results: Vec<String> = Vec::new();
             results.extend(Algorithm::fetch_key_algorithms(device)?);

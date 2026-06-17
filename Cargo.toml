@@ -15,6 +15,7 @@ name = "tpm2sh"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0"
 argh = { version = "0.1", default-features = false, features = ["help"] }
 ctrlc = "3.4"
 directories = "5.0"
@@ -29,7 +30,6 @@ pem = "3.0"
 rand = "0.8"
 strum = { version = "0.26", features = ["derive"] }
 tabled = { version = "0.15", default-features = false, features = ["std", "derive", "ansi"] }
-thiserror = "1.0"
 tpm2-crypto = "0.12.1"
 tpm2-device = "0.6.1"
 tpm2-policy-language = "0.11.0"

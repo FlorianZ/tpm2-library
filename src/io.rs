@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::command::CommandError;
+use anyhow::{Result, anyhow};
 
 use std::{
     fs,
@@ -17,9 +17,8 @@ use tpm2_tpmkey::TpmKeyFile;
 ///
 /// # Errors
 ///
-/// Returns `CommandError::UnexpectedEof` when no data is provided.
-/// Returns `CommandError::Io` on I/O failure.
-pub fn read_file_input(input: Option<&Path>) -> Result<Vec<u8>, CommandError> {
+/// Returns an error when no data is provided or on I/O failure.
+pub fn read_file_input(input: Option<&Path>) -> Result<Vec<u8>> {
     let mut bytes = if let Some(path) = input {
         fs::read(path)?
     } else {
@@ -29,7 +28,7 @@ pub fn read_file_input(input: Option<&Path>) -> Result<Vec<u8>, CommandError> {
     };
 
     if bytes.is_empty() {
-        return Err(CommandError::UnexpectedEof);
+        return Err(anyhow!("unexpected eof"));
     }
 
     if input.is_none() {
@@ -48,13 +47,13 @@ pub fn read_file_input(input: Option<&Path>) -> Result<Vec<u8>, CommandError> {
 ///
 /// # Errors
 ///
-/// Returns `CommandError` on failure.
+/// Returns an error on failure.
 pub fn write_key_data(
     writer: &mut dyn Write,
     tpm_key: &TpmKeyFile,
     output: Option<&Path>,
-) -> Result<(), CommandError> {
-    let pem = tpm_key.to_pem().map_err(CommandError::from)?;
+) -> Result<()> {
+    let pem = tpm_key.to_pem()?;
     if let Some(path) = output {
         fs::write(path, pem.as_bytes())?;
     } else {
@@ -105,8 +104,8 @@ mod tests {
     #[test]
     fn read_file_input_errors_on_empty_file() {
         let file = NamedTempFile::new().unwrap();
-        let result = read_file_input(Some(file.path()));
-        assert!(matches!(result, Err(CommandError::UnexpectedEof)));
+        let err = read_file_input(Some(file.path())).unwrap_err();
+        assert!(err.to_string().contains("unexpected eof"));
     }
 
     #[test]

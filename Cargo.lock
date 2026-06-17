@@ -1464,6 +1464,7 @@ dependencies = [
 name = "tpm2sh"
 version = "0.17.2"
 dependencies = [
+ "anyhow",
  "argh",
  "assert_cmd",
  "ctrlc",
@@ -1483,7 +1484,6 @@ dependencies = [
  "strum",
  "tabled",
  "tempfile",
- "thiserror",
  "tpm2-crypto",
  "tpm2-device",
  "tpm2-policy-language",

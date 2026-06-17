@@ -34,8 +34,7 @@ pub use return_code::*;
 pub use seal::*;
 pub use unseal::*;
 
-pub use crate::error::CommandError;
-
+use anyhow::Result;
 use std::io::Write;
 
 use tabled::{
@@ -47,8 +46,8 @@ use tabled::{
 ///
 /// # Errors
 ///
-/// Returns [`Io`](CommandError::Io) if writing to the writer fails.
-pub fn print_table<T>(items: &[T], writer: &mut dyn Write, is_tty: bool) -> Result<(), CommandError>
+/// Returns an error if writing to the writer fails.
+pub fn print_table<T>(items: &[T], writer: &mut dyn Write, is_tty: bool) -> Result<()>
 where
     T: Tabled,
 {
@@ -64,6 +63,6 @@ where
         table.with(Modify::new(Rows::first()).with(Color::BOLD));
     }
 
-    writeln!(writer, "{table}").map_err(CommandError::Io)?;
+    writeln!(writer, "{table}")?;
     Ok(())
 }

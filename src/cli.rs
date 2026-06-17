@@ -6,11 +6,12 @@
 
 use crate::{
     command::{
-        Algorithm, CommandError, Create, CreatePrimary, Delete, Evict, Import, Load, Memory,
-        PcrEvent, ResetLock, ReturnCode, Seal, Unseal, common::parse_auth,
+        Algorithm, Create, CreatePrimary, Delete, Evict, Import, Load, Memory, PcrEvent, ResetLock,
+        ReturnCode, Seal, Unseal, common::parse_auth,
     },
     task::{Auth, TaskState},
 };
+use anyhow::Result;
 use argh::FromArgs;
 use std::{io::Write, path::PathBuf};
 use strum::{Display, EnumString};
@@ -23,19 +24,14 @@ pub trait Task {
     /// # Errors
     ///
     /// Returns an error if the execution fails.
-    fn run(
-        &self,
-        job: &mut TaskState,
-        writer: &mut dyn Write,
-        is_tty: bool,
-    ) -> Result<(), CommandError>;
+    fn run(&self, job: &mut TaskState, writer: &mut dyn Write, is_tty: bool) -> Result<()>;
 
     /// Validates command-line arguments before opening a TPM device.
     ///
     /// # Errors
     ///
     /// Returns an error if argument validation fails.
-    fn validate(&self) -> Result<(), CommandError> {
+    fn validate(&self) -> Result<()> {
         Ok(())
     }
 
@@ -145,11 +141,11 @@ impl Task for Command {
         job: &mut TaskState,
         writer: &mut dyn std::io::Write,
         is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         self.as_task().run(job, writer, is_tty)
     }
 
-    fn validate(&self) -> Result<(), CommandError> {
+    fn validate(&self) -> Result<()> {
         self.as_task().validate()
     }
 

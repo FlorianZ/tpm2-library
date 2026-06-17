@@ -2,36 +2,44 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use std::{convert::TryFrom, str::FromStr};
-use thiserror::Error;
+use std::{convert::TryFrom, fmt, str::FromStr};
 use tpm2_protocol::data::TpmHt;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum HandleError {
     /// Handle has more than one asterisk (`*`).
-    #[error("handle has more than one asterisk")]
     HandleHasTooManyAsterisks,
 
     /// Handle contains a pattern (e.g., `*` or `?`).
-    #[error("handle pattern is not allowed")]
     HandlePatternNotAllowed,
 
     /// Handle is less than eight characters.
-    #[error("handle is less than eight characters")]
     HandleTooShort,
 
     /// Handle is more than eight characters.
-    #[error("handle has more than eight characters")]
     HandleTooLong,
 
     /// Handle contains an invalid character.
-    #[error("invalid handle character: {0}")]
     InvalidHandleCharacter(char),
 
     /// Handle type byte is not valid.
-    #[error("invalid handle type: 0x{0:02x}")]
     InvalidHandleType(u8),
 }
+
+impl fmt::Display for HandleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::HandleHasTooManyAsterisks => write!(f, "handle has more than one asterisk"),
+            Self::HandlePatternNotAllowed => write!(f, "handle pattern is not allowed"),
+            Self::HandleTooShort => write!(f, "handle is less than eight characters"),
+            Self::HandleTooLong => write!(f, "handle has more than eight characters"),
+            Self::InvalidHandleCharacter(c) => write!(f, "invalid handle character: {c}"),
+            Self::InvalidHandleType(b) => write!(f, "invalid handle type: 0x{b:02x}"),
+        }
+    }
+}
+
+impl std::error::Error for HandleError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle {

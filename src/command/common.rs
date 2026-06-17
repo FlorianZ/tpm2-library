@@ -3,11 +3,12 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    command::CommandError,
+    error::device_err,
     handle::Handle,
     pcr::read_all_pcrs,
     task::{Auth, TaskState},
 };
+use anyhow::{Context, Result, anyhow};
 use std::{collections::HashMap, str::FromStr};
 use tpm2_crypto::{TpmPublicTemplate, tpm_make_name};
 use tpm2_device::TpmDevice;
@@ -63,11 +64,9 @@ pub fn parse_auth(s: &str) -> Result<(TpmHandle, Auth), String> {
 ///
 /// # Errors
 ///
-/// Returns [`CommandError::InvalidInput`] if the `TPM2SH_AUTH` environment
-/// variable contains malformed authentication entries.
-pub fn build_auth_map(
-    auth_entries: &[(TpmHandle, Auth)],
-) -> Result<HashMap<TpmHandle, Auth>, CommandError> {
+/// Returns an error if the `TPM2SH_AUTH` environment variable contains
+/// malformed authentication entries.
+pub fn build_auth_map(auth_entries: &[(TpmHandle, Auth)]) -> Result<HashMap<TpmHandle, Auth>> {
     let mut map = HashMap::new();
 
     if let Ok(env_str) = std::env::var("TPM2SH_AUTH") {
@@ -75,8 +74,7 @@ pub fn build_auth_map(
             if s.trim().is_empty() {
                 continue;
             }
-            let (handle, auth) =
-                parse_auth(s).map_err(|e| CommandError::InvalidInput(format!("{s}: {e}")))?;
+            let (handle, auth) = parse_auth(s).map_err(|e| anyhow!("invalid input: {s}: {e}"))?;
             map.insert(handle, auth);
         }
     }
@@ -92,16 +90,16 @@ pub fn build_auth_map(
 ///
 /// # Errors
 ///
-/// Returns [`CommandError::InvalidPassword`] when the hex string is malformed,
-/// or [`CommandError::CapacityExceeded`] when the password is too long.
-pub fn parse_password(password: Option<&str>) -> Result<Tpm2bAuth, CommandError> {
+/// Returns an error when the hex string is malformed or the password is too
+/// long.
+pub fn parse_password(password: Option<&str>) -> Result<Tpm2bAuth> {
     match password {
         Some(hex_str) => Tpm2bAuth::try_from(
             hex::decode(hex_str)
-                .map_err(|_| CommandError::InvalidPassword)?
+                .map_err(|_| anyhow!("password is not a valid hex string"))?
                 .as_slice(),
         )
-        .map_err(|_| CommandError::CapacityExceeded),
+        .map_err(|_| anyhow!("capacity exceeded")),
         None => Ok(Tpm2bAuth::default()),
     }
 }
@@ -110,13 +108,13 @@ pub fn parse_password(password: Option<&str>) -> Result<Tpm2bAuth, CommandError>
 ///
 /// # Errors
 ///
-/// Returns [`CommandError`] when attribute construction fails.
+/// Returns an error when attribute construction fails.
 pub fn parse_creation_attributes(
     password: Option<&str>,
     policy_expression: Option<&str>,
     lock: bool,
     alg: &TpmPublicTemplate,
-) -> Result<TpmaObject, CommandError> {
+) -> Result<TpmaObject> {
     let mut attributes =
         TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT | TpmaObject::SENSITIVE_DATA_ORIGIN;
 
@@ -145,22 +143,21 @@ pub fn parse_creation_attributes(
 ///
 /// # Errors
 ///
-/// Returns [`CommandError`] when policy parsing, name resolution, or PCR
-/// reading fails.
+/// Returns an error when policy parsing, name resolution, or PCR reading fails.
 #[allow(clippy::type_complexity)]
 pub fn build_policy_command_list(
     policy_expression: Option<&str>,
     task_state: &mut TaskState,
     device: &mut TpmDevice,
     name_alg: TpmAlgId,
-) -> Result<(Tpm2bDigest, Vec<(TpmCommand, TpmAuthCommands)>), CommandError> {
+) -> Result<(Tpm2bDigest, Vec<(TpmCommand, TpmAuthCommands)>)> {
     if let Some(expression) = policy_expression {
         let pcrs = read_all_pcrs(device)?;
         let names = fetch_handle_names(task_state, device)?;
 
-        let policy_context = TpmPolicyContext::new(names, pcrs)?;
-        let ast = TpmPolicyExpression::parse(expression, &policy_context)?;
-        let compiled = ast.compile(name_alg, &policy_context)?;
+        let policy_context = TpmPolicyContext::new(names, pcrs).context("policy")?;
+        let ast = TpmPolicyExpression::parse(expression, &policy_context).context("policy")?;
+        let compiled = ast.compile(name_alg, &policy_context).context("policy")?;
         let (commands, final_digest) = compiled.into_parts();
 
         Ok((final_digest, commands))
@@ -187,12 +184,12 @@ pub fn default_symmetric() -> TpmtSymDefObject {
 ///
 /// # Errors
 ///
-/// Returns [`CommandError`] if the template conversion fails.
+/// Returns an error if the template conversion fails.
 pub fn resolve_public_template(
     template: &TpmPublicTemplate,
     attributes: TpmaObject,
     auth_policy: Tpm2bDigest,
-) -> Result<TpmtPublic, CommandError> {
+) -> Result<TpmtPublic> {
     let symmetric = default_symmetric();
 
     let template_with_attrs = template
@@ -221,12 +218,12 @@ pub fn resolve_public_template(
 ///
 /// # Errors
 ///
-/// Returns [`CommandError::Device`] if fetching handles fails.
-pub fn fetch_persistent_names(
-    device: &mut TpmDevice,
-) -> Result<HashMap<TpmHandle, Tpm2bName>, CommandError> {
+/// Returns an error if fetching handles fails.
+pub fn fetch_persistent_names(device: &mut TpmDevice) -> Result<HashMap<TpmHandle, Tpm2bName>> {
     let mut map = HashMap::new();
-    let handles = device.fetch_handles(TpmHt::Persistent)?;
+    let handles = device
+        .fetch_handles(TpmHt::Persistent)
+        .map_err(device_err)?;
 
     for h in handles {
         if let Ok((_, name)) = device.read_public(h) {
@@ -241,7 +238,7 @@ pub fn fetch_persistent_names(
 fn fetch_handle_names(
     state: &mut TaskState,
     device: &mut TpmDevice,
-) -> Result<HashMap<TpmHandle, Tpm2bName>, CommandError> {
+) -> Result<HashMap<TpmHandle, Tpm2bName>> {
     let mut map = fetch_persistent_names(device)?;
 
     for (vhandle, key) in state.cache.key_iter() {
@@ -272,7 +269,7 @@ mod tests {
         }
         let empty_entries = vec![];
         let err = build_auth_map(&empty_entries).unwrap_err();
-        assert!(matches!(err, CommandError::InvalidInput(msg) if msg.contains("owner:not-hex")));
+        assert!(err.to_string().contains("owner:not-hex"));
         unsafe {
             env::remove_var("TPM2SH_AUTH");
         }

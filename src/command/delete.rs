@@ -2,7 +2,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, command::CommandError, task::TaskState};
+use crate::{cli::Task, error::device_err, task::TaskState};
+use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use tpm2_device::with_device;
 use tpm2_protocol::{basic::TpmUint32, data::TpmHt};
@@ -22,7 +23,7 @@ impl Task for Delete {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         let tpm_result = delete_tpm_handles(task_state, writer, self.handle);
         let vtpm_result = delete_vtpm_handles(task_state, writer, self.handle);
 
@@ -35,7 +36,7 @@ fn delete_tpm_handles(
     task_state: &mut TaskState,
     writer: &mut dyn std::io::Write,
     pattern: crate::handle::Handle,
-) -> Result<(), CommandError> {
+) -> Result<()> {
     with_device(task_state.device.clone(), |dev| {
         let mut failed = false;
 
@@ -58,7 +59,7 @@ fn delete_tpm_handles(
                 let result = match class {
                     TpmHt::HmacSession | TpmHt::PolicySession | TpmHt::Transient => dev
                         .flush_context(TpmUint32::new(handle))
-                        .map_err(CommandError::from)
+                        .map_err(device_err)
                         .map(|()| {
                             if class == TpmHt::Transient {
                                 task_state.untrack(TpmUint32::new(handle));
@@ -74,7 +75,7 @@ fn delete_tpm_handles(
                 match result {
                     Ok(()) => {
                         if let Err(e) = writeln!(writer, "{handle:08x}") {
-                            return Err(CommandError::Io(e));
+                            return Err(e.into());
                         }
                     }
                     Err(e) => {
@@ -86,7 +87,7 @@ fn delete_tpm_handles(
         }
 
         if failed {
-            Err(CommandError::DeleteFailed)
+            Err(anyhow!("delete failed"))
         } else {
             Ok(())
         }
@@ -98,7 +99,7 @@ fn delete_vtpm_handles(
     task_state: &mut TaskState,
     writer: &mut dyn std::io::Write,
     pattern: crate::handle::Handle,
-) -> Result<(), CommandError> {
+) -> Result<()> {
     let matched_handles: Vec<u32> = task_state
         .cache
         .key_iter()
@@ -117,7 +118,7 @@ fn delete_vtpm_handles(
             Ok(all_deleted_handles) => {
                 for deleted_vhandle in all_deleted_handles {
                     if let Err(e) = writeln!(writer, "{deleted_vhandle:08x}") {
-                        return Err(CommandError::Io(e));
+                        return Err(e.into());
                     }
                 }
             }
@@ -129,7 +130,7 @@ fn delete_vtpm_handles(
     }
 
     if failed {
-        Err(CommandError::DeleteFailed)
+        Err(anyhow!("delete failed"))
     } else {
         Ok(())
     }

@@ -4,14 +4,12 @@
 
 use crate::{
     cli::Task,
-    command::{
-        CommandError,
-        common::{build_policy_command_list, default_symmetric, parse_password},
-    },
+    command::common::{build_policy_command_list, default_symmetric, parse_password},
     io::{read_file_input, write_key_data},
     response::parse_response,
     task::TaskState,
 };
+use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use std::path::PathBuf;
 use tpm2_crypto::{TpmHash, TpmPublicTemplate};
@@ -71,10 +69,10 @@ pub struct Seal {
 }
 
 impl Task for Seal {
-    fn validate(&self) -> Result<(), CommandError> {
+    fn validate(&self) -> Result<()> {
         if self.data.is_some() && self.input.is_some() {
-            return Err(CommandError::InvalidInput(
-                "--data and --input are mutually exclusive".to_string(),
+            return Err(anyhow!(
+                "invalid input: --data and --input are mutually exclusive"
             ));
         }
 
@@ -86,11 +84,11 @@ impl Task for Seal {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         self.validate()?;
         self.parent
             .value()
-            .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
+            .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
         with_device(task_state.device.clone(), |device| {
             self.create_sealed_object(task_state, writer, device)
@@ -100,18 +98,18 @@ impl Task for Seal {
 
 impl Seal {
     /// Resolves the sensitive data to be sealed.
-    fn resolve_data(&self) -> Result<Tpm2bSensitiveData, CommandError> {
+    fn resolve_data(&self) -> Result<Tpm2bSensitiveData> {
         let bytes = if let Some(hex_str) = &self.data {
-            hex::decode(hex_str).map_err(|_| CommandError::InvalidSensitiveData)?
+            hex::decode(hex_str).map_err(|_| anyhow!("sensitive data is not a valid hex string"))?
         } else {
             read_file_input(self.input.as_deref())?
         };
 
         if bytes.is_empty() {
-            return Err(CommandError::SensitiveDataMissing);
+            return Err(anyhow!("sensitive data missing"));
         }
 
-        Tpm2bSensitiveData::try_from(bytes.as_slice()).map_err(|_| CommandError::CapacityExceeded)
+        Tpm2bSensitiveData::try_from(bytes.as_slice()).map_err(|_| anyhow!("capacity exceeded"))
     }
 
     fn build_create_command(
@@ -119,7 +117,7 @@ impl Seal {
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
-    ) -> Result<(TpmCreateCommand, PolicyCommands, bool), CommandError> {
+    ) -> Result<(TpmCreateCommand, PolicyCommands, bool)> {
         let user_auth = parse_password(self.password.as_deref())?;
         let sensitive_data = self.resolve_data()?;
 
@@ -183,9 +181,9 @@ impl Seal {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         device: &mut TpmDevice,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         let Some(parent) = self.parent.value() else {
-            return Err(CommandError::ParentMissing);
+            return Err(anyhow!("parent missing"));
         };
 
         let (parent_phys_handle, _, auth) =

@@ -4,13 +4,12 @@
 
 use crate::{
     cli::Task,
-    command::{
-        CommandError,
-        common::{build_policy_command_list, parse_password},
-    },
+    command::common::{build_policy_command_list, parse_password},
+    error::device_err,
     io::{read_file_input, write_key_data, write_object},
     task::{Auth, TaskState},
 };
+use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use openssl::symm::{Cipher, encrypt};
 use rand;
@@ -77,11 +76,11 @@ impl Task for Import {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         let parent = self
             .parent
             .value()
-            .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
+            .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
         with_device(task_state.device.clone(), |device| {
             let (parent_handle, name_alg, auth) =
@@ -128,18 +127,18 @@ impl Task for Import {
 }
 
 impl Import {
-    fn public_to_sym_key_bits(parent_public: &TpmtPublic) -> Result<u16, CommandError> {
+    fn public_to_sym_key_bits(parent_public: &TpmtPublic) -> Result<u16> {
         let sym_def = match &parent_public.parameters {
             TpmuPublicParms::Rsa(parms) => &parms.symmetric,
             TpmuPublicParms::Ecc(parms) => &parms.symmetric,
-            _ => return Err(CommandError::InvalidParentType),
+            _ => return Err(anyhow!("invalid parent key type")),
         };
 
         match sym_def.key_bits {
             TpmuSymKeyBits::Aes(bits)
             | TpmuSymKeyBits::Camellia(bits)
             | TpmuSymKeyBits::Sm4(bits) => Ok(bits.value()),
-            _ => Err(CommandError::InvalidParentType),
+            _ => Err(anyhow!("invalid parent key type")),
         }
     }
 
@@ -148,23 +147,19 @@ impl Import {
         seed: &[u8],
         object_name: &Tpm2bName,
         key_bits: u16,
-    ) -> Result<(Vec<u8>, Vec<u8>), CommandError> {
+    ) -> Result<(Vec<u8>, Vec<u8>)> {
         let parent_hash = TpmHash::try_from(parent_name_alg)?;
-        let sym_key = parent_hash
-            .kdfa(
-                seed,
-                KDF_LABEL_STORAGE,
-                object_name.as_ref(),
-                &[],
-                usize::from(key_bits),
-            )
-            .map_err(CommandError::Crypto)?;
+        let sym_key = parent_hash.kdfa(
+            seed,
+            KDF_LABEL_STORAGE,
+            object_name.as_ref(),
+            &[],
+            usize::from(key_bits),
+        )?;
 
         let key_bits = parent_hash.size() * 8;
 
-        let hmac_key = parent_hash
-            .kdfa(seed, KDF_LABEL_INTEGRITY, &[], &[], key_bits)
-            .map_err(CommandError::Crypto)?;
+        let hmac_key = parent_hash.kdfa(seed, KDF_LABEL_INTEGRITY, &[], &[], key_bits)?;
 
         Ok((sym_key, hmac_key))
     }
@@ -175,23 +170,23 @@ impl Import {
         sym_key: &[u8],
         auth_value: Tpm2bAuth,
         key_bits: u16,
-    ) -> Result<Vec<u8>, CommandError> {
+    ) -> Result<Vec<u8>> {
         let object_key_type = object_public.object_type;
 
         let sensitive_composite = match object_key_type {
-            TpmAlgId::Rsa => TpmuSensitiveComposite::Rsa(
-                Tpm2bSensitiveData::try_from(private_bytes).map_err(CommandError::Unmarshal)?,
-            ),
-            TpmAlgId::Ecc => TpmuSensitiveComposite::Ecc(
-                Tpm2bEccParameter::try_from(private_bytes).map_err(CommandError::Unmarshal)?,
-            ),
-            TpmAlgId::KeyedHash => TpmuSensitiveComposite::Bits(
-                Tpm2bSensitiveData::try_from(private_bytes).map_err(CommandError::Unmarshal)?,
-            ),
-            TpmAlgId::SymCipher => TpmuSensitiveComposite::Sym(
-                Tpm2bSymKey::try_from(private_bytes).map_err(CommandError::Unmarshal)?,
-            ),
-            _ => return Err(CommandError::UnsupportedKeyAlgorithm),
+            TpmAlgId::Rsa => {
+                TpmuSensitiveComposite::Rsa(Tpm2bSensitiveData::try_from(private_bytes)?)
+            }
+            TpmAlgId::Ecc => {
+                TpmuSensitiveComposite::Ecc(Tpm2bEccParameter::try_from(private_bytes)?)
+            }
+            TpmAlgId::KeyedHash => {
+                TpmuSensitiveComposite::Bits(Tpm2bSensitiveData::try_from(private_bytes)?)
+            }
+            TpmAlgId::SymCipher => {
+                TpmuSensitiveComposite::Sym(Tpm2bSymKey::try_from(private_bytes)?)
+            }
+            _ => return Err(anyhow!("unsupported key algorithm")),
         };
 
         let sensitive = TpmtSensitive {
@@ -201,17 +196,17 @@ impl Import {
             sensitive: sensitive_composite,
         };
         let sensitive_tpm2b = Tpm2bSensitive::from(sensitive);
-        let enc_data_in = write_object(&sensitive_tpm2b).map_err(CommandError::Marshal)?;
+        let enc_data_in = write_object(&sensitive_tpm2b)?;
         let iv = [0u8; 16];
 
         let cipher = match key_bits {
             128 => Cipher::aes_128_cfb128(),
             256 => Cipher::aes_256_cfb128(),
-            _ => return Err(CommandError::InvalidParentType),
+            _ => return Err(anyhow!("invalid parent key type")),
         };
 
         let enc_data = encrypt(cipher, sym_key, Some(&iv), &enc_data_in)
-            .map_err(|_| CommandError::EncryptingDuplicateFailed)?;
+            .map_err(|_| anyhow!("encrypting duplicate blob for external key failed"))?;
 
         Ok(enc_data)
     }
@@ -221,28 +216,22 @@ impl Import {
         hmac_key: &[u8],
         sensitive: &[u8],
         object_name: &Tpm2bName,
-    ) -> Result<Tpm2bPrivate, CommandError> {
+    ) -> Result<Tpm2bPrivate> {
         let final_mac = TpmHash::try_from(parent_name_alg)?
-            .hmac(hmac_key, &[sensitive, object_name.as_ref()])
-            .map_err(CommandError::Crypto)?;
+            .hmac(hmac_key, &[sensitive, object_name.as_ref()])?;
 
         let duplicate_blob = {
             let mut duplicate_blob_buf = [0u8; TPM_MAX_COMMAND_SIZE];
             let len = {
                 let mut writer = TpmWriter::new(&mut duplicate_blob_buf);
-                Tpm2bDigest::try_from(final_mac.as_slice())
-                    .map_err(CommandError::Unmarshal)?
-                    .marshal(&mut writer)
-                    .map_err(CommandError::Marshal)?;
-                writer
-                    .write_bytes(sensitive)
-                    .map_err(CommandError::Marshal)?;
+                Tpm2bDigest::try_from(final_mac.as_slice())?.marshal(&mut writer)?;
+                writer.write_bytes(sensitive)?;
                 writer.len()
             };
             duplicate_blob_buf[..len].to_vec()
         };
 
-        Tpm2bPrivate::try_from(duplicate_blob.as_slice()).map_err(CommandError::Unmarshal)
+        Ok(Tpm2bPrivate::try_from(duplicate_blob.as_slice())?)
     }
 
     fn build_import_blob(
@@ -252,22 +241,18 @@ impl Import {
         object_name: &Tpm2bName,
         rng: &mut (impl rand::RngCore + rand::CryptoRng),
         user_auth: Tpm2bAuth,
-    ) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData), CommandError> {
+    ) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData)> {
         let name_alg = parent_public.name_alg;
         let (seed, in_sym_seed) = match parent_public.object_type {
             TpmAlgId::Rsa => {
-                let key =
-                    TpmRsaExternalKey::try_from(parent_public).map_err(CommandError::Crypto)?;
-                key.to_seed(TpmHash::try_from(name_alg)?, rng)
-                    .map_err(CommandError::Crypto)?
+                let key = TpmRsaExternalKey::try_from(parent_public)?;
+                key.to_seed(TpmHash::try_from(name_alg)?, rng)?
             }
             TpmAlgId::Ecc => {
-                let key =
-                    TpmEccExternalKey::try_from(parent_public).map_err(CommandError::Crypto)?;
-                key.to_seed(TpmHash::try_from(name_alg)?, rng)
-                    .map_err(CommandError::Crypto)?
+                let key = TpmEccExternalKey::try_from(parent_public)?;
+                key.to_seed(TpmHash::try_from(name_alg)?, rng)?
             }
-            _ => return Err(CommandError::InvalidParentType),
+            _ => return Err(anyhow!("invalid parent key type")),
         };
 
         let key_bits = Self::public_to_sym_key_bits(parent_public)?;
@@ -292,18 +277,16 @@ impl Import {
     ///
     /// # Errors
     ///
-    /// Returns [`CommandError::InvalidInput`] if the input is not a valid PEM
-    /// containing a supported private key.
-    /// Returns [`Crypto`](crate::command::CommandError::Crypto) if the input
-    /// cannot be parsed as either RSA or ECC.
+    /// Returns an error if the input is not valid PEM containing a supported private key,
+    /// or if the key cannot be parsed as either RSA or ECC.
     fn parse_external_key(
         input_bytes: &[u8],
         name_alg: TpmAlgId,
         auth_policy: Tpm2bDigest,
         object_attributes: TpmaObject,
-    ) -> Result<(TpmtPublic, Vec<u8>), CommandError> {
+    ) -> Result<(TpmtPublic, Vec<u8>)> {
         let der_bytes = pem::parse_many(input_bytes)
-            .map_err(|_| CommandError::InvalidInput("Input is not valid PEM".to_string()))?
+            .map_err(|_| anyhow!("invalid input: Input is not valid PEM"))?
             .into_iter()
             .find_map(|p| {
                 if matches!(
@@ -315,9 +298,7 @@ impl Import {
                     None
                 }
             })
-            .ok_or_else(|| {
-                CommandError::InvalidInput("No supported private key found in PEM".to_string())
-            })?;
+            .ok_or_else(|| anyhow!("invalid input: No supported private key found in PEM"))?;
 
         let symmetric = TpmtSymDefObject::default();
         let template = TpmPublicTemplate::new()
@@ -330,8 +311,7 @@ impl Import {
             public.auth_policy = auth_policy;
             Ok((public, sensitive.to_vec()))
         } else {
-            let (public_key, sensitive) =
-                TpmEccExternalKey::from_der(&der_bytes).map_err(CommandError::Crypto)?;
+            let (public_key, sensitive) = TpmEccExternalKey::from_der(&der_bytes)?;
             let mut public = public_key.to_public(&template);
             public.auth_policy = auth_policy;
             Ok((public, sensitive.to_vec()))
@@ -351,7 +331,7 @@ impl Import {
         auths: &[Auth],
         user_auth: Tpm2bAuth,
         policy_commands: Vec<(TpmCommand, TpmAuthCommands)>,
-    ) -> Result<TpmKeyFile, CommandError> {
+    ) -> Result<TpmKeyFile> {
         let symmetric_alg = TpmtSymDefObject::default();
         let policy = task_state.save_key_policy(device, policy_commands)?;
 
@@ -404,10 +384,8 @@ impl Import {
         auth_policy: Tpm2bDigest,
         object_attributes: TpmaObject,
         policy_commands: Vec<(TpmCommand, TpmAuthCommands)>,
-    ) -> Result<TpmKeyFile, CommandError> {
-        let (parent_public, _) = device
-            .read_public(parent_handle)
-            .map_err(CommandError::from)?;
+    ) -> Result<TpmKeyFile> {
+        let (parent_public, _) = device.read_public(parent_handle).map_err(device_err)?;
 
         let (public, sensitive_blob) = Self::parse_external_key(
             input_bytes,
@@ -417,7 +395,7 @@ impl Import {
         )?;
 
         let mut rng = rand::thread_rng();
-        let object_name = tpm_make_name(&public).map_err(CommandError::Crypto)?;
+        let object_name = tpm_make_name(&public)?;
 
         let (duplicate, in_sym_seed, encryption_key) = Self::build_import_blob(
             &parent_public,

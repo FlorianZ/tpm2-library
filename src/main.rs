@@ -17,9 +17,12 @@ pub mod unmarshal;
 
 use crate::{
     cli::{Task, TopLevel},
-    command::{CommandError, common::build_auth_map},
+    command::common::build_auth_map,
+    error::device_err,
     task::{TaskState, TaskStateProgress},
 };
+
+use anyhow::{Result, anyhow};
 
 use std::{
     cell::RefCell, collections::HashMap, fs, io::IsTerminal, path::PathBuf, process, rc::Rc,
@@ -144,11 +147,11 @@ fn exit_cli_parse(command_name: &str, early_exit: &EarlyExit) -> ! {
     process::exit(2);
 }
 
-fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), CommandError> {
+fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<()> {
     let command = cli
         .command
         .as_ref()
-        .ok_or_else(|| CommandError::InvalidInput("missing command".to_string()))?;
+        .ok_or_else(|| anyhow!("invalid input: missing command"))?;
 
     command.validate()?;
     let shared_device = if command.is_local() {
@@ -157,7 +160,8 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<(), Comman
         let device = TpmDevice::builder()
             .with_path(&cli.device)
             .with_interrupted(|| TEARDOWN.load(Ordering::Relaxed))
-            .build()?;
+            .build()
+            .map_err(device_err)?;
         Some(Rc::new(RefCell::new(device)))
     };
 

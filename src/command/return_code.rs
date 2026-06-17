@@ -2,7 +2,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, command::CommandError, io::parse_u32, task::TaskState};
+use crate::{cli::Task, io::parse_u32, task::TaskState};
+use anyhow::Result;
 use argh::FromArgs;
 use tpm2_protocol::data::TpmRc;
 
@@ -30,7 +31,7 @@ impl Task for ReturnCode {
         _task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         writeln!(writer, "{}", self.rc)?;
         Ok(())
     }

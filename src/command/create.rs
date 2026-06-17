@@ -6,17 +6,15 @@
 
 use crate::{
     cli::Task,
-    command::{
-        CommandError,
-        common::{
-            build_policy_command_list, parse_creation_attributes, parse_password,
-            resolve_public_template,
-        },
+    command::common::{
+        build_policy_command_list, parse_creation_attributes, parse_password,
+        resolve_public_template,
     },
     io::write_key_data,
     response::parse_response,
     task::TaskState,
 };
+use anyhow::{Result, anyhow};
 
 use argh::FromArgs;
 use std::path::PathBuf;
@@ -78,10 +76,10 @@ impl Task for Create {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         self.parent
             .value()
-            .ok_or_else(|| CommandError::PatternNotAllowed(self.parent.to_string()))?;
+            .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
         with_device(task_state.device.clone(), |device| {
             self.create_object(task_state, writer, device)
@@ -94,14 +92,13 @@ impl Create {
     ///
     /// # Errors
     ///
-    /// Returns [`CommandError`] if parsing arguments, handling sensitive data,
-    /// or resolving the policy fails.
+    /// Returns an error if parsing arguments, handling sensitive data, or resolving the policy fails.
     fn build_create_command(
         &self,
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
-    ) -> Result<(TpmCreateCommand, PolicyCommands, bool), CommandError> {
+    ) -> Result<(TpmCreateCommand, PolicyCommands, bool)> {
         let user_auth = parse_password(self.password.as_deref())?;
         let object_attributes = parse_creation_attributes(
             self.password.as_deref(),
@@ -141,9 +138,9 @@ impl Create {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         device: &mut TpmDevice,
-    ) -> Result<(), CommandError> {
+    ) -> Result<()> {
         let Some(parent) = self.parent.value() else {
-            return Err(CommandError::ParentMissing);
+            return Err(anyhow!("parent missing"));
         };
 
         let (parent_phys_handle, _, auth) =
