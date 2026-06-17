@@ -72,7 +72,7 @@ fn tpm2b_capacity_error_reports_limit() {
 fn tpm2b_prefix_returns_payload_and_remainder() {
     let (value, rest) = Tpm2b::<4>::cast_prefix(&[0, 2, 0xaa, 0xbb, 0xcc]).unwrap();
 
-    assert_eq!(value.payload(), &[0xaa, 0xbb]);
+    assert_eq!(value.data(), &[0xaa, 0xbb]);
     assert_eq!(rest, &[0xcc]);
 }
 
@@ -140,8 +140,8 @@ fn tpml_typed_prefix_returns_items_and_remainder() {
 
     assert_eq!(list.as_bytes(), &[0, 0, 0, 2, 0x12, 0x34, 0x56, 0x78]);
     assert_eq!(list.items_bytes(), &[0x12, 0x34, 0x56, 0x78]);
-    assert_eq!(items.next().unwrap().unwrap().get(), 0x1234);
-    assert_eq!(items.next().unwrap().unwrap().get(), 0x5678);
+    assert_eq!(items.next().unwrap().unwrap().value(), 0x1234);
+    assert_eq!(items.next().unwrap().unwrap().value(), 0x5678);
     assert!(items.next().is_none());
     assert_eq!(rest, &[0x9a]);
 }
@@ -167,7 +167,7 @@ fn tpml_iterator_stops_after_truncated_element() {
     let list = Tpml::<4>::cast(&[0, 0, 0, 2, 0x12, 0x34, 0x56]).unwrap();
     let mut items = list.items::<TpmUint16>();
 
-    assert_eq!(items.next().unwrap().unwrap().get(), 0x1234);
+    assert_eq!(items.next().unwrap().unwrap().value(), 0x1234);
     assert_eq!(
         items.next().unwrap().err().unwrap(),
         TpmError::UnexpectedEnd {
@@ -215,7 +215,7 @@ fn fixed_wire_prefix_returns_remainder() {
 fn integer_prefix_returns_remainder() {
     let (value, rest) = TpmUint16::cast_prefix(&[0x12, 0x34, 0x56]).unwrap();
 
-    assert_eq!(value.get(), 0x1234);
+    assert_eq!(value.value(), 0x1234);
     assert_eq!(rest, &[0x56]);
 }
 

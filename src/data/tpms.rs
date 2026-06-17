@@ -106,7 +106,7 @@ impl<'a> crate::TpmField<'a> for TpmsPcrSelect {
 
     fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
         let (size, remainder) = <TpmUint8 as crate::TpmCast>::cast_prefix(buf)?;
-        let size = size.get() as usize;
+        let size = size.value() as usize;
 
         if size > TPM_PCR_SELECT_MAX as usize {
             return Err(TpmError::TooManyItems {
@@ -525,10 +525,10 @@ impl<'a> crate::TpmField<'a> for TpmsAttest {
 
     fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
         let (magic, buf) = <TpmUint32 as crate::TpmField>::cast_prefix_field(buf)?;
-        if magic.get() != TPM_GENERATED_VALUE {
+        if magic.value() != TPM_GENERATED_VALUE {
             return Err(TpmError::InvalidMagicNumber {
                 offset: 0,
-                value: u64::from(magic.get()),
+                value: u64::from(magic.value()),
             });
         }
 
@@ -545,7 +545,7 @@ impl<'a> crate::TpmField<'a> for TpmsAttest {
                 qualified_signer,
                 extra_data,
                 clock_info,
-                firmware_version: firmware_version.get(),
+                firmware_version: firmware_version.value(),
                 attested,
             },
             buf,

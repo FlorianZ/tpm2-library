@@ -66,22 +66,6 @@ impl TpmWire {
         (Self::cast(buf), &buf[buf.len()..])
     }
 
-    /// Casts a byte slice into a TPM wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// `TpmWire` has no additional validity requirements beyond the validity
-    /// of `buf`. Callers must still ensure any higher-level protocol
-    /// invariants required by later typed accessors have been validated.
-    #[must_use]
-    pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
-        let ptr = core::ptr::from_ref(buf) as *const Self;
-
-        // SAFETY: `TpmWire` is `repr(transparent)` over `[u8]`, so it has the
-        // same layout, metadata, and alignment as the referenced slice.
-        unsafe { &*ptr }
-    }
-
     /// Casts a mutable byte slice into a mutable TPM wire view.
     #[must_use]
     pub fn cast_mut(buf: &mut [u8]) -> &mut Self {
@@ -97,23 +81,6 @@ impl TpmWire {
         let (head, tail) = buf.split_at_mut(len);
 
         (Self::cast_mut(head), tail)
-    }
-
-    /// Casts a mutable byte slice into a mutable TPM wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// `TpmWire` has no additional validity requirements beyond the validity
-    /// of `buf`. Callers must still ensure any higher-level protocol
-    /// invariants required by later typed accessors have been validated. The
-    /// returned reference inherits the exclusive access represented by `buf`.
-    #[must_use]
-    pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
-        let ptr = core::ptr::from_mut(buf) as *mut Self;
-
-        // SAFETY: `TpmWire` is `repr(transparent)` over `[u8]`, so it has the
-        // same layout, metadata, and alignment as the referenced slice.
-        unsafe { &mut *ptr }
     }
 
     /// Returns the backing bytes.
@@ -141,17 +108,7 @@ impl TpmWire {
     }
 }
 
-impl AsRef<[u8]> for TpmWire {
-    fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
-    }
-}
-
-impl AsMut<[u8]> for TpmWire {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.as_bytes_mut()
-    }
-}
+crate::tpm_byte_view!(TpmWire);
 
 /// A byte-backed TPM wire view with a fixed byte length.
 #[repr(transparent)]
@@ -229,22 +186,6 @@ impl<const N: usize> TpmWireBytes<N> {
         Ok((unsafe { Self::cast_unchecked(head) }, tail))
     }
 
-    /// Casts a byte slice into a fixed-size TPM wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `buf.len() == N`. Callers must also ensure
-    /// any higher-level protocol invariants required by later typed accessors
-    /// have been validated.
-    #[must_use]
-    pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
-        let ptr = buf.as_ptr().cast::<Self>();
-
-        // SAFETY: `TpmWireBytes<N>` is `repr(transparent)` over `[u8; N]`, so it
-        // has the same layout and alignment. The caller guarantees exact size.
-        unsafe { &*ptr }
-    }
-
     /// Casts a mutable byte slice into a fixed-size mutable TPM wire view.
     ///
     /// # Errors
@@ -278,23 +219,6 @@ impl<const N: usize> TpmWireBytes<N> {
         Ok((unsafe { Self::cast_mut_unchecked(head) }, tail))
     }
 
-    /// Casts a mutable byte slice into a fixed-size mutable TPM wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `buf.len() == N`. Callers must also ensure
-    /// any higher-level protocol invariants required by later typed accessors
-    /// have been validated. The returned reference inherits the exclusive
-    /// access represented by `buf`.
-    #[must_use]
-    pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
-        let ptr = buf.as_mut_ptr().cast::<Self>();
-
-        // SAFETY: `TpmWireBytes<N>` is `repr(transparent)` over `[u8; N]`, so it
-        // has the same layout and alignment. The caller guarantees exact size.
-        unsafe { &mut *ptr }
-    }
-
     /// Returns the backing bytes.
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; N] {
@@ -319,6 +243,8 @@ impl<const N: usize> TpmWireBytes<N> {
         N == 0
     }
 }
+
+crate::tpm_byte_view!(array TpmWireBytes<const N: usize>);
 
 impl<const N: usize> AsRef<[u8]> for TpmWireBytes<N> {
     fn as_ref(&self) -> &[u8] {

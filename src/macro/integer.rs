@@ -20,11 +20,6 @@ macro_rules! integer {
                 <$raw>::from_be_bytes(self.0)
             }
 
-            #[must_use]
-            pub const fn get(&self) -> $raw {
-                <$raw>::from_be_bytes(self.0)
-            }
-
             pub const fn set(&mut self, value: $raw) {
                 self.0 = value.to_be_bytes();
             }
@@ -102,22 +97,6 @@ macro_rules! integer {
                 Ok((unsafe { Self::cast_unchecked(head) }, tail))
             }
 
-            /// Casts a byte slice into a TPM integer wire view without validation.
-            ///
-            /// # Safety
-            ///
-            /// The caller must ensure that `buf.len()` equals this integer's
-            /// wire size and that any containing protocol structure has been
-            /// validated as needed.
-            #[must_use]
-            pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
-                let ptr = buf.as_ptr().cast::<Self>();
-
-                // SAFETY: `$name` is `repr(transparent)` over `[u8; $bytes]`.
-                // The caller guarantees exact size.
-                unsafe { &*ptr }
-            }
-
             /// Casts a mutable byte slice into a mutable TPM integer wire view.
             ///
             /// # Errors
@@ -149,27 +128,13 @@ macro_rules! integer {
                 Ok((unsafe { Self::cast_mut_unchecked(head) }, tail))
             }
 
-            /// Casts a mutable byte slice into a mutable TPM integer wire view without validation.
-            ///
-            /// # Safety
-            ///
-            /// The caller must ensure that `buf.len()` equals this integer's
-            /// wire size and that any containing protocol structure has been
-            /// validated as needed. The returned reference inherits the
-            /// exclusive access represented by `buf`.
-            #[must_use]
-            pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
-                let ptr = buf.as_mut_ptr().cast::<Self>();
-
-                // SAFETY: `$name` is `repr(transparent)` over `[u8; $bytes]`.
-                // The caller guarantees exact size.
-                unsafe { &mut *ptr }
-            }
         }
+
+        $crate::tpm_byte_view!(array $name);
 
         impl core::fmt::Debug for $name {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                f.debug_tuple(stringify!($name)).field(&self.get()).finish()
+                f.debug_tuple(stringify!($name)).field(&self.value()).finish()
             }
         }
 
@@ -181,7 +146,7 @@ macro_rules! integer {
 
         impl core::cmp::Ord for $name {
             fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-                self.get().cmp(&other.get())
+                self.value().cmp(&other.value())
             }
         }
 
@@ -199,19 +164,19 @@ macro_rules! integer {
 
         impl core::fmt::Display for $name {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                core::fmt::Display::fmt(&self.get(), f)
+                core::fmt::Display::fmt(&self.value(), f)
             }
         }
 
         impl core::fmt::LowerHex for $name {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                core::fmt::LowerHex::fmt(&self.get(), f)
+                core::fmt::LowerHex::fmt(&self.value(), f)
             }
         }
 
         impl core::fmt::UpperHex for $name {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                core::fmt::UpperHex::fmt(&self.get(), f)
+                core::fmt::UpperHex::fmt(&self.value(), f)
             }
         }
 

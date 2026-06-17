@@ -71,21 +71,6 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         Ok((unsafe { Self::cast_unchecked(head) }, tail))
     }
 
-    /// Casts a byte slice into a TPML wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `buf` starts with a complete TPML count
-    /// field and that the declared item count does not exceed `CAPACITY`.
-    #[must_use]
-    pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
-        let ptr = core::ptr::from_ref(buf) as *const Self;
-
-        // SAFETY: `Tpml` is `repr(transparent)` over `[u8]`, so it has the
-        // same layout, metadata, and alignment as the referenced slice.
-        unsafe { &*ptr }
-    }
-
     /// Casts a mutable byte slice into a mutable TPML wire view.
     ///
     /// # Errors
@@ -138,22 +123,6 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         // SAFETY: `validate_prefix_items` checked the TPML header, count limit,
         // and typed item boundaries for `head`.
         Ok((unsafe { Self::cast_mut_unchecked(head) }, tail))
-    }
-
-    /// Casts a mutable byte slice into a mutable TPML wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `buf` starts with a complete TPML count
-    /// field and that the declared item count does not exceed `CAPACITY`. The
-    /// returned reference inherits the exclusive access represented by `buf`.
-    #[must_use]
-    pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
-        let ptr = core::ptr::from_mut(buf) as *mut Self;
-
-        // SAFETY: `Tpml` is `repr(transparent)` over `[u8]`, so it has the
-        // same layout, metadata, and alignment as the referenced slice.
-        unsafe { &mut *ptr }
     }
 
     /// Returns the complete TPML byte representation.
@@ -392,17 +361,7 @@ impl<'a, T: crate::TpmField<'a> + Copy, const CAPACITY: usize> crate::TpmField<'
     }
 }
 
-impl<const CAPACITY: usize> AsRef<[u8]> for Tpml<CAPACITY> {
-    fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
-    }
-}
-
-impl<const CAPACITY: usize> AsMut<[u8]> for Tpml<CAPACITY> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.as_bytes_mut()
-    }
-}
+crate::tpm_byte_view!(Tpml<const CAPACITY: usize>);
 
 /// A fixed-capacity list for TPM structures, implemented over a fixed-size array.
 #[derive(Clone, Copy)]

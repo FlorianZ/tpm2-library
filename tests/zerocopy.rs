@@ -29,9 +29,9 @@ fn nested_views_borrow_original_memory() {
     assert_eq!(wrapper.as_bytes().as_ptr(), buf.as_ptr());
     assert_eq!(inner.as_bytes().as_ptr(), buf.as_ptr().wrapping_add(2));
     assert_eq!(user_auth.as_bytes().as_ptr(), buf.as_ptr().wrapping_add(2));
-    assert_eq!(user_auth.payload().as_ptr(), buf.as_ptr().wrapping_add(4));
+    assert_eq!(user_auth.data().as_ptr(), buf.as_ptr().wrapping_add(4));
     assert_eq!(data.as_bytes().as_ptr(), buf.as_ptr().wrapping_add(6));
-    assert_eq!(data.payload().as_ptr(), buf.as_ptr().wrapping_add(8));
+    assert_eq!(data.data().as_ptr(), buf.as_ptr().wrapping_add(8));
     assert!(rest.is_empty());
 }
 
@@ -84,9 +84,9 @@ fn command_view_borrows_handles_sessions_and_parameters() {
     assert_eq!(command.as_bytes().as_ptr(), bytes.as_ptr());
     assert_eq!(handles.as_ptr(), bytes.as_ptr().wrapping_add(10));
     assert_eq!(tpm_key.as_bytes().as_ptr(), bytes.as_ptr().wrapping_add(10));
-    assert_eq!(tpm_key.get(), 0x4000_0001);
+    assert_eq!(tpm_key.value(), 0x4000_0001);
     assert_eq!(bind.as_bytes().as_ptr(), bytes.as_ptr().wrapping_add(14));
-    assert_eq!(bind.get(), 0x4000_0001);
+    assert_eq!(bind.value(), 0x4000_0001);
     assert!(handle_rest.is_empty());
     assert_eq!(auth_area.as_ptr(), bytes.as_ptr().wrapping_add(22));
     assert_eq!(auth.as_bytes().as_ptr(), bytes.as_ptr().wrapping_add(22));
@@ -101,7 +101,7 @@ fn command_view_borrows_handles_sessions_and_parameters() {
         bytes.as_ptr().wrapping_add(38)
     );
     assert_eq!(
-        nonce_caller.payload().as_ptr(),
+        nonce_caller.data().as_ptr(),
         bytes.as_ptr().wrapping_add(40)
     );
     assert_eq!(
@@ -142,7 +142,7 @@ fn response_view_borrows_handles_sessions_and_parameters() {
     let body = response.body();
     let (handle, body_rest) = TpmHandle::cast_prefix(body).unwrap();
     let (parameter_size, body_rest) = TpmUint32::cast_prefix(body_rest).unwrap();
-    let parameter_size = usize::try_from(parameter_size.get()).unwrap();
+    let parameter_size = usize::try_from(parameter_size.value()).unwrap();
     let (parameters, auth_area) = body_rest.split_at(parameter_size);
     let (nonce_tpm, parameter_rest) =
         <Tpm2bNonce as TpmField>::cast_prefix_field(parameters).unwrap();
@@ -151,17 +151,14 @@ fn response_view_borrows_handles_sessions_and_parameters() {
     assert_eq!(response.as_bytes().as_ptr(), bytes.as_ptr());
     assert_eq!(body.as_ptr(), bytes.as_ptr().wrapping_add(10));
     assert_eq!(handle.as_bytes().as_ptr(), bytes.as_ptr().wrapping_add(10));
-    assert_eq!(handle.get(), 0x8002_0000);
+    assert_eq!(handle.value(), 0x8002_0000);
     assert_eq!(parameter_size, 18);
     assert_eq!(parameters.as_ptr(), bytes.as_ptr().wrapping_add(18));
     assert_eq!(
         nonce_tpm.as_bytes().as_ptr(),
         bytes.as_ptr().wrapping_add(18)
     );
-    assert_eq!(
-        nonce_tpm.payload().as_ptr(),
-        bytes.as_ptr().wrapping_add(20)
-    );
+    assert_eq!(nonce_tpm.data().as_ptr(), bytes.as_ptr().wrapping_add(20));
     assert!(parameter_rest.is_empty());
     assert_eq!(auth_area.as_ptr(), bytes.as_ptr().wrapping_add(36));
     assert_eq!(auth.as_bytes().as_ptr(), bytes.as_ptr().wrapping_add(36));

@@ -49,21 +49,6 @@ impl TpmCommand {
         Ok((unsafe { Self::cast_unchecked(frame) }, tail))
     }
 
-    /// Casts a byte slice into a TPM command wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `buf` contains exactly one complete TPM
-    /// command frame with a valid command code and handle area layout.
-    #[must_use]
-    pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
-        let ptr = core::ptr::from_ref(buf) as *const Self;
-
-        // SAFETY: `TpmCommand` is `repr(transparent)` over `[u8]`, so it has
-        // the same layout, metadata, and alignment as the referenced slice.
-        unsafe { &*ptr }
-    }
-
     /// Casts a mutable byte slice into a mutable TPM command wire view.
     ///
     /// # Errors
@@ -92,22 +77,6 @@ impl TpmCommand {
 
         // SAFETY: `validate_envelope` checked the complete command frame.
         Ok((unsafe { Self::cast_mut_unchecked(frame) }, tail))
-    }
-
-    /// Casts a mutable byte slice into a mutable TPM command wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `buf` contains exactly one complete TPM
-    /// command frame with a valid command code and handle area layout. The
-    /// returned reference inherits the exclusive access represented by `buf`.
-    #[must_use]
-    pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
-        let ptr = core::ptr::from_mut(buf) as *mut Self;
-
-        // SAFETY: `TpmCommand` is `repr(transparent)` over `[u8]`, so it has
-        // the same layout, metadata, and alignment as the referenced slice.
-        unsafe { &mut *ptr }
     }
 
     /// Returns the complete command frame bytes.
@@ -420,17 +389,7 @@ impl TpmCastMut for TpmCommand {
     }
 }
 
-impl AsRef<[u8]> for TpmCommand {
-    fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
-    }
-}
-
-impl AsMut<[u8]> for TpmCommand {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.as_bytes_mut()
-    }
-}
+crate::tpm_byte_view!(TpmCommand);
 
 /// A zero-copy TPM response wire view over caller-owned bytes.
 #[repr(transparent)]
@@ -466,21 +425,6 @@ impl TpmResponse {
         Ok((unsafe { Self::cast_unchecked(frame) }, tail))
     }
 
-    /// Casts a byte slice into a TPM response wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `buf` contains exactly one complete TPM
-    /// response frame.
-    #[must_use]
-    pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
-        let ptr = core::ptr::from_ref(buf) as *const Self;
-
-        // SAFETY: `TpmResponse` is `repr(transparent)` over `[u8]`, so it has
-        // the same layout, metadata, and alignment as the referenced slice.
-        unsafe { &*ptr }
-    }
-
     /// Casts a mutable byte slice into a mutable TPM response wire view.
     ///
     /// # Errors
@@ -509,22 +453,6 @@ impl TpmResponse {
 
         // SAFETY: `validate_envelope` checked the complete response frame.
         Ok((unsafe { Self::cast_mut_unchecked(frame) }, tail))
-    }
-
-    /// Casts a mutable byte slice into a mutable TPM response wire view without validation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `buf` contains exactly one complete TPM
-    /// response frame. The returned reference inherits the exclusive access
-    /// represented by `buf`.
-    #[must_use]
-    pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
-        let ptr = core::ptr::from_mut(buf) as *mut Self;
-
-        // SAFETY: `TpmResponse` is `repr(transparent)` over `[u8]`, so it has
-        // the same layout, metadata, and alignment as the referenced slice.
-        unsafe { &mut *ptr }
     }
 
     /// Returns the complete response frame bytes.
@@ -713,17 +641,7 @@ impl TpmCastMut for TpmResponse {
     }
 }
 
-impl AsRef<[u8]> for TpmResponse {
-    fn as_ref(&self) -> &[u8] {
-        self.as_bytes()
-    }
-}
-
-impl AsMut<[u8]> for TpmResponse {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.as_bytes_mut()
-    }
-}
+crate::tpm_byte_view!(TpmResponse);
 
 fn command_code(buf: &[u8]) -> TpmResult<TpmCc> {
     let raw = read_u32(buf, CODE_OFFSET);

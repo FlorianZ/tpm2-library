@@ -6,6 +6,110 @@ pub mod r#enum;
 pub mod integer;
 pub mod r#struct;
 
+/// Generates the unchecked reinterpret casts shared by every
+/// `repr(transparent)` wire view.
+///
+/// The bare form targets views backed by an unsized `[u8]` and also emits the
+/// `AsRef`/`AsMut` byte-slice conversions. The `array` form targets views
+/// backed by a fixed-size `[u8; N]` and emits only the unchecked casts.
+#[macro_export]
+macro_rules! tpm_byte_view {
+    ($name:ident) => {
+        $crate::tpm_byte_view!(@emit { } { $name });
+    };
+    ($name:ident<const $param:ident: usize>) => {
+        $crate::tpm_byte_view!(@emit { <const $param: usize> } { $name<$param> });
+    };
+    (array $name:ident) => {
+        $crate::tpm_byte_view!(@emit_array { } { $name });
+    };
+    (array $name:ident<const $param:ident: usize>) => {
+        $crate::tpm_byte_view!(@emit_array { <const $param: usize> } { $name<$param> });
+    };
+    (@emit_array { $($generics:tt)* } { $($ty:tt)* }) => {
+        impl $($generics)* $($ty)* {
+            /// Casts a byte slice into this wire view without validation.
+            ///
+            /// # Safety
+            ///
+            /// The caller must ensure `buf` satisfies every invariant required by
+            /// the checked constructors for this view.
+            #[must_use]
+            pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
+                let ptr = buf.as_ptr().cast::<Self>();
+
+                // SAFETY: an array-backed `tpm_byte_view!` type is
+                // `repr(transparent)` over `[u8; N]`, sharing its layout and
+                // alignment; the caller guarantees the exact byte length.
+                unsafe { &*ptr }
+            }
+
+            /// Casts a mutable byte slice into this wire view without validation.
+            ///
+            /// # Safety
+            ///
+            /// The caller must ensure `buf` satisfies every invariant required by
+            /// the checked constructors for this view. The returned reference
+            /// inherits the exclusive access represented by `buf`.
+            #[must_use]
+            pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
+                let ptr = buf.as_mut_ptr().cast::<Self>();
+
+                // SAFETY: an array-backed `tpm_byte_view!` type is
+                // `repr(transparent)` over `[u8; N]`, sharing its layout and
+                // alignment; the caller guarantees the exact byte length.
+                unsafe { &mut *ptr }
+            }
+        }
+    };
+    (@emit { $($generics:tt)* } { $($ty:tt)* }) => {
+        impl $($generics)* $($ty)* {
+            /// Casts a byte slice into this wire view without validation.
+            ///
+            /// # Safety
+            ///
+            /// The caller must ensure `buf` satisfies every invariant required by
+            /// the checked constructors for this view.
+            #[must_use]
+            pub unsafe fn cast_unchecked(buf: &[u8]) -> &Self {
+                let ptr = core::ptr::from_ref(buf) as *const Self;
+
+                // SAFETY: a `tpm_byte_view!` type is `repr(transparent)` over
+                // `[u8]`, sharing the slice's layout, metadata, and alignment.
+                unsafe { &*ptr }
+            }
+
+            /// Casts a mutable byte slice into this wire view without validation.
+            ///
+            /// # Safety
+            ///
+            /// The caller must ensure `buf` satisfies every invariant required by
+            /// the checked constructors for this view. The returned reference
+            /// inherits the exclusive access represented by `buf`.
+            #[must_use]
+            pub unsafe fn cast_mut_unchecked(buf: &mut [u8]) -> &mut Self {
+                let ptr = core::ptr::from_mut(buf) as *mut Self;
+
+                // SAFETY: a `tpm_byte_view!` type is `repr(transparent)` over
+                // `[u8]`, sharing the slice's layout, metadata, and alignment.
+                unsafe { &mut *ptr }
+            }
+        }
+
+        impl $($generics)* AsRef<[u8]> for $($ty)* {
+            fn as_ref(&self) -> &[u8] {
+                self.as_bytes()
+            }
+        }
+
+        impl $($generics)* AsMut<[u8]> for $($ty)* {
+            fn as_mut(&mut self) -> &mut [u8] {
+                self.as_bytes_mut()
+            }
+        }
+    };
+}
+
 #[macro_export]
 macro_rules! tpm_bitflags {
     (@impl $(#[$outer:meta])* $vis:vis struct $name:ident($wrapper:ty, $repr:ty) {
@@ -107,7 +211,7 @@ macro_rules! tpm_bitflags {
             fn cast_prefix_field(buf: &'a [u8]) -> $crate::TpmResult<(Self::View, &'a [u8])> {
                 let (value, buf) = <$wrapper as $crate::TpmCast>::cast_prefix(buf)?;
 
-                Ok((Self(value.get()), buf))
+                Ok((Self(value.value()), buf))
             }
         }
 
@@ -166,7 +270,7 @@ macro_rules! tpm_bool {
 
             fn cast_prefix_field(buf: &'a [u8]) -> $crate::TpmResult<(Self::View, &'a [u8])> {
                 let (value, buf) = <$crate::basic::TpmUint8 as $crate::TpmCast>::cast_prefix(buf)?;
-                match value.get() {
+                match value.value() {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
                     raw => Err($crate::TpmError::InvalidBoolean { offset: 0, value: u64::from(raw) }),

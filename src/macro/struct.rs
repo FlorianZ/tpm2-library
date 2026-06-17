@@ -502,7 +502,7 @@ macro_rules! tpm2b_struct {
                 $inner_ty: for<'a> $crate::TpmField<'a>,
             {
                 let (size_field, payload) = <$crate::basic::TpmUint16 as $crate::TpmCast>::cast_prefix(buf)?;
-                let payload_len = size_field.get() as usize;
+                let payload_len = size_field.value() as usize;
 
                 if payload.len() < payload_len {
                     return Err($crate::TpmError::UnexpectedEnd { offset: $crate::tpm_offset(buf, payload), needed: payload_len, available: payload.len() });
