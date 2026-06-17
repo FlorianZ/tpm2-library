@@ -57,9 +57,11 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
     pub fn cast_prefix_items<T: TpmCast + ?Sized>(buf: &[u8]) -> TpmResult<(&Self, &[u8])> {
         let wire_len = Self::validate_prefix_items::<T>(buf)?;
         if buf.len() < wire_len {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(wire_len, buf.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: 0,
+                needed: wire_len,
+                available: buf.len(),
+            });
         }
 
         let (head, tail) = buf.split_at(wire_len);
@@ -124,9 +126,11 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
     ) -> TpmResult<(&mut Self, &mut [u8])> {
         let wire_len = Self::validate_prefix_items::<T>(buf)?;
         if buf.len() < wire_len {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(wire_len, buf.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: 0,
+                needed: wire_len,
+                available: buf.len(),
+            });
         }
 
         let (head, tail) = buf.split_at_mut(wire_len);
@@ -223,9 +227,10 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
         let wire_len = Self::validate_prefix_items::<T>(buf)?;
 
         if buf.len() > wire_len {
-            return Err(TpmError::TrailingData(
-                crate::TpmErrorValue::new(wire_len).actual(buf.len() - wire_len),
-            ));
+            return Err(TpmError::TrailingData {
+                offset: wire_len,
+                actual: buf.len() - wire_len,
+            });
         }
 
         Ok(())
@@ -246,14 +251,16 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
             let (_, tail) = T::cast_prefix(cursor)?;
             let item_len = before
                 .checked_sub(tail.len())
-                .ok_or(TpmError::IntegerTooLarge(
-                    crate::TpmErrorValue::new(consumed).value_usize(tail.len()),
-                ))?;
+                .ok_or(TpmError::IntegerTooLarge {
+                    offset: consumed,
+                    value: crate::tpm_value(tail.len()),
+                })?;
             consumed = consumed
                 .checked_add(item_len)
-                .ok_or(TpmError::IntegerTooLarge(
-                    crate::TpmErrorValue::new(consumed).value_usize(before),
-                ))?;
+                .ok_or(TpmError::IntegerTooLarge {
+                    offset: consumed,
+                    value: crate::tpm_value(before),
+                })?;
             cursor = tail;
         }
 
@@ -262,16 +269,20 @@ impl<const CAPACITY: usize> Tpml<CAPACITY> {
 
     fn validate_header(buf: &[u8]) -> TpmResult<usize> {
         if buf.len() < TPML_COUNT_LEN {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(TPML_COUNT_LEN, buf.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: 0,
+                needed: TPML_COUNT_LEN,
+                available: buf.len(),
+            });
         }
 
         let item_count = Self::read_count(buf);
         if item_count > CAPACITY {
-            return Err(TpmError::TooManyItems(
-                crate::TpmErrorValue::new(0).limit(CAPACITY, item_count),
-            ));
+            return Err(TpmError::TooManyItems {
+                offset: 0,
+                limit: CAPACITY,
+                actual: item_count,
+            });
         }
 
         Ok(item_count)
@@ -353,21 +364,25 @@ impl<'a, T: crate::TpmField<'a> + Copy, const CAPACITY: usize> crate::TpmField<'
             let (_, tail) = T::cast_prefix_field(cursor)?;
             let item_len = before
                 .checked_sub(tail.len())
-                .ok_or(TpmError::IntegerTooLarge(
-                    crate::TpmErrorValue::new(consumed).value_usize(tail.len()),
-                ))?;
+                .ok_or(TpmError::IntegerTooLarge {
+                    offset: consumed,
+                    value: crate::tpm_value(tail.len()),
+                })?;
             consumed = consumed
                 .checked_add(item_len)
-                .ok_or(TpmError::IntegerTooLarge(
-                    crate::TpmErrorValue::new(consumed).value_usize(before),
-                ))?;
+                .ok_or(TpmError::IntegerTooLarge {
+                    offset: consumed,
+                    value: crate::tpm_value(before),
+                })?;
             cursor = tail;
         }
 
         if buf.len() < consumed {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(consumed, buf.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: 0,
+                needed: consumed,
+                available: buf.len(),
+            });
         }
 
         let (head, tail) = buf.split_at(consumed);
@@ -420,9 +435,11 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     /// full capacity.
     pub fn try_push(&mut self, item: T) -> Result<(), TpmError> {
         if self.len >= CAPACITY {
-            return Err(TpmError::TooManyItems(
-                crate::TpmErrorValue::new(0).limit(CAPACITY, self.len + 1),
-            ));
+            return Err(TpmError::TooManyItems {
+                offset: 0,
+                limit: CAPACITY,
+                actual: self.len + 1,
+            });
         }
         self.items[self.len].write(item);
         self.len += 1;
@@ -439,14 +456,18 @@ impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
         let new_len = self
             .len
             .checked_add(slice.len())
-            .ok_or(TpmError::TooManyItems(
-                crate::TpmErrorValue::new(0).limit(CAPACITY, usize::MAX),
-            ))?;
+            .ok_or(TpmError::TooManyItems {
+                offset: 0,
+                limit: CAPACITY,
+                actual: usize::MAX,
+            })?;
 
         if new_len > CAPACITY {
-            return Err(TpmError::TooManyItems(
-                crate::TpmErrorValue::new(0).limit(CAPACITY, new_len),
-            ));
+            return Err(TpmError::TooManyItems {
+                offset: 0,
+                limit: CAPACITY,
+                actual: new_len,
+            });
         }
 
         for (dest, src) in self.items[self.len..new_len].iter_mut().zip(slice) {
@@ -496,8 +517,9 @@ impl<T: TpmSized + Copy, const CAPACITY: usize> TpmSized for TpmList<T, CAPACITY
 
 impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPACITY> {
     fn marshal(&self, writer: &mut crate::TpmWriter) -> TpmResult<()> {
-        let len = TpmUint32::try_from(self.len).map_err(|_| {
-            TpmError::IntegerTooLarge(crate::TpmErrorValue::new(0).value_usize(self.len))
+        let len = TpmUint32::try_from(self.len).map_err(|_| TpmError::IntegerTooLarge {
+            offset: 0,
+            value: crate::tpm_value(self.len),
         })?;
         TpmMarshal::marshal(&len, writer)?;
         for item in &**self {

@@ -217,8 +217,9 @@ impl TryFrom<u32> for TpmRc {
             value
         };
 
-        let base = TpmRcBase::try_from(base_code).map_err(|_| {
-            TpmError::InvalidRc(crate::TpmErrorValue::new(0).value(u64::from(value)))
+        let base = TpmRcBase::try_from(base_code).map_err(|_| TpmError::InvalidRc {
+            offset: 0,
+            value: u64::from(value),
         })?;
 
         if (value & TPM_RC_WARN) == TPM_RC_WARN {

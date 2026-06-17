@@ -169,9 +169,7 @@ macro_rules! tpm_bool {
                 match value.get() {
                     0 => Ok((Self(false), buf)),
                     1 => Ok((Self(true), buf)),
-                    raw => Err($crate::TpmError::InvalidBoolean(
-                        $crate::TpmErrorValue::new(0).value(u64::from(raw)),
-                    )),
+                    raw => Err($crate::TpmError::InvalidBoolean { offset: 0, value: u64::from(raw) }),
                 }
             }
         }
@@ -299,9 +297,7 @@ macro_rules! tpm_dispatch {
                 let cc = command.cc()?;
                 match cc {
                     $( <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC => Ok(Self::$variant(command)), )*
-                    _ => Err($crate::TpmError::InvalidCc(
-                        $crate::TpmErrorValue::new(6).value(u64::from(cc.value())),
-                    )),
+                    _ => Err($crate::TpmError::InvalidCc { offset: 6, value: u64::from(cc.value()) }),
                 }
             }
 
@@ -449,9 +445,7 @@ macro_rules! tpm_dispatch {
 
                 match cc {
                     $( <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC => Ok(Ok(Self::$variant(response))), )*
-                    _ => Err($crate::TpmError::InvalidCc(
-                        $crate::TpmErrorValue::new(0).value(u64::from(cc.value())),
-                    )),
+                    _ => Err($crate::TpmError::InvalidCc { offset: 0, value: u64::from(cc.value()) }),
                 }
             }
 

@@ -46,7 +46,7 @@ mod error;
 pub mod r#macro;
 pub mod frame;
 
-pub use self::error::{TpmError, TpmErrorValue, TpmResult};
+pub use self::error::{TpmError, TpmResult, tpm_offset, tpm_value};
 
 /// A byte-backed TPM wire view.
 #[repr(transparent)]
@@ -186,9 +186,10 @@ impl<const N: usize> TpmWireBytes<N> {
         Self::validate_prefix(buf)?;
 
         if buf.len() > N {
-            return Err(TpmError::TrailingData(
-                crate::TpmErrorValue::new(N).actual(buf.len() - N),
-            ));
+            return Err(TpmError::TrailingData {
+                offset: N,
+                actual: buf.len() - N,
+            });
         }
 
         Ok(())
@@ -202,9 +203,11 @@ impl<const N: usize> TpmWireBytes<N> {
     /// `buf` is smaller than `N` bytes.
     pub fn validate_prefix(buf: &[u8]) -> TpmResult<()> {
         if buf.len() < N {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(N, buf.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: 0,
+                needed: N,
+                available: buf.len(),
+            });
         }
 
         Ok(())
@@ -529,15 +532,18 @@ impl<'a> TpmWriter<'a> {
         let end = self
             .cursor
             .checked_add(bytes.len())
-            .ok_or(TpmError::BufferOverflow(
-                crate::TpmErrorValue::new(self.cursor).size(bytes.len(), 0),
-            ))?;
+            .ok_or(TpmError::BufferOverflow {
+                offset: self.cursor,
+                needed: bytes.len(),
+                available: 0,
+            })?;
 
         if end > self.buffer.len() {
-            return Err(TpmError::BufferOverflow(
-                crate::TpmErrorValue::new(self.cursor)
-                    .size(bytes.len(), self.buffer.len().saturating_sub(self.cursor)),
-            ));
+            return Err(TpmError::BufferOverflow {
+                offset: self.cursor,
+                needed: bytes.len(),
+                available: self.buffer.len().saturating_sub(self.cursor),
+            });
         }
         self.buffer[self.cursor..end].copy_from_slice(bytes);
         self.cursor = end;

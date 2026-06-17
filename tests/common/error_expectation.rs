@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use tpm2_protocol::{TpmError, TpmErrorValue};
+use tpm2_protocol::TpmError;
+
+#[derive(Default)]
+struct ErrorFields {
+    offset: usize,
+    value: u64,
+    needed: usize,
+    available: usize,
+    actual: usize,
+}
 
 pub struct TpmErrorExpectation {
     pub error: TpmError,
@@ -26,9 +35,9 @@ pub fn unmarshal_tpm_error_expectation(s: &str) -> Result<TpmErrorExpectation, &
             .strip_suffix(']')
             .ok_or("MalformedValue missing closing bracket")?;
 
-        (kind, unmarshal_tpm_error_value(value_str)?, true)
+        (kind, unmarshal_error_fields(value_str)?, true)
     } else {
-        (s, TpmErrorValue::new(0), false)
+        (s, ErrorFields::default(), false)
     };
 
     Ok(TpmErrorExpectation {
@@ -37,23 +46,42 @@ pub fn unmarshal_tpm_error_expectation(s: &str) -> Result<TpmErrorExpectation, &
     })
 }
 
-fn tpm_error_from_kind(kind: &str, value: TpmErrorValue) -> Result<TpmError, &'static str> {
+fn tpm_error_from_kind(kind: &str, f: ErrorFields) -> Result<TpmError, &'static str> {
     match kind {
-        "InvalidValue" | "InvalidCc" => Ok(TpmError::InvalidCc(value)),
-        "InvalidRc" => Ok(TpmError::InvalidRc(value)),
-        "InvalidTag" => Ok(TpmError::InvalidTag(value)),
-        "UnexpectedEnd" => Ok(TpmError::UnexpectedEnd(value)),
-        "TrailingData" => Ok(TpmError::TrailingData(value)),
-        "VariantMissing" | "VariantNotAvailable" => Ok(TpmError::VariantNotAvailable(value)),
+        "InvalidValue" | "InvalidCc" => Ok(TpmError::InvalidCc {
+            offset: f.offset,
+            value: f.value,
+        }),
+        "InvalidRc" => Ok(TpmError::InvalidRc {
+            offset: f.offset,
+            value: f.value,
+        }),
+        "InvalidTag" => Ok(TpmError::InvalidTag {
+            offset: f.offset,
+            value: f.value,
+        }),
+        "UnexpectedEnd" => Ok(TpmError::UnexpectedEnd {
+            offset: f.offset,
+            needed: f.needed,
+            available: f.available,
+        }),
+        "TrailingData" => Ok(TpmError::TrailingData {
+            offset: f.offset,
+            actual: f.actual,
+        }),
+        "VariantMissing" | "VariantNotAvailable" => Ok(TpmError::VariantNotAvailable {
+            offset: f.offset,
+            value: f.value,
+        }),
         _ => Err("unknown variant"),
     }
 }
 
-fn unmarshal_tpm_error_value(s: &str) -> Result<TpmErrorValue, &'static str> {
-    let mut value = TpmErrorValue::new(0);
+fn unmarshal_error_fields(s: &str) -> Result<ErrorFields, &'static str> {
+    let mut fields = ErrorFields::default();
 
     if s.is_empty() {
-        return Ok(value);
+        return Ok(fields);
     }
 
     for field in s.split(',') {
@@ -61,17 +89,16 @@ fn unmarshal_tpm_error_value(s: &str) -> Result<TpmErrorValue, &'static str> {
             .split_once('=')
             .ok_or("MalformedValue missing key-value separator")?;
         match key {
-            "offset" => value.offset = parse_usize(raw_value)?,
-            "value" => value.value = parse_u64(raw_value)?,
-            "needed" => value.needed = parse_usize(raw_value)?,
-            "available" => value.available = parse_usize(raw_value)?,
-            "limit" => value.limit = parse_usize(raw_value)?,
-            "actual" => value.actual = parse_usize(raw_value)?,
+            "offset" => fields.offset = parse_usize(raw_value)?,
+            "value" => fields.value = parse_u64(raw_value)?,
+            "needed" => fields.needed = parse_usize(raw_value)?,
+            "available" => fields.available = parse_usize(raw_value)?,
+            "actual" => fields.actual = parse_usize(raw_value)?,
             _ => return Err("unknown error value field"),
         }
     }
 
-    Ok(value)
+    Ok(fields)
 }
 
 fn parse_u64(s: &str) -> Result<u64, &'static str> {

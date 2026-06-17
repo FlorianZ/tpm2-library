@@ -11,7 +11,7 @@ use crate::{
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
         TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
         TpmiYesNo, TpmlPcrSelection, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme,
-        TpmtRsaScheme, TpmtSymDefObject, TpmuAttest, TpmuCapabilities,
+        TpmtRsaScheme, TpmtSymDefObject, TpmuAttest, TpmuAttestView, TpmuCapabilities,
     },
     tpm_struct,
 };
@@ -59,13 +59,16 @@ impl TryFrom<&[u8]> for TpmsPcrSelect {
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > TPM_PCR_SELECT_MAX as usize {
-            return Err(TpmError::TooManyItems(
-                crate::TpmErrorValue::new(0).limit(TPM_PCR_SELECT_MAX as usize, slice.len()),
-            ));
+            return Err(TpmError::TooManyItems {
+                offset: 0,
+                limit: TPM_PCR_SELECT_MAX as usize,
+                actual: slice.len(),
+            });
         }
         let mut pcr_select = Self::new();
-        let len_u8 = u8::try_from(slice.len()).map_err(|_| {
-            TpmError::IntegerTooLarge(crate::TpmErrorValue::new(0).value_usize(slice.len()))
+        let len_u8 = u8::try_from(slice.len()).map_err(|_| TpmError::IntegerTooLarge {
+            offset: 0,
+            value: crate::tpm_value(slice.len()),
         })?;
         pcr_select.size = TpmUint8::from(len_u8);
         pcr_select.data[..slice.len()].copy_from_slice(slice);
@@ -106,15 +109,19 @@ impl<'a> crate::TpmField<'a> for TpmsPcrSelect {
         let size = size.get() as usize;
 
         if size > TPM_PCR_SELECT_MAX as usize {
-            return Err(TpmError::TooManyItems(
-                crate::TpmErrorValue::new(0).limit(TPM_PCR_SELECT_MAX as usize, size),
-            ));
+            return Err(TpmError::TooManyItems {
+                offset: 0,
+                limit: TPM_PCR_SELECT_MAX as usize,
+                actual: size,
+            });
         }
 
         if remainder.len() < size {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(size_of::<TpmUint8>()).size(size, remainder.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: size_of::<TpmUint8>(),
+                needed: size,
+                available: remainder.len(),
+            });
         }
 
         let (pcr_select, remainder) = remainder.split_at(size);
@@ -490,6 +497,59 @@ impl TpmMarshal for TpmsAttest {
         self.clock_info.marshal(writer)?;
         self.firmware_version.marshal(writer)?;
         self.attested.marshal(writer)
+    }
+}
+
+/// Borrowed view over a marshaled [`TpmsAttest`].
+///
+/// The leading magic word is validated against
+/// [`TPM_GENERATED_VALUE`](crate::constant::TPM_GENERATED_VALUE) during the
+/// cast and is therefore not exposed as a field.
+pub struct TpmsAttestView<'a> {
+    /// The attestation structure tag selecting the [`attested`](Self::attested) body.
+    pub attest_type: TpmSt,
+    /// Borrowed qualified name of the signing key.
+    pub qualified_signer: <Tpm2bName as crate::TpmField<'a>>::View,
+    /// Borrowed caller-provided qualifying data.
+    pub extra_data: <Tpm2bData as crate::TpmField<'a>>::View,
+    /// Borrowed TPM clock information.
+    pub clock_info: <TpmsClockInfo as crate::TpmField<'a>>::View,
+    /// TPM firmware version.
+    pub firmware_version: u64,
+    /// Borrowed attestation body selected by [`attest_type`](Self::attest_type).
+    pub attested: TpmuAttestView<'a>,
+}
+
+impl<'a> crate::TpmField<'a> for TpmsAttest {
+    type View = TpmsAttestView<'a>;
+
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        let (magic, buf) = <TpmUint32 as crate::TpmField>::cast_prefix_field(buf)?;
+        if magic.get() != TPM_GENERATED_VALUE {
+            return Err(TpmError::InvalidMagicNumber {
+                offset: 0,
+                value: u64::from(magic.get()),
+            });
+        }
+
+        let (attest_type, buf) = <TpmSt as crate::TpmField>::cast_prefix_field(buf)?;
+        let (qualified_signer, buf) = <Tpm2bName as crate::TpmField>::cast_prefix_field(buf)?;
+        let (extra_data, buf) = <Tpm2bData as crate::TpmField>::cast_prefix_field(buf)?;
+        let (clock_info, buf) = <TpmsClockInfo as crate::TpmField>::cast_prefix_field(buf)?;
+        let (firmware_version, buf) = <TpmUint64 as crate::TpmField>::cast_prefix_field(buf)?;
+        let (attested, buf) = TpmuAttest::cast_tagged(attest_type, buf)?;
+
+        Ok((
+            TpmsAttestView {
+                attest_type,
+                qualified_signer,
+                extra_data,
+                clock_info,
+                firmware_version: firmware_version.get(),
+                attested,
+            },
+            buf,
+        ))
     }
 }
 

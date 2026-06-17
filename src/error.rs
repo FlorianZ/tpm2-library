@@ -2,196 +2,165 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-/// Additional structured data for a TPM protocol error.
-#[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
-pub struct TpmErrorValue {
-    /// Byte offset from the start of the parsed buffer.
-    pub offset: usize,
+/// Returns the byte offset of a cursor slice inside a base slice.
+#[must_use]
+pub fn tpm_offset(base: &[u8], cursor: &[u8]) -> usize {
+    let base_addr = base.as_ptr() as usize;
+    let cursor_addr = cursor.as_ptr() as usize;
 
-    /// Raw value associated with the error.
-    pub value: u64,
-
-    /// Required byte or item count.
-    pub needed: usize,
-
-    /// Available byte or item count.
-    pub available: usize,
-
-    /// Maximum allowed byte or item count.
-    pub limit: usize,
-
-    /// Actual byte or item count.
-    pub actual: usize,
+    cursor_addr.saturating_sub(base_addr).min(base.len())
 }
 
-impl TpmErrorValue {
-    /// Creates empty error data at a byte offset.
-    #[must_use]
-    pub const fn new(offset: usize) -> Self {
-        Self {
-            offset,
-            value: 0,
-            needed: 0,
-            available: 0,
-            limit: 0,
-            actual: 0,
-        }
-    }
-
-    /// Sets the raw value associated with the error.
-    #[must_use]
-    pub const fn value(mut self, value: u64) -> Self {
-        self.value = value;
-        self
-    }
-
-    /// Sets a raw `usize` value associated with the error.
-    #[allow(clippy::cast_possible_truncation)]
-    #[must_use]
-    pub const fn value_usize(mut self, value: usize) -> Self {
-        self.value = value as u64;
-        self
-    }
-
-    /// Sets an actual count without a corresponding limit.
-    #[must_use]
-    pub const fn actual(mut self, actual: usize) -> Self {
-        self.actual = actual;
-        self
-    }
-
-    /// Sets the required and available counts.
-    #[must_use]
-    pub const fn size(mut self, needed: usize, available: usize) -> Self {
-        self.needed = needed;
-        self.available = available;
-        self
-    }
-
-    /// Sets the maximum allowed and actual counts.
-    #[must_use]
-    pub const fn limit(mut self, limit: usize, actual: usize) -> Self {
-        self.limit = limit;
-        self.actual = actual;
-        self
-    }
-
-    /// Creates error data from a cursor slice inside a base slice.
-    #[must_use]
-    pub fn at(base: &[u8], cursor: &[u8]) -> Self {
-        Self::new(Self::offset(base, cursor))
-    }
-
-    /// Returns the byte offset of a cursor slice inside a base slice.
-    #[must_use]
-    pub fn offset(base: &[u8], cursor: &[u8]) -> usize {
-        let base_addr = base.as_ptr() as usize;
-        let cursor_addr = cursor.as_ptr() as usize;
-
-        cursor_addr.saturating_sub(base_addr).min(base.len())
-    }
+/// Widens a `usize` count into the `u64` carried by value-bearing errors.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub const fn tpm_value(value: usize) -> u64 {
+    value as u64
 }
 
 /// TPM frame marshaling and unmarshaling error type.
 ///
-/// Every variant carries [`TpmErrorValue`] with the byte offset and any
-/// applicable raw value, size, or limit information.
+/// Every variant carries the byte `offset` from the start of the parsed buffer
+/// along with the diagnostic counts relevant to that failure.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum TpmError {
     /// Trying to marshal more bytes than buffer has space. This is unexpected
     /// situation, and should be considered possible bug in the crate itself.
-    BufferOverflow(TpmErrorValue),
+    BufferOverflow {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Required byte count.
+        needed: usize,
+        /// Available byte count.
+        available: usize,
+    },
 
     /// Integer overflow while converting to an integer of a different size.
-    IntegerTooLarge(TpmErrorValue),
+    IntegerTooLarge {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Raw value that did not fit.
+        value: u64,
+    },
 
     /// Boolean value was expected but the value is neither `0` nor `1`.
-    InvalidBoolean(TpmErrorValue),
+    InvalidBoolean {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Raw value encountered.
+        value: u64,
+    },
 
     /// Non-existent command code encountered.
-    InvalidCc(TpmErrorValue),
+    InvalidCc {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Raw command code encountered.
+        value: u64,
+    },
 
-    /// An [`TpmAttest`](crate::data::TpmAttest) instance contains an invalid
-    /// magic value.
-    InvalidMagicNumber(TpmErrorValue),
+    /// A [`TpmsAttest`](crate::data::TpmsAttest) instance does not begin with
+    /// the [`TPM_GENERATED_VALUE`](crate::constant::TPM_GENERATED_VALUE) magic.
+    InvalidMagicNumber {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Raw magic value encountered.
+        value: u64,
+    },
 
     /// Invalid TPM response code encountered.
-    InvalidRc(TpmErrorValue),
+    InvalidRc {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Raw response code encountered.
+        value: u64,
+    },
 
     /// Tag is neither [`Sessions`](crate::data::TpmSt::Sessions) nor
     /// [`NoSessions`](crate::data::TpmSt::NoSessions).
-    InvalidTag(TpmErrorValue),
+    InvalidTag {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Raw tag encountered.
+        value: u64,
+    },
 
     /// Buffer contains more bytes than allowed by the TCG specifications.
-    TooManyBytes(TpmErrorValue),
+    TooManyBytes {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Maximum allowed byte count.
+        limit: usize,
+        /// Actual byte count.
+        actual: usize,
+    },
 
     /// List contains more items than allowed by the TCG specifications.
-    TooManyItems(TpmErrorValue),
+    TooManyItems {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Maximum allowed item count.
+        limit: usize,
+        /// Actual item count.
+        actual: usize,
+    },
 
     /// Trailing data left after unmarshaling.
-    TrailingData(TpmErrorValue),
+    TrailingData {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Trailing byte or item count.
+        actual: usize,
+    },
 
     /// Run out of bytes while unmarshaling.
-    UnexpectedEnd(TpmErrorValue),
+    UnexpectedEnd {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Required byte count.
+        needed: usize,
+        /// Available byte count.
+        available: usize,
+    },
 
     /// The variant accessed is not available.
-    VariantNotAvailable(TpmErrorValue),
+    VariantNotAvailable {
+        /// Byte offset from the start of the buffer.
+        offset: usize,
+        /// Raw value encountered.
+        value: u64,
+    },
 }
 
 impl TpmError {
-    /// Returns the structured value carried by the error.
+    /// Returns the stable machine-readable name of the error variant.
     #[must_use]
-    pub const fn value(self) -> TpmErrorValue {
+    pub const fn kind(self) -> &'static str {
         match self {
-            Self::BufferOverflow(value)
-            | Self::IntegerTooLarge(value)
-            | Self::InvalidBoolean(value)
-            | Self::InvalidCc(value)
-            | Self::InvalidMagicNumber(value)
-            | Self::InvalidRc(value)
-            | Self::InvalidTag(value)
-            | Self::TooManyBytes(value)
-            | Self::TooManyItems(value)
-            | Self::TrailingData(value)
-            | Self::UnexpectedEnd(value)
-            | Self::VariantNotAvailable(value) => value,
+            Self::BufferOverflow { .. } => "BufferOverflow",
+            Self::IntegerTooLarge { .. } => "IntegerTooLarge",
+            Self::InvalidBoolean { .. } => "InvalidBoolean",
+            Self::InvalidCc { .. } => "InvalidCc",
+            Self::InvalidMagicNumber { .. } => "InvalidMagicNumber",
+            Self::InvalidRc { .. } => "InvalidRc",
+            Self::InvalidTag { .. } => "InvalidTag",
+            Self::TooManyBytes { .. } => "TooManyBytes",
+            Self::TooManyItems { .. } => "TooManyItems",
+            Self::TrailingData { .. } => "TrailingData",
+            Self::UnexpectedEnd { .. } => "UnexpectedEnd",
+            Self::VariantNotAvailable { .. } => "VariantNotAvailable",
         }
     }
 }
 
+/// Renders [`TpmError`] as its bare variant name.
+///
+/// As the lowest-level crate in the stack, errors expose only the stable
+/// [`kind`](Self::kind) discriminant here. Callers read the structured fields
+/// directly and decide how to present the diagnostic detail.
 impl core::fmt::Display for TpmError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let (message, value) = match *self {
-            Self::BufferOverflow(value) => ("buffer overflow", value),
-            Self::InvalidBoolean(value) => ("invalid boolean value", value),
-            Self::InvalidCc(value) => ("invalid command code", value),
-            Self::InvalidMagicNumber(value) => ("invalid magic number", value),
-            Self::InvalidRc(value) => ("invalid response code", value),
-            Self::InvalidTag(value) => ("invalid tag", value),
-            Self::IntegerTooLarge(value) => ("integer overflow", value),
-            Self::TooManyBytes(value) => ("buffer capacity surpassed", value),
-            Self::TooManyItems(value) => ("list capacity surpassed", value),
-            Self::TrailingData(value) => ("trailing data", value),
-            Self::UnexpectedEnd(value) => ("unexpected end", value),
-            Self::VariantNotAvailable(value) => ("enum variant is not available", value),
-        };
-
-        write!(f, "{message} at offset {}", value.offset)?;
-        if value.value != 0 {
-            write!(f, ", value=0x{:x}", value.value)?;
-        }
-        if value.needed != 0 || value.available != 0 {
-            write!(
-                f,
-                ", needed={}, available={}",
-                value.needed, value.available
-            )?;
-        }
-        if value.limit != 0 || value.actual != 0 {
-            write!(f, ", limit={}, actual={}", value.limit, value.actual)?;
-        }
-
-        Ok(())
+        f.write_str(self.kind())
     }
 }
 

@@ -182,9 +182,10 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
         let wire_len = Self::validate_prefix(buf)?;
 
         if buf.len() > wire_len {
-            return Err(TpmError::TrailingData(
-                crate::TpmErrorValue::new(wire_len).actual(buf.len() - wire_len),
-            ));
+            return Err(TpmError::TrailingData {
+                offset: wire_len,
+                actual: buf.len() - wire_len,
+            });
         }
 
         Ok(())
@@ -197,29 +198,36 @@ impl<const CAPACITY: usize> Tpm2b<CAPACITY> {
     /// Returns `Err(TpmError)` when the first TPM2B value is malformed.
     pub fn validate_prefix(buf: &[u8]) -> TpmResult<usize> {
         if buf.len() < TPM2B_SIZE_LEN {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(TPM2B_SIZE_LEN, buf.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: 0,
+                needed: TPM2B_SIZE_LEN,
+                available: buf.len(),
+            });
         }
 
         let payload_len = Self::read_size(buf);
         if payload_len > CAPACITY {
-            return Err(TpmError::TooManyBytes(
-                crate::TpmErrorValue::new(0).limit(CAPACITY, payload_len),
-            ));
+            return Err(TpmError::TooManyBytes {
+                offset: 0,
+                limit: CAPACITY,
+                actual: payload_len,
+            });
         }
 
-        let wire_len = TPM2B_SIZE_LEN
-            .checked_add(payload_len)
-            .ok_or(TpmError::IntegerTooLarge(
-                crate::TpmErrorValue::new(0).value_usize(payload_len),
-            ))?;
+        let wire_len =
+            TPM2B_SIZE_LEN
+                .checked_add(payload_len)
+                .ok_or(TpmError::IntegerTooLarge {
+                    offset: 0,
+                    value: crate::tpm_value(payload_len),
+                })?;
 
         if buf.len() < wire_len {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(TPM2B_SIZE_LEN)
-                    .size(payload_len, buf.len().saturating_sub(TPM2B_SIZE_LEN)),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: TPM2B_SIZE_LEN,
+                needed: payload_len,
+                available: buf.len().saturating_sub(TPM2B_SIZE_LEN),
+            });
         }
 
         Ok(wire_len)
@@ -309,10 +317,11 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
     /// buffer is full or the size exceeds `u16::MAX`.
     pub fn try_push(&mut self, byte: u8) -> TpmResult<()> {
         if (self.size as usize) >= CAPACITY || self.size == u16::MAX {
-            return Err(TpmError::BufferOverflow(
-                crate::TpmErrorValue::new(self.size as usize)
-                    .limit(CAPACITY, self.size as usize + 1),
-            ));
+            return Err(TpmError::BufferOverflow {
+                offset: self.size as usize,
+                needed: 1,
+                available: CAPACITY.saturating_sub(self.size as usize),
+            });
         }
         self.data[self.size as usize].write(byte);
         self.size += 1;
@@ -329,21 +338,24 @@ impl<const CAPACITY: usize> TpmBuffer<CAPACITY> {
         let current_len = self.size as usize;
         let new_len = current_len
             .checked_add(slice.len())
-            .ok_or(TpmError::BufferOverflow(
-                crate::TpmErrorValue::new(current_len)
-                    .size(slice.len(), CAPACITY.saturating_sub(current_len)),
-            ))?;
+            .ok_or(TpmError::BufferOverflow {
+                offset: current_len,
+                needed: slice.len(),
+                available: CAPACITY.saturating_sub(current_len),
+            })?;
 
         if new_len > CAPACITY {
-            return Err(TpmError::BufferOverflow(
-                crate::TpmErrorValue::new(current_len).limit(CAPACITY, new_len),
-            ));
+            return Err(TpmError::BufferOverflow {
+                offset: current_len,
+                needed: slice.len(),
+                available: CAPACITY.saturating_sub(current_len),
+            });
         }
 
-        self.size = u16::try_from(new_len).map_err(|_| {
-            TpmError::BufferOverflow(
-                crate::TpmErrorValue::new(current_len).limit(u16::MAX as usize, new_len),
-            )
+        self.size = u16::try_from(new_len).map_err(|_| TpmError::BufferOverflow {
+            offset: current_len,
+            needed: slice.len(),
+            available: (u16::MAX as usize).saturating_sub(current_len),
         })?;
 
         for (dest, src) in self.data[current_len..new_len].iter_mut().zip(slice) {
@@ -404,9 +416,11 @@ impl<const CAPACITY: usize> TryFrom<&[u8]> for TpmBuffer<CAPACITY> {
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         if slice.len() > CAPACITY {
-            return Err(TpmError::TooManyBytes(
-                crate::TpmErrorValue::new(0).limit(CAPACITY, slice.len()),
-            ));
+            return Err(TpmError::TooManyBytes {
+                offset: 0,
+                limit: CAPACITY,
+                actual: slice.len(),
+            });
         }
         let mut buffer = Self::new();
         buffer.try_extend_from_slice(slice)?;

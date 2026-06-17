@@ -80,9 +80,7 @@ macro_rules! tpmu_view {
                     $(
                         $($null_tag)|+ => Ok(($view::$null_variant, buf)),
                     )?
-                    _ => Err(TpmError::VariantNotAvailable(
-                        crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-                    )),
+                    _ => Err(TpmError::VariantNotAvailable { offset: 0, value: u64::from(tag.value()) }),
                 }
             }
         }
@@ -224,16 +222,19 @@ impl<'a> crate::TpmTaggedField<'a, TpmAlgId> for TpmuHa {
             TpmAlgId::Sha384 | TpmAlgId::Sha3_384 => 48,
             TpmAlgId::Sha512 | TpmAlgId::Sha3_512 | TpmAlgId::Shake256_512 => 64,
             _ => {
-                return Err(TpmError::VariantNotAvailable(
-                    crate::TpmErrorValue::new(0).value(u64::from(tag.value())),
-                ));
+                return Err(TpmError::VariantNotAvailable {
+                    offset: 0,
+                    value: u64::from(tag.value()),
+                });
             }
         };
 
         if buf.len() < digest_size {
-            return Err(TpmError::UnexpectedEnd(
-                crate::TpmErrorValue::new(0).size(digest_size, buf.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: 0,
+                needed: digest_size,
+                available: buf.len(),
+            });
         }
 
         let (digest, buf) = buf.split_at(digest_size);

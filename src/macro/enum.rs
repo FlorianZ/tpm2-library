@@ -32,9 +32,7 @@ macro_rules! tpm_enum {
                     $(
                         _ if value == $value => Ok(Self::$variant),
                     )*
-                    _ => Err($crate::TpmError::VariantNotAvailable(
-                        $crate::TpmErrorValue::new(0).value(value as u64),
-                    )),
+                    _ => Err($crate::TpmError::VariantNotAvailable { offset: 0, value: value as u64 }),
                 }
             }
         }

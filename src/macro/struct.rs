@@ -66,9 +66,7 @@ macro_rules! tpm_struct {
 
                 let cc = command.cc()?;
                 if cc != Self::CC {
-                    return Err($crate::TpmError::InvalidCc(
-                        $crate::TpmErrorValue::new(6).value(u64::from(cc.value())),
-                    ));
+                    return Err($crate::TpmError::InvalidCc { offset: 6, value: u64::from(cc.value()) });
                 }
 
                 Ok(command)
@@ -87,9 +85,7 @@ macro_rules! tpm_struct {
 
                 let cc = command.cc()?;
                 if cc != Self::CC {
-                    return Err($crate::TpmError::InvalidCc(
-                        $crate::TpmErrorValue::new(6).value(u64::from(cc.value())),
-                    ));
+                    return Err($crate::TpmError::InvalidCc { offset: 6, value: u64::from(cc.value()) });
                 }
 
                 Ok(command)
@@ -265,9 +261,7 @@ macro_rules! tpm_struct {
             {
                 let wire_len = Self::validate_prefix(buf)?;
                 if buf.len() < wire_len {
-                    return Err($crate::TpmError::UnexpectedEnd(
-                        $crate::TpmErrorValue::new(0).size(wire_len, buf.len()),
-                    ));
+                    return Err($crate::TpmError::UnexpectedEnd { offset: 0, needed: wire_len, available: buf.len() });
                 }
 
                 let (head, tail) = buf.split_at(wire_len);
@@ -309,9 +303,7 @@ macro_rules! tpm_struct {
                 let wire_len = Self::validate_prefix(buf)?;
 
                 if buf.len() > wire_len {
-                    return Err($crate::TpmError::TrailingData(
-                        $crate::TpmErrorValue::new(wire_len).actual(buf.len() - wire_len),
-                    ));
+                    return Err($crate::TpmError::TrailingData { offset: wire_len, actual: buf.len() - wire_len });
                 }
 
                 Ok(())
@@ -335,14 +327,10 @@ macro_rules! tpm_struct {
                     let before = cursor.len();
                     let (_, tail) = <$field_type as $crate::TpmField>::cast_prefix_field(cursor)?;
                     let field_len = before.checked_sub(tail.len()).ok_or(
-                        $crate::TpmError::IntegerTooLarge(
-                            $crate::TpmErrorValue::new(consumed).value_usize(tail.len()),
-                        ),
+                        $crate::TpmError::IntegerTooLarge { offset: consumed, value: $crate::tpm_value(tail.len()) },
                     )?;
                     consumed = consumed.checked_add(field_len).ok_or(
-                        $crate::TpmError::IntegerTooLarge(
-                            $crate::TpmErrorValue::new(consumed).value_usize(before),
-                        ),
+                        $crate::TpmError::IntegerTooLarge { offset: consumed, value: $crate::tpm_value(before) },
                     )?;
                     cursor = tail;
                 )*
@@ -478,9 +466,7 @@ macro_rules! tpm2b_struct {
                 let (inner, tail) = <$inner_ty as $crate::TpmField>::cast_prefix_field(inner_bytes)?;
 
                 if !tail.is_empty() {
-                    return Err($crate::TpmError::TrailingData(
-                        $crate::TpmErrorValue::at(&self.0, tail).actual(tail.len()),
-                    ));
+                    return Err($crate::TpmError::TrailingData { offset: $crate::tpm_offset(&self.0, tail), actual: tail.len() });
                 }
 
                 Ok(inner)
@@ -499,9 +485,7 @@ macro_rules! tpm2b_struct {
                 let wire_len = Self::validate_prefix(buf)?;
 
                 if buf.len() > wire_len {
-                    return Err($crate::TpmError::TrailingData(
-                        $crate::TpmErrorValue::new(wire_len).actual(buf.len() - wire_len),
-                    ));
+                    return Err($crate::TpmError::TrailingData { offset: wire_len, actual: buf.len() - wire_len });
                 }
 
                 Ok(())
@@ -521,18 +505,14 @@ macro_rules! tpm2b_struct {
                 let payload_len = size_field.get() as usize;
 
                 if payload.len() < payload_len {
-                    return Err($crate::TpmError::UnexpectedEnd(
-                        $crate::TpmErrorValue::at(buf, payload).size(payload_len, payload.len()),
-                    ));
+                    return Err($crate::TpmError::UnexpectedEnd { offset: $crate::tpm_offset(buf, payload), needed: payload_len, available: payload.len() });
                 }
 
                 let (inner_bytes, _) = payload.split_at(payload_len);
                 let (_, tail) = <$inner_ty as $crate::TpmField>::cast_prefix_field(inner_bytes)?;
 
                 if !tail.is_empty() {
-                    return Err($crate::TpmError::TrailingData(
-                        $crate::TpmErrorValue::at(buf, tail).actual(tail.len()),
-                    ));
+                    return Err($crate::TpmError::TrailingData { offset: $crate::tpm_offset(buf, tail), actual: tail.len() });
                 }
 
                 Ok(<$crate::basic::TpmUint16 as $crate::TpmSized>::SIZE + payload_len)
@@ -570,9 +550,7 @@ macro_rules! tpm2b_struct {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
                 let inner_len = $crate::TpmSized::len(&self.inner);
                 let len_field = <$crate::basic::TpmUint16>::try_from(inner_len)
-                    .map_err(|_| $crate::TpmError::IntegerTooLarge(
-                        $crate::TpmErrorValue::new(writer.len()).value_usize(inner_len),
-                    ))?;
+                    .map_err(|_| $crate::TpmError::IntegerTooLarge { offset: writer.len(), value: $crate::tpm_value(inner_len) })?;
                 len_field.marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
             }

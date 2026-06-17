@@ -6,7 +6,7 @@ mod message_bytes;
 
 use crate::message_bytes::message_bytes;
 use tpm2_protocol::{
-    TpmCast, TpmError, TpmErrorValue, TpmResult, TpmWireBytes, TpmWriter,
+    TpmCast, TpmError, TpmResult, TpmWireBytes, TpmWriter,
     basic::{Tpm2b, TpmUint16, Tpml},
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt, TpmSu},
     frame::{
@@ -46,7 +46,11 @@ fn command_accessors_report_shape_changed_bounds() {
 
     assert_eq!(
         err,
-        TpmError::UnexpectedEnd(TpmErrorValue::new(10).size(8, 2))
+        TpmError::UnexpectedEnd {
+            offset: 10,
+            needed: 8,
+            available: 2
+        }
     );
 }
 
@@ -56,7 +60,11 @@ fn tpm2b_capacity_error_reports_limit() {
 
     assert_eq!(
         err,
-        TpmError::TooManyBytes(TpmErrorValue::new(0).limit(1, 2))
+        TpmError::TooManyBytes {
+            offset: 0,
+            limit: 1,
+            actual: 2
+        }
     );
 }
 
@@ -72,7 +80,13 @@ fn tpm2b_prefix_returns_payload_and_remainder() {
 fn tpm2b_rejects_trailing_data() {
     let err = Tpm2b::<4>::cast(&[0, 1, 0xaa, 0xbb]).err().unwrap();
 
-    assert_eq!(err, TpmError::TrailingData(TpmErrorValue::new(3).actual(1)));
+    assert_eq!(
+        err,
+        TpmError::TrailingData {
+            offset: 3,
+            actual: 1
+        }
+    );
 }
 
 #[test]
@@ -81,7 +95,11 @@ fn tpm2b_rejects_short_payload() {
 
     assert_eq!(
         err,
-        TpmError::UnexpectedEnd(TpmErrorValue::new(2).size(2, 1))
+        TpmError::UnexpectedEnd {
+            offset: 2,
+            needed: 2,
+            available: 1
+        }
     );
 }
 
@@ -91,7 +109,11 @@ fn tpml_capacity_error_reports_limit() {
 
     assert_eq!(
         err,
-        TpmError::TooManyItems(TpmErrorValue::new(0).limit(1, 2))
+        TpmError::TooManyItems {
+            offset: 0,
+            limit: 1,
+            actual: 2
+        }
     );
 }
 
@@ -101,7 +123,11 @@ fn tpml_rejects_max_count_over_capacity() {
 
     assert_eq!(
         err,
-        TpmError::TooManyItems(TpmErrorValue::new(0).limit(4, usize::try_from(u32::MAX).unwrap()))
+        TpmError::TooManyItems {
+            offset: 0,
+            limit: 4,
+            actual: usize::try_from(u32::MAX).unwrap()
+        }
     );
 }
 
@@ -128,7 +154,11 @@ fn tpml_typed_items_reject_truncated_element() {
 
     assert_eq!(
         err,
-        TpmError::UnexpectedEnd(TpmErrorValue::new(0).size(2, 1))
+        TpmError::UnexpectedEnd {
+            offset: 0,
+            needed: 2,
+            available: 1
+        }
     );
 }
 
@@ -140,7 +170,11 @@ fn tpml_iterator_stops_after_truncated_element() {
     assert_eq!(items.next().unwrap().unwrap().get(), 0x1234);
     assert_eq!(
         items.next().unwrap().err().unwrap(),
-        TpmError::UnexpectedEnd(TpmErrorValue::new(0).size(2, 1))
+        TpmError::UnexpectedEnd {
+            offset: 0,
+            needed: 2,
+            available: 1
+        }
     );
     assert!(items.next().is_none());
 }
@@ -151,7 +185,7 @@ fn tpml_rejects_invalid_item_tail_without_panicking() {
         .err()
         .unwrap();
 
-    assert!(matches!(err, TpmError::IntegerTooLarge(_)));
+    assert!(matches!(err, TpmError::IntegerTooLarge { .. }));
 }
 
 #[test]
@@ -160,7 +194,13 @@ fn tpml_typed_exact_rejects_trailing_data() {
         .err()
         .unwrap();
 
-    assert_eq!(err, TpmError::TrailingData(TpmErrorValue::new(6).actual(1)));
+    assert_eq!(
+        err,
+        TpmError::TrailingData {
+            offset: 6,
+            actual: 1
+        }
+    );
 }
 
 #[test]
@@ -185,18 +225,23 @@ fn invalid_enum_reports_raw_value() {
 
     assert_eq!(
         err,
-        TpmError::VariantNotAvailable(TpmErrorValue::new(0).value(0xffff))
+        TpmError::VariantNotAvailable {
+            offset: 0,
+            value: 0xffff
+        }
     );
 }
 
 #[test]
-fn display_includes_error_value_fields() {
-    let err = TpmError::UnexpectedEnd(TpmErrorValue::new(4).size(10, 2));
+fn display_renders_variant_name() {
+    let err = TpmError::UnexpectedEnd {
+        offset: 4,
+        needed: 10,
+        available: 2,
+    };
 
-    assert_eq!(
-        err.to_string(),
-        "unexpected end at offset 4, needed=10, available=2"
-    );
+    assert_eq!(err.to_string(), "UnexpectedEnd");
+    assert_eq!(err.kind(), "UnexpectedEnd");
 }
 
 #[test]
@@ -248,6 +293,10 @@ fn command_marshal_reports_caller_buffer_overflow() {
 
     assert_eq!(
         err,
-        TpmError::BufferOverflow(TpmErrorValue::new(10).size(2, 1))
+        TpmError::BufferOverflow {
+            offset: 10,
+            needed: 2,
+            available: 1
+        }
     );
 }

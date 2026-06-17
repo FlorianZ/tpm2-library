@@ -39,7 +39,7 @@ fn nested_views_borrow_original_memory() {
 fn nested_view_rejects_short_inner_payload() {
     assert!(matches!(
         Tpm2bSensitiveCreateWire::cast(&[0, 7, 0, 2, 0xaa, 0xbb, 0, 2, 0xcc]),
-        Err(TpmError::UnexpectedEnd(_))
+        Err(TpmError::UnexpectedEnd { .. })
     ));
 }
 
@@ -47,7 +47,7 @@ fn nested_view_rejects_short_inner_payload() {
 fn nested_view_rejects_inner_trailing_data() {
     assert!(matches!(
         Tpm2bSensitiveCreateWire::cast(&[0, 5, 0, 0, 0, 0, 0xee]),
-        Err(TpmError::TrailingData(_))
+        Err(TpmError::TrailingData { .. })
     ));
 }
 
