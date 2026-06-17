@@ -98,15 +98,19 @@ impl Memory {
         )
     }
 
+    fn hierarchy_name(rh: TpmRh) -> &'static str {
+        match rh {
+            TpmRh::Owner => "owner",
+            TpmRh::Platform => "platform",
+            TpmRh::Endorsement => "endorsement",
+            TpmRh::Null => "null",
+            _ => "unknown",
+        }
+    }
+
     fn resolve_hierarchy_str(rh: Option<TpmRh>, handle_val: u32) -> &'static str {
         if let Some(h) = rh {
-            match h {
-                TpmRh::Owner => "owner",
-                TpmRh::Platform => "platform",
-                TpmRh::Endorsement => "endorsement",
-                TpmRh::Null => "null",
-                _ => "unknown",
-            }
+            Self::hierarchy_name(h)
         } else if handle_val >= 0x8180_0000 {
             "platform"
         } else if handle_val >= 0x8100_0000 {
@@ -306,13 +310,7 @@ impl Memory {
 
             let parent = key.parent();
             let parent_str = if parent.object_type == TpmAlgId::Null {
-                match key.context().hierarchy {
-                    TpmRh::Owner => "owner".to_string(),
-                    TpmRh::Platform => "platform".to_string(),
-                    TpmRh::Endorsement => "endorsement".to_string(),
-                    TpmRh::Null => "null".to_string(),
-                    _ => "unknown".to_string(),
-                }
+                Self::hierarchy_name(key.context().hierarchy).to_string()
             } else {
                 match tpm_make_name(parent) {
                     Ok(pname) => name_to_handle
