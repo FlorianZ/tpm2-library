@@ -161,7 +161,7 @@ impl<'a> TaskState<'a> {
     /// from the cache fails.
     pub fn refresh_cache(&mut self, device: &mut TpmDevice) -> Result<(), CommandError> {
         let vhandles: Vec<u32> = self.cache.key_iter().map(|(h, _)| *h).collect();
-        let mut errors: Vec<CommandError> = Vec::new();
+        let mut first_error: Option<CommandError> = None;
         let mut handles_to_remove = Vec::new();
 
         for &vhandle in &vhandles {
@@ -177,7 +177,7 @@ impl<'a> TaskState<'a> {
                     Ok(false) => handles_to_remove.push(vhandle),
                     Err(e) => {
                         log::warn!("{vhandle:08x}: {e}");
-                        errors.push(e.into());
+                        first_error.get_or_insert_with(|| e.into());
                         handles_to_remove.push(vhandle);
                     }
                 }
@@ -187,15 +187,11 @@ impl<'a> TaskState<'a> {
         for vhandle in handles_to_remove {
             if let Err(e) = self.cache.remove(vhandle) {
                 log::error!("{vhandle:08x}: {e}");
-                errors.push(e.into());
+                first_error.get_or_insert_with(|| e.into());
             }
         }
 
-        if let Some(err) = errors.into_iter().next() {
-            Err(err)
-        } else {
-            Ok(())
-        }
+        first_error.map_or(Ok(()), Err)
     }
 
     /// Resolves authorization for a given object.
