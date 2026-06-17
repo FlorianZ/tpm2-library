@@ -73,6 +73,16 @@ impl Handle {
         }
     }
 
+    /// Returns the concrete handle value, or an error if this is a pattern.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandleError::HandlePatternNotAllowed`] when the handle
+    /// represents a wildcard pattern rather than a single value.
+    pub fn require_value(&self) -> Result<u32, HandleError> {
+        self.value().ok_or(HandleError::HandlePatternNotAllowed)
+    }
+
     /// Checks if a given handle value matches the handle's pattern.
     #[must_use]
     pub fn matches(&self, handle: u32) -> bool {

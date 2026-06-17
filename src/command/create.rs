@@ -77,12 +77,13 @@ impl Task for Create {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<()> {
-        self.parent
-            .value()
-            .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.parent))?;
+        let parent = self
+            .parent
+            .require_value()
+            .map_err(|_| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
         with_device(task_state.device.clone(), |device| {
-            self.create_object(task_state, writer, device)
+            self.create_object(task_state, writer, device, parent)
         })
     }
 }
@@ -138,11 +139,8 @@ impl Create {
         task_state: &mut TaskState,
         writer: &mut dyn std::io::Write,
         device: &mut TpmDevice,
+        parent: u32,
     ) -> Result<()> {
-        let Some(parent) = self.parent.value() else {
-            return Err(anyhow!("parent missing"));
-        };
-
         let (parent_phys_handle, _, auth) =
             task_state.resolve_auth(device, TpmUint32::new(parent))?;
 

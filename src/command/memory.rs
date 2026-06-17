@@ -73,8 +73,8 @@ impl Task for Memory {
     ) -> Result<()> {
         if let Some(handle) = self.handle {
             let handle_val = handle
-                .value()
-                .ok_or_else(|| anyhow!("handle pattern not allowed: {handle}"))?;
+                .require_value()
+                .map_err(|_| anyhow!("handle pattern not allowed: {handle}"))?;
             Self::inspect_handle(session, writer, handle_val, &handle.to_string())
         } else {
             Self::list_all_memory(session, writer, is_tty, self.no_cache)

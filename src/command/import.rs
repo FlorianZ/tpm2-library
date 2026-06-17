@@ -79,8 +79,8 @@ impl Task for Import {
     ) -> Result<()> {
         let parent = self
             .parent
-            .value()
-            .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.parent))?;
+            .require_value()
+            .map_err(|_| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
         with_device(task_state.device.clone(), |device| {
             let (parent_handle, name_alg, auth) =

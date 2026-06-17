@@ -31,9 +31,10 @@ impl Task for Unseal {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<()> {
-        let Some(handle) = self.handle.value() else {
-            return Err(anyhow!("handle pattern not allowed: {}", self.handle));
-        };
+        let handle = self
+            .handle
+            .require_value()
+            .map_err(|_| anyhow!("handle pattern not allowed: {}", self.handle))?;
 
         with_device(task_state.device.clone(), |device| {
             let (item_handle, _, auth) = task_state.resolve_auth(device, TpmUint32::new(handle))?;

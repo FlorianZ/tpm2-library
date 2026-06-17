@@ -58,9 +58,10 @@ impl Task for Load {
 
         with_device(task_state.device.clone(), |device| -> Result<()> {
             let (parent_public, parent_handle_ref) = {
-                let Some(parent) = self.parent.value() else {
-                    return Err(anyhow!("handle pattern not allowed: {}", self.parent));
-                };
+                let parent = self
+                    .parent
+                    .require_value()
+                    .map_err(|_| anyhow!("handle pattern not allowed: {}", self.parent))?;
                 Self::parent_from_handle(task_state, device, TpmUint32::new(parent))?
             };
 

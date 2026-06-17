@@ -30,8 +30,8 @@ impl Task for Evict {
     ) -> Result<()> {
         let input_handle = self
             .input
-            .value()
-            .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.input))?;
+            .require_value()
+            .map_err(|_| anyhow!("handle pattern not allowed: {}", self.input))?;
 
         if handle_type(input_handle) != Some(TpmHt::Transient) {
             return Err(anyhow!("invalid handle"));
@@ -39,8 +39,8 @@ impl Task for Evict {
 
         let output_handle = self
             .output
-            .value()
-            .ok_or_else(|| anyhow!("handle pattern not allowed: {}", self.output))?;
+            .require_value()
+            .map_err(|_| anyhow!("handle pattern not allowed: {}", self.output))?;
 
         if handle_type(output_handle) != Some(TpmHt::Persistent) {
             return Err(anyhow!("invalid handle"));
