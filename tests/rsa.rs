@@ -8,7 +8,7 @@
 #![deny(clippy::pedantic)]
 
 use openssl::{pkey::PKey, rsa::Rsa};
-use rand::{SeedableRng, rngs::OsRng, rngs::StdRng};
+use rand::{SeedableRng, rngs::StdRng};
 use tpm2_crypto::{TpmExternalKey, TpmHash, TpmRsaExternalKey};
 
 #[test]
@@ -21,7 +21,7 @@ fn rsa_to_seed_with_default_exponent() {
     assert_eq!(u32::from(ext_key.exponent()), 0);
     assert_eq!(private.as_ref().len(), 128);
 
-    let mut rng = OsRng;
+    let mut rng = rand::rng();
     let alg = TpmHash::Sha256;
     let (seed, encrypted) = ext_key.to_seed(alg, &mut rng).expect("to_seed");
 

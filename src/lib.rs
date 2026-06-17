@@ -58,7 +58,7 @@ where
     fn to_seed(
         &self,
         name_alg: TpmHash,
-        rng: &mut (impl rand::RngCore + rand::CryptoRng),
+        rng: &mut impl rand::CryptoRng,
     ) -> Result<
         (
             tpm2_protocol::data::Tpm2bDigest,

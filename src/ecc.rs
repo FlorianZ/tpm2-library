@@ -6,7 +6,7 @@
 
 use super::TpmPublicTemplate;
 use crate::{KDF_LABEL_DUPLICATE, TpmCryptoError, TpmExternalKey, TpmHash, TpmPublicAreaField};
-use num_bigint::{BigUint, RandBigInt};
+use num_bigint::BigUint;
 use num_traits::ops::bytes::ToBytes;
 use openssl::{
     bn::{BigNum, BigNumContext},
@@ -15,7 +15,7 @@ use openssl::{
     nid::Nid,
     pkey::{PKey, Private},
 };
-use rand::{CryptoRng, RngCore};
+use rand::CryptoRng;
 use strum::{Display, EnumString};
 use tpm2_protocol::{
     TpmMarshal, TpmWriter,
@@ -270,7 +270,7 @@ impl TpmExternalKey for TpmEccExternalKey {
     fn to_seed(
         &self,
         name_alg: TpmHash,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRng,
     ) -> Result<(Tpm2bDigest, Tpm2bEncryptedSecret), TpmCryptoError> {
         let (derived_seed, ephemeral_point) = self.ecdh(name_alg, rng)?;
 
@@ -305,7 +305,7 @@ impl TpmEccExternalKey {
     fn ecdh(
         &self,
         name_alg: TpmHash,
-        rng: &mut (impl RngCore + CryptoRng),
+        rng: &mut impl CryptoRng,
     ) -> Result<(Tpm2bDigest, TpmsEccPoint), TpmCryptoError> {
         let nid = Nid::try_from(self.curve)?;
         let group = EcGroup::from_curve_name(nid).map_err(TpmCryptoError::Crypto)?;
@@ -326,7 +326,7 @@ impl TpmEccExternalKey {
         let order_uint = BigUint::from_bytes_be(&order.to_vec());
         let one = BigUint::from(1u8);
 
-        let priv_uint = rng.gen_biguint_range(&one, &order_uint);
+        let priv_uint = gen_biguint_range(rng, &one, &order_uint);
         let priv_bn =
             BigNum::from_slice(&priv_uint.to_be_bytes()).map_err(TpmCryptoError::Crypto)?;
 
@@ -404,4 +404,26 @@ fn tpm_make_point(
 fn ecc_coord_len(group: &EcGroupRef) -> Result<usize, TpmCryptoError> {
     let degree = group.degree();
     usize::try_from(degree.div_ceil(8)).map_err(|_| TpmCryptoError::InvalidEccGroupDegree(degree))
+}
+
+/// Samples a uniform [`BigUint`] in the half-open range `[low, high)` using
+/// rejection sampling over the most significant byte mask.
+fn gen_biguint_range(rng: &mut impl CryptoRng, low: &BigUint, high: &BigUint) -> BigUint {
+    debug_assert!(low < high);
+    let range = high - low;
+    let bits = range.bits();
+    let byte_len = usize::try_from(bits.div_ceil(8)).unwrap_or(0).max(1);
+    let high_mask = match bits % 8 {
+        0 => 0xff,
+        rem => (1u8 << rem) - 1,
+    };
+    let mut buf = vec![0u8; byte_len];
+    loop {
+        rng.fill_bytes(&mut buf);
+        buf[0] &= high_mask;
+        let candidate = BigUint::from_bytes_be(&buf);
+        if candidate < range {
+            return low + candidate;
+        }
+    }
 }
