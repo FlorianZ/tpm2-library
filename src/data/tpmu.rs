@@ -8,12 +8,13 @@ use crate::{
     constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bDigest, Tpm2bEccParameter, Tpm2bPublicKeyRsa, Tpm2bSensitiveData, Tpm2bSymKey,
-        TpmAlgId, TpmCap, TpmHt, TpmSt, TpmlAlgProperty, TpmlCca, TpmlEccCurve, TpmlHandle,
-        TpmlPcrSelection, TpmlTaggedTpmProperty, TpmsCertifyInfo, TpmsCommandAuditInfo,
-        TpmsCreationInfo, TpmsEccParms, TpmsEccPoint, TpmsKeyedhashParms, TpmsNvCertifyInfo,
-        TpmsNvDigestCertifyInfo, TpmsNvPublic, TpmsNvPublicExpAttr, TpmsQuoteInfo, TpmsRsaParms,
-        TpmsSchemeHash, TpmsSchemeHmac, TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc,
-        TpmsSignatureRsa, TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
+        TpmAlgId, TpmCap, TpmHt, TpmSt, TpmlActData, TpmlAlgProperty, TpmlCc, TpmlCca,
+        TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPolicy, TpmlTaggedTpmProperty,
+        TpmsCertifyInfo, TpmsCommandAuditInfo, TpmsCreationInfo, TpmsEccParms, TpmsEccPoint,
+        TpmsKeyedhashParms, TpmsNvCertifyInfo, TpmsNvDigestCertifyInfo, TpmsNvPublic,
+        TpmsNvPublicExpAttr, TpmsQuoteInfo, TpmsRsaParms, TpmsSchemeHash, TpmsSchemeHmac,
+        TpmsSchemeXor, TpmsSessionAuditInfo, TpmsSignatureEcc, TpmsSignatureRsa,
+        TpmsSymcipherParms, TpmsTimeAttestInfo, TpmtHa,
     },
 };
 use core::ops::Deref;
@@ -125,8 +126,12 @@ pub enum TpmuCapabilities {
     Handles(TpmlHandle),
     Pcrs(TpmlPcrSelection),
     Commands(TpmlCca),
+    PpCommands(TpmlCc),
+    AuditCommands(TpmlCc),
     TpmProperties(TpmlTaggedTpmProperty),
     EccCurves(TpmlEccCurve),
+    AuthPolicies(TpmlTaggedPolicy),
+    Act(TpmlActData),
 }
 
 impl TpmSized for TpmuCapabilities {
@@ -137,8 +142,11 @@ impl TpmSized for TpmuCapabilities {
             Self::Handles(handles) => handles.len(),
             Self::Pcrs(pcrs) => pcrs.len(),
             Self::Commands(cmds) => cmds.len(),
+            Self::PpCommands(cmds) | Self::AuditCommands(cmds) => cmds.len(),
             Self::TpmProperties(props) => props.len(),
             Self::EccCurves(curves) => curves.len(),
+            Self::AuthPolicies(policies) => policies.len(),
+            Self::Act(act) => act.len(),
         }
     }
 }
@@ -150,8 +158,11 @@ impl TpmMarshal for TpmuCapabilities {
             Self::Handles(handles) => handles.marshal(writer),
             Self::Pcrs(pcrs) => pcrs.marshal(writer),
             Self::Commands(cmds) => cmds.marshal(writer),
+            Self::PpCommands(cmds) | Self::AuditCommands(cmds) => cmds.marshal(writer),
             Self::TpmProperties(props) => props.marshal(writer),
             Self::EccCurves(curves) => curves.marshal(writer),
+            Self::AuthPolicies(policies) => policies.marshal(writer),
+            Self::Act(act) => act.marshal(writer),
         }
     }
 }
@@ -161,8 +172,12 @@ tpmu_view!(TpmuCapabilitiesView, TpmuCapabilities, TpmCap {
     Handles(TpmlHandle): TpmCap::Handles;
     Pcrs(TpmlPcrSelection): TpmCap::Pcrs;
     Commands(TpmlCca): TpmCap::Commands;
+    PpCommands(TpmlCc): TpmCap::PpCommands;
+    AuditCommands(TpmlCc): TpmCap::AuditCommands;
     TpmProperties(TpmlTaggedTpmProperty): TpmCap::TpmProperties;
     EccCurves(TpmlEccCurve): TpmCap::EccCurves;
+    AuthPolicies(TpmlTaggedPolicy): TpmCap::AuthPolicies;
+    Act(TpmlActData): TpmCap::Act;
 });
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]

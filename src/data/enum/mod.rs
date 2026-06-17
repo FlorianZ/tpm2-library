@@ -93,9 +93,13 @@ tpm_enum! {
         (Algs, 0x0000_0000, "TPM_CAP_ALGS"),
         (Handles, 0x0000_0001, "TPM_CAP_HANDLES"),
         (Commands, 0x0000_0002, "TPM_CAP_COMMANDS"),
+        (PpCommands, 0x0000_0003, "TPM_CAP_PP_COMMANDS"),
+        (AuditCommands, 0x0000_0004, "TPM_CAP_AUDIT_COMMANDS"),
         (Pcrs, 0x0000_0005, "TPM_CAP_PCRS"),
         (TpmProperties, 0x0000_0006, "TPM_CAP_TPM_PROPERTIES"),
         (EccCurves, 0x0000_0008, "TPM_CAP_ECC_CURVES"),
+        (AuthPolicies, 0x0000_0009, "TPM_CAP_AUTH_POLICIES"),
+        (Act, 0x0000_000A, "TPM_CAP_ACT"),
     }
 }
 

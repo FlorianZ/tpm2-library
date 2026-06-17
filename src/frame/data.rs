@@ -2484,6 +2484,26 @@ tpm_struct! {
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     kind: Command,
+    name: TpmSetCapabilityCommand,
+    cc: TpmCc::SetCapability,
+    handles: 1,
+    parameters: {
+        pub set_data: TpmsCapabilityData,
+    }
+}
+
+tpm_struct! {
+    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
+    kind: Response,
+    name: TpmSetCapabilityResponse,
+    cc: TpmCc::SetCapability,
+    handles: 0,
+    parameters: {}
+}
+
+tpm_struct! {
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    kind: Command,
     name: TpmSetCommandCodeAuditStatusCommand,
     cc: TpmCc::SetCommandCodeAuditStatus,
     handles: 1,

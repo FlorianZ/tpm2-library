@@ -9,9 +9,10 @@ use crate::{
     data::{
         Tpm2b, Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bMaxNvBuffer, Tpm2bName,
         Tpm2bNonce, Tpm2bSensitiveData, TpmAlgId, TpmAt, TpmCap, TpmEccCurve, TpmPt, TpmRh, TpmSt,
-        TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash, TpmiRhNvExpIndex,
-        TpmiYesNo, TpmlPcrSelection, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedhashScheme,
-        TpmtRsaScheme, TpmtSymDefObject, TpmuAttest, TpmuAttestView, TpmuCapabilities,
+        TpmaAct, TpmaAlgorithm, TpmaLocality, TpmaNv, TpmaNvExp, TpmaSession, TpmiAlgHash,
+        TpmiRhNvExpIndex, TpmiYesNo, TpmlPcrSelection, TpmtEccScheme, TpmtHa, TpmtKdfScheme,
+        TpmtKeyedhashScheme, TpmtRsaScheme, TpmtSymDefObject, TpmuAttest, TpmuAttestView,
+        TpmuCapabilities,
     },
     tpm_struct,
 };
@@ -135,6 +136,16 @@ tpm_struct! {
     pub struct TpmsAcOutput {
         pub tag: TpmAt,
         pub data: TpmUint32,
+    }
+}
+
+tpm_struct! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    wire: TpmsActDataWire,
+    pub struct TpmsActData {
+        pub handle: TpmHandle,
+        pub timeout: TpmUint32,
+        pub attributes: TpmaAct,
     }
 }
 
@@ -335,6 +346,15 @@ tpm_struct! {
     pub struct TpmsTaggedProperty {
         pub property: TpmPt,
         pub value: TpmUint32,
+    }
+}
+
+tpm_struct! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    wire: TpmsTaggedPolicyWire,
+    pub struct TpmsTaggedPolicy {
+        pub handle: TpmHandle,
+        pub policy_hash: TpmtHa,
     }
 }
 

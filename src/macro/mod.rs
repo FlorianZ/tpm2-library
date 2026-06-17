@@ -401,6 +401,7 @@ macro_rules! tpm_dispatch {
                 let cc = command.cc()?;
                 match cc {
                     $( <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC => Ok(Self::$variant(command)), )*
+                    #[allow(unreachable_patterns)]
                     _ => Err($crate::TpmError::InvalidCc { offset: 6, value: u64::from(cc.value()) }),
                 }
             }
@@ -549,6 +550,7 @@ macro_rules! tpm_dispatch {
 
                 match cc {
                     $( <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC => Ok(Ok(Self::$variant(response))), )*
+                    #[allow(unreachable_patterns)]
                     _ => Err($crate::TpmError::InvalidCc { offset: 0, value: u64::from(cc.value()) }),
                 }
             }

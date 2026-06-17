@@ -183,6 +183,7 @@ tpm_dispatch! {
     (TpmPolicyParametersCommand, TpmPolicyParametersResponse, PolicyParameters),
     (TpmNvDefineSpace2Command, TpmNvDefineSpace2Response, NvDefineSpace2),
     (TpmNvReadPublic2Command, TpmNvReadPublic2Response, NvReadPublic2),
+    (TpmSetCapabilityCommand, TpmSetCapabilityResponse, SetCapability),
     (TpmReadOnlyControlCommand, TpmReadOnlyControlResponse, ReadOnlyControl),
     (TpmPolicyTransportSpdmCommand, TpmPolicyTransportSpdmResponse, PolicyTransportSpdm),
     (TpmVendorTcgTestCommand, TpmVendorTcgTestResponse, VendorTcgTest),

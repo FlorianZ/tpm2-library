@@ -4,6 +4,15 @@
 use crate::tpm_bitflags;
 
 tpm_bitflags! {
+    /// `TPMA_ACT` (Table 213)
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct TpmaAct(TpmUint32) {
+        const SIGNALED = 0x0000_0001, "SIGNALED";
+        const PRESERVE_SIGNALED = 0x0000_0002, "PRESERVE_SIGNALED";
+    }
+}
+
+tpm_bitflags! {
     /// `TPMA_ALGORITHM`
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct TpmaAlgorithm(TpmUint32) {

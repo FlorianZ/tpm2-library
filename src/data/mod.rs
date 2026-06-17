@@ -117,3 +117,5 @@ tpml!(TpmlHandle, crate::basic::TpmUint32, 128);
 tpml!(TpmlPcrSelection, TpmsPcrSelection, 8);
 tpml!(TpmlEccCurve, TpmEccCurve, 64);
 tpml!(TpmlTaggedTpmProperty, TpmsTaggedProperty, 64);
+tpml!(TpmlTaggedPolicy, TpmsTaggedPolicy, 8);
+tpml!(TpmlActData, TpmsActData, 8);
