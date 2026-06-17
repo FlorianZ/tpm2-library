@@ -6,7 +6,7 @@ use crate::{
     cli::Task,
     command::{
         CommandError,
-        common::{build_policy_command_list, parse_password},
+        common::{build_policy_command_list, default_symmetric, parse_password},
     },
     io::{read_file_input, write_key_data},
     response::parse_response,
@@ -17,12 +17,11 @@ use std::path::PathBuf;
 use tpm2_crypto::{TpmHash, TpmPublicTemplate};
 use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
-    basic::{TpmHandle, TpmUint16, TpmUint32},
+    basic::{TpmHandle, TpmUint32},
     data::{
         Tpm2bData, Tpm2bDigest, Tpm2bPublic, Tpm2bSensitiveCreate, Tpm2bSensitiveData, TpmAlgId,
         TpmaObject, TpmlPcrSelection, TpmsKeyedhashParms, TpmsSensitiveCreate, TpmtKeyedhashScheme,
-        TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms, TpmuSymKeyBits,
-        TpmuSymMode,
+        TpmuKeyedhashScheme, TpmuPublicId, TpmuPublicParms,
     },
     frame::{TpmAuthCommands, TpmCommandValue as TpmCommand, TpmCreateCommand, TpmCreateResponse},
 };
@@ -144,11 +143,7 @@ impl Seal {
             name_alg,
         )?;
 
-        let symmetric = TpmtSymDefObject {
-            algorithm: TpmAlgId::Aes,
-            key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
-            mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
-        };
+        let symmetric = default_symmetric();
 
         let unique = TpmuPublicId::KeyedHash(Tpm2bDigest::default());
         let parms = TpmuPublicParms::KeyedHash(TpmsKeyedhashParms {

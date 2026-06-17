@@ -169,6 +169,17 @@ pub fn build_policy_command_list(
     }
 }
 
+/// Returns the default symmetric parameters (AES-128-CFB) used to wrap the
+/// sensitive area of storage and sealed objects.
+#[must_use]
+pub fn default_symmetric() -> TpmtSymDefObject {
+    TpmtSymDefObject {
+        algorithm: TpmAlgId::Aes,
+        key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
+        mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
+    }
+}
+
 /// Constructs a `TpmtPublic` structure from a template, attributes, and policy.
 ///
 /// This function applies default symmetric parameters (AES-128-CFB) and ensures
@@ -182,11 +193,7 @@ pub fn resolve_public_template(
     attributes: TpmaObject,
     auth_policy: Tpm2bDigest,
 ) -> Result<TpmtPublic, CommandError> {
-    let symmetric = TpmtSymDefObject {
-        algorithm: TpmAlgId::Aes,
-        key_bits: TpmuSymKeyBits::Aes(TpmUint16::from(128)),
-        mode: TpmuSymMode::Aes(TpmAlgId::Cfb),
-    };
+    let symmetric = default_symmetric();
 
     let template_with_attrs = template
         .clone()
