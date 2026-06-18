@@ -162,12 +162,12 @@ impl TryFrom<TpmPublicTemplate> for TpmtPublic {
     }
 }
 
-impl TryFrom<TpmPublicTemplate> for String {
+impl TryFrom<&TpmPublicTemplate> for String {
     type Error = TpmCryptoError;
 
-    fn try_from(template: TpmPublicTemplate) -> Result<Self, TpmCryptoError> {
+    fn try_from(template: &TpmPublicTemplate) -> Result<Self, TpmCryptoError> {
         let name_alg_str = TpmHash::try_from(template.name_alg)?.to_string();
-        match template.public_parms {
+        match &template.public_parms {
             TpmuPublicParms::Rsa(parms) => {
                 let key_bits = parms.key_bits;
                 if key_bits.value() == 0 {

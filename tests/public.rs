@@ -133,7 +133,8 @@ fn test_ecc_to_public(
 #[case("keyedhash-hmac:sha256", TpmAlgId::Hmac)]
 fn test_keyedhash_parsing(#[case] input: &str, #[case] expected_scheme: TpmAlgId) {
     let template = TpmPublicTemplate::from_str(input).expect("parse failed");
-    let public = TpmtPublic::try_from(template.clone()).expect("template to public");
+    let output_str = String::try_from(&template).expect("to string failed");
+    let public = TpmtPublic::try_from(template).expect("template to public");
 
     assert_eq!(public.object_type, TpmAlgId::KeyedHash);
     assert_eq!(public.name_alg, TpmAlgId::Sha256);
@@ -155,7 +156,6 @@ fn test_keyedhash_parsing(#[case] input: &str, #[case] expected_scheme: TpmAlgId
         panic!("Incorrect parameters type: expected KEYEDHASH");
     }
 
-    let output_str: String = template.try_into().expect("to string failed");
     assert_eq!(output_str, input);
 }
 
@@ -192,7 +192,7 @@ fn template_string_rejects_unknown_keyedhash_scheme() {
         .unwrap()
         .with_name_alg(TpmHash::Sha256);
 
-    let result = String::try_from(template);
+    let result = String::try_from(&template);
 
     assert!(matches!(result, Err(TpmCryptoError::InvalidObjectType)));
 }
@@ -209,7 +209,7 @@ fn template_string_rejects_unsupported_public_parameters() {
         .unwrap()
         .with_name_alg(TpmHash::Sha256);
 
-    let result = String::try_from(template);
+    let result = String::try_from(&template);
 
     assert!(matches!(result, Err(TpmCryptoError::InvalidObjectType)));
 }
