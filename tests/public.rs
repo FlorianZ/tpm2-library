@@ -327,7 +327,7 @@ fn ecc_from_public_rejects_object_type_mismatch() {
 
     assert!(matches!(
         result,
-        Err(TpmCryptoError::InvalidEccPublicArea {
+        Err(TpmCryptoError::InvalidPublicArea {
             object_type: TpmAlgId::Rsa,
             field: TpmPublicAreaField::ObjectType,
         })

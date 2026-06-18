@@ -41,16 +41,6 @@ pub enum TpmCryptoError {
     #[error("invalid ECC NID: {0:?}")]
     InvalidEccNid(Nid),
 
-    /// Invalid ECC public area.
-    #[error("invalid ECC public area: {field:?} for object type {object_type:?}")]
-    InvalidEccPublicArea {
-        /// Object type reported by the public area.
-        object_type: TpmAlgId,
-
-        /// Field that failed validation.
-        field: TpmPublicAreaField,
-    },
-
     /// Invalid ECC point shape.
     #[error(
         "invalid ECC point for {curve:?}: expected {expected_len}-byte coordinates, got x={x_len}, y={y_len}"
@@ -67,16 +57,6 @@ pub enum TpmCryptoError {
 
         /// Expected coordinate length.
         expected_len: usize,
-    },
-
-    /// Invalid ECC private scalar size.
-    #[error("invalid ECC private scalar: {len} bytes exceeds {max} bytes")]
-    InvalidEccPrivateScalar {
-        /// Actual scalar length.
-        len: usize,
-
-        /// Maximum scalar length accepted by the TPM buffer type.
-        max: usize,
     },
 
     /// Invalid ECC key structure.
@@ -107,9 +87,9 @@ pub enum TpmCryptoError {
     #[error("invalid object type")]
     InvalidObjectType,
 
-    /// Invalid RSA public area.
-    #[error("invalid RSA public area: {field:?} for object type {object_type:?}")]
-    InvalidRsaPublicArea {
+    /// Invalid public area.
+    #[error("invalid public area: {field:?} for object type {object_type:?}")]
+    InvalidPublicArea {
         /// Object type reported by the public area.
         object_type: TpmAlgId,
 
@@ -129,13 +109,13 @@ pub enum TpmCryptoError {
     #[error("invalid RSA exponent: {0:?}")]
     InvalidRsaExponent(TpmUint32),
 
-    /// Invalid RSA private prime size.
-    #[error("invalid RSA private prime: {len} bytes exceeds {max} bytes")]
-    InvalidRsaPrivatePrime {
-        /// Actual private prime length.
+    /// Invalid private key size.
+    #[error("invalid private key: {len} bytes exceeds {max} bytes")]
+    InvalidPrivateKeySize {
+        /// Actual private key length.
         len: usize,
 
-        /// Maximum private prime length accepted by the TPM buffer type.
+        /// Maximum length accepted by the TPM buffer type.
         max: usize,
     },
 
@@ -178,21 +158,11 @@ impl PartialEq for TpmCryptoError {
             (Self::InvalidEccNid(a), Self::InvalidEccNid(b))
             | (Self::InvalidMessageDigestNid(a), Self::InvalidMessageDigestNid(b)) => a == b,
             (
-                Self::InvalidEccPublicArea {
+                Self::InvalidPublicArea {
                     object_type: object_type_a,
                     field: field_a,
                 },
-                Self::InvalidEccPublicArea {
-                    object_type: object_type_b,
-                    field: field_b,
-                },
-            )
-            | (
-                Self::InvalidRsaPublicArea {
-                    object_type: object_type_a,
-                    field: field_a,
-                },
-                Self::InvalidRsaPublicArea {
+                Self::InvalidPublicArea {
                     object_type: object_type_b,
                     field: field_b,
                 },
@@ -217,21 +187,11 @@ impl PartialEq for TpmCryptoError {
                     && expected_len_a == expected_len_b
             }
             (
-                Self::InvalidEccPrivateScalar {
+                Self::InvalidPrivateKeySize {
                     len: len_a,
                     max: max_a,
                 },
-                Self::InvalidEccPrivateScalar {
-                    len: len_b,
-                    max: max_b,
-                },
-            )
-            | (
-                Self::InvalidRsaPrivatePrime {
-                    len: len_a,
-                    max: max_a,
-                },
-                Self::InvalidRsaPrivatePrime {
+                Self::InvalidPrivateKeySize {
                     len: len_b,
                     max: max_b,
                 },

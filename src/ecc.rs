@@ -185,7 +185,7 @@ impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
         if public.object_type != TpmAlgId::Ecc {
-            return Err(TpmCryptoError::InvalidEccPublicArea {
+            return Err(TpmCryptoError::InvalidPublicArea {
                 object_type: public.object_type,
                 field: TpmPublicAreaField::ObjectType,
             });
@@ -193,7 +193,7 @@ impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
 
         let params = match &public.parameters {
             TpmuPublicParms::Ecc(params) => Ok(params),
-            _ => Err(TpmCryptoError::InvalidEccPublicArea {
+            _ => Err(TpmCryptoError::InvalidPublicArea {
                 object_type: public.object_type,
                 field: TpmPublicAreaField::Parameters,
             }),
@@ -201,7 +201,7 @@ impl TryFrom<&TpmtPublic> for TpmEccExternalKey {
 
         let (x, y) = match &public.unique {
             TpmuPublicId::Ecc(point) => Ok((point.x, point.y)),
-            _ => Err(TpmCryptoError::InvalidEccPublicArea {
+            _ => Err(TpmCryptoError::InvalidPublicArea {
                 object_type: public.object_type,
                 field: TpmPublicAreaField::Unique,
             }),
@@ -238,7 +238,7 @@ impl TpmExternalKey for TpmEccExternalKey {
         let ec_key = pkey.ec_key().map_err(TpmCryptoError::Crypto)?;
         let private_key = ec_key.private_key().to_vec();
         let sensitive = Tpm2bEccParameter::try_from(private_key.as_slice()).map_err(|_| {
-            TpmCryptoError::InvalidEccPrivateScalar {
+            TpmCryptoError::InvalidPrivateKeySize {
                 len: private_key.len(),
                 max: MAX_ECC_KEY_BYTES,
             }

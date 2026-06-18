@@ -95,7 +95,7 @@ impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
 
     fn try_from(public: &TpmtPublic) -> Result<Self, Self::Error> {
         if public.object_type != TpmAlgId::Rsa {
-            return Err(TpmCryptoError::InvalidRsaPublicArea {
+            return Err(TpmCryptoError::InvalidPublicArea {
                 object_type: public.object_type,
                 field: TpmPublicAreaField::ObjectType,
             });
@@ -103,7 +103,7 @@ impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
 
         let params = match &public.parameters {
             TpmuPublicParms::Rsa(params) => Ok(params),
-            _ => Err(TpmCryptoError::InvalidRsaPublicArea {
+            _ => Err(TpmCryptoError::InvalidPublicArea {
                 object_type: public.object_type,
                 field: TpmPublicAreaField::Parameters,
             }),
@@ -111,7 +111,7 @@ impl TryFrom<&TpmtPublic> for TpmRsaExternalKey {
 
         let n = match &public.unique {
             TpmuPublicId::Rsa(n) => Ok(*n),
-            _ => Err(TpmCryptoError::InvalidRsaPublicArea {
+            _ => Err(TpmCryptoError::InvalidPublicArea {
                 object_type: public.object_type,
                 field: TpmPublicAreaField::Unique,
             }),
@@ -165,7 +165,7 @@ impl TpmExternalKey for TpmRsaExternalKey {
             .ok_or(TpmCryptoError::MissingRsaPrivatePrime)?
             .to_vec();
         let sensitive = Tpm2bPrivateKeyRsa::try_from(p.as_slice()).map_err(|_| {
-            TpmCryptoError::InvalidRsaPrivatePrime {
+            TpmCryptoError::InvalidPrivateKeySize {
                 len: p.len(),
                 max: MAX_RSA_KEY_BYTES / 2,
             }
