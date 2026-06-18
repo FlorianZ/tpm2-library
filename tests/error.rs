@@ -240,7 +240,7 @@ fn display_renders_variant_name() {
         available: 2,
     };
 
-    assert_eq!(err.to_string(), "UnexpectedEnd");
+    assert_eq!(err.to_string(), "unexpected end");
     assert_eq!(err.kind(), "UnexpectedEnd");
 }
 

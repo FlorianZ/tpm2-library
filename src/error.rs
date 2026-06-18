@@ -153,14 +153,28 @@ impl TpmError {
     }
 }
 
-/// Renders [`TpmError`] as its bare variant name.
+/// Renders [`TpmError`] as its bare variant name in lowercase, space-separated
+/// words (e.g. `BufferOverflow` becomes `buffer overflow`).
 ///
-/// As the lowest-level crate in the stack, errors expose only the stable
-/// [`kind`](Self::kind) discriminant here. Callers read the structured fields
-/// directly and decide how to present the diagnostic detail.
+/// As the lowest-level crate in the stack, errors expose only the variant name
+/// here, derived from the stable [`kind`](Self::kind) discriminant. Callers read
+/// the structured fields directly and decide how to present the diagnostic
+/// detail.
 impl core::fmt::Display for TpmError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.kind())
+        use core::fmt::Write as _;
+
+        for (i, ch) in self.kind().char_indices() {
+            if ch.is_ascii_uppercase() {
+                if i != 0 {
+                    f.write_char(' ')?;
+                }
+                f.write_char(ch.to_ascii_lowercase())?;
+            } else {
+                f.write_char(ch)?;
+            }
+        }
+        Ok(())
     }
 }
 
