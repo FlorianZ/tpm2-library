@@ -771,7 +771,7 @@ fn response_parts(
 
     let (parameter_size, after_size) = parse_wire_copy::<TpmUint32>(after_handles)?;
     let parameter_size =
-        usize::try_from(parameter_size.get()).map_err(|_| TpmDeviceError::InvalidResponse)?;
+        usize::try_from(parameter_size.value()).map_err(|_| TpmDeviceError::InvalidResponse)?;
     if after_size.len() < parameter_size {
         return Err(TpmDeviceError::InvalidResponse);
     }
@@ -801,7 +801,7 @@ fn parse_tpm2b_buffer<const CAPACITY: usize>(
     let (value, rest) =
         Tpm2bWire::<CAPACITY>::cast_prefix(buf).map_err(TpmDeviceError::Unmarshal)?;
     let value =
-        TpmBuffer::<CAPACITY>::try_from(value.payload()).map_err(TpmDeviceError::Unmarshal)?;
+        TpmBuffer::<CAPACITY>::try_from(value.data()).map_err(TpmDeviceError::Unmarshal)?;
 
     Ok((value, rest))
 }
@@ -1091,7 +1091,7 @@ fn parse_tpmt_public(buf: &[u8]) -> Result<(TpmtPublic, &[u8]), TpmDeviceError> 
 
 fn parse_tpm2b_public(buf: &[u8]) -> Result<(TpmtPublic, &[u8]), TpmDeviceError> {
     let (size, buf) = parse_wire_copy::<TpmUint16>(buf)?;
-    let size = usize::from(size.get());
+    let size = usize::from(size.value());
     if buf.len() < size {
         return Err(TpmDeviceError::InvalidResponse);
     }
@@ -1130,7 +1130,7 @@ where
     let (count, mut cursor) = parse_wire_copy::<TpmUint32>(buf)?;
     let mut list = TpmList::<T, CAPACITY>::new();
 
-    for _ in 0..count.get() {
+    for _ in 0..count.value() {
         let (item, rest) = parse_item(cursor)?;
         list.try_push(item).map_err(TpmDeviceError::Unmarshal)?;
         cursor = rest;
@@ -1196,6 +1196,9 @@ fn parse_capability_data(buf: &[u8]) -> Result<(TpmsCapabilityData, &[u8]), TpmD
             let (list, rest) =
                 parse_list::<TpmEccCurve, 64>(buf, parse_field_value::<TpmEccCurve>)?;
             (TpmuCapabilities::EccCurves(list), rest)
+        }
+        TpmCap::PpCommands | TpmCap::AuditCommands | TpmCap::AuthPolicies | TpmCap::Act => {
+            return Err(TpmDeviceError::InvalidResponse);
         }
     };
 
