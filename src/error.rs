@@ -2,8 +2,8 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+use core::fmt;
 use openssl::{error::ErrorStack, nid::Nid};
-use thiserror::Error;
 use tpm2_protocol::{
     basic::TpmUint32,
     data::{TpmAlgId, TpmEccCurve},
@@ -23,28 +23,25 @@ pub enum TpmPublicAreaField {
 }
 
 /// The top-level error type for cryptographic operations.
-#[derive(Debug, Error)]
+///
+/// `Display` renders only the variant name as lowercase space-separated words
+/// (e.g. `BufferTooSmall` becomes `buffer too small`).
+#[derive(Debug, strum::AsRefStr)]
+#[strum(serialize_all = "title_case")]
 pub enum TpmCryptoError {
     /// The output buffer is too small for the requested operation.
-    #[error("buffer too small: expected at least {expected} bytes, got {actual}")]
     BufferTooSmall { expected: usize, actual: usize },
 
     /// A libcrypto operation failed.
-    #[error("crypto: {0}")]
     Crypto(ErrorStack),
 
     /// ECC curve is not supported in the context of use.
-    #[error("invalid ECC curve: {0:?}")]
     InvalidEccCurve(TpmEccCurve),
 
     /// OpenSSL ECC NID is not supported in the context of use.
-    #[error("invalid ECC NID: {0:?}")]
     InvalidEccNid(Nid),
 
     /// Invalid ECC point shape.
-    #[error(
-        "invalid ECC point for {curve:?}: expected {expected_len}-byte coordinates, got x={x_len}, y={y_len}"
-    )]
     InvalidEccPoint {
         /// TPM ECC curve associated with the point.
         curve: TpmEccCurve,
@@ -60,35 +57,27 @@ pub enum TpmCryptoError {
     },
 
     /// Invalid ECC key structure.
-    #[error("invalid ECC key")]
     InvalidEccKey,
 
     /// Invalid ECC group degree.
-    #[error("invalid ECC group degree: {0}")]
     InvalidEccGroupDegree(u32),
 
     /// Hash algorithm is not supported in the context of use.
-    #[error("invalid hash algorithm")]
     InvalidHash,
 
     /// OpenSSL message digest NID is not supported in the context of use.
-    #[error("invalid message digest NID: {0:?}")]
     InvalidMessageDigestNid(Nid),
 
     /// Invalid RSA key bits.
-    #[error("invalid RSA key bits: {0}")]
     InvalidKeyBits(u16),
 
     /// Invalid KDF key bits.
-    #[error("invalid KDF key bits: {0} exceeds TPM UINT32")]
     InvalidKdfKeyBits(usize),
 
     /// Invalid object type.
-    #[error("invalid object type")]
     InvalidObjectType,
 
     /// Invalid public area.
-    #[error("invalid public area: {field:?} for object type {object_type:?}")]
     InvalidPublicArea {
         /// Object type reported by the public area.
         object_type: TpmAlgId,
@@ -98,19 +87,15 @@ pub enum TpmCryptoError {
     },
 
     /// Invalid RSA key structure.
-    #[error("invalid RSA key")]
     InvalidRsaKey,
 
     /// Invalid RSA public modulus.
-    #[error("invalid RSA modulus")]
     InvalidRsaModulus(Vec<u8>),
 
     /// Invalid RSA public exponent.
-    #[error("invalid RSA exponent: {0:?}")]
     InvalidRsaExponent(TpmUint32),
 
     /// Invalid private key size.
-    #[error("invalid private key: {len} bytes exceeds {max} bytes")]
     InvalidPrivateKeySize {
         /// Actual private key length.
         len: usize,
@@ -120,25 +105,28 @@ pub enum TpmCryptoError {
     },
 
     /// RSA private prime is missing.
-    #[error("missing RSA private prime")]
     MissingRsaPrivatePrime,
 
     /// A zero-length key was provided.
-    #[error("the provided key has zero length")]
     KeyIsEmpty,
 
     /// Marshaling a TPM protocol encoded object failed.
-    #[error("marshal: {0}")]
     Marshal(tpm2_protocol::TpmError),
 
     /// The provided HMAC does not match to the expected value.
-    #[error("permission denied")]
     PermissionDenied,
 
     /// Unmarshaling a TPM protocol encoded object failed.
-    #[error("unmarshal: {0}")]
     Unmarshal(tpm2_protocol::TpmError),
 }
+
+impl fmt::Display for TpmCryptoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_ref().to_lowercase())
+    }
+}
+
+impl std::error::Error for TpmCryptoError {}
 
 impl PartialEq for TpmCryptoError {
     fn eq(&self, other: &Self) -> bool {

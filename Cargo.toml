@@ -16,7 +16,6 @@ num-traits = "0.2"
 openssl = { version = "0.10" }
 rand = "0.10"
 strum = { version = "0.28", features = ["derive"] }
-thiserror = "2.0"
 tpm2-protocol = "0.20.0"
 
 [[test]]
