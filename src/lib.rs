@@ -69,7 +69,7 @@ pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
-    TpmError, TpmErrorValue,
+    TpmError,
     basic::{TpmHandle, TpmUint32},
     constant::{MAX_PRIVATE_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
@@ -104,9 +104,11 @@ pub struct TpmKeyFile {
 
 fn tpm_take(buf: &[u8], n: usize) -> tpm2_protocol::TpmResult<(&[u8], &[u8])> {
     if buf.len() < n {
-        Err(TpmError::UnexpectedEnd(
-            TpmErrorValue::new(0).size(n, buf.len()),
-        ))
+        Err(TpmError::UnexpectedEnd {
+            offset: 0,
+            needed: n,
+            available: buf.len(),
+        })
     } else {
         Ok(buf.split_at(n))
     }
@@ -127,16 +129,19 @@ fn tpm2b_payload(buf: &[u8], capacity: usize) -> tpm2_protocol::TpmResult<&[u8]>
     let size = usize::from(size);
 
     if size > capacity {
-        return Err(TpmError::TooManyBytes(
-            TpmErrorValue::new(0).limit(capacity, size),
-        ));
+        return Err(TpmError::TooManyBytes {
+            offset: 0,
+            limit: capacity,
+            actual: size,
+        });
     }
 
     let (payload, tail) = tpm_take(tail, size)?;
     if !tail.is_empty() {
-        return Err(TpmError::TrailingData(
-            TpmErrorValue::new(buf.len() - tail.len()).actual(tail.len()),
-        ));
+        return Err(TpmError::TrailingData {
+            offset: buf.len() - tail.len(),
+            actual: tail.len(),
+        });
     }
 
     Ok(payload)
@@ -728,7 +733,7 @@ mod tests {
         let der = rasn::der::encode(&asn1).unwrap();
         assert!(matches!(
             TpmKeyFile::from_der(&der),
-            Err(TpmKeyError::Unmarshal(TpmError::TrailingData(_)))
+            Err(TpmKeyError::Unmarshal(TpmError::TrailingData { .. }))
         ));
     }
 
