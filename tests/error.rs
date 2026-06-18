@@ -5,7 +5,7 @@ use std::{
 };
 
 use rstest::rstest;
-use tpm2_device::{with_device, TpmDevice, TpmDeviceError};
+use tpm2_device::{TpmDevice, TpmDeviceError, with_device};
 
 #[rstest]
 #[case(TpmDeviceError::AlreadyBorrowed, "device is already borrowed")]

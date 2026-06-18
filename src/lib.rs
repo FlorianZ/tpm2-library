@@ -7,9 +7,9 @@
 
 use nix::{
     fcntl,
-    poll::{poll, PollFd, PollFlags},
+    poll::{PollFd, PollFlags, poll},
 };
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 use std::{
     cell::RefCell,
     fs::{File, OpenOptions},
@@ -23,6 +23,7 @@ use std::{
 use thiserror::Error;
 use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
+    TpmCast, TpmError, TpmField, TpmWriter,
     basic::{Tpm2b as Tpm2bWire, TpmBuffer, TpmHandle, TpmList, TpmUint16, TpmUint32, TpmUint64},
     constant::{MAX_HANDLES, TPM_MAX_COMMAND_SIZE},
     data::{
@@ -37,11 +38,11 @@ use tpm2_protocol::{
         TpmuPublicParms, TpmuSymKeyBits, TpmuSymMode,
     },
     frame::{
-        tpm_marshal_command, TpmAuthCommands, TpmCommandValue as TpmCommand, TpmContextLoadCommand,
+        TpmAuthCommands, TpmCommandValue as TpmCommand, TpmContextLoadCommand,
         TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame, TpmGetCapabilityCommand,
         TpmReadPublicCommand, TpmResponse, TpmResponseView, TpmStartAuthSessionCommand,
+        tpm_marshal_command,
     },
-    TpmCast, TpmError, TpmField, TpmWriter,
 };
 use tracing::{debug, trace};
 
@@ -800,8 +801,7 @@ fn parse_tpm2b_buffer<const CAPACITY: usize>(
 ) -> Result<(TpmBuffer<CAPACITY>, &[u8]), TpmDeviceError> {
     let (value, rest) =
         Tpm2bWire::<CAPACITY>::cast_prefix(buf).map_err(TpmDeviceError::Unmarshal)?;
-    let value =
-        TpmBuffer::<CAPACITY>::try_from(value.data()).map_err(TpmDeviceError::Unmarshal)?;
+    let value = TpmBuffer::<CAPACITY>::try_from(value.data()).map_err(TpmDeviceError::Unmarshal)?;
 
     Ok((value, rest))
 }
