@@ -4,7 +4,7 @@
 //! TPM 2.0 RSA cryptographic operations.
 
 use super::TpmPublicTemplate;
-use crate::{TpmCryptoError, TpmExternalKey, TpmHash, TpmPublicAreaField};
+use crate::{KDF_LABEL_DUPLICATE, TpmCryptoError, TpmExternalKey, TpmHash, TpmPublicAreaField};
 use openssl::{
     bn::BigNum,
     hash::MessageDigest,
@@ -246,7 +246,10 @@ impl TpmRsaExternalKey {
             .map_err(TpmCryptoError::Crypto)?;
         ctx.set_rsa_mgf1_md(oaep_md)
             .map_err(TpmCryptoError::Crypto)?;
-        ctx.set_rsa_oaep_label(b"DUPLICATE\0")
+
+        let mut label = KDF_LABEL_DUPLICATE.to_vec();
+        label.push(0);
+        ctx.set_rsa_oaep_label(&label)
             .map_err(TpmCryptoError::Crypto)?;
 
         let mut encrypted_seed = vec![0; pkey.size()];
