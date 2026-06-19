@@ -463,7 +463,10 @@ impl TpmKeyFile {
                 && public_alg != TpmAlgId::Ecc
                 && public_alg != TpmAlgId::KeyedHash
             {
-                return Err(TpmKeyError::InvalidLoadable(public_alg));
+                return Err(TpmKeyError::InvalidKeyAlgorithm(
+                    TpmKeyType::Loadable,
+                    public_alg,
+                ));
             }
             TpmKeyType::Loadable
         } else if asn1.key_type == OID_IMPORTABLE_KEY {
@@ -471,12 +474,18 @@ impl TpmKeyFile {
                 && public_alg != TpmAlgId::Ecc
                 && public_alg != TpmAlgId::KeyedHash
             {
-                return Err(TpmKeyError::InvalidImportable(public_alg));
+                return Err(TpmKeyError::InvalidKeyAlgorithm(
+                    TpmKeyType::Importable,
+                    public_alg,
+                ));
             }
             TpmKeyType::Importable
         } else if asn1.key_type == OID_SEALED_DATA {
             if public_alg != TpmAlgId::KeyedHash {
-                return Err(TpmKeyError::InvalidSealed(public_alg));
+                return Err(TpmKeyError::InvalidKeyAlgorithm(
+                    TpmKeyType::SealedData,
+                    public_alg,
+                ));
             }
             TpmKeyType::SealedData
         } else {
