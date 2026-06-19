@@ -3,93 +3,95 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::TpmPolicyExpression;
-use thiserror::Error;
 use tpm2_protocol::data::TpmCc;
 
 /// Language interpretation and compilation errors.
-#[derive(Debug, Error)]
+///
+/// `Display` renders only the variant name as lowercase space-separated words
+/// (e.g. `InvalidToken` becomes `invalid token`).
+#[derive(Debug, strum::AsRefStr)]
+#[strum(serialize_all = "title_case")]
 pub enum TpmPolicyError {
     /// A digest calculation failed.
-    #[error("crypto: {0}")]
-    Crypto(#[from] tpm2_crypto::TpmCryptoError),
+    Crypto(tpm2_crypto::TpmCryptoError),
 
     /// An invalid command code was encountered.
-    #[error("invalid command code: {0:?}")]
     InvalidCc(TpmCc),
 
     /// An invalid expression was encountered.
-    #[error("invalid expression: {0}")]
     InvalidExpression(Box<TpmPolicyExpression>),
 
     /// Handle type byte is not valid.
-    #[error("invalid handle type: 0x{0:02x}")]
     InvalidHandleType(u8),
 
     /// An invalid token was encountered.
-    #[error("invalid token: {0}")]
     InvalidToken(String),
 
     /// An invalid PCR digest was encountered.
-    #[error("invalid PCR digest")]
     InvalidPcrDigest,
 
     /// An invalid PCR digest algorithm was encountered.
-    #[error("invalid PCR digest algorithm")]
     InvalidPcrDigestAlgorithm,
 
     /// An invalid PCR selection was encountered.
-    #[error("invalid PCR selection")]
     InvalidPcrSelection,
 
     /// TPM protocol encoding or decoding failed.
-    #[error("protocol: {0}")]
-    Protocol(#[from] tpm2_protocol::TpmError),
+    Protocol(tpm2_protocol::TpmError),
 
     /// A command stream requires more branches than it has provided.
-    #[error("command stream branch underflow")]
     CommandStreamBranchUnderflow,
 
     /// A command stream left unmerged branches after parsing.
-    #[error("command stream has unmerged branches")]
     CommandStreamUnbalancedBranches,
 
     /// Parenthesis mismatch in expression.
-    #[error("parenthesis mismatch")]
     ParenthesisMismatch,
 
     /// PCR bank is not available.
-    #[error("PCR bank not available: {0}")]
     PcrBankNotAvailable(tpm2_crypto::TpmHash),
 
     /// PCR count mismatch.
-    #[error("PCR count mismatch")]
     PcrCountMismatch,
 
     /// PCR digest is missing.
-    #[error("PCR digest is missing")]
     PcrDigestMissing,
 
     /// PCR digest is too large.
-    #[error("PCR digest is too large")]
     PcrDigestTooLarge,
 
     /// PCR index is too large.
-    #[error("PCR index is too large")]
     PcrIndexTooLarge,
 
     /// PCR selection size is too large.
-    #[error("PCR selection size is too large")]
     PcrSelectionTooLarge,
 
     /// Too many branches were provided.
-    #[error("too many branches: {0}")]
     TooManyBranches(Box<TpmPolicyExpression>),
 
     /// After unmarshaling, there was still data left over.
-    #[error("trailing data")]
     TrailingData,
 
     /// Unmarshaling could not be completed because there was not enough data.
-    #[error("unexpected end")]
     UnexpectedEnd,
+}
+
+impl core::fmt::Display for TpmPolicyError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.as_ref().to_lowercase())
+    }
+}
+
+impl std::error::Error for TpmPolicyError {}
+
+impl From<tpm2_crypto::TpmCryptoError> for TpmPolicyError {
+    fn from(err: tpm2_crypto::TpmCryptoError) -> Self {
+        Self::Crypto(err)
+    }
+}
+
+impl From<tpm2_protocol::TpmError> for TpmPolicyError {
+    fn from(err: tpm2_protocol::TpmError) -> Self {
+        Self::Protocol(err)
+    }
 }
