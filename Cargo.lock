@@ -25,9 +25,9 @@ checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
 
 [[package]]
 name = "cc"
-version = "1.2.64"
+version = "1.2.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dad887fd958be91b5098c0248def011f4523ab786cd411be668777e55063501f"
+checksum = "e228eec9be7c17ccb640b59b36a5cd805ea2a564a4c5e162c2f659fea30d3b96"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -669,9 +669,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.20.2"
+version = "0.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dd96995b923af1993e70a5de1010265489f8a66f0c2bee0210da7074ebfbeb1"
+checksum = "a9416bb71a19157d282de513a39d29229ab21619c5a76ad65ebac6cc9d191b55"
 dependencies = [
  "num-bigint",
  "num-traits",
