@@ -449,14 +449,14 @@ impl TpmKeyFile {
 
         let mut policy = Vec::new();
         for command in asn1.policy.unwrap_or_default() {
-            policy.push(TpmKeyPolicyCommand::try_from(command)?);
+            policy.push(TpmKeyPolicyCommand::try_from(&command)?);
         }
 
         let auth_policy = asn1
             .auth_policy
             .map(|branches| {
                 branches
-                    .into_iter()
+                    .iter()
                     .map(TpmKeyAuthPolicy::try_from)
                     .collect::<Result<Vec<_>, _>>()
             })
@@ -482,26 +482,26 @@ impl TpmKeyFile {
     }
 }
 
-impl TryFrom<TpmAuthPolicyAsn1> for TpmKeyAuthPolicy {
+impl TryFrom<&TpmAuthPolicyAsn1> for TpmKeyAuthPolicy {
     type Error = TpmKeyError;
 
-    fn try_from(val: TpmAuthPolicyAsn1) -> Result<Self, Self::Error> {
+    fn try_from(val: &TpmAuthPolicyAsn1) -> Result<Self, Self::Error> {
         let cmds = val
             .policy
-            .into_iter()
+            .iter()
             .map(TpmKeyPolicyCommand::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(TpmKeyAuthPolicy::new(val.name, cmds))
+        Ok(TpmKeyAuthPolicy::new(val.name.clone(), cmds))
     }
 }
 
-impl TryFrom<Vec<TpmKeyCommandAsn1>> for TpmKeyAuthPolicy {
+impl TryFrom<&[TpmKeyCommandAsn1]> for TpmKeyAuthPolicy {
     type Error = TpmKeyError;
 
-    fn try_from(cmds: Vec<TpmKeyCommandAsn1>) -> Result<Self, Self::Error> {
+    fn try_from(cmds: &[TpmKeyCommandAsn1]) -> Result<Self, Self::Error> {
         let cmds = cmds
-            .into_iter()
+            .iter()
             .map(TpmKeyPolicyCommand::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 

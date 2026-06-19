@@ -77,10 +77,10 @@ impl Default for TpmKeyAuthPolicy {
     }
 }
 
-impl TryFrom<TpmKeyCommandAsn1> for TpmKeyPolicyCommand {
+impl TryFrom<&TpmKeyCommandAsn1> for TpmKeyPolicyCommand {
     type Error = TpmKeyError;
 
-    fn try_from(val: TpmKeyCommandAsn1) -> Result<Self, Self::Error> {
+    fn try_from(val: &TpmKeyCommandAsn1) -> Result<Self, Self::Error> {
         let cc = TpmCc::try_from(val.command_code)
             .map_err(|_| TpmKeyError::InvalidCc(val.command_code))?;
 
@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(asn1.command_code, TpmCc::PolicyOr as u32);
         assert_eq!(asn1.command_policy.as_ref(), &body);
 
-        let back = TpmKeyPolicyCommand::try_from(asn1).unwrap();
+        let back = TpmKeyPolicyCommand::try_from(&asn1).unwrap();
         assert_eq!(back.cc, TpmCc::PolicyOr);
         assert_eq!(back.body, body);
     }
@@ -175,7 +175,7 @@ mod tests {
         let asn1 = TpmKeyCommandAsn1::from(&cmd);
         assert_eq!(asn1.command_code, TpmCc::PolicySecret as u32);
 
-        let back = TpmKeyPolicyCommand::try_from(asn1).unwrap();
+        let back = TpmKeyPolicyCommand::try_from(&asn1).unwrap();
         assert_eq!(back.cc, TpmCc::PolicySecret);
         assert_eq!(back.body, body);
     }
