@@ -3,8 +3,9 @@
 // Copyright (c) 2024-2026 Jarkko Sakkinen
 
 use tpm2_protocol::{
+    TpmField, TpmResult, TpmSized,
     basic::{
-        Tpm2b as Tpm2bWire, TpmBuffer, TpmInt32, TpmList, TpmUint16, TpmUint32, TpmUint64, TpmUint8,
+        Tpm2b as Tpm2bWire, TpmBuffer, TpmInt32, TpmList, TpmUint8, TpmUint16, TpmUint32, TpmUint64,
     },
     data::{
         Tpm2bPublic, Tpm2bPublicWire, TpmAlgId, TpmCc, TpmEccCurve, TpmHt, TpmRh, TpmSt,
@@ -17,7 +18,6 @@ use tpm2_protocol::{
         TpmuPublicId, TpmuPublicIdView, TpmuPublicParms, TpmuPublicParmsView, TpmuSignature,
         TpmuSignatureView, TpmuSymKeyBits, TpmuSymKeyBitsView, TpmuSymMode, TpmuSymModeView,
     },
-    TpmField, TpmResult, TpmSized,
 };
 
 pub(crate) trait TpmUnmarshal: Sized {
@@ -143,8 +143,12 @@ fn tpmu_public_parms_from_view(view: &TpmuPublicParmsView<'_>) -> TpmResult<Tpmu
         TpmuPublicParmsView::SymCipher(v) => {
             TpmuPublicParms::SymCipher(TpmsSymcipherParms::unmarshal(v.as_bytes())?.0)
         }
-        TpmuPublicParmsView::Rsa(v) => TpmuPublicParms::Rsa(TpmsRsaParms::unmarshal(v.as_bytes())?.0),
-        TpmuPublicParmsView::Ecc(v) => TpmuPublicParms::Ecc(TpmsEccParms::unmarshal(v.as_bytes())?.0),
+        TpmuPublicParmsView::Rsa(v) => {
+            TpmuPublicParms::Rsa(TpmsRsaParms::unmarshal(v.as_bytes())?.0)
+        }
+        TpmuPublicParmsView::Ecc(v) => {
+            TpmuPublicParms::Ecc(TpmsEccParms::unmarshal(v.as_bytes())?.0)
+        }
         TpmuPublicParmsView::Null => TpmuPublicParms::Null,
     })
 }
@@ -221,8 +225,7 @@ impl TpmUnmarshal for TpmsEccPoint {
 
 impl TpmUnmarshal for TpmsPcrSelection {
     fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
-        let ((hash, pcr_select), tail) =
-            <TpmsPcrSelection as TpmField>::cast_prefix_field(buffer)?;
+        let ((hash, pcr_select), tail) = <TpmsPcrSelection as TpmField>::cast_prefix_field(buffer)?;
         Ok((
             Self {
                 hash,
@@ -319,7 +322,9 @@ impl TpmUnmarshal for TpmtEccScheme {
 
 fn tpmu_asym_scheme_from_view(view: &TpmuAsymSchemeView<'_>) -> TpmResult<TpmuAsymScheme> {
     Ok(match view {
-        TpmuAsymSchemeView::Hash(v) => TpmuAsymScheme::Hash(TpmsSchemeHash::unmarshal(v.as_bytes())?.0),
+        TpmuAsymSchemeView::Hash(v) => {
+            TpmuAsymScheme::Hash(TpmsSchemeHash::unmarshal(v.as_bytes())?.0)
+        }
         TpmuAsymSchemeView::Null => TpmuAsymScheme::Null,
     })
 }
@@ -335,11 +340,15 @@ impl TpmUnmarshal for TpmtKdfScheme {
 
 fn tpmu_kdf_scheme_from_view(view: &TpmuKdfSchemeView<'_>) -> TpmResult<TpmuKdfScheme> {
     Ok(match view {
-        TpmuKdfSchemeView::Mgf1(v) => TpmuKdfScheme::Mgf1(TpmsSchemeHash::unmarshal(v.as_bytes())?.0),
+        TpmuKdfSchemeView::Mgf1(v) => {
+            TpmuKdfScheme::Mgf1(TpmsSchemeHash::unmarshal(v.as_bytes())?.0)
+        }
         TpmuKdfSchemeView::Kdf1Sp800_56a(v) => {
             TpmuKdfScheme::Kdf1Sp800_56a(TpmsSchemeHash::unmarshal(v.as_bytes())?.0)
         }
-        TpmuKdfSchemeView::Kdf2(v) => TpmuKdfScheme::Kdf2(TpmsSchemeHash::unmarshal(v.as_bytes())?.0),
+        TpmuKdfSchemeView::Kdf2(v) => {
+            TpmuKdfScheme::Kdf2(TpmsSchemeHash::unmarshal(v.as_bytes())?.0)
+        }
         TpmuKdfSchemeView::Kdf1Sp800_108(v) => {
             TpmuKdfScheme::Kdf1Sp800_108(TpmsSchemeHash::unmarshal(v.as_bytes())?.0)
         }
@@ -385,7 +394,9 @@ fn tpmu_signature_from_view(view: &TpmuSignatureView<'_>) -> TpmResult<TpmuSigna
         TpmuSignatureView::Ecdaa(v) => {
             TpmuSignature::Ecdaa(TpmsSignatureEcc::unmarshal(v.as_bytes())?.0)
         }
-        TpmuSignatureView::Sm2(v) => TpmuSignature::Sm2(TpmsSignatureEcc::unmarshal(v.as_bytes())?.0),
+        TpmuSignatureView::Sm2(v) => {
+            TpmuSignature::Sm2(TpmsSignatureEcc::unmarshal(v.as_bytes())?.0)
+        }
         TpmuSignatureView::Ecschnorr(v) => {
             TpmuSignature::Ecschnorr(TpmsSignatureEcc::unmarshal(v.as_bytes())?.0)
         }

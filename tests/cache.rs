@@ -9,7 +9,7 @@
 mod tests {
     use rstest::{fixture, rstest};
     use std::{collections::HashMap, fs};
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tpm2_crypto::tpm_make_name;
     use tpm2_protocol::{
         basic::{TpmBuffer, TpmHandle, TpmUint16, TpmUint32, TpmUint64},

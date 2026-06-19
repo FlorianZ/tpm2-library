@@ -2,9 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{unmarshal::TpmUnmarshal, VtpmError};
+use crate::{VtpmError, unmarshal::TpmUnmarshal};
 use std::fmt::Debug;
 use tpm2_protocol::{
+    TpmError, TpmMarshal, TpmSized, TpmWriter,
     basic::{TpmHandle, TpmInt32, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -16,7 +17,6 @@ use tpm2_protocol::{
         TpmPolicyPcrCommand, TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand,
         TpmPolicySecretCommand,
     },
-    TpmError, TpmMarshal, TpmSized, TpmWriter,
 };
 
 const ZERO_HANDLE: TpmHandle = TpmUint32::new(0);

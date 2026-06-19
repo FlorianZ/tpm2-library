@@ -13,16 +13,16 @@ mod unmarshal;
 pub use policy::*;
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     fs, io,
     path::Path,
 };
 use tpm2_crypto::tpm_make_name;
 use tpm2_protocol::{
+    TpmError, TpmMarshal, TpmWriter,
     basic::{TpmBuffer, TpmHandle, TpmUint32, TpmUint64},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmsContext, TpmtPublic},
-    TpmError, TpmMarshal, TpmWriter,
 };
 use unmarshal::TpmUnmarshal;
 
