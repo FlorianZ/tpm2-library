@@ -134,7 +134,7 @@ fn test_ecc_to_public(
 fn test_keyedhash_parsing(#[case] input: &str, #[case] expected_scheme: TpmAlgId) {
     let template = TpmPublicTemplate::from_str(input).expect("parse failed");
     let output_str = String::try_from(&template).expect("to string failed");
-    let public = TpmtPublic::try_from(template).expect("template to public");
+    let public = TpmtPublic::try_from(&template).expect("template to public");
 
     assert_eq!(public.object_type, TpmAlgId::KeyedHash);
     assert_eq!(public.name_alg, TpmAlgId::Sha256);

@@ -138,10 +138,10 @@ impl TpmPublicTemplate {
     }
 }
 
-impl TryFrom<TpmPublicTemplate> for TpmtPublic {
+impl TryFrom<&TpmPublicTemplate> for TpmtPublic {
     type Error = TpmCryptoError;
 
-    fn try_from(template: TpmPublicTemplate) -> Result<Self, TpmCryptoError> {
+    fn try_from(template: &TpmPublicTemplate) -> Result<Self, TpmCryptoError> {
         let mut parameters = template.public_parms;
 
         match &mut parameters {
@@ -157,7 +157,7 @@ impl TryFrom<TpmPublicTemplate> for TpmtPublic {
             object_attributes: template.object_attributes,
             auth_policy: template.auth_policy,
             parameters,
-            unique: template.public_id,
+            unique: template.public_id.clone(),
         })
     }
 }
