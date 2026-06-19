@@ -69,10 +69,9 @@ pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
-    TpmError,
-    basic::{TpmHandle, TpmUint32},
-    constant::{MAX_PRIVATE_SIZE, TPM_MAX_COMMAND_SIZE},
-    data::{Tpm2bPrivate, Tpm2bPublic, TpmAlgId},
+    basic::{Tpm2b, TpmHandle, TpmUint32},
+    constant::MAX_PRIVATE_SIZE,
+    data::{Tpm2bPrivate, Tpm2bPublic, Tpm2bPublicWire, TpmAlgId},
 };
 
 /// The type of the TPM key as defined by the OID.
@@ -102,60 +101,12 @@ pub struct TpmKeyFile {
     rsa_parent: bool,
 }
 
-fn tpm_take(buf: &[u8], n: usize) -> tpm2_protocol::TpmResult<(&[u8], &[u8])> {
-    if buf.len() < n {
-        Err(TpmError::UnexpectedEnd {
-            offset: 0,
-            needed: n,
-            available: buf.len(),
-        })
-    } else {
-        Ok(buf.split_at(n))
-    }
-}
-
-fn tpm_u16(buf: &[u8]) -> tpm2_protocol::TpmResult<(u16, &[u8])> {
-    let (bytes, tail) = tpm_take(buf, 2)?;
-    Ok((u16::from_be_bytes([bytes[0], bytes[1]]), tail))
-}
-
-fn tpm_alg(buf: &[u8]) -> tpm2_protocol::TpmResult<(TpmAlgId, &[u8])> {
-    let (raw, tail) = tpm_u16(buf)?;
-    Ok((TpmAlgId::try_from(raw)?, tail))
-}
-
-fn tpm2b_payload(buf: &[u8], capacity: usize) -> tpm2_protocol::TpmResult<&[u8]> {
-    let (size, tail) = tpm_u16(buf)?;
-    let size = usize::from(size);
-
-    if size > capacity {
-        return Err(TpmError::TooManyBytes {
-            offset: 0,
-            limit: capacity,
-            actual: size,
-        });
-    }
-
-    let (payload, tail) = tpm_take(tail, size)?;
-    if !tail.is_empty() {
-        return Err(TpmError::TrailingData {
-            offset: buf.len() - tail.len(),
-            actual: tail.len(),
-        });
-    }
-
-    Ok(payload)
-}
-
 fn tpm_public_alg(buf: &[u8]) -> tpm2_protocol::TpmResult<TpmAlgId> {
-    let payload = tpm2b_payload(buf, TPM_MAX_COMMAND_SIZE)?;
-    let (alg, _) = tpm_alg(payload)?;
-    Ok(alg)
+    Ok(Tpm2bPublicWire::cast(buf)?.inner()?.object_type)
 }
 
 fn tpm_private(buf: &[u8]) -> tpm2_protocol::TpmResult<()> {
-    let _ = tpm2b_payload(buf, MAX_PRIVATE_SIZE)?;
-    Ok(())
+    Tpm2b::<MAX_PRIVATE_SIZE>::validate(buf)
 }
 
 impl Default for TpmKeyFile {
@@ -577,7 +528,7 @@ impl From<&TpmKeyAuthPolicy> for Vec<TpmKeyCommandAsn1> {
 mod tests {
     use super::*;
     use tpm2_protocol::{
-        TpmMarshal, TpmWriter,
+        TpmError, TpmMarshal, TpmWriter,
         constant::TPM_MAX_COMMAND_SIZE,
         data::{
             Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmCc, TpmsRsaParms, TpmtPublic, TpmtSensitive,
@@ -725,7 +676,8 @@ mod tests {
 
     #[test]
     fn public_with_trailing_data_is_rejected() {
-        let (_, priv_bytes, _) = minimal_rsa_key_components();
+        let (mut pub_bytes, priv_bytes, _) = minimal_rsa_key_components();
+        pub_bytes.push(0);
         let asn1 = TpmKeyAsn1 {
             key_type: OID_LOADABLE_KEY.clone(),
             empty_auth: None,
@@ -735,7 +687,7 @@ mod tests {
             description: None,
             rsa_parent: None,
             parent: 0,
-            pubkey: OctetString::copy_from_slice(&[0, 2, 0, 1, 0]),
+            pubkey: OctetString::copy_from_slice(&pub_bytes),
             privkey: OctetString::copy_from_slice(&priv_bytes),
         };
 
