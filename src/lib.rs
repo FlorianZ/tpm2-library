@@ -52,6 +52,7 @@ use tracing::{debug, trace};
 /// (e.g. `UnexpectedEof` becomes `unexpected eof`).
 #[derive(Debug, strum::AsRefStr)]
 #[strum(serialize_all = "title_case")]
+#[non_exhaustive]
 pub enum TpmDeviceError {
     /// The TPM device is already mutably borrowed.
     AlreadyBorrowed,
@@ -77,9 +78,6 @@ pub enum TpmDeviceError {
     /// No TPM device is available.
     NotAvailable,
 
-    /// The requested operation could not be completed.
-    OperationFailed,
-
     /// No PCR banks are available on the TPM.
     PcrBanksNotAvailable,
 
@@ -103,6 +101,9 @@ pub enum TpmDeviceError {
 
     /// An unexpected end-of-file was encountered.
     UnexpectedEof,
+
+    /// The requested algorithm is not supported.
+    UnsupportedAlgorithm(TpmAlgId),
 }
 
 impl fmt::Display for TpmDeviceError {
@@ -112,6 +113,34 @@ impl fmt::Display for TpmDeviceError {
 }
 
 impl std::error::Error for TpmDeviceError {}
+
+impl PartialEq for TpmDeviceError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::CapabilityMissing(a), Self::CapabilityMissing(b)) => a == b,
+            (Self::InvalidCc(a), Self::InvalidCc(b))
+            | (Self::ResponseMismatch(a), Self::ResponseMismatch(b)) => a == b,
+            (Self::Io(a), Self::Io(b)) => a.kind() == b.kind(),
+            (Self::Marshal(a), Self::Marshal(b)) | (Self::Unmarshal(a), Self::Unmarshal(b)) => {
+                a == b
+            }
+            (Self::TpmRc(a), Self::TpmRc(b)) => a == b,
+            (Self::UnsupportedAlgorithm(a), Self::UnsupportedAlgorithm(b)) => a == b,
+            (Self::AlreadyBorrowed, Self::AlreadyBorrowed)
+            | (Self::Interrupted, Self::Interrupted)
+            | (Self::InvalidResponse, Self::InvalidResponse)
+            | (Self::NotAvailable, Self::NotAvailable)
+            | (Self::PcrBanksNotAvailable, Self::PcrBanksNotAvailable)
+            | (Self::PcrBankSelectionMismatch, Self::PcrBankSelectionMismatch)
+            | (Self::Timeout, Self::Timeout)
+            | (Self::TrailingData, Self::TrailingData)
+            | (Self::UnexpectedEof, Self::UnexpectedEof) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for TpmDeviceError {}
 
 impl From<TpmRc> for TpmDeviceError {
     fn from(rc: TpmRc) -> Self {
@@ -144,7 +173,7 @@ impl From<nix::Error> for TpmDeviceError {
 /// device is already mutably borrowed.
 /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants depending
 /// on function.
-pub fn with_device<F, T, E>(device: Option<Rc<RefCell<TpmDevice>>>, function: F) -> Result<T, E>
+pub fn with_device<F, T, E>(device: Option<&Rc<RefCell<TpmDevice>>>, function: F) -> Result<T, E>
 where
     F: FnOnce(&mut TpmDevice) -> Result<T, E>,
     E: From<TpmDeviceError>,
@@ -247,6 +276,10 @@ impl std::fmt::Debug for TpmDevice {
 impl TpmDevice {
     const NO_SESSIONS: &'static [TpmsAuthCommand] = &[];
 
+    /// Number of items requested per paginated `GetCapability` query.
+    #[allow(clippy::cast_possible_truncation)]
+    const CAPABILITY_PAGE_SIZE: u32 = MAX_HANDLES as u32;
+
     /// Creates a new builder for `TpmDevice`.
     #[must_use]
     pub fn builder() -> TpmDeviceBuilder {
@@ -336,11 +369,11 @@ impl TpmDevice {
 
             if total_size.is_none() && self.response.len() >= 10 {
                 let Ok(size_bytes): Result<[u8; 4], _> = self.response[2..6].try_into() else {
-                    return Err(TpmDeviceError::OperationFailed);
+                    return Err(TpmDeviceError::InvalidResponse);
                 };
                 let size = u32::from_be_bytes(size_bytes) as usize;
                 if !(10..={ TPM_MAX_COMMAND_SIZE }).contains(&size) {
-                    return Err(TpmDeviceError::OperationFailed);
+                    return Err(TpmDeviceError::InvalidResponse);
                 }
                 total_size = Some(size);
             }
@@ -442,7 +475,7 @@ impl TpmDevice {
         self.get_capability(
             TpmCap::Algs,
             0,
-            u32::try_from(MAX_HANDLES).map_err(|_| TpmDeviceError::OperationFailed)?,
+            Self::CAPABILITY_PAGE_SIZE,
             |caps| match caps {
                 TpmuCapabilities::Algs(algs) => Ok(algs),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Algs)),
@@ -463,7 +496,7 @@ impl TpmDevice {
         self.get_capability(
             TpmCap::Handles,
             (class as u32) << 24,
-            u32::try_from(MAX_HANDLES).map_err(|_| TpmDeviceError::OperationFailed)?,
+            Self::CAPABILITY_PAGE_SIZE,
             |caps| match caps {
                 TpmuCapabilities::Handles(handles) => Ok(handles),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Handles)),
@@ -485,7 +518,7 @@ impl TpmDevice {
         self.get_capability(
             TpmCap::EccCurves,
             0,
-            u32::try_from(MAX_HANDLES).map_err(|_| TpmDeviceError::OperationFailed)?,
+            Self::CAPABILITY_PAGE_SIZE,
             |caps| match caps {
                 TpmuCapabilities::EccCurves(curves) => Ok(curves),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::EccCurves)),
@@ -514,7 +547,7 @@ impl TpmDevice {
         let pcrs: Vec<TpmsPcrSelection> = self.get_capability(
             TpmCap::Pcrs,
             0,
-            u32::try_from(MAX_HANDLES).map_err(|_| TpmDeviceError::OperationFailed)?,
+            Self::CAPABILITY_PAGE_SIZE,
             |caps| match caps {
                 TpmuCapabilities::Pcrs(pcrs) => Ok(pcrs),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Pcrs)),
@@ -594,7 +627,7 @@ impl TpmDevice {
     /// when receiving unepected TPM response.
     /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
     /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
-    pub fn get_tpm_property(&mut self, property: TpmPt) -> Result<TpmUint32, TpmDeviceError> {
+    pub fn fetch_tpm_property(&mut self, property: TpmPt) -> Result<u32, TpmDeviceError> {
         let (_, cap_data) = self.get_capability_page(
             TpmCap::TpmProperties,
             TpmUint32::from(property as u32),
@@ -609,7 +642,7 @@ impl TpmDevice {
             return Err(TpmDeviceError::CapabilityMissing(TpmCap::TpmProperties));
         };
 
-        Ok(prop.value)
+        Ok(prop.value.value())
     }
 
     /// Reads the public area of a TPM object.
@@ -1295,7 +1328,7 @@ impl TpmPolicySessionBuilder {
             nonce
         } else {
             let digest_len = TpmHash::try_from(self.auth_hash)
-                .map_err(|_| TpmDeviceError::OperationFailed)?
+                .map_err(|_| TpmDeviceError::UnsupportedAlgorithm(self.auth_hash))?
                 .size();
             let mut nonce_bytes = vec![0; digest_len];
             thread_rng().fill_bytes(&mut nonce_bytes);
@@ -1382,7 +1415,7 @@ impl TpmPolicySession {
     pub fn run(
         &self,
         device: &mut TpmDevice,
-        commands: Vec<(TpmCommand, TpmAuthCommands)>,
+        commands: impl IntoIterator<Item = (TpmCommand, TpmAuthCommands)>,
     ) -> Result<(), TpmDeviceError> {
         for (mut command_body, auth_sessions) in commands {
             match &mut command_body {
