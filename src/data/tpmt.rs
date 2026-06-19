@@ -109,6 +109,49 @@ impl Default for TpmtPublic {
     }
 }
 
+/// Borrowed view of a [`TpmtPublic`] wire structure.
+pub struct TpmtPublicView<'a> {
+    pub object_type: TpmAlgId,
+    pub name_alg: TpmAlgId,
+    pub object_attributes: TpmaObject,
+    pub auth_policy: <Tpm2bDigest as crate::TpmField<'a>>::View,
+    pub parameters: <TpmuPublicParms as crate::TpmTaggedField<'a, TpmAlgId>>::View,
+    pub unique: <TpmuPublicId as crate::TpmTaggedField<'a, TpmAlgId>>::View,
+}
+
+impl<'a> crate::TpmField<'a> for TpmtPublic {
+    type View = TpmtPublicView<'a>;
+
+    fn cast_prefix_field(buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
+        let (object_type, buf) = <TpmAlgId as crate::TpmField>::cast_prefix_field(buf)?;
+        let (name_alg, buf) = <TpmAlgId as crate::TpmField>::cast_prefix_field(buf)?;
+        let (object_attributes, buf) = <TpmaObject as crate::TpmField>::cast_prefix_field(buf)?;
+        let (auth_policy, buf) = <Tpm2bDigest as crate::TpmField>::cast_prefix_field(buf)?;
+        let (parameters, buf) =
+            <TpmuPublicParms as crate::TpmTaggedField<'a, TpmAlgId>>::cast_tagged_prefix_field(
+                object_type,
+                buf,
+            )?;
+        let (unique, buf) =
+            <TpmuPublicId as crate::TpmTaggedField<'a, TpmAlgId>>::cast_tagged_prefix_field(
+                object_type,
+                buf,
+            )?;
+
+        Ok((
+            TpmtPublicView {
+                object_type,
+                name_alg,
+                object_attributes,
+                auth_policy,
+                parameters,
+                unique,
+            },
+            buf,
+        ))
+    }
+}
+
 tpm_struct_tagged! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct TpmtPublicParms {
