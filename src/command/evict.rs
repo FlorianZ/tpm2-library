@@ -46,7 +46,7 @@ impl Task for Evict {
             return Err(anyhow!("invalid handle"));
         }
 
-        with_device(task_state.device.clone(), |dev| -> Result<()> {
+        with_device(task_state.device.clone().as_ref(), |dev| -> Result<()> {
             let persistent_handle = TpmUint32::new(output_handle);
             let transient_handle =
                 task_state.load_key_by_handle(dev, TpmUint32::new(input_handle))?;

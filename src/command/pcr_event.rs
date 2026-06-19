@@ -44,7 +44,7 @@ impl Task for PcrEvent {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<()> {
-        with_device(task_state.device.clone(), |device| {
+        with_device(task_state.device.clone().as_ref(), |device| {
             let data_bytes = read_file_input(self.input.as_deref())?;
 
             let event_data = Tpm2bEvent::try_from(data_bytes.as_slice())

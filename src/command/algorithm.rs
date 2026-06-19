@@ -177,7 +177,7 @@ impl Task for Algorithm {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<()> {
-        with_device(task_state.device.clone(), |device| {
+        with_device(task_state.device.clone().as_ref(), |device| {
             let mut results: Vec<String> = Vec::new();
             results.extend(Algorithm::fetch_key_algorithms(device)?);
             results.sort();

@@ -192,6 +192,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "chacha20"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -210,6 +221,15 @@ dependencies = [
  "libc",
  "once_cell",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "cpufeatures"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -489,6 +509,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
+ "rand_core 0.10.1",
  "wasip2",
  "wasip3",
 ]
@@ -682,7 +703,6 @@ checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
  "num-traits",
- "rand",
 ]
 
 [[package]]
@@ -944,7 +964,18 @@ checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
 dependencies = [
  "libc",
  "rand_chacha",
- "rand_core",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
+dependencies = [
+ "chacha20",
+ "getrandom 0.4.2",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -954,7 +985,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -965,6 +996,12 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.17",
 ]
+
+[[package]]
+name = "rand_core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "rasn"
@@ -1246,7 +1283,16 @@ version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
 dependencies = [
- "strum_macros",
+ "strum_macros 0.26.4",
+]
+
+[[package]]
+name = "strum"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9628de9b8791db39ceda2b119bbe13134770b56c138ec1d3af810d045c04f9bd"
+dependencies = [
+ "strum_macros 0.28.0",
 ]
 
 [[package]]
@@ -1259,6 +1305,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab85eea0270ee17587ed4156089e10b9e6880ee688791d45a905f5b1ca36f664"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
  "syn 2.0.117",
 ]
 
@@ -1387,30 +1445,29 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.12.1"
+version = "0.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c154a39bae79860f1a560c7a8bcac3db6e1d1eb8127e8d73a431c8c976a6e6d4"
+checksum = "a9416bb71a19157d282de513a39d29229ab21619c5a76ad65ebac6cc9d191b55"
 dependencies = [
  "num-bigint",
  "num-traits",
  "openssl",
- "rand",
- "strum",
- "thiserror",
+ "rand 0.10.1",
+ "strum 0.28.0",
  "tpm2-protocol",
 ]
 
 [[package]]
 name = "tpm2-device"
-version = "0.6.1"
+version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49a09e0df44e6c7eea418bdb47f35d84ec3964750cc75bcd31f0ae2a6d1a0fb3"
+checksum = "f053f8d4da1e2398b6419ed3974df7d6ca2e63b13b74f8a39e58e934479e3d2b"
 dependencies = [
  "hex",
  "log",
  "nix 0.29.0",
- "rand",
- "thiserror",
+ "rand 0.8.6",
+ "strum 0.28.0",
  "tpm2-crypto",
  "tpm2-protocol",
  "tracing",
@@ -1418,44 +1475,43 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "0.11.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4674b83df6658a8bd9c75488383304cc63b585202f6a2c26592c5e3007438c3a"
+checksum = "1d3d470bbe9bcdd052d9af6a6b313dac76787aecd5f4864dceb9ad0e683ea719"
 dependencies = [
  "hex",
- "strum",
- "thiserror",
+ "strum 0.28.0",
  "tpm2-crypto",
  "tpm2-protocol",
 ]
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.19.0"
+version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "467b65fffdfd21c3c4a6d2a86ba807ce99a3888901fcaa50534f8d443c7d4699"
+checksum = "264f0c30b02816f1ea9f393082da30a31bb91a391cb763f9a199930b12058067"
 
 [[package]]
 name = "tpm2-tpmkey"
-version = "0.12.1"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f130c3ea6ae6b0e073c168dae9c6c5f6ede32fac70dca98fb1ea6d819a0cc98"
+checksum = "492bbd8b779f15f186de3b9fc501ba972818693ecf54db184955c4b47eff03a9"
 dependencies = [
  "hex",
  "pem",
  "rasn",
- "thiserror",
+ "strum 0.28.0",
  "tpm2-protocol",
 ]
 
 [[package]]
 name = "tpm2-vtpm"
-version = "0.7.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "693d5ba699c711832c71783597d251ddf8bf2538f7c6f73de826a7459310958c"
+checksum = "4f0c9905203c72d8bb9a0b3a136ee653e4cbd32a546920f5b80d625c04f578bc"
 dependencies = [
  "log",
- "thiserror",
+ "strum 0.28.0",
  "tpm2-crypto",
  "tpm2-protocol",
 ]
@@ -1479,9 +1535,9 @@ dependencies = [
  "openssl",
  "pem",
  "predicates",
- "rand",
+ "rand 0.10.1",
  "rstest",
- "strum",
+ "strum 0.26.3",
  "tabled",
  "tempfile",
  "tpm2-crypto",

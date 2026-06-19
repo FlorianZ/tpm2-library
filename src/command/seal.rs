@@ -91,7 +91,7 @@ impl Task for Seal {
             .require_value()
             .map_err(|_| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
-        with_device(task_state.device.clone(), |device| {
+        with_device(task_state.device.clone().as_ref(), |device| {
             self.create_sealed_object(task_state, writer, device, parent)
         })
     }
@@ -167,7 +167,7 @@ impl Seal {
                 },
             },
             in_public: Tpm2bPublic {
-                inner: template.try_into()?,
+                inner: (&template).try_into()?,
             },
             outside_info: Tpm2bData::default(),
             creation_pcr: TpmlPcrSelection::default(),

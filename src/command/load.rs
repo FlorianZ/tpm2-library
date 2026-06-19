@@ -56,7 +56,7 @@ impl Task for Load {
         let public = Self::parse_public(tpm_key.public())?;
         let private = Self::parse_private(tpm_key.private())?;
 
-        with_device(task_state.device.clone(), |device| -> Result<()> {
+        with_device(task_state.device.clone().as_ref(), |device| -> Result<()> {
             let (parent_public, parent_handle_ref) = {
                 let parent = self
                     .parent

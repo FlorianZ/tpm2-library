@@ -36,7 +36,7 @@ impl Task for Unseal {
             .require_value()
             .map_err(|_| anyhow!("handle pattern not allowed: {}", self.handle))?;
 
-        with_device(task_state.device.clone(), |device| {
+        with_device(task_state.device.clone().as_ref(), |device| {
             let (item_handle, _, auth) = task_state.resolve_auth(device, TpmUint32::new(handle))?;
 
             let unseal_cmd = TpmUnsealCommand {

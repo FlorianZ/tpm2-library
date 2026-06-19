@@ -4,7 +4,7 @@
 use crate::unmarshal::TpmUnmarshal;
 use anyhow::{Result, anyhow};
 use tpm2_protocol::{
-    TpmError, TpmErrorValue, TpmResult, TpmSized,
+    TpmError, TpmResult, TpmSized,
     basic::{TpmHandle, TpmUint32},
     data::TpmSt,
     frame::{
@@ -58,9 +58,10 @@ fn ensure_empty(buf: &[u8]) -> TpmResult<()> {
     if buf.is_empty() {
         Ok(())
     } else {
-        Err(TpmError::TrailingData(
-            TpmErrorValue::new(0).actual(buf.len()),
-        ))
+        Err(TpmError::TrailingData {
+            offset: 0,
+            actual: buf.len(),
+        })
     }
 }
 

@@ -37,7 +37,7 @@ fn delete_tpm_handles(
     writer: &mut dyn std::io::Write,
     pattern: crate::handle::Handle,
 ) -> Result<()> {
-    with_device(task_state.device.clone(), |dev| {
+    with_device(task_state.device.clone().as_ref(), |dev| {
         let mut failed = false;
 
         for class in [

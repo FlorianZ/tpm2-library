@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use tpm2_protocol::{
-    TpmError, TpmErrorValue, TpmField, TpmResult, TpmSized,
+    TpmError, TpmField, TpmResult, TpmSized,
     basic::{
         Tpm2b as Tpm2bWire, TpmBuffer, TpmInt32, TpmList, TpmUint8, TpmUint16, TpmUint32, TpmUint64,
     },
@@ -68,15 +68,16 @@ impl_field_unmarshal!(
 impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
     fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (value, remainder) = Tpm2bWire::<CAPACITY>::cast_prefix(buffer)?;
-        Ok((Self::try_from(value.payload())?, remainder))
+        Ok((Self::try_from(value.data())?, remainder))
     }
 }
 
 impl<T: Copy + TpmUnmarshal, const CAPACITY: usize> TpmUnmarshal for TpmList<T, CAPACITY> {
     fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
         let (count, mut cursor) = TpmUint32::unmarshal(buffer)?;
-        let count = usize::try_from(count.value()).map_err(|_| {
-            TpmError::IntegerTooLarge(TpmErrorValue::new(0).value(u64::from(count.value())))
+        let count = usize::try_from(count.value()).map_err(|_| TpmError::IntegerTooLarge {
+            offset: 0,
+            value: u64::from(count.value()),
         })?;
         let mut list = Self::new();
 
@@ -115,17 +116,20 @@ fn unmarshal_tpm2b_struct<T: TpmUnmarshal>(buffer: &[u8]) -> TpmResult<(T, &[u8]
     let (size, buffer) = TpmUint16::unmarshal(buffer)?;
     let size = usize::from(size.value());
     if buffer.len() < size {
-        return Err(TpmError::UnexpectedEnd(
-            TpmErrorValue::new(TpmUint16::SIZE).size(size, buffer.len()),
-        ));
+        return Err(TpmError::UnexpectedEnd {
+            offset: TpmUint16::SIZE,
+            needed: size,
+            available: buffer.len(),
+        });
     }
 
     let (inner_buffer, remainder) = buffer.split_at(size);
     let (inner, tail) = T::unmarshal(inner_buffer)?;
     if !tail.is_empty() {
-        return Err(TpmError::TrailingData(
-            TpmErrorValue::new(size.saturating_sub(tail.len())).actual(tail.len()),
-        ));
+        return Err(TpmError::TrailingData {
+            offset: size.saturating_sub(tail.len()),
+            actual: tail.len(),
+        });
     }
 
     Ok((inner, remainder))
@@ -334,9 +338,11 @@ impl TpmUnmarshal for TpmsPcrSelect {
         let (size, buffer) = TpmUint8::unmarshal(buffer)?;
         let size = usize::from(size.value());
         if buffer.len() < size {
-            return Err(TpmError::UnexpectedEnd(
-                TpmErrorValue::new(TpmUint8::SIZE).size(size, buffer.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: TpmUint8::SIZE,
+                needed: size,
+                available: buffer.len(),
+            });
         }
 
         let (value, buffer) = buffer.split_at(size);
@@ -632,9 +638,11 @@ impl TpmUnmarshalTagged<TpmAlgId> for TpmuHa {
         };
 
         if buffer.len() < digest_size {
-            return Err(TpmError::UnexpectedEnd(
-                TpmErrorValue::new(0).size(digest_size, buffer.len()),
-            ));
+            return Err(TpmError::UnexpectedEnd {
+                offset: 0,
+                needed: digest_size,
+                available: buffer.len(),
+            });
         }
 
         let (digest, buffer) = buffer.split_at(digest_size);
@@ -675,5 +683,8 @@ impl TpmUnmarshal for VtpmPolicySecretCommand {
 }
 
 fn variant_not_available(tag: TpmAlgId) -> TpmError {
-    TpmError::VariantNotAvailable(TpmErrorValue::new(0).value(u64::from(tag.value())))
+    TpmError::VariantNotAvailable {
+        offset: 0,
+        value: u64::from(tag.value()),
+    }
 }

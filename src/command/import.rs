@@ -82,7 +82,7 @@ impl Task for Import {
             .require_value()
             .map_err(|_| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
-        with_device(task_state.device.clone(), |device| {
+        with_device(task_state.device.clone().as_ref(), |device| {
             let (parent_handle, name_alg, auth) =
                 task_state.resolve_auth(device, TpmUint32::new(parent))?;
 
@@ -239,7 +239,7 @@ impl Import {
         object_public: &tpm2_protocol::data::TpmtPublic,
         private_bytes: &[u8],
         object_name: &Tpm2bName,
-        rng: &mut (impl rand::RngCore + rand::CryptoRng),
+        rng: &mut impl rand::CryptoRng,
         user_auth: Tpm2bAuth,
     ) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData)> {
         let name_alg = parent_public.name_alg;
@@ -394,7 +394,7 @@ impl Import {
             object_attributes,
         )?;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let object_name = tpm_make_name(&public)?;
 
         let (duplicate, in_sym_seed, encryption_key) = Self::build_import_blob(

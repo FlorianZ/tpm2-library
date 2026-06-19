@@ -270,7 +270,7 @@ fn create_primary_invalid_policy() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("policy: invalid PCR digest algorithm"));
+    assert!(stderr.contains("policy: invalid pcr digest algorithm"));
 }
 
 fn create_primary_ecc_sha256(cache_dir: &Path, password_hex: Option<&str>) -> String {

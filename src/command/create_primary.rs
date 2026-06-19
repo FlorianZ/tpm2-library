@@ -65,7 +65,7 @@ impl Task for CreatePrimary {
         writer: &mut dyn std::io::Write,
         _is_tty: bool,
     ) -> Result<()> {
-        with_device(task_state.device.clone(), |device| {
+        with_device(task_state.device.clone().as_ref(), |device| {
             self.execute_command(task_state, writer, device)
         })
     }

@@ -198,7 +198,7 @@ pub fn resolve_public_template(
         .with_auth_policy(auth_policy)
         .with_symmetric(symmetric);
 
-    let mut public_area: TpmtPublic = template_with_attrs.try_into()?;
+    let mut public_area: TpmtPublic = (&template_with_attrs).try_into()?;
 
     if public_area.object_type == TpmAlgId::KeyedHash {
         if let TpmuPublicParms::KeyedHash(parms) = &mut public_area.parameters {

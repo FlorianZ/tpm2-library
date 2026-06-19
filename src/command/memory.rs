@@ -89,7 +89,7 @@ impl Memory {
         handle_val: u32,
         handle_str: &str,
     ) -> Result<()> {
-        with_device(session.device.clone(), |device| -> Result<()> {
+        with_device(session.device.clone().as_ref(), |device| -> Result<()> {
             if handle_type(handle_val) == Some(TpmHt::NvIndex) {
                 Self::inspect_nv_index(session, device, writer, handle_val)
             } else {
@@ -123,7 +123,7 @@ impl Memory {
     fn format_algorithm(public: &TpmtPublic) -> String {
         public_to_template(public).map_or_else(
             |_| format!("{:?}", public.object_type),
-            |t| t.try_into().unwrap_or_else(|_| "unknown".to_string()),
+            |t| (&t).try_into().unwrap_or_else(|_| "unknown".to_string()),
         )
     }
 
@@ -230,7 +230,7 @@ impl Memory {
         is_tty: bool,
         no_cache: bool,
     ) -> Result<()> {
-        with_device(session.device.clone(), |device| {
+        with_device(session.device.clone().as_ref(), |device| {
             let mut rows: Vec<MemoryRow> = Vec::new();
 
             Self::fetch_persistent_rows(device, &mut rows)?;
@@ -259,7 +259,7 @@ impl Memory {
         {
             let handle_val = handle.value();
             let (public, _) = device.read_public(handle).map_err(device_err)?;
-            let details: String = public_to_template(&public)?.try_into()?;
+            let details: String = (&public_to_template(&public)?).try_into()?;
 
             let hierarchy = if handle_val >= 0x8180_0000 {
                 "platform"
@@ -283,7 +283,7 @@ impl Memory {
         for handle in device.fetch_handles(TpmHt::Transient).map_err(device_err)? {
             let handle_val = handle.value();
             let (public, _) = device.read_public(handle).map_err(device_err)?;
-            let details: String = public_to_template(&public)?.try_into()?;
+            let details: String = (&public_to_template(&public)?).try_into()?;
 
             rows.push(MemoryRow {
                 handle: format!("{handle_val:08x}"),
@@ -323,7 +323,7 @@ impl Memory {
 
             let details = public_to_template(key.public()).map_or_else(
                 |_| TpmHash::try_from(key.public().object_type).map(|hash| hash.to_string()),
-                String::try_from,
+                |t| String::try_from(&t),
             )?;
 
             rows.push(MemoryRow {
@@ -422,7 +422,7 @@ impl Memory {
         handle: u32,
     ) -> Result<Vec<u8>> {
         let max_read_size = device
-            .get_tpm_property(TpmPt::NvBufferMax)
+            .fetch_tpm_property(TpmPt::NvBufferMax)
             .map_err(device_err)?;
         let nv_public = Self::read_nv_public(session, device, handle)?;
         let data_size = nv_public.data_size.value() as usize;
@@ -448,7 +448,7 @@ impl Memory {
         let mut offset: usize = 0;
 
         while offset < data_size {
-            let chunk_size = std::cmp::min(max_read_size.value() as usize, data_size - offset);
+            let chunk_size = std::cmp::min(max_read_size as usize, data_size - offset);
             let nv_read_cmd = TpmNvReadCommand {
                 size: TpmUint16::new(u16::try_from(chunk_size)?),
                 offset: TpmUint16::new(u16::try_from(offset)?),

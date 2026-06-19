@@ -82,7 +82,7 @@ impl Task for Create {
             .require_value()
             .map_err(|_| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
-        with_device(task_state.device.clone(), |device| {
+        with_device(task_state.device.clone().as_ref(), |device| {
             self.create_object(task_state, writer, device, parent)
         })
     }
