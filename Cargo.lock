@@ -669,9 +669,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.20.1"
+version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca2481915d0790d3a81dd686669c8bf8f5fdb4556a9b09bdc4055f5a3d9d5a15"
+checksum = "0dd96995b923af1993e70a5de1010265489f8a66f0c2bee0210da7074ebfbeb1"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -699,9 +699,9 @@ dependencies = [
 
 [[package]]
 name = "tpm2-protocol"
-version = "0.20.1"
+version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ca11f542e48e75161a77e1a3f93f257a687f3744c4ae46ff4df73ccb44b3503"
+checksum = "264f0c30b02816f1ea9f393082da30a31bb91a391cb763f9a199930b12058067"
 
 [[package]]
 name = "tracing"
