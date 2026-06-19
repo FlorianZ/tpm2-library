@@ -17,7 +17,6 @@ use std::{
     fs, io,
     path::Path,
 };
-use thiserror::Error;
 use tpm2_crypto::tpm_make_name;
 use tpm2_protocol::{
     basic::{TpmBuffer, TpmHandle, TpmUint32, TpmUint64},
@@ -139,55 +138,61 @@ impl VtpmKey {
 }
 
 /// Error type for VTPM cache operations and TPM serialization.
-#[derive(Debug, Error)]
+///
+/// `Display` renders only the variant name as lowercase space-separated words
+/// (e.g. `HandleNotFound` becomes `handle not found`).
+#[derive(Debug, strum::AsRefStr)]
+#[strum(serialize_all = "title_case")]
 pub enum VtpmError {
     /// Handle not found in the cache.
-    #[error("handle not found: {0:08x}")]
     HandleNotFound(TpmHandle),
 
     /// Handle type byte is not valid.
-    #[error("invalid handle type: 0x{0:02x}")]
     InvalidHandleType(u8),
 
     /// No free VTPM handle slots are available.
-    #[error("no handles")]
     NoHandles,
 
     /// Command code in a policy command is not a valid `TPM_CC`.
-    #[error("invalid CC: {0}")]
     InvalidCc(tpm2_protocol::data::TpmCc),
 
     /// A policy command body is malformed or invalid for that command.
-    #[error("invalid policy")]
     InvalidPolicy,
 
     /// An I/O operation failed.
-    #[error("I/O: {0}")]
-    Io(#[from] io::Error),
+    Io(io::Error),
 
     /// Marshaling a TPM protocol encoded object failed.
-    #[error("marshal: {0}")]
     Marshal(TpmError),
 
     /// An operation failed because of an internal error.
-    #[error("operation failed")]
     OperationFailed,
 
     /// A parent key could not be found in the cache or persistent handles.
-    #[error("parent not found")]
     ParentNotFound,
 
     /// A cached handle is stale or incompatible.
-    #[error("stale handle")]
     StaleHandle,
 
     /// Unmarshaling a TPM protocol encoded object failed.
-    #[error("unmarshal: {0}")]
     Unmarshal(TpmError),
 
     /// While unmarshaling, the end of data was reached unexpectedly.
-    #[error("unexpected end of data")]
     UnexpectedEnd,
+}
+
+impl core::fmt::Display for VtpmError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.as_ref().to_lowercase())
+    }
+}
+
+impl std::error::Error for VtpmError {}
+
+impl From<io::Error> for VtpmError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
 }
 
 #[derive(Debug)]

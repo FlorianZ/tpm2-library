@@ -12,9 +12,9 @@ readme = "README.md"
 
 [dependencies]
 log = "0.4"
-thiserror = "1.0"
-tpm2-crypto = "0.12.1"
-tpm2-protocol = "0.19.0"
+strum = { version = "0.28", features = ["derive"] }
+tpm2-crypto = "0.20.3"
+tpm2-protocol = "0.20.2"
 
 [dev-dependencies]
 rstest = "0.18"
