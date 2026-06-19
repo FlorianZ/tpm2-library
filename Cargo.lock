@@ -1518,7 +1518,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2sh"
-version = "0.17.4"
+version = "0.20.0"
 dependencies = [
  "anyhow",
  "argh",
