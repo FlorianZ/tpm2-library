@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use thiserror::Error;
+use core::fmt;
 use tpm2_crypto::TpmHash;
 use tpm2_protocol::{
     TpmCast, TpmError, TpmField, TpmWriter,
@@ -47,79 +47,81 @@ use tpm2_protocol::{
 use tracing::{debug, trace};
 
 /// Errors that can occur when talking to a TPM device.
-#[derive(Debug, Error)]
+///
+/// `Display` renders only the variant name as lowercase space-separated words
+/// (e.g. `UnexpectedEof` becomes `unexpected eof`).
+#[derive(Debug, strum::AsRefStr)]
+#[strum(serialize_all = "title_case")]
 pub enum TpmDeviceError {
     /// The TPM device is already mutably borrowed.
-    #[error("device is already borrowed")]
     AlreadyBorrowed,
 
     /// The requested capability is not available from the TPM.
-    #[error("capability not found: {0}")]
     CapabilityMissing(TpmCap),
 
-    #[error("operation interrupted by user")]
+    /// The operation was interrupted by the caller.
     Interrupted,
 
     /// An invalid command code was used.
-    #[error("invalid CC: {0}")]
     InvalidCc(tpm2_protocol::data::TpmCc),
 
     /// The TPM returned an invalid or malformed response.
-    #[error("invalid response")]
     InvalidResponse,
 
     /// An I/O error occurred when accessing the TPM device.
-    #[error("I/O: {0}")]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
 
     /// Marshaling a TPM protocol encoded object failed.
-    #[error("marshal: {0}")]
     Marshal(TpmError),
 
     /// No TPM device is available.
-    #[error("device not available")]
     NotAvailable,
 
     /// The requested operation could not be completed.
-    #[error("operation failed")]
     OperationFailed,
 
     /// No PCR banks are available on the TPM.
-    #[error("PCR banks not available")]
     PcrBanksNotAvailable,
 
     /// The PCR selection masks differ between active banks.
-    #[error("PCR bank selection mismatch")]
     PcrBankSelectionMismatch,
 
     /// The TPM response did not match the expected command code.
-    #[error("response mismatch: {0}")]
     ResponseMismatch(TpmCc),
 
     /// The TPM command timed out.
-    #[error("TPM command timed out")]
     Timeout,
 
     /// The TPM returned an error code.
-    #[error("TPM return code: {0}")]
     TpmRc(TpmRc),
 
     /// Trailing data after the response.
-    #[error("trailing data")]
     TrailingData,
 
     /// Unmarshaling a TPM protocol encoded object failed.
-    #[error("unmarshal: {0}")]
     Unmarshal(TpmError),
 
     /// An unexpected end-of-file was encountered.
-    #[error("unexpected EOF")]
     UnexpectedEof,
 }
+
+impl fmt::Display for TpmDeviceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_ref().to_lowercase())
+    }
+}
+
+impl std::error::Error for TpmDeviceError {}
 
 impl From<TpmRc> for TpmDeviceError {
     fn from(rc: TpmRc) -> Self {
         Self::TpmRc(rc)
+    }
+}
+
+impl From<std::io::Error> for TpmDeviceError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
     }
 }
 

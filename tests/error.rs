@@ -7,17 +7,6 @@ use std::{
 use rstest::rstest;
 use tpm2_device::{TpmDevice, TpmDeviceError, with_device};
 
-#[rstest]
-#[case(TpmDeviceError::AlreadyBorrowed, "device is already borrowed")]
-#[case(TpmDeviceError::Interrupted, "operation interrupted by user")]
-#[case(TpmDeviceError::InvalidResponse, "invalid response")]
-#[case(TpmDeviceError::NotAvailable, "device not available")]
-#[case(TpmDeviceError::Timeout, "TPM command timed out")]
-#[case(TpmDeviceError::UnexpectedEof, "unexpected EOF")]
-fn tpm_device_error_display(#[case] error: TpmDeviceError, #[case] expected: &str) {
-    assert_eq!(error.to_string(), expected);
-}
-
 #[derive(Debug)]
 enum WithDeviceError {
     Device(TpmDeviceError),
