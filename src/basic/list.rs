@@ -373,7 +373,7 @@ pub struct TpmList<T: Copy, const CAPACITY: usize> {
 impl<T: Copy, const CAPACITY: usize> TpmList<T, CAPACITY> {
     /// Creates a new, empty `TpmList`.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             items: [const { MaybeUninit::uninit() }; CAPACITY],
             len: 0,

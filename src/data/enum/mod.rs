@@ -77,7 +77,7 @@ tpm_enum! {
 pub type TpmiAlgCipherMode = TpmAlgId;
 
 tpm_enum! {
-    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone, Hash)]
     pub enum TpmAt(TpmUint32) {
         #[default]
         (Any, 0x0000_0000, "TPM_AT_ANY"),
@@ -88,7 +88,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
     pub enum TpmCap(TpmUint32) {
         (Algs, 0x0000_0000, "TPM_CAP_ALGS"),
         (Handles, 0x0000_0001, "TPM_CAP_HANDLES"),
@@ -104,7 +104,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash)]
     pub enum TpmCc(TpmUint32) {
         (NvUndefineSpaceSpecial, 0x0000_011F, "TPM_CC_NV_UndefineSpaceSpecial"),
         (EvictControl, 0x0000_0120, "TPM_CC_EvictControl"),
@@ -250,7 +250,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone, Hash)]
     pub enum TpmEo(TpmUint16) {
         #[default]
         (Eq, 0x0000, "TPM_EO_EQ"),
@@ -269,7 +269,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Hash)]
     pub enum TpmEccCurve(TpmUint16) {
         #[default]
         (None, 0x0000, "TPM_ECC_NONE"),
@@ -290,7 +290,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
     pub enum TpmHt(TpmUint8) {
         (Pcr, 0x00, "TPM_HT_PCR"),
         (NvIndex, 0x01, "TPM_HT_NV_INDEX"),
@@ -311,7 +311,7 @@ impl TpmHt {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
     pub enum TpmPt(TpmUint32) {
         (FamilyIndicator, 0x100, "TPM_PT_FAMILY_INDICATOR"),
         (Level, 0x101, "TPM_PT_LEVEL"),
@@ -384,7 +384,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, Default, PartialEq, Eq, Copy, Clone, Hash)]
     pub enum TpmRh(TpmUint32) {
         (Srk, 0x4000_0000, "TPM_RH_SRK"),
         (Owner, 0x4000_0001, "TPM_RH_OWNER"),
@@ -413,7 +413,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
     pub enum TpmSe(TpmUint8) {
         (Hmac, 0x00, "TPM_SE_HMAC"),
         (Policy, 0x01, "TPM_SE_POLICY"),
@@ -422,7 +422,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
+    #[derive(Debug, PartialEq, Eq, Copy, Clone, Default, Hash)]
     pub enum TpmSt(TpmUint16) {
         (RspCommand, 0x00C4, "TPM_ST_RSP_COMMAND"),
         #[default]
@@ -446,7 +446,7 @@ tpm_enum! {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
     pub enum TpmSu(TpmUint16) {
         (Clear, 0x0000, "TPM_SU_CLEAR"),
         (State, 0x0001, "TPM_SU_STATE"),

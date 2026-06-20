@@ -63,7 +63,7 @@ macro_rules! tpm_struct_tagged {
     };
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct TpmtPublic {
     pub object_type: TpmAlgId,
     pub name_alg: TpmAlgId,
@@ -93,19 +93,6 @@ impl TpmMarshal for TpmtPublic {
         self.auth_policy.marshal(writer)?;
         self.parameters.marshal(writer)?;
         self.unique.marshal(writer)
-    }
-}
-
-impl Default for TpmtPublic {
-    fn default() -> Self {
-        Self {
-            object_type: TpmAlgId::Null,
-            name_alg: TpmAlgId::Null,
-            object_attributes: TpmaObject::empty(),
-            auth_policy: Tpm2bDigest::default(),
-            parameters: TpmuPublicParms::Null,
-            unique: TpmuPublicId::Null,
-        }
     }
 }
 
@@ -301,7 +288,7 @@ tpm_struct_tagged! {
 }
 
 tpm_struct! {
-    #[derive(Debug, PartialEq, Eq, Clone, Default)]
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     wire: TpmtTkCreationWire,
     pub struct TpmtTkCreation {
         pub tag: TpmSt,

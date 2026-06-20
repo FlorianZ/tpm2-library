@@ -312,12 +312,13 @@ tpmu_view!(TpmuPublicIdView, TpmuPublicId, TpmAlgId {
     @null Null: TpmAlgId::Null;
 });
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum TpmuPublicParms {
     KeyedHash(TpmsKeyedhashParms),
     SymCipher(TpmsSymcipherParms),
     Rsa(TpmsRsaParms),
     Ecc(TpmsEccParms),
+    #[default]
     Null,
 }
 

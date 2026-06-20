@@ -30,13 +30,27 @@ tpm_bitflags! {
     /// `TPMA_CC` (Table 37)
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct TpmaCc(TpmUint32) {
-        const COMMAND_INDEX = 0x0000_FFFF, "COMMAND_INDEX";
         const NV = 0x0040_0000, "NV";
         const EXTENSIVE = 0x0080_0000, "EXTENSIVE";
         const FLUSHED = 0x0100_0000, "FLUSHED";
-        const C_HANDLES = 0x0E00_0000, "C_HANDLES";
         const R_HANDLE = 0x1000_0000, "R_HANDLE";
         const V = 0x2000_0000, "V";
+    }
+}
+
+impl TpmaCc {
+    /// Returns the `commandIndex` field.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn command_index(self) -> u16 {
+        (self.bits() & 0xFFFF) as u16
+    }
+
+    /// Returns the `cHandles` field: the number of handles the command takes.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn c_handles(self) -> u8 {
+        ((self.bits() >> 25) & 0x7) as u8
     }
 }
 
@@ -49,7 +63,14 @@ tpm_bitflags! {
         const LOC_TWO = 0x04, "LOC_TWO";
         const LOC_THREE = 0x08, "LOC_THREE";
         const LOC_FOUR = 0x10, "LOC_FOUR";
-        const EXTENDED = 0xE0, "EXTENDED";
+    }
+}
+
+impl TpmaLocality {
+    /// Returns the `Extended` locality field.
+    #[must_use]
+    pub const fn extended(self) -> u8 {
+        (self.bits() >> 5) & 0x7
     }
 }
 

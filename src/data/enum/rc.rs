@@ -18,7 +18,7 @@ pub const TPM_RC_FMT1_ERROR_MASK: u32 = 0x003F;
 const MAX_HANDLE_INDEX: u8 = 7;
 const SESSION_INDEX_OFFSET: u8 = 8;
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub enum TpmRcIndex {
     Parameter(u8),
     Handle(u8),
@@ -36,7 +36,7 @@ impl Display for TpmRcIndex {
 }
 
 tpm_enum! {
-    #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+    #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
     #[allow(clippy::upper_case_acronyms)]
     pub enum TpmRcBase(TpmUint32) {
         (Success, 0x0000, "TPM_RC_SUCCESS"),
@@ -146,14 +146,14 @@ tpm_enum! {
 }
 
 /// A TPM 2.0 response code with a Format 1 structure.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct TpmRcFmt1 {
     pub base: TpmRcBase,
     pub index: Option<TpmRcIndex>,
 }
 
 /// A TPM 2.0 response code.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub enum TpmRc {
     Fmt0(TpmRcBase),
     Fmt1(TpmRcFmt1),
