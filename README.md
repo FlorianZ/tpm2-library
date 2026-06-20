@@ -1,7 +1,13 @@
 # TPM 2.0 marshaler/unmarshaler
 
 A unipolar `no_std` TPM 2.0 implementation that does not require heap allocator
-and has zero dependencies.
+and has zero dependencies. It now in stable state.
+
+## Semantic versions
+
+- Major versions contain API or ABI breaks.
+- Minor versions contain non-exhaustive additive changes.
+- Patch versions contain only bug fixes.
 
 ## Submitting patches
 
