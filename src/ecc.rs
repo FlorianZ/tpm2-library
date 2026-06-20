@@ -14,8 +14,8 @@ use openssl::{
     ec::{EcGroup, EcGroupRef, EcKey, EcPoint, EcPointRef, PointConversionForm},
     nid::Nid,
     pkey::{PKey, Private},
+    rand::rand_bytes,
 };
-use rand::CryptoRng;
 use strum::{Display, EnumString};
 use tpm2_protocol::{
     TpmMarshal, TpmWriter,
@@ -270,9 +270,8 @@ impl TpmExternalKey for TpmEccExternalKey {
     fn to_seed(
         &self,
         name_alg: TpmHash,
-        rng: &mut impl CryptoRng,
     ) -> Result<(Tpm2bDigest, Tpm2bEncryptedSecret), TpmCryptoError> {
-        let (derived_seed, ephemeral_point) = self.ecdh(name_alg, rng)?;
+        let (derived_seed, ephemeral_point) = self.ecdh(name_alg)?;
 
         let mut point_bytes_buf = [0u8; TPM_MAX_COMMAND_SIZE];
         let len = {
@@ -302,11 +301,7 @@ impl TpmEccExternalKey {
     /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash)
     /// when the hash algorithm is not recognized.
     /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
-    fn ecdh(
-        &self,
-        name_alg: TpmHash,
-        rng: &mut impl CryptoRng,
-    ) -> Result<(Tpm2bDigest, TpmsEccPoint), TpmCryptoError> {
+    fn ecdh(&self, name_alg: TpmHash) -> Result<(Tpm2bDigest, TpmsEccPoint), TpmCryptoError> {
         let nid = Nid::try_from(self.curve)?;
         let group = EcGroup::from_curve_name(nid).map_err(TpmCryptoError::Crypto)?;
         let mut ctx = BigNumContext::new().map_err(TpmCryptoError::Crypto)?;
@@ -326,7 +321,7 @@ impl TpmEccExternalKey {
         let order_uint = BigUint::from_bytes_be(&order.to_vec());
         let one = BigUint::from(1u8);
 
-        let priv_uint = gen_biguint_range(rng, &one, &order_uint);
+        let priv_uint = gen_biguint_range(&one, &order_uint)?;
         let priv_bn =
             BigNum::from_slice(&priv_uint.to_be_bytes()).map_err(TpmCryptoError::Crypto)?;
 
@@ -408,7 +403,11 @@ fn ecc_coord_len(group: &EcGroupRef) -> Result<usize, TpmCryptoError> {
 
 /// Samples a uniform [`BigUint`] in the half-open range `[low, high)` using
 /// rejection sampling over the most significant byte mask.
-fn gen_biguint_range(rng: &mut impl CryptoRng, low: &BigUint, high: &BigUint) -> BigUint {
+///
+/// # Errors
+///
+/// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
+fn gen_biguint_range(low: &BigUint, high: &BigUint) -> Result<BigUint, TpmCryptoError> {
     debug_assert!(low < high);
     let range = high - low;
     let bits = range.bits();
@@ -419,11 +418,11 @@ fn gen_biguint_range(rng: &mut impl CryptoRng, low: &BigUint, high: &BigUint) ->
     };
     let mut buf = vec![0u8; byte_len];
     loop {
-        rng.fill_bytes(&mut buf);
+        rand_bytes(&mut buf).map_err(TpmCryptoError::Crypto)?;
         buf[0] &= high_mask;
         let candidate = BigUint::from_bytes_be(&buf);
         if candidate < range {
-            return low + candidate;
+            return Ok(low + candidate);
         }
     }
 }

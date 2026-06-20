@@ -11,9 +11,9 @@ use openssl::{
     md::Md,
     pkey::{PKey, Private},
     pkey_ctx::PkeyCtx,
+    rand::rand_bytes,
     rsa::{Padding, Rsa},
 };
-use rand::CryptoRng;
 use tpm2_protocol::{
     basic::{TpmUint16, TpmUint32},
     constant::{MAX_DIGEST_SIZE, MAX_RSA_KEY_BYTES},
@@ -197,11 +197,10 @@ impl TpmExternalKey for TpmRsaExternalKey {
     fn to_seed(
         &self,
         name_alg: TpmHash,
-        rng: &mut impl CryptoRng,
     ) -> Result<(Tpm2bDigest, Tpm2bEncryptedSecret), TpmCryptoError> {
         let seed_size = name_alg.size();
         let mut seed_buf = [0u8; MAX_DIGEST_SIZE];
-        rng.fill_bytes(&mut seed_buf[..seed_size]);
+        rand_bytes(&mut seed_buf[..seed_size]).map_err(TpmCryptoError::Crypto)?;
         let seed =
             Tpm2bDigest::try_from(&seed_buf[..seed_size]).map_err(TpmCryptoError::Unmarshal)?;
 
