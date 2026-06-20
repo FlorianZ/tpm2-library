@@ -13,7 +13,7 @@ use crate::{
 };
 
 use anyhow::{Result, anyhow};
-use rand::Rng;
+use openssl::rand::rand_bytes;
 use tpm2_crypto::{TpmHash, tpm_make_name};
 use tpm2_device::{TpmDevice, TpmDeviceError, TpmPolicySession};
 use tpm2_protocol::{
@@ -359,7 +359,8 @@ impl<'a> TaskState<'a> {
                         .ok_or_else(|| anyhow!("handle not found: {vhandle:08x}"))?;
                     let nonce_size = TpmHash::try_from(session.hash_alg())?.size();
                     let mut nonce_bytes = vec![0; nonce_size];
-                    rand::rng().fill_bytes(&mut nonce_bytes);
+                    rand_bytes(&mut nonce_bytes)
+                        .map_err(|_| anyhow!("failed to generate nonce"))?;
                     let nonce = Tpm2bNonce::try_from(nonce_bytes.as_slice())
                         .map_err(|_| anyhow!("out of memory"))?;
 

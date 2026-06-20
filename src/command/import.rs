@@ -12,7 +12,6 @@ use crate::{
 use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use openssl::symm::{Cipher, encrypt};
-use rand;
 use std::path::PathBuf;
 use tpm2_crypto::{
     KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE, TpmEccExternalKey, TpmExternalKey, TpmHash,
@@ -239,18 +238,17 @@ impl Import {
         object_public: &tpm2_protocol::data::TpmtPublic,
         private_bytes: &[u8],
         object_name: &Tpm2bName,
-        rng: &mut impl rand::CryptoRng,
         user_auth: Tpm2bAuth,
     ) -> Result<(Tpm2bPrivate, Tpm2bEncryptedSecret, Tpm2bData)> {
         let name_alg = parent_public.name_alg;
         let (seed, in_sym_seed) = match parent_public.object_type {
             TpmAlgId::Rsa => {
                 let key = TpmRsaExternalKey::try_from(parent_public)?;
-                key.to_seed(TpmHash::try_from(name_alg)?, rng)?
+                key.to_seed(TpmHash::try_from(name_alg)?)?
             }
             TpmAlgId::Ecc => {
                 let key = TpmEccExternalKey::try_from(parent_public)?;
-                key.to_seed(TpmHash::try_from(name_alg)?, rng)?
+                key.to_seed(TpmHash::try_from(name_alg)?)?
             }
             _ => return Err(anyhow!("invalid parent key type")),
         };
@@ -394,7 +392,6 @@ impl Import {
             object_attributes,
         )?;
 
-        let mut rng = rand::rng();
         let object_name = tpm_make_name(&public)?;
 
         let (duplicate, in_sym_seed, encryption_key) = Self::build_import_blob(
@@ -402,7 +399,6 @@ impl Import {
             &public,
             &sensitive_blob,
             &object_name,
-            &mut rng,
             user_auth,
         )?;
 

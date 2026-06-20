@@ -27,7 +27,6 @@ log = "0.4"
 nix = { version = "0.29", features = ["fs", "poll"] }
 openssl = "0.10"
 pem = "3.0"
-rand = "0.10"
 strum = { version = "0.26", features = ["derive"] }
 tabled = { version = "0.15", default-features = false, features = ["std", "derive", "ansi"] }
 tpm2-crypto = "0.20.3"
