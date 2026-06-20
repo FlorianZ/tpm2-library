@@ -17,6 +17,7 @@ macro_rules! tpm_enum {
     }) => {
         $(#[$enum_meta])*
         #[repr($repr)]
+        #[non_exhaustive]
         $vis enum $name {
             $(
                 $(#[$variant_meta])*
