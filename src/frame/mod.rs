@@ -14,12 +14,9 @@ pub use self::{data::*, marshal::*, wire::*};
 
 pub(crate) use self::unmarshal::TpmDispatch;
 
-use crate::constant::{MAX_HANDLES, MAX_SESSIONS};
+use crate::constant::MAX_SESSIONS;
 
 const TPM_HEADER_SIZE: u32 = 10;
-
-/// A fixed-capacity list for TPM handles.
-pub type TpmHandles = TpmList<crate::basic::TpmHandle, MAX_HANDLES>;
 
 /// A fixed-capacity list for command authorization sessions.
 pub type TpmAuthCommands = TpmList<crate::data::TpmsAuthCommand, MAX_SESSIONS>;

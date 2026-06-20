@@ -2,6 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! integer {
     ($name:ident, $raw:ty, $bytes:expr) => {

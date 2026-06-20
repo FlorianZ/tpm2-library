@@ -12,6 +12,7 @@ pub mod r#struct;
 /// The bare form targets views backed by an unsized `[u8]` and also emits the
 /// `AsRef`/`AsMut` byte-slice conversions. The `array` form targets views
 /// backed by a fixed-size `[u8; N]` and emits only the unchecked casts.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpm_byte_view {
     ($name:ident) => {
@@ -110,6 +111,7 @@ macro_rules! tpm_byte_view {
     };
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpm_bitflags {
     (@impl $(#[$outer:meta])* $vis:vis struct $name:ident($wrapper:ty, $repr:ty) {
@@ -237,6 +239,7 @@ macro_rules! tpm_bitflags {
     };
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpm_bool {
     (
@@ -287,6 +290,7 @@ macro_rules! tpm_bool {
     };
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpm_dispatch {
     (@const_check_sorted) => {};
@@ -474,22 +478,6 @@ macro_rules! tpm_dispatch {
         }
 
         impl TpmResponseValue {
-            $(
-                /// Attempts to convert the `TpmResponseValue` into a specific response type.
-                ///
-                /// # Errors
-                ///
-                /// Returns the original `TpmResponseValue` as an error if the enum variant does not match.
-                #[allow(non_snake_case, clippy::result_large_err)]
-                pub fn $variant(self) -> Result<$crate::frame::data::$resp, Self> {
-                    if let Self::$variant(r) = self {
-                        Ok(r)
-                    } else {
-                        Err(self)
-                    }
-                }
-            )*
-
             /// Marshals a response body into a writer.
             ///
             /// # Errors
@@ -506,6 +494,21 @@ macro_rules! tpm_dispatch {
                 }
             }
         }
+
+        $(
+            impl TryFrom<TpmResponseValue> for $crate::frame::data::$resp {
+                type Error = TpmResponseValue;
+
+                #[allow(clippy::result_large_err)]
+                fn try_from(value: TpmResponseValue) -> Result<Self, Self::Error> {
+                    if let TpmResponseValue::$variant(response) = value {
+                        Ok(response)
+                    } else {
+                        Err(value)
+                    }
+                }
+            }
+        )*
 
         /// A borrowed TPM response frame selected by command code.
         pub enum TpmResponseView<'a> {

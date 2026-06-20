@@ -44,11 +44,11 @@ tpm_bitflags! {
     /// `TPMA_LOCALITY` (Table 41)
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct TpmaLocality(TpmUint8) {
-        const TPM_LOC_ZERO = 0x01, "LOC_ZERO";
-        const TPM_LOC_ONE = 0x02, "LOC_ONE";
-        const TPM_LOC_TWO = 0x04, "LOC_TWO";
-        const TPM_LOC_THREE = 0x08, "LOC_THREE";
-        const TPM_LOC_FOUR = 0x10, "LOC_FOUR";
+        const LOC_ZERO = 0x01, "LOC_ZERO";
+        const LOC_ONE = 0x02, "LOC_ONE";
+        const LOC_TWO = 0x04, "LOC_TWO";
+        const LOC_THREE = 0x08, "LOC_THREE";
+        const LOC_FOUR = 0x10, "LOC_FOUR";
         const EXTENDED = 0xE0, "EXTENDED";
     }
 }
@@ -61,9 +61,9 @@ tpm_bitflags! {
         const OWNERWRITE = 0x0000_0002, "OWNERWRITE";
         const AUTHWRITE = 0x0000_0004, "AUTHWRITE";
         const POLICYWRITE = 0x0000_0008, "POLICYWRITE";
-        const TPM_NT_COUNTER = 0x0000_0010, "COUNTER";
-        const TPM_NT_BITS = 0x0000_0020, "BITS";
-        const TPM_NT_EXTEND = 0x0000_0040, "EXTEND";
+        const COUNTER = 0x0000_0010, "COUNTER";
+        const BITS = 0x0000_0020, "BITS";
+        const EXTEND = 0x0000_0040, "EXTEND";
         const POLICY_DELETE = 0x0000_0400, "POLICY_DELETE";
         const WRITELOCKED = 0x0000_0800, "WRITELOCKED";
         const WRITEALL = 0x0000_1000, "WRITEALL";

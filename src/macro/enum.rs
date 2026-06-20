@@ -6,6 +6,7 @@
 //! a `match`-statement is too restricted for arbitrary expressions (e.g, see
 //! `TpmRc` for an example).
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpm_enum {
     (@impl $(#[$enum_meta:meta])* $vis:vis enum $name:ident($wrapper:ty, $repr:ty) {

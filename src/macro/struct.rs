@@ -2,6 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpm_struct {
     (@wire_field_methods [$($prev_type:ty,)*],) => {};
@@ -376,6 +377,7 @@ macro_rules! tpm_struct {
     };
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpm2b {
     ($name:ident, $capacity:expr) => {
@@ -383,6 +385,7 @@ macro_rules! tpm2b {
     };
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpm2b_struct {
     (
@@ -577,6 +580,7 @@ macro_rules! tpm2b_struct {
     };
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tpml {
     ($name:ident, $inner_ty:ty, $capacity:expr) => {

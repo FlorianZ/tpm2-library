@@ -10,11 +10,3 @@ crate::integer!(TpmUint64, u64, 8);
 crate::integer!(TpmInt32, i32, 4);
 
 pub type TpmHandle = crate::basic::TpmUint32;
-
-pub type TpmUint8Value = u8;
-pub type TpmInt8Value = i8;
-pub type TpmUint16Value = u16;
-pub type TpmUint32Value = u32;
-pub type TpmUint64Value = u64;
-pub type TpmInt32Value = i32;
-pub type TpmHandleValue = TpmUint32Value;
