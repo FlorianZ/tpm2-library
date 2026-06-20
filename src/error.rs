@@ -23,9 +23,9 @@ pub const fn tpm_value(value: usize) -> u64 {
 /// Every variant carries the byte `offset` from the start of the parsed buffer
 /// along with the diagnostic counts relevant to that failure.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[non_exhaustive]
 pub enum TpmError {
-    /// Trying to marshal more bytes than buffer has space. This is unexpected
-    /// situation, and should be considered possible bug in the crate itself.
+    /// A write exceeded the capacity of the destination buffer.
     BufferOverflow {
         /// Byte offset from the start of the buffer.
         offset: usize,
@@ -132,49 +132,30 @@ pub enum TpmError {
     },
 }
 
-impl TpmError {
-    /// Returns the stable machine-readable name of the error variant.
-    #[must_use]
-    pub const fn kind(self) -> &'static str {
-        match self {
-            Self::BufferOverflow { .. } => "BufferOverflow",
-            Self::IntegerTooLarge { .. } => "IntegerTooLarge",
-            Self::InvalidBoolean { .. } => "InvalidBoolean",
-            Self::InvalidCc { .. } => "InvalidCc",
-            Self::InvalidMagicNumber { .. } => "InvalidMagicNumber",
-            Self::InvalidRc { .. } => "InvalidRc",
-            Self::InvalidTag { .. } => "InvalidTag",
-            Self::TooManyBytes { .. } => "TooManyBytes",
-            Self::TooManyItems { .. } => "TooManyItems",
-            Self::TrailingData { .. } => "TrailingData",
-            Self::UnexpectedEnd { .. } => "UnexpectedEnd",
-            Self::VariantNotAvailable { .. } => "VariantNotAvailable",
-        }
-    }
-}
-
-/// Renders [`TpmError`] as its bare variant name in lowercase, space-separated
-/// words (e.g. `BufferOverflow` becomes `buffer overflow`).
+/// Renders [`TpmError`] as its variant name in lowercase, space-separated words
+/// (e.g. [`BufferOverflow`](Self::BufferOverflow) renders as `buffer overflow`).
 ///
 /// As the lowest-level crate in the stack, errors expose only the variant name
-/// here, derived from the stable [`kind`](Self::kind) discriminant. Callers read
-/// the structured fields directly and decide how to present the diagnostic
-/// detail.
+/// here. Callers read the structured fields directly and decide how to present
+/// the diagnostic detail.
 impl core::fmt::Display for TpmError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        use core::fmt::Write as _;
+        let name = match self {
+            Self::BufferOverflow { .. } => "buffer overflow",
+            Self::IntegerTooLarge { .. } => "integer too large",
+            Self::InvalidBoolean { .. } => "invalid boolean",
+            Self::InvalidCc { .. } => "invalid cc",
+            Self::InvalidMagicNumber { .. } => "invalid magic number",
+            Self::InvalidRc { .. } => "invalid rc",
+            Self::InvalidTag { .. } => "invalid tag",
+            Self::TooManyBytes { .. } => "too many bytes",
+            Self::TooManyItems { .. } => "too many items",
+            Self::TrailingData { .. } => "trailing data",
+            Self::UnexpectedEnd { .. } => "unexpected end",
+            Self::VariantNotAvailable { .. } => "variant not available",
+        };
 
-        for (i, ch) in self.kind().char_indices() {
-            if ch.is_ascii_uppercase() {
-                if i != 0 {
-                    f.write_char(' ')?;
-                }
-                f.write_char(ch.to_ascii_lowercase())?;
-            } else {
-                f.write_char(ch)?;
-            }
-        }
-        Ok(())
+        f.write_str(name)
     }
 }
 

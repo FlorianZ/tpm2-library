@@ -95,7 +95,7 @@ impl TpmCommand {
     ///
     /// # Errors
     ///
-    /// Returns [`VariantNotAvailable`](crate::TpmError::VariantNotAvailable)
+    /// Returns [`InvalidTag`](crate::TpmError::InvalidTag)
     /// when the tag value is not defined.
     pub fn tag(&self) -> TpmResult<TpmSt> {
         let raw = read_u16(&self.0, TAG_OFFSET);
@@ -471,7 +471,7 @@ impl TpmResponse {
     ///
     /// # Errors
     ///
-    /// Returns [`VariantNotAvailable`](crate::TpmError::VariantNotAvailable)
+    /// Returns [`InvalidTag`](crate::TpmError::InvalidTag)
     /// when the tag value is not defined.
     pub fn tag(&self) -> TpmResult<TpmSt> {
         let raw = read_u16(&self.0, TAG_OFFSET);

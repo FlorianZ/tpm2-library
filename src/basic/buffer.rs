@@ -361,13 +361,6 @@ impl<const CAPACITY: usize> TryFrom<&[u8]> for TpmBuffer<CAPACITY> {
     type Error = TpmError;
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
-        if slice.len() > CAPACITY {
-            return Err(TpmError::TooManyBytes {
-                offset: 0,
-                limit: CAPACITY,
-                actual: slice.len(),
-            });
-        }
         let mut buffer = Self::new();
         buffer.try_extend_from_slice(slice)?;
         Ok(buffer)

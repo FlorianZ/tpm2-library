@@ -241,7 +241,6 @@ fn display_renders_variant_name() {
     };
 
     assert_eq!(err.to_string(), "unexpected end");
-    assert_eq!(err.kind(), "UnexpectedEnd");
 }
 
 #[test]
