@@ -502,7 +502,7 @@ macro_rules! tpm_dispatch {
                 writer: &mut $crate::TpmWriter,
             ) -> $crate::TpmResult<()> {
                 match self {
-                    $( Self::$variant(r) => $crate::frame::tpm_marshal_response(r, sessions, rc, writer), )*
+                    $( Self::$variant(r) => $crate::frame::tpm_marshal_response(r, rc, sessions, writer), )*
                 }
             }
         }
@@ -512,11 +512,16 @@ macro_rules! tpm_dispatch {
             $( $variant(&'a $crate::frame::TpmResponse), )*
         }
 
-        /// A borrowed response dispatch result or a TPM response code.
-        pub type TpmResponseViewResult<'a> = Result<TpmResponseView<'a>, $crate::data::TpmRc>;
+        /// The outcome of borrowed response dispatch.
+        pub enum TpmResponseOutcome<'a> {
+            /// A successful response, carrying the selected borrowed view.
+            Dispatched(TpmResponseView<'a>),
+            /// A well-formed response carrying a non-success response code.
+            Rejected($crate::data::TpmRc),
+        }
 
         impl<'a> TpmResponseView<'a> {
-            /// Casts bytes into a borrowed response dispatch value.
+            /// Casts bytes into a borrowed response dispatch outcome.
             ///
             /// # Errors
             ///
@@ -525,13 +530,13 @@ macro_rules! tpm_dispatch {
             pub fn cast_frame(
                 cc: $crate::data::TpmCc,
                 buf: &'a [u8],
-            ) -> $crate::TpmResult<TpmResponseViewResult<'a>> {
+            ) -> $crate::TpmResult<TpmResponseOutcome<'a>> {
                 let response = <$crate::frame::TpmResponse>::cast(buf)?;
 
                 Self::cast(cc, response)
             }
 
-            /// Selects a borrowed response dispatch value from a response wire view.
+            /// Selects a borrowed response dispatch outcome from a response wire view.
             ///
             /// # Errors
             ///
@@ -540,16 +545,16 @@ macro_rules! tpm_dispatch {
             pub fn cast(
                 cc: $crate::data::TpmCc,
                 response: &'a $crate::frame::TpmResponse,
-            ) -> $crate::TpmResult<TpmResponseViewResult<'a>> {
+            ) -> $crate::TpmResult<TpmResponseOutcome<'a>> {
                 let rc = response.rc()?;
                 if !matches!(rc, $crate::data::TpmRc::Fmt0($crate::data::TpmRcBase::Success)) {
-                    return Ok(Err(rc));
+                    return Ok(TpmResponseOutcome::Rejected(rc));
                 }
 
                 response.validate(cc)?;
 
                 match cc {
-                    $( <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC => Ok(Ok(Self::$variant(response))), )*
+                    $( <$crate::frame::data::$cmd as $crate::frame::TpmHeader>::CC => Ok(TpmResponseOutcome::Dispatched(Self::$variant(response))), )*
                     #[allow(unreachable_patterns)]
                     _ => Err($crate::TpmError::InvalidCc { offset: 0, value: u64::from(cc.value()) }),
                 }

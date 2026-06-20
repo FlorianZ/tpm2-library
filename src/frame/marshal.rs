@@ -91,8 +91,8 @@ where
 /// Returns `Err(TpmError)` on a marshal failure.
 pub fn tpm_marshal_response<R>(
     response: &R,
-    sessions: &[TpmsAuthResponse],
     rc: TpmRc,
+    sessions: &[TpmsAuthResponse],
     writer: &mut crate::TpmWriter,
 ) -> TpmResult<()>
 where

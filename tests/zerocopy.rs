@@ -12,7 +12,7 @@ use tpm2_protocol::{
         Tpm2bAuth, Tpm2bEncryptedSecret, Tpm2bNonce, Tpm2bSensitiveCreateWire, Tpm2bSensitiveData,
         TpmCc, TpmsAuthCommand, TpmsAuthResponse,
     },
-    frame::{TpmCommandView, TpmResponseView},
+    frame::{TpmCommandView, TpmResponseOutcome, TpmResponseView},
 };
 
 const MESSAGE_DATA: &str = include_str!("message.txt");
@@ -129,9 +129,11 @@ fn response_view_borrows_handles_sessions_and_parameters() {
         "00000051",
     );
 
-    let view = TpmResponseView::cast_frame(TpmCc::StartAuthSession, &bytes)
-        .unwrap()
-        .unwrap();
+    let outcome = TpmResponseView::cast_frame(TpmCc::StartAuthSession, &bytes).unwrap();
+    let view = match outcome {
+        TpmResponseOutcome::Dispatched(view) => view,
+        TpmResponseOutcome::Rejected(rc) => panic!("unexpected response code: {rc}"),
+    };
 
     assert_eq!(view.cc(), TpmCc::StartAuthSession);
 

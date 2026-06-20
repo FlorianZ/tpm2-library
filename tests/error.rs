@@ -270,7 +270,7 @@ fn response_marshal_writes_to_caller_buffer() {
     let written_len = {
         let mut writer = TpmWriter::new(&mut storage);
 
-        tpm_marshal_response(&response, &[], TpmRc::Fmt0(TpmRcBase::Success), &mut writer).unwrap();
+        tpm_marshal_response(&response, TpmRc::Fmt0(TpmRcBase::Success), &[], &mut writer).unwrap();
         assert_eq!(writer.as_bytes(), expected.as_slice());
         writer.len()
     };
