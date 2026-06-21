@@ -15,7 +15,7 @@ num-bigint = "0.4"
 num-traits = "0.2"
 openssl = { version = "0.10" }
 strum = { version = "0.28", features = ["derive"] }
-tpm2-protocol = "0.20.2"
+tpm2-protocol = "1"
 
 [[test]]
 name = "hmac"
@@ -25,6 +25,21 @@ harness = true
 [[test]]
 name = "public"
 path = "tests/public.rs"
+harness = true
+
+[[test]]
+name = "ecc"
+path = "tests/ecc.rs"
+harness = true
+
+[[test]]
+name = "kdf"
+path = "tests/kdf.rs"
+harness = true
+
+[[test]]
+name = "rsa"
+path = "tests/rsa.rs"
 harness = true
 
 [dev-dependencies]

@@ -17,6 +17,7 @@ use tpm2_protocol::{constant::MAX_DIGEST_SIZE, data::TpmAlgId};
 /// TPM 2.0 hash algorithms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "kebab-case")]
+#[non_exhaustive]
 pub enum TpmHash {
     Sha1,
     Sha256,
@@ -85,7 +86,7 @@ impl From<TpmHash> for MessageDigest {
 }
 
 impl TpmHash {
-    /// Returns the size of the digest size.
+    /// Returns the size of the digest.
     #[must_use]
     pub fn size(&self) -> usize {
         Into::<MessageDigest>::into(*self).size()
@@ -184,7 +185,7 @@ impl TpmHash {
     ///
     /// # Errors
     ///
-    /// Returns [`PermissionDenied`](crate::TpmCryptoError::PermissionDenied)
+    /// Returns [`MacMismatch`](crate::TpmCryptoError::MacMismatch)
     /// when the HMAC does not match the expected value.
     /// Returns [`InvalidHash`](crate::TpmCryptoError::InvalidHash) when the
     /// hash algorithm is not recognized.
@@ -199,7 +200,7 @@ impl TpmHash {
         if memcmp::eq(&expected, signature) {
             Ok(())
         } else {
-            Err(TpmCryptoError::PermissionDenied)
+            Err(TpmCryptoError::MacMismatch)
         }
     }
 

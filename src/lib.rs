@@ -19,8 +19,18 @@ pub use hash::TpmHash;
 pub use rsa::TpmRsaExternalKey;
 pub use template::TpmPublicTemplate;
 
+/// `KDFa`/`KDFe` label for the outer wrapping seed of a `TPM2_Duplicate` /
+/// `TPM2_Import` exchange. Used internally by this crate; exported for callers
+/// assembling those command flows.
 pub const KDF_LABEL_DUPLICATE: &[u8] = b"DUPLICATE";
+
+/// `KDFa` label for the HMAC integrity key protecting a duplication blob.
+/// Exported for callers assembling `TPM2_Import` / `TPM2_Duplicate` flows.
 pub const KDF_LABEL_INTEGRITY: &[u8] = b"INTEGRITY";
+
+/// `KDFa` label for the symmetric storage key wrapping a child object's
+/// sensitive area. Exported for callers assembling `TPM2_Import` /
+/// `TPM2_Duplicate` flows.
 pub const KDF_LABEL_STORAGE: &[u8] = b"STORAGE";
 
 /// Trait for cryptographic public keys.

@@ -32,6 +32,7 @@ const UNCOMPRESSED_POINT_TAG: u8 = 0x04;
 /// TPM 2.0 ECC curves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "kebab-case")]
+#[non_exhaustive]
 pub enum TpmEllipticCurve {
     NistP192,
     NistP224,
@@ -69,7 +70,7 @@ impl TryFrom<TpmEccCurve> for TpmEllipticCurve {
             TpmEccCurve::BpP512R1 => Ok(Self::BpP512R1),
             TpmEccCurve::Curve25519 => Ok(Self::Curve25519),
             TpmEccCurve::Curve448 => Ok(Self::Curve448),
-            curve @ TpmEccCurve::None => Err(TpmCryptoError::InvalidEccCurve(curve)),
+            curve => Err(TpmCryptoError::InvalidEccCurve(curve)),
         }
     }
 }
@@ -134,7 +135,7 @@ impl TryFrom<Nid> for TpmEllipticCurve {
 }
 
 /// ECC public key parameters.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmEccExternalKey {
     curve: TpmEllipticCurve,
     unique: TpmsEccPoint,

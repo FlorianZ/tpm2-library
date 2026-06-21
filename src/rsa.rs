@@ -25,7 +25,7 @@ use tpm2_protocol::{
 };
 
 /// RSA public key parameters.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TpmRsaExternalKey {
     public_key: Tpm2bPublicKeyRsa,
     exponent: TpmUint32,

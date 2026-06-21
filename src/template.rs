@@ -136,6 +136,18 @@ impl TpmPublicTemplate {
     pub const fn symmetric(&self) -> TpmtSymDefObject {
         self.symmetric
     }
+
+    /// Returns the public ID.
+    #[must_use]
+    pub const fn public_id(&self) -> &TpmuPublicId {
+        &self.public_id
+    }
+
+    /// Returns the public parameters.
+    #[must_use]
+    pub const fn public_parms(&self) -> &TpmuPublicParms {
+        &self.public_parms
+    }
 }
 
 impl TryFrom<&TpmPublicTemplate> for TpmtPublic {

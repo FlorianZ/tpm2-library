@@ -28,6 +28,7 @@ pub enum TpmPublicAreaField {
 /// (e.g. `BufferTooSmall` becomes `buffer too small`).
 #[derive(Debug, strum::AsRefStr)]
 #[strum(serialize_all = "title_case")]
+#[non_exhaustive]
 pub enum TpmCryptoError {
     /// The output buffer is too small for the requested operation.
     BufferTooSmall { expected: usize, actual: usize },
@@ -113,8 +114,8 @@ pub enum TpmCryptoError {
     /// Marshaling a TPM protocol encoded object failed.
     Marshal(tpm2_protocol::TpmError),
 
-    /// The provided HMAC does not match to the expected value.
-    PermissionDenied,
+    /// The computed message authentication code does not match the expected value.
+    MacMismatch,
 
     /// Unmarshaling a TPM protocol encoded object failed.
     Unmarshal(tpm2_protocol::TpmError),
@@ -190,7 +191,7 @@ impl PartialEq for TpmCryptoError {
             | (Self::InvalidRsaKey, Self::InvalidRsaKey)
             | (Self::KeyIsEmpty, Self::KeyIsEmpty)
             | (Self::MissingRsaPrivatePrime, Self::MissingRsaPrivatePrime)
-            | (Self::PermissionDenied, Self::PermissionDenied) => true,
+            | (Self::MacMismatch, Self::MacMismatch) => true,
             (Self::InvalidEccGroupDegree(a), Self::InvalidEccGroupDegree(b)) => a == b,
             (Self::InvalidKeyBits(a), Self::InvalidKeyBits(b)) => a == b,
             (Self::InvalidKdfKeyBits(a), Self::InvalidKdfKeyBits(b)) => a == b,
