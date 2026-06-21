@@ -11,11 +11,7 @@ rust-version = "1.85"
 readme = "README.md"
 
 [dependencies]
-hex = "0.4"
 pem = "3.0"
 rasn = "0.26"
 strum = { version = "0.28", features = ["derive"] }
-tpm2-protocol = "0.20.2"
-
-[dev-dependencies]
-rstest = "0.21"
+tpm2-protocol = "1"

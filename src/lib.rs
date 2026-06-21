@@ -54,14 +54,17 @@ use crate::asn1::{TpmAuthPolicyAsn1, TpmKeyAsn1, TpmKeyCommandAsn1, tpm_marshal_
 use pem::{EncodeConfig, LineEnding, Pem};
 use rasn::types::{OctetString, Utf8String};
 
+/// `id-loadablekey` OID `2.23.133.10.1.3`: a key to be loaded with `TPM2_Load`.
 pub const OID_LOADABLE_KEY: rasn::prelude::ObjectIdentifier =
     rasn::prelude::ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[
         2, 23, 133, 10, 1, 3,
     ]));
+/// `id-importablekey` OID `2.23.133.10.1.4`: a key to be loaded with `TPM2_Import`.
 pub const OID_IMPORTABLE_KEY: rasn::prelude::ObjectIdentifier =
     rasn::prelude::ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[
         2, 23, 133, 10, 1, 4,
     ]));
+/// `id-sealedkey` OID `2.23.133.10.1.5`: data to be extracted with `TPM2_Unseal`.
 pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
     rasn::prelude::ObjectIdentifier::new_unchecked(std::borrow::Cow::Borrowed(&[
         2, 23, 133, 10, 1, 5,
@@ -76,6 +79,7 @@ use tpm2_protocol::{
 
 /// The type of the TPM key as defined by the OID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TpmKeyType {
     /// `id-loadablekey`: Key to be loaded with `TPM2_Load`.
     Loadable,
@@ -289,11 +293,8 @@ impl TpmKeyFile {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 encoding fails.
-    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
-    /// is not `Rsa`, `Ecc`, or `KeyedHash`.
-    /// Returns [`Marshal`](crate::TpmKeyError::Marshal) when the value cannot be
-    /// marshalled into the underlying TPM buffer.
+    /// Returns [`Asn1EncodingFailed`](TpmKeyError::Asn1EncodingFailed) when ASN.1
+    /// DER encoding fails.
     pub fn to_pem(&self) -> Result<String, TpmKeyError> {
         let der = self.to_der()?;
         let pem = Pem::new("TSS2 PRIVATE KEY", der);
@@ -305,21 +306,22 @@ impl TpmKeyFile {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidPem`](crate::Error::InvalidPem) when PEM parsing fails.
-    /// Returns [`InvalidPemTag`](crate::Error::InvalidPemTag) when the PEM tag
-    /// is not `TSS2 PRIVATE KEY`.
-    /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 decoding or
-    /// embedded layout checks fail.
-    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when the OID
-    /// and inner public key type mismatch.
-    /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag) when the ASN.1
-    /// OID is not a recognized TPM key type.
-    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when a policy
-    /// command body is invalid.
-    /// Returns [`InvalidCc`](crate::Error::InvalidCc) when a policy item uses
-    /// an unknown TPM command code.
-    /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
-    /// an *Importable Key* but `secret` is absent.
+    /// Returns [`PemDecodingFailed`](TpmKeyError::PemDecodingFailed) when PEM
+    /// parsing fails.
+    /// Returns [`InvalidPemTag`](TpmKeyError::InvalidPemTag) when the PEM tag is
+    /// not `TSS2 PRIVATE KEY`.
+    /// Returns [`Asn1DecodingFailed`](TpmKeyError::Asn1DecodingFailed) when ASN.1
+    /// DER decoding fails.
+    /// Returns [`Unmarshal`](TpmKeyError::Unmarshal) when the embedded
+    /// `TPM2B_PUBLIC` or `TPM2B_PRIVATE` is malformed.
+    /// Returns [`InvalidOid`](TpmKeyError::InvalidOid) when the ASN.1 OID is not a
+    /// recognized TPM key type.
+    /// Returns [`InvalidKeyAlgorithm`](TpmKeyError::InvalidKeyAlgorithm) when the
+    /// OID and inner public key algorithm mismatch.
+    /// Returns [`MissingSecret`](TpmKeyError::MissingSecret) when the OID indicates
+    /// an importable key but `secret` is absent.
+    /// Returns [`InvalidCc`](TpmKeyError::InvalidCc) when a policy item uses an
+    /// unknown or non-policy TPM command code.
     pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let pem = pem::parse(pem_bytes).map_err(TpmKeyError::PemDecodingFailed)?;
         if pem.tag() == "TSS2 PRIVATE KEY" {
@@ -333,11 +335,8 @@ impl TpmKeyFile {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 encoding fails.
-    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when `key_type`
-    /// is not `Rsa`, `Ecc`, or `KeyedHash`.
-    /// Returns [`Marshal`](crate::TpmKeyError::Marshal) when the value cannot be
-    /// marshalled into the underlying TPM buffer.
+    /// Returns [`Asn1EncodingFailed`](TpmKeyError::Asn1EncodingFailed) when ASN.1
+    /// DER encoding fails.
     pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
         let asn1 = self.to_asn1();
         rasn::der::encode(&asn1).map_err(TpmKeyError::Asn1EncodingFailed)
@@ -347,18 +346,18 @@ impl TpmKeyFile {
     ///
     /// # Errors
     ///
-    /// Returns [`InvalidAsn1`](crate::Error::InvalidDer) when ASN.1 decoding or
-    /// embedded layout checks fail.
-    /// Returns [`InvalidKeyType`](crate::Error::InvalidKeyType) when the OID
-    /// and inner public key type mismatch.
-    /// Returns [`InvalidDerTag`](crate::Error::InvalidDerTag) when the ASN.1
-    /// OID is not a recognized TPM key type.
-    /// Returns [`InvalidPolicy`](crate::Error::InvalidPolicy) when a policy
-    /// command body is invalid.
-    /// Returns [`InvalidCc`](crate::Error::InvalidCc) when a policy item uses
-    /// an unknown TPM command code.
-    /// Returns [`MissingSecret`](crate::Error::MissingSecret) when OID indicates
-    /// an *Importable Key* but `secret` is absent.
+    /// Returns [`Asn1DecodingFailed`](TpmKeyError::Asn1DecodingFailed) when ASN.1
+    /// DER decoding fails.
+    /// Returns [`Unmarshal`](TpmKeyError::Unmarshal) when the embedded
+    /// `TPM2B_PUBLIC` or `TPM2B_PRIVATE` is malformed.
+    /// Returns [`InvalidOid`](TpmKeyError::InvalidOid) when the ASN.1 OID is not a
+    /// recognized TPM key type.
+    /// Returns [`InvalidKeyAlgorithm`](TpmKeyError::InvalidKeyAlgorithm) when the
+    /// OID and inner public key algorithm mismatch.
+    /// Returns [`MissingSecret`](TpmKeyError::MissingSecret) when the OID indicates
+    /// an importable key but `secret` is absent.
+    /// Returns [`InvalidCc`](TpmKeyError::InvalidCc) when a policy item uses an
+    /// unknown or non-policy TPM command code.
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let asn1: TpmKeyAsn1 =
             rasn::der::decode(der_bytes).map_err(TpmKeyError::Asn1DecodingFailed)?;

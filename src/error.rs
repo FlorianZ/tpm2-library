@@ -9,6 +9,7 @@ use crate::TpmKeyType;
 /// (e.g. `InvalidPemTag` becomes `invalid pem tag`).
 #[derive(Debug, strum::AsRefStr)]
 #[strum(serialize_all = "title_case")]
+#[non_exhaustive]
 pub enum TpmKeyError {
     /// Command code in a policy command is not a valid `TPM_CC`.
     InvalidCc(u32),
