@@ -41,8 +41,7 @@ use tpm2_protocol::{
         TpmAuthCommands, TpmCommandValue as TpmCommand, TpmContextLoadCommand,
         TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame, TpmGetCapabilityCommand,
         TpmReadPublicCommand, TpmResponse, TpmResponseOutcome, TpmResponseView,
-        TpmStartAuthSessionCommand,
-        tpm_marshal_command,
+        TpmStartAuthSessionCommand, tpm_marshal_command,
     },
 };
 use tracing::{debug, trace};
@@ -186,105 +185,148 @@ where
     function(&mut device_guard)
 }
 
-/// A builder for constructing a `TpmDevice`.
-pub struct TpmDeviceBuilder {
-    path: PathBuf,
-    timeout: Duration,
-    interrupted: Box<dyn Fn() -> bool>,
-}
-
-impl Default for TpmDeviceBuilder {
-    fn default() -> Self {
-        Self {
-            path: PathBuf::from("/dev/tpmrm0"),
-            timeout: Duration::from_secs(120),
-            interrupted: Box::new(|| false),
-        }
-    }
-}
-
-impl TpmDeviceBuilder {
-    /// Sets the device file path.
-    #[must_use]
-    pub fn with_path<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.path = path.as_ref().to_path_buf();
-        self
-    }
-
-    /// Sets the operation timeout.
-    #[must_use]
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
-
-    /// Sets the interruption check callback.
-    #[must_use]
-    pub fn with_interrupted<F>(mut self, handler: F) -> Self
-    where
-        F: Fn() -> bool + 'static,
-    {
-        self.interrupted = Box::new(handler);
-        self
-    }
-
-    /// Opens the TPM device file and constructs the `TpmDevice`.
+/// A bidirectional, frame-oriented transport for marshaled TPM frames.
+///
+/// The two endpoints of a TPM exchange are symmetric on the wire: a host sends
+/// command frames and receives response frames, while a responder such as an
+/// emulator does the reverse. A `TpmTransport` therefore moves whole frames in
+/// either direction, decoupling both ends from any concrete byte stream.
+pub trait TpmTransport {
+    /// Sends one complete marshaled frame.
     ///
     /// # Errors
     ///
-    /// Returns [`Io`](crate::TpmDeviceError::Io) when the device file cannot be
-    /// opened or when configuring the file descriptor flags fails.
-    pub fn build(self) -> Result<TpmDevice, TpmDeviceError> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&self.path)
-            .map_err(TpmDeviceError::Io)?;
+    /// Returns [`Io`](crate::TpmDeviceError::Io) when writing the frame fails.
+    fn send(&mut self, frame: &[u8]) -> Result<(), TpmDeviceError>;
 
-        let fd = file.as_raw_fd();
-        let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL)?;
-        let mut oflags = fcntl::OFlag::from_bits_truncate(flags);
-        oflags.insert(fcntl::OFlag::O_NONBLOCK);
-        fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFL(oflags))?;
+    /// Receives one complete frame into `buf`, replacing its contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Io`](crate::TpmDeviceError::Io) when reading fails,
+    /// [`Timeout`](crate::TpmDeviceError::Timeout) when no complete frame
+    /// arrives in time, [`Interrupted`](crate::TpmDeviceError::Interrupted)
+    /// when cancellation is requested, or
+    /// [`InvalidResponse`](crate::TpmDeviceError::InvalidResponse) /
+    /// [`TrailingData`](crate::TpmDeviceError::TrailingData) when the frame
+    /// envelope is malformed.
+    fn recv(&mut self, buf: &mut Vec<u8>) -> Result<(), TpmDeviceError>;
+}
 
-        Ok(TpmDevice {
-            file,
-            interrupted: self.interrupted,
-            timeout: self.timeout,
-            command: Vec::with_capacity(TPM_MAX_COMMAND_SIZE),
-            response: Vec::with_capacity(TPM_MAX_COMMAND_SIZE),
-        })
+const TPM_HEADER_SIZE: usize = 10;
+
+/// Returns the total frame length declared by a TPM frame header.
+///
+/// # Errors
+///
+/// Returns [`InvalidResponse`](crate::TpmDeviceError::InvalidResponse) when the
+/// header is shorter than its size field or declares a size outside the range
+/// `[TPM_HEADER_SIZE, TPM_MAX_COMMAND_SIZE]`.
+fn frame_size(header: &[u8]) -> Result<usize, TpmDeviceError> {
+    let Some(size_bytes) = header.get(2..6) else {
+        return Err(TpmDeviceError::InvalidResponse);
+    };
+    let Ok(size_bytes): Result<[u8; 4], _> = size_bytes.try_into() else {
+        return Err(TpmDeviceError::InvalidResponse);
+    };
+    let size = u32::from_be_bytes(size_bytes) as usize;
+    if !(TPM_HEADER_SIZE..=TPM_MAX_COMMAND_SIZE).contains(&size) {
+        return Err(TpmDeviceError::InvalidResponse);
+    }
+    Ok(size)
+}
+
+fn fill_exact<R: Read>(reader: &mut R, buf: &mut [u8]) -> Result<(), TpmDeviceError> {
+    match reader.read_exact(buf) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            Err(TpmDeviceError::UnexpectedEof)
+        }
+        Err(e) => Err(TpmDeviceError::Io(e)),
     }
 }
 
-pub struct TpmDevice {
+/// Reads one complete TPM frame from a blocking stream into `buf`.
+///
+/// The header is read first to learn the frame's declared size, then exactly
+/// that many bytes (header included) are read; `buf` is cleared beforehand. The
+/// framing is identical for command and response frames, so this serves a host
+/// reading responses and a responder reading commands alike.
+///
+/// # Errors
+///
+/// Returns [`UnexpectedEof`](crate::TpmDeviceError::UnexpectedEof) when the
+/// stream ends before a complete frame, [`Io`](crate::TpmDeviceError::Io) on any
+/// other read failure, or
+/// [`InvalidResponse`](crate::TpmDeviceError::InvalidResponse) when the header
+/// declares an out-of-range size.
+pub fn read_frame<R: Read>(reader: &mut R, buf: &mut Vec<u8>) -> Result<(), TpmDeviceError> {
+    buf.clear();
+    buf.resize(TPM_HEADER_SIZE, 0);
+    fill_exact(reader, buf)?;
+
+    let size = frame_size(buf)?;
+    buf.resize(size, 0);
+    fill_exact(reader, &mut buf[TPM_HEADER_SIZE..])?;
+
+    Ok(())
+}
+
+/// Writes one complete marshaled TPM frame to a blocking stream and flushes it.
+///
+/// # Errors
+///
+/// Returns [`Io`](crate::TpmDeviceError::Io) when writing or flushing fails.
+pub fn write_frame<W: Write>(writer: &mut W, frame: &[u8]) -> Result<(), TpmDeviceError> {
+    writer.write_all(frame).map_err(TpmDeviceError::Io)?;
+    writer.flush().map_err(TpmDeviceError::Io)?;
+    Ok(())
+}
+
+/// A [`TpmTransport`] over any blocking byte stream.
+///
+/// Suitable for TPM endpoints reached over TCP (such as a software TPM),
+/// Unix-domain sockets, or in-memory pipes.
+pub struct TpmStreamTransport<S: Read + Write> {
+    stream: S,
+}
+
+impl<S: Read + Write> TpmStreamTransport<S> {
+    /// Wraps a stream as a transport.
+    #[must_use]
+    pub fn new(stream: S) -> Self {
+        Self { stream }
+    }
+
+    /// Consumes the transport and returns the underlying stream.
+    #[must_use]
+    pub fn into_inner(self) -> S {
+        self.stream
+    }
+}
+
+impl<S: Read + Write> TpmTransport for TpmStreamTransport<S> {
+    fn send(&mut self, frame: &[u8]) -> Result<(), TpmDeviceError> {
+        write_frame(&mut self.stream, frame)
+    }
+
+    fn recv(&mut self, buf: &mut Vec<u8>) -> Result<(), TpmDeviceError> {
+        read_frame(&mut self.stream, buf)
+    }
+}
+
+/// A [`TpmTransport`] backed by a Linux TPM character device.
+pub struct TpmPosixDevice {
     file: File,
     interrupted: Box<dyn Fn() -> bool>,
     timeout: Duration,
-    command: Vec<u8>,
-    response: Vec<u8>,
 }
 
-impl std::fmt::Debug for TpmDevice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Device")
-            .field("file", &self.file)
-            .field("timeout", &self.timeout)
-            .finish_non_exhaustive()
-    }
-}
-
-impl TpmDevice {
-    const NO_SESSIONS: &'static [TpmsAuthCommand] = &[];
-
-    /// Number of items requested per paginated `GetCapability` query.
-    #[allow(clippy::cast_possible_truncation)]
-    const CAPABILITY_PAGE_SIZE: u32 = MAX_HANDLES as u32;
-
-    /// Creates a new builder for `TpmDevice`.
+impl TpmPosixDevice {
+    /// Creates a new builder for a `TpmPosixDevice`.
     #[must_use]
-    pub fn builder() -> TpmDeviceBuilder {
-        TpmDeviceBuilder::default()
+    pub fn builder() -> TpmPosixDeviceBuilder {
+        TpmPosixDeviceBuilder::default()
     }
 
     fn receive(&mut self, buf: &mut [u8]) -> Result<usize, TpmDeviceError> {
@@ -321,6 +363,149 @@ impl TpmDevice {
             Ok(0)
         }
     }
+}
+
+impl TpmTransport for TpmPosixDevice {
+    fn send(&mut self, frame: &[u8]) -> Result<(), TpmDeviceError> {
+        self.file.write_all(frame)?;
+        self.file.flush()?;
+        Ok(())
+    }
+
+    fn recv(&mut self, buf: &mut Vec<u8>) -> Result<(), TpmDeviceError> {
+        buf.clear();
+        let start_time = Instant::now();
+        let mut total_size: Option<usize> = None;
+        let mut temp_buf = [0u8; 1024];
+
+        loop {
+            if (self.interrupted)() {
+                return Err(TpmDeviceError::Interrupted);
+            }
+            if start_time.elapsed() > self.timeout {
+                return Err(TpmDeviceError::Timeout);
+            }
+
+            let n = self.receive(&mut temp_buf)?;
+            if n > 0 {
+                buf.extend_from_slice(&temp_buf[..n]);
+            }
+
+            if total_size.is_none() && buf.len() >= TPM_HEADER_SIZE {
+                total_size = Some(frame_size(buf)?);
+            }
+
+            if let Some(size) = total_size {
+                if buf.len() == size {
+                    break;
+                }
+                if buf.len() > size {
+                    return Err(TpmDeviceError::TrailingData);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// A builder for constructing a [`TpmPosixDevice`].
+pub struct TpmPosixDeviceBuilder {
+    path: PathBuf,
+    timeout: Duration,
+    interrupted: Box<dyn Fn() -> bool>,
+}
+
+impl Default for TpmPosixDeviceBuilder {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::from("/dev/tpmrm0"),
+            timeout: Duration::from_secs(120),
+            interrupted: Box::new(|| false),
+        }
+    }
+}
+
+impl TpmPosixDeviceBuilder {
+    /// Sets the device file path.
+    #[must_use]
+    pub fn with_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.path = path.as_ref().to_path_buf();
+        self
+    }
+
+    /// Sets the operation timeout.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Sets the interruption check callback.
+    #[must_use]
+    pub fn with_interrupted<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> bool + 'static,
+    {
+        self.interrupted = Box::new(handler);
+        self
+    }
+
+    /// Opens the TPM character device and constructs the [`TpmPosixDevice`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Io`](crate::TpmDeviceError::Io) when the device file cannot be
+    /// opened or when configuring the file descriptor flags fails.
+    pub fn build(self) -> Result<TpmPosixDevice, TpmDeviceError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.path)
+            .map_err(TpmDeviceError::Io)?;
+
+        let fd = file.as_raw_fd();
+        let flags = fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFL)?;
+        let mut oflags = fcntl::OFlag::from_bits_truncate(flags);
+        oflags.insert(fcntl::OFlag::O_NONBLOCK);
+        fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFL(oflags))?;
+
+        Ok(TpmPosixDevice {
+            file,
+            interrupted: self.interrupted,
+            timeout: self.timeout,
+        })
+    }
+}
+
+pub struct TpmDevice {
+    transport: Box<dyn TpmTransport>,
+    command: Vec<u8>,
+    response: Vec<u8>,
+}
+
+impl std::fmt::Debug for TpmDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TpmDevice").finish_non_exhaustive()
+    }
+}
+
+impl TpmDevice {
+    const NO_SESSIONS: &'static [TpmsAuthCommand] = &[];
+
+    /// Number of items requested per paginated `GetCapability` query.
+    #[allow(clippy::cast_possible_truncation)]
+    const CAPABILITY_PAGE_SIZE: u32 = MAX_HANDLES as u32;
+
+    /// Creates a `TpmDevice` driving the given transport.
+    #[must_use]
+    pub fn new(transport: Box<dyn TpmTransport>) -> Self {
+        Self {
+            transport,
+            command: Vec::with_capacity(TPM_MAX_COMMAND_SIZE),
+            response: Vec::with_capacity(TPM_MAX_COMMAND_SIZE),
+        }
+    }
 
     /// Performs the whole TPM command transmission process.
     ///
@@ -347,47 +532,8 @@ impl TpmDevice {
         self.prepare_command(command, sessions)?;
         let cc = command.cc();
 
-        self.file.write_all(&self.command)?;
-        self.file.flush()?;
-
-        let start_time = Instant::now();
-        self.response.clear();
-        let mut total_size: Option<usize> = None;
-        let mut temp_buf = [0u8; 1024];
-
-        loop {
-            if (self.interrupted)() {
-                return Err(TpmDeviceError::Interrupted);
-            }
-            if start_time.elapsed() > self.timeout {
-                return Err(TpmDeviceError::Timeout);
-            }
-
-            let n = self.receive(&mut temp_buf)?;
-            if n > 0 {
-                self.response.extend_from_slice(&temp_buf[..n]);
-            }
-
-            if total_size.is_none() && self.response.len() >= 10 {
-                let Ok(size_bytes): Result<[u8; 4], _> = self.response[2..6].try_into() else {
-                    return Err(TpmDeviceError::InvalidResponse);
-                };
-                let size = u32::from_be_bytes(size_bytes) as usize;
-                if !(10..={ TPM_MAX_COMMAND_SIZE }).contains(&size) {
-                    return Err(TpmDeviceError::InvalidResponse);
-                }
-                total_size = Some(size);
-            }
-
-            if let Some(size) = total_size {
-                if self.response.len() == size {
-                    break;
-                }
-                if self.response.len() > size {
-                    return Err(TpmDeviceError::TrailingData);
-                }
-            }
-        }
+        self.transport.send(&self.command)?;
+        self.transport.recv(&mut self.response)?;
 
         let response = TpmResponse::cast(&self.response).map_err(TpmDeviceError::Unmarshal)?;
         let outcome = TpmResponseView::cast(cc, response).map_err(TpmDeviceError::Unmarshal)?;
@@ -780,6 +926,85 @@ impl TpmDevice {
                 }
             }
             Err(e) => Err(e),
+        }
+    }
+}
+
+/// The responder end of a [`TpmTransport`], for serving TPM commands.
+///
+/// Where a [`TpmDevice`] sends commands and receives responses, a `TpmResponder`
+/// receives commands and sends responses. Both ends share the same transport
+/// and frame codec; only the direction of use differs, which makes this crate
+/// usable for the TPM side of an exchange, such as an emulator.
+///
+/// Command decoding and response marshaling are left to the caller (for example
+/// via `tpm2_protocol`), keeping this type focused on transport and framing.
+pub struct TpmResponder {
+    transport: Box<dyn TpmTransport>,
+    command: Vec<u8>,
+}
+
+impl std::fmt::Debug for TpmResponder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TpmResponder").finish_non_exhaustive()
+    }
+}
+
+impl TpmResponder {
+    /// Creates a `TpmResponder` serving over the given transport.
+    #[must_use]
+    pub fn new(transport: Box<dyn TpmTransport>) -> Self {
+        Self {
+            transport,
+            command: Vec::with_capacity(TPM_MAX_COMMAND_SIZE),
+        }
+    }
+
+    /// Receives the next command frame, returning its raw bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnexpectedEof`](crate::TpmDeviceError::UnexpectedEof) when the
+    /// peer disconnects, or other [`TpmDeviceError`](crate::TpmDeviceError)
+    /// variants when the transport fails.
+    pub fn recv_command(&mut self) -> Result<&[u8], TpmDeviceError> {
+        self.transport.recv(&mut self.command)?;
+        Ok(&self.command)
+    }
+
+    /// Sends a marshaled response frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TpmDeviceError`](crate::TpmDeviceError) when the transport
+    /// fails to send the frame.
+    pub fn send_response(&mut self, frame: &[u8]) -> Result<(), TpmDeviceError> {
+        self.transport.send(frame)
+    }
+
+    /// Serves commands until the peer disconnects.
+    ///
+    /// Each received command frame is passed to `handler`, whose returned bytes
+    /// are written back as the response frame. Returns `Ok(())` once the peer
+    /// closes the transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TpmDeviceError`](crate::TpmDeviceError) when receiving a
+    /// command or sending a response fails for any reason other than a clean
+    /// disconnect.
+    pub fn serve<H>(&mut self, mut handler: H) -> Result<(), TpmDeviceError>
+    where
+        H: FnMut(&[u8]) -> Vec<u8>,
+    {
+        loop {
+            match self.transport.recv(&mut self.command) {
+                Ok(()) => {}
+                Err(TpmDeviceError::UnexpectedEof) => return Ok(()),
+                Err(e) => return Err(e),
+            }
+            let response = handler(&self.command);
+            self.transport.send(&response)?;
         }
     }
 }
@@ -1449,5 +1674,128 @@ impl TpmPolicySession {
     /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn flush(&self, device: &mut TpmDevice) -> Result<(), TpmDeviceError> {
         device.flush_context(self.handle)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::io::Cursor;
+    use std::rc::Rc;
+
+    struct Duplex {
+        input: Cursor<Vec<u8>>,
+        output: Rc<RefCell<Vec<u8>>>,
+    }
+
+    impl Read for Duplex {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.input.read(buf)
+        }
+    }
+
+    impl Write for Duplex {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.output.borrow_mut().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn frame(body: &[u8]) -> Vec<u8> {
+        let size = u32::try_from(TPM_HEADER_SIZE + body.len()).unwrap();
+        let mut frame = vec![0x80, 0x01];
+        frame.extend_from_slice(&size.to_be_bytes());
+        frame.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        frame.extend_from_slice(body);
+        frame
+    }
+
+    #[test]
+    fn read_frame_reads_exactly_one_frame() {
+        let first = frame(&[0xAA, 0xBB]);
+        let mut bytes = first.clone();
+        bytes.extend_from_slice(&frame(&[0xCC]));
+        let mut reader = Cursor::new(bytes);
+
+        let mut buf = Vec::new();
+        read_frame(&mut reader, &mut buf).unwrap();
+
+        assert_eq!(buf, first);
+    }
+
+    #[test]
+    fn write_then_read_round_trips() {
+        let expected = frame(&[1, 2, 3, 4]);
+        let mut stream = Cursor::new(Vec::new());
+        write_frame(&mut stream, &expected).unwrap();
+        stream.set_position(0);
+
+        let mut buf = Vec::new();
+        read_frame(&mut stream, &mut buf).unwrap();
+
+        assert_eq!(buf, expected);
+    }
+
+    #[test]
+    fn stream_transport_sends_and_receives() {
+        let response = frame(&[0x11, 0x22]);
+        let command = frame(&[0x33]);
+        let output = Rc::new(RefCell::new(Vec::new()));
+        let mut transport = TpmStreamTransport::new(Duplex {
+            input: Cursor::new(response.clone()),
+            output: Rc::clone(&output),
+        });
+
+        transport.send(&command).unwrap();
+        let mut buf = Vec::new();
+        transport.recv(&mut buf).unwrap();
+
+        assert_eq!(buf, response);
+        assert_eq!(*output.borrow(), command);
+    }
+
+    #[test]
+    fn responder_serves_commands_until_disconnect() {
+        let command = frame(&[0x01]);
+        let response = frame(&[0x02, 0x03]);
+        let output = Rc::new(RefCell::new(Vec::new()));
+        let transport = TpmStreamTransport::new(Duplex {
+            input: Cursor::new(command.clone()),
+            output: Rc::clone(&output),
+        });
+        let mut responder = TpmResponder::new(Box::new(transport));
+
+        let reply = response.clone();
+        let mut served = 0;
+        responder
+            .serve(|cmd| {
+                assert_eq!(cmd, command.as_slice());
+                served += 1;
+                reply.clone()
+            })
+            .unwrap();
+
+        assert_eq!(served, 1);
+        assert_eq!(*output.borrow(), response);
+    }
+
+    #[test]
+    fn frame_size_rejects_short_header() {
+        assert!(frame_size(&[0x80, 0x01, 0x00]).is_err());
+    }
+
+    #[test]
+    fn read_frame_reports_unexpected_eof_on_truncation() {
+        let mut reader = Cursor::new(vec![0x80, 0x01]);
+        let mut buf = Vec::new();
+        assert_eq!(
+            read_frame(&mut reader, &mut buf),
+            Err(TpmDeviceError::UnexpectedEof)
+        );
     }
 }
