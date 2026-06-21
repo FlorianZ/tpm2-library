@@ -1,5 +1,11 @@
 # TPM 2.0 cryptographic routines
 
+## Semantic versions
+
+- Major versions contain API or ABI breaks.
+- Minor versions contain non-exhaustive additive changes.
+- Patch versions contain only bug fixes.
+
 ## Submitting patches
 
 Contributions can be submitted as merge requests.
