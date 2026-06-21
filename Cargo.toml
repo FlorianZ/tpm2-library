@@ -16,8 +16,8 @@ log = "0.4"
 nix = { version = "0.29", features = ["fs", "poll"] }
 rand = "0.8"
 strum = { version = "0.28", features = ["derive"] }
-tpm2-crypto = "0.20.2"
-tpm2-protocol = "0.20.2"
+tpm2-crypto = "1"
+tpm2-protocol = "1"
 tracing = { version = "0.1", default-features = false }
 
 [dev-dependencies]

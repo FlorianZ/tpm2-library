@@ -40,7 +40,8 @@ use tpm2_protocol::{
     frame::{
         TpmAuthCommands, TpmCommandValue as TpmCommand, TpmContextLoadCommand,
         TpmContextSaveCommand, TpmFlushContextCommand, TpmFrame, TpmGetCapabilityCommand,
-        TpmReadPublicCommand, TpmResponse, TpmResponseView, TpmStartAuthSessionCommand,
+        TpmReadPublicCommand, TpmResponse, TpmResponseOutcome, TpmResponseView,
+        TpmStartAuthSessionCommand,
         tpm_marshal_command,
     },
 };
@@ -389,9 +390,12 @@ impl TpmDevice {
         }
 
         let response = TpmResponse::cast(&self.response).map_err(TpmDeviceError::Unmarshal)?;
-        let result = TpmResponseView::cast(cc, response).map_err(TpmDeviceError::Unmarshal)?;
+        let outcome = TpmResponseView::cast(cc, response).map_err(TpmDeviceError::Unmarshal)?;
         trace!("{} R: {}", cc, hex::encode(&self.response));
-        result.map(|_| response).map_err(TpmDeviceError::TpmRc)
+        match outcome {
+            TpmResponseOutcome::Dispatched(_) => Ok(response),
+            TpmResponseOutcome::Rejected(rc) => Err(TpmDeviceError::TpmRc(rc)),
+        }
     }
 
     fn prepare_command<C: TpmFrame>(
@@ -1235,6 +1239,7 @@ fn parse_capability_data(buf: &[u8]) -> Result<(TpmsCapabilityData, &[u8]), TpmD
         TpmCap::PpCommands | TpmCap::AuditCommands | TpmCap::AuthPolicies | TpmCap::Act => {
             return Err(TpmDeviceError::InvalidResponse);
         }
+        _ => return Err(TpmDeviceError::InvalidResponse),
     };
 
     Ok((TpmsCapabilityData { capability, data }, rest))
