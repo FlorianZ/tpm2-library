@@ -91,7 +91,7 @@ mod tests {
                 },
                 &parent_public,
                 &null_parent,
-                &None,
+                None,
             )
             .unwrap();
 
@@ -100,7 +100,7 @@ mod tests {
                 child_context.clone(),
                 &child_public,
                 &parent_public,
-                &Some(child_policy),
+                Some(child_policy.as_slice()),
             )
             .unwrap();
 
@@ -110,26 +110,22 @@ mod tests {
         let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
         assert_eq!(cache.key_iter().count(), 2,);
 
-        let parent_key = cache
-            .find_by_handle(TpmUint32::new(parent_vhandle))
-            .unwrap();
+        let parent_key = cache.find_by_handle(parent_vhandle).unwrap();
         assert_eq!(*parent_key.public(), parent_public);
 
-        let child_key = cache.find_by_handle(TpmUint32::new(child_vhandle)).unwrap();
+        let child_key = cache.find_by_handle(child_vhandle).unwrap();
         assert_eq!(*child_key.public(), child_public);
         assert_eq!(*child_key.context(), child_context);
 
         let child_name = tpm_make_name(&child_public).unwrap();
         let child_key_name = cache.find_by_name(&child_name).unwrap();
-        assert_eq!(child_key_name.handle().value(), child_vhandle);
+        assert_eq!(child_key_name.handle().value(), child_vhandle.value());
 
-        let chain = cache
-            .fetch_ancestors(TpmUint32::new(child_vhandle))
-            .unwrap();
+        let chain = cache.fetch_ancestors(child_vhandle).unwrap();
 
         assert_eq!(chain.len(), 2);
-        assert_eq!(chain[0].value(), parent_vhandle,);
-        assert_eq!(chain[1].value(), child_vhandle,);
+        assert_eq!(chain[0].value(), parent_vhandle.value(),);
+        assert_eq!(chain[1].value(), child_vhandle.value(),);
 
         drop(cache);
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
@@ -177,10 +173,10 @@ mod tests {
                 },
                 &parent_public,
                 &null_parent,
-                &None,
+                None,
             )
             .unwrap();
-        assert_eq!(h1, 0x8000_0000);
+        assert_eq!(h1.value(), 0x8000_0000);
 
         let h2 = cache
             .save_transient(
@@ -192,13 +188,13 @@ mod tests {
                 },
                 &parent_public,
                 &null_parent,
-                &None,
+                None,
             )
             .unwrap();
-        assert_eq!(h2, 0x8000_0001);
+        assert_eq!(h2.value(), 0x8000_0001);
 
         cache.remove(h1).unwrap();
-        assert!(cache.find_by_handle(TpmUint32::new(h1)).is_none(),);
+        assert!(cache.find_by_handle(h1).is_none(),);
 
         let h3 = cache
             .save_transient(
@@ -210,11 +206,11 @@ mod tests {
                 },
                 &parent_public,
                 &null_parent,
-                &None,
+                None,
             )
             .unwrap();
 
-        assert_eq!(h3, 0x8000_0002,);
+        assert_eq!(h3.value(), 0x8000_0002,);
     }
 
     /// Test 4: `load` handling of session files (data-driven for HMAC and Policy)
@@ -276,20 +272,16 @@ mod tests {
         let mut cache = VtpmCache::new(cache_path, persistent_keys).unwrap();
 
         let child_vhandle = cache
-            .save_transient(child_context, &child_public, &parent_public, &None)
+            .save_transient(child_context, &child_public, &parent_public, None)
             .unwrap();
 
         if has_persistent_parent {
-            let chain = cache
-                .fetch_ancestors(TpmUint32::new(child_vhandle))
-                .unwrap();
+            let chain = cache.fetch_ancestors(child_vhandle).unwrap();
             assert_eq!(chain.len(), 2);
             assert_eq!(chain[0].value(), 0x8100_0000,);
-            assert_eq!(chain[1].value(), child_vhandle,);
+            assert_eq!(chain[1].value(), child_vhandle.value(),);
         } else {
-            let err = cache
-                .fetch_ancestors(TpmUint32::new(child_vhandle))
-                .unwrap_err();
+            let err = cache.fetch_ancestors(child_vhandle).unwrap_err();
             assert!(matches!(err, VtpmError::ParentNotFound));
         }
     }
@@ -312,7 +304,7 @@ mod tests {
         let cache_path = cache_dir.path();
         let mut cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
 
-        let deleted = cache.remove(0x8000_0000).unwrap();
+        let deleted = cache.remove(TpmUint32::new(0x8000_0000)).unwrap();
         assert!(deleted.is_empty(),);
         assert!(cache.key_iter().next().is_none(),);
     }
@@ -352,7 +344,7 @@ mod tests {
                 child_context,
                 &child_public,
                 &null_parent,
-                &Some(policy.clone()),
+                Some(policy.as_slice()),
             )
             .unwrap();
 
@@ -360,9 +352,9 @@ mod tests {
         drop(cache);
 
         let cache = VtpmCache::new(cache_path, HashMap::new()).unwrap();
-        let key = cache.find_by_handle(TpmUint32::new(child_vhandle)).unwrap();
+        let key = cache.find_by_handle(child_vhandle).unwrap();
 
-        assert_eq!(*key.policy(), policy);
+        assert_eq!(key.policy(), policy.as_slice());
     }
 
     /// Test 9: `save_persistent_key` roundtrip
@@ -388,7 +380,7 @@ mod tests {
                 persistent_handle,
                 &parent_public,
                 &null_parent,
-                &Some(policy.clone()),
+                Some(policy.as_slice()),
             )
             .unwrap();
 
@@ -399,11 +391,11 @@ mod tests {
 
         let key = cache.find_by_handle(persistent_handle).unwrap();
         assert_eq!(*key.public(), parent_public);
-        assert_eq!(*key.policy(), policy);
+        assert_eq!(key.policy(), policy.as_slice());
         assert_eq!(key.context().sequence.value(), 0);
 
         let name = tpm_make_name(&parent_public).unwrap();
         let cached_handle = cache.find_by_name(&name).unwrap().handle();
-        assert_eq!(*cached_handle, persistent_handle);
+        assert_eq!(cached_handle, persistent_handle);
     }
 }

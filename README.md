@@ -2,6 +2,12 @@
 
 `tpm2-vtpm` is a Rust library for caching saved context blobs.
 
+## Semantic versions
+
+- Major versions contain API or ABI breaks.
+- Minor versions contain non-exhaustive additive changes.
+- Patch versions contain only bug fixes.
+
 ## Submitting patches
 
 Contributions can be submitted as merge requests.

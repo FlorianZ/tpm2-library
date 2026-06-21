@@ -43,8 +43,8 @@ pub struct VtpmKey {
 
 impl VtpmKey {
     #[must_use]
-    pub fn handle(&self) -> &TpmHandle {
-        &self.handle
+    pub fn handle(&self) -> TpmHandle {
+        self.handle
     }
 
     #[must_use]
@@ -63,7 +63,7 @@ impl VtpmKey {
     }
 
     #[must_use]
-    pub fn policy(&self) -> &Vec<Box<dyn VtpmPolicyCommand>> {
+    pub fn policy(&self) -> &[Box<dyn VtpmPolicyCommand>] {
         &self.policy
     }
 
@@ -143,6 +143,7 @@ impl VtpmKey {
 /// (e.g. `HandleNotFound` becomes `handle not found`).
 #[derive(Debug, strum::AsRefStr)]
 #[strum(serialize_all = "title_case")]
+#[non_exhaustive]
 pub enum VtpmError {
     /// Handle not found in the cache.
     HandleNotFound(TpmHandle),
@@ -268,11 +269,6 @@ impl<'a> VtpmCache<'a> {
     /// Finds a VTPM key by its `Tpm2bName`.
     ///
     /// Live handles are consulted first, then the cache is scanned.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`OperationFailed`](crate::VtpmError::OperationFailed) if name
-    /// calculation fails.
     #[must_use]
     pub fn find_by_name(&self, target_name: &Tpm2bName) -> Option<&VtpmKey> {
         if let Some(handle) = self.handles.get(target_name) {
@@ -285,14 +281,9 @@ impl<'a> VtpmCache<'a> {
     }
 
     /// Finds a VTPM key corresponding to a virtual handle.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HandleNotFound`](crate::VtpmError::HandleNotFound) when
-    /// no context with the given `virtual_handle` exists.
     #[must_use]
-    pub fn find_by_handle(&self, handle: TpmHandle) -> Option<VtpmKey> {
-        self.contexts.get(&handle.value()).cloned()
+    pub fn find_by_handle(&self, handle: TpmHandle) -> Option<&VtpmKey> {
+        self.contexts.get(&handle.value())
     }
 
     /// Finds the ancestor chain for a given VTPM handle.
@@ -377,7 +368,8 @@ impl<'a> VtpmCache<'a> {
     /// Returns [`Io`](crate::VtpmError::Io) when removing a cache file fails.
     /// Returns [`Marshal`](crate::VtpmError::Marshal) when serializing parent
     /// keys during subtree removal fails.
-    pub fn remove(&mut self, virtual_handle: u32) -> Result<Vec<u32>, VtpmError> {
+    pub fn remove(&mut self, handle: TpmHandle) -> Result<Vec<TpmHandle>, VtpmError> {
+        let virtual_handle = handle.value();
         let mut deleted_handles = Vec::new();
 
         let Some(key) = self.contexts.get(&virtual_handle) else {
@@ -389,12 +381,12 @@ impl<'a> VtpmCache<'a> {
         key.delete(self.cache_dir())?;
 
         if let Some(key) = self.contexts.remove(&virtual_handle) {
-            deleted_handles.push(virtual_handle);
+            deleted_handles.push(handle);
             self.dirty.remove(&virtual_handle);
             self.handles.remove(&name);
 
             let deleted_children = self.remove_subtree(&key.public)?;
-            deleted_handles.extend(deleted_children);
+            deleted_handles.extend(deleted_children.into_iter().map(TpmUint32::new));
         }
 
         Ok(deleted_handles)
@@ -433,8 +425,8 @@ impl<'a> VtpmCache<'a> {
         context: TpmsContext,
         public: &TpmtPublic,
         parent_public: &TpmtPublic,
-        policy: &Option<Vec<Box<dyn VtpmPolicyCommand>>>,
-    ) -> Result<u32, VtpmError> {
+        policy: Option<&[Box<dyn VtpmPolicyCommand>]>,
+    ) -> Result<TpmHandle, VtpmError> {
         for i in 0..TRANSIENT_COUNT {
             let virtual_handle = self.next_virtual_handle.wrapping_add(i);
 
@@ -451,7 +443,7 @@ impl<'a> VtpmCache<'a> {
                     public: public.clone(),
                     parent: parent_public.clone(),
                     context,
-                    policy: policy.clone().unwrap_or_default(),
+                    policy: policy.map(<[_]>::to_vec).unwrap_or_default(),
                 };
 
                 let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
@@ -468,7 +460,7 @@ impl<'a> VtpmCache<'a> {
                     next
                 };
 
-                return Ok(virtual_handle);
+                return Ok(TpmUint32::new(virtual_handle));
             }
         }
         Err(VtpmError::NoHandles)
@@ -490,7 +482,7 @@ impl<'a> VtpmCache<'a> {
         handle: TpmHandle,
         public: &TpmtPublic,
         parent_public: &TpmtPublic,
-        policy: &Option<Vec<Box<dyn VtpmPolicyCommand>>>,
+        policy: Option<&[Box<dyn VtpmPolicyCommand>]>,
     ) -> Result<(), VtpmError> {
         let ht = (handle.value() >> 24) as u8;
         if ht != TpmHt::Persistent as u8 {
@@ -508,7 +500,7 @@ impl<'a> VtpmCache<'a> {
                 hierarchy: TpmRh::Owner,
                 context_blob: TpmBuffer::default(),
             },
-            policy: policy.clone().unwrap_or_default(),
+            policy: policy.map(<[_]>::to_vec).unwrap_or_default(),
         };
 
         let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
@@ -521,13 +513,15 @@ impl<'a> VtpmCache<'a> {
     }
 
     /// Marks a context as dirty.
-    pub fn mark_dirty(&mut self, virtual_handle: u32) {
-        self.dirty.insert(virtual_handle);
+    pub fn mark_dirty(&mut self, handle: TpmHandle) {
+        self.dirty.insert(handle.value());
     }
 
     /// Returns an iterator over the key contexts.
-    pub fn key_iter(&self) -> impl Iterator<Item = (&u32, &VtpmKey)> {
-        self.contexts.iter()
+    pub fn key_iter(&self) -> impl Iterator<Item = (TpmHandle, &VtpmKey)> {
+        self.contexts
+            .iter()
+            .map(|(handle, key)| (TpmUint32::new(*handle), key))
     }
 
     fn load(&mut self) -> Result<(), VtpmError> {
@@ -621,7 +615,7 @@ impl<'a> VtpmCache<'a> {
             parent_to_children
                 .entry(parent_key_bytes)
                 .or_default()
-                .push((*virtual_handle, key.public.clone()));
+                .push((virtual_handle.value(), key.public.clone()));
         }
 
         let mut ancestor_list = VecDeque::new();
