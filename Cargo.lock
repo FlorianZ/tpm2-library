@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "0.20.4"
+version = "1.0.0"
 dependencies = [
  "hex",
  "num-bigint",
