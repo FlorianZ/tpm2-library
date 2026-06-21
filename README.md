@@ -2,6 +2,12 @@
 
 `tpm2-tpmkey` is a Rust library for reading and writing TPM 2.0 key ASN.1 files.
 
+## Semantic versions
+
+- Major versions contain API or ABI breaks.
+- Minor versions contain non-exhaustive additive changes.
+- Patch versions contain only bug fixes.
+
 ## Submitting patches
 
 Contributions can be submitted as merge requests.
