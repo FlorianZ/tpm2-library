@@ -82,7 +82,15 @@ impl core::fmt::Display for TpmPolicyError {
     }
 }
 
-impl std::error::Error for TpmPolicyError {}
+impl std::error::Error for TpmPolicyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Crypto(e) => Some(e),
+            Self::Marshal(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl From<tpm2_crypto::TpmCryptoError> for TpmPolicyError {
     fn from(err: tpm2_crypto::TpmCryptoError) -> Self {
