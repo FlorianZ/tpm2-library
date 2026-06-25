@@ -32,8 +32,8 @@ fn test_context() -> TpmPolicyContext {
     }
 
     TpmPolicyContext::builder()
-        .name(handle, name)
-        .pcr_bank(TpmAlgId::Sha256, bank_map)
+        .with_name(handle, name)
+        .with_pcr_bank(TpmAlgId::Sha256, bank_map)
         .build()
         .unwrap()
 }

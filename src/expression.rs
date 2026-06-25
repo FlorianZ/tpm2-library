@@ -277,9 +277,7 @@ impl TpmPolicyExpression {
             expr @ TpmPolicyExpression::Secret { .. } => {
                 expr.compile_walk_secret(command_list, software_session, context)
             }
-            expr @ TpmPolicyExpression::Handle { .. } => {
-                Err(TpmPolicyError::InvalidExpression(Box::new(expr.clone())))
-            }
+            TpmPolicyExpression::Handle(_) => Err(TpmPolicyError::InvalidExpression),
         }
     }
 
@@ -289,9 +287,8 @@ impl TpmPolicyExpression {
         software_session: &mut TpmPolicySession,
         context: &TpmPolicyContext,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
-        let (selections, digest) = match self {
-            TpmPolicyExpression::Pcr { selections, digest } => (selections, digest),
-            expr => return Err(TpmPolicyError::InvalidExpression(Box::new(expr.clone()))),
+        let TpmPolicyExpression::Pcr { selections, digest } = self else {
+            return Err(TpmPolicyError::InvalidExpression);
         };
 
         let pcr_digest = if let Some(digest) = digest {
@@ -322,7 +319,7 @@ impl TpmPolicyExpression {
                 .hash_alg
                 .digest(&[&pcr_data])
                 .map_err(TpmPolicyError::Crypto)?;
-            Tpm2bDigest::try_from(calculated_digest.as_slice()).map_err(TpmPolicyError::Protocol)?
+            Tpm2bDigest::try_from(calculated_digest.as_slice()).map_err(TpmPolicyError::Marshal)?
         };
 
         if pcr_digest.as_ref().len() != software_session.digest_size {
@@ -347,18 +344,12 @@ impl TpmPolicyExpression {
         software_session: &mut TpmPolicySession,
         context: &'a TpmPolicyContext,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
-        let (auth_handle, copy_ref) = match self {
-            TpmPolicyExpression::Secret {
-                auth_handle,
-                copy_ref,
-            } => (auth_handle, copy_ref),
-            expr => return Err(TpmPolicyError::InvalidExpression(Box::new(expr.clone()))),
+        let TpmPolicyExpression::Secret { auth_handle, copy_ref } = self else {
+            return Err(TpmPolicyError::InvalidExpression);
         };
 
         let TpmPolicyExpression::Handle(handle) = &**auth_handle else {
-            return Err(TpmPolicyError::InvalidExpression(Box::new(
-                (**auth_handle).clone(),
-            )));
+            return Err(TpmPolicyError::InvalidExpression);
         };
 
         let h_val: u32 = (*handle).into();
@@ -372,7 +363,7 @@ impl TpmPolicyExpression {
                 context
                     .names
                     .get(handle)
-                    .ok_or_else(|| TpmPolicyError::InvalidExpression(Box::new(self.clone())))?,
+                    .ok_or(TpmPolicyError::InvalidExpression)?,
             ),
             TpmHt::Permanent => {
                 let rh = TpmRh::try_from(h_val)
@@ -410,9 +401,8 @@ impl TpmPolicyExpression {
         software_session: &mut TpmPolicySession,
         context: &'a TpmPolicyContext,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
-        let branches = match self {
-            TpmPolicyExpression::Or(branches) => branches,
-            expr => return Err(TpmPolicyError::InvalidExpression(Box::new(expr.clone()))),
+        let TpmPolicyExpression::Or(branches) = self else {
+            return Err(TpmPolicyError::InvalidExpression);
         };
 
         let mut digest_list = TpmlDigest::new();
@@ -430,7 +420,7 @@ impl TpmPolicyExpression {
 
             digest_list
                 .try_push(digest)
-                .map_err(|_| TpmPolicyError::TooManyBranches(Box::new(self.clone())))?;
+                .map_err(|_| TpmPolicyError::TooManyBranches)?;
         }
 
         let or_cmd = TpmPolicyOrCommand {

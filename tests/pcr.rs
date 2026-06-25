@@ -39,7 +39,7 @@ fn pcr_roundtrip(
         for i in 0..24 {
             bank_map.insert(i, Tpm2bDigest::try_from(vec![0u8; 32].as_slice()).unwrap());
         }
-        context_builder = context_builder.pcr_bank(alg, bank_map);
+        context_builder = context_builder.with_pcr_bank(alg, bank_map);
     }
 
     let policy_context = context_builder.build().unwrap();

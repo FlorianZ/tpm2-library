@@ -2,7 +2,6 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::TpmPolicyExpression;
 use tpm2_protocol::data::TpmCc;
 
 /// Language interpretation and compilation errors.
@@ -11,6 +10,7 @@ use tpm2_protocol::data::TpmCc;
 /// (e.g. `InvalidToken` becomes `invalid token`).
 #[derive(Debug, strum::AsRefStr)]
 #[strum(serialize_all = "title_case")]
+#[non_exhaustive]
 pub enum TpmPolicyError {
     /// A digest calculation failed.
     Crypto(tpm2_crypto::TpmCryptoError),
@@ -19,7 +19,7 @@ pub enum TpmPolicyError {
     InvalidCc(TpmCc),
 
     /// An invalid expression was encountered.
-    InvalidExpression(Box<TpmPolicyExpression>),
+    InvalidExpression,
 
     /// Handle type byte is not valid.
     InvalidHandleType(u8),
@@ -36,8 +36,8 @@ pub enum TpmPolicyError {
     /// An invalid PCR selection was encountered.
     InvalidPcrSelection,
 
-    /// TPM protocol encoding or decoding failed.
-    Protocol(tpm2_protocol::TpmError),
+    /// TPM data marshaling failed.
+    Marshal(tpm2_protocol::TpmError),
 
     /// A command stream requires more branches than it has provided.
     CommandStreamBranchUnderflow,
@@ -67,7 +67,7 @@ pub enum TpmPolicyError {
     PcrSelectionTooLarge,
 
     /// Too many branches were provided.
-    TooManyBranches(Box<TpmPolicyExpression>),
+    TooManyBranches,
 
     /// After unmarshaling, there was still data left over.
     TrailingData,
@@ -92,6 +92,6 @@ impl From<tpm2_crypto::TpmCryptoError> for TpmPolicyError {
 
 impl From<tpm2_protocol::TpmError> for TpmPolicyError {
     fn from(err: tpm2_protocol::TpmError) -> Self {
-        Self::Protocol(err)
+        Self::Marshal(err)
     }
 }

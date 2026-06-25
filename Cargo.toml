@@ -13,8 +13,8 @@ version = "0.20.1"
 [dependencies]
 hex = "0.4"
 strum = { version = "0.28", features = ["derive"] }
-tpm2-crypto = "0.20.3"
-tpm2-protocol = "0.20.2"
+tpm2-crypto = "1"
+tpm2-protocol = "1"
 
 [dev-dependencies]
 rstest = "0.21"

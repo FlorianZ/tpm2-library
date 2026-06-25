@@ -109,14 +109,14 @@ impl TpmPolicyContextBuilder {
 
     /// Adds or replaces a name for a handle.
     #[must_use]
-    pub fn name(mut self, handle: impl Into<TpmHandle>, name: Tpm2bName) -> Self {
+    pub fn with_name(mut self, handle: impl Into<TpmHandle>, name: Tpm2bName) -> Self {
         self.names.insert(handle.into(), name);
         self
     }
 
     /// Adds or replaces names for handles.
     #[must_use]
-    pub fn names<I>(mut self, names: I) -> Self
+    pub fn with_names<I>(mut self, names: I) -> Self
     where
         I: IntoIterator<Item = (TpmHandle, Tpm2bName)>,
     {
@@ -126,7 +126,7 @@ impl TpmPolicyContextBuilder {
 
     /// Adds or replaces a PCR bank.
     #[must_use]
-    pub fn pcr_bank<I>(mut self, alg: TpmAlgId, pcrs: I) -> Self
+    pub fn with_pcr_bank<I>(mut self, alg: TpmAlgId, pcrs: I) -> Self
     where
         I: IntoIterator<Item = (u32, Tpm2bDigest)>,
     {
@@ -492,7 +492,7 @@ impl TpmPolicySession {
         let hash_alg = TpmHash::try_from(hash_alg)?;
         let digest_size = hash_alg.size();
         let digest = Tpm2bDigest::try_from(vec![0; digest_size].as_slice())
-            .map_err(TpmPolicyError::Protocol)?;
+            .map_err(TpmPolicyError::Marshal)?;
         Ok(Self {
             digest,
             hash_alg,
@@ -507,7 +507,7 @@ impl TpmPolicySession {
             let mut writer = TpmWriter::new(&mut pcrs_bytes);
             cmd.pcrs
                 .marshal(&mut writer)
-                .map_err(TpmPolicyError::Protocol)?;
+                .map_err(TpmPolicyError::Marshal)?;
             writer.len()
         };
         pcrs_bytes.truncate(pcrs_bytes_len);
@@ -525,7 +525,7 @@ impl TpmPolicySession {
             .digest(&chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =
-            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Protocol)?;
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
         Ok(())
     }
 
@@ -537,7 +537,7 @@ impl TpmPolicySession {
         }
 
         let zero_digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(TpmPolicyError::Protocol)?;
+            .map_err(TpmPolicyError::Marshal)?;
         self.digest = zero_digest;
 
         let cc_bytes = (TpmCc::PolicyOr as u32).to_be_bytes();
@@ -548,7 +548,7 @@ impl TpmPolicySession {
             .digest(&chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =
-            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Protocol)?;
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
         Ok(())
     }
 
@@ -568,7 +568,7 @@ impl TpmPolicySession {
             .digest(&first_chunks)
             .map_err(TpmPolicyError::Crypto)?;
         let first_digest = Tpm2bDigest::try_from(first_digest_bytes.as_slice())
-            .map_err(TpmPolicyError::Protocol)?;
+            .map_err(TpmPolicyError::Marshal)?;
 
         let second_chunks: Vec<&[u8]> = vec![first_digest.as_ref(), policy_ref.as_ref()];
 
@@ -577,14 +577,14 @@ impl TpmPolicySession {
             .digest(&second_chunks)
             .map_err(TpmPolicyError::Crypto)?;
         self.digest =
-            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Protocol)?;
+            Tpm2bDigest::try_from(new_digest_bytes.as_slice()).map_err(TpmPolicyError::Marshal)?;
         Ok(())
     }
 
     /// Applies a `TPM2_PolicyRestart` action to the session.
     fn policy_restart(&mut self) -> Result<(), TpmPolicyError> {
         self.digest = Tpm2bDigest::try_from(vec![0; self.digest_size].as_slice())
-            .map_err(TpmPolicyError::Protocol)?;
+            .map_err(TpmPolicyError::Marshal)?;
         Ok(())
     }
 
