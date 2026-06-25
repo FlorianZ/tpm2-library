@@ -31,7 +31,7 @@ use std::{
 
 use argh::{EarlyExit, FromArgs};
 use indicatif::ProgressBar;
-use tpm2_device::TpmDevice;
+use tpm2_device::{TpmDevice, TpmPosixDevice};
 use tpm2_vtpm::VtpmCache;
 
 /// A global flag to signal graceful teardown of the application.
@@ -157,11 +157,13 @@ fn execute_cli(cli: &TopLevel, cache_dir: &std::path::Path) -> Result<()> {
     let shared_device = if command.is_local() {
         None
     } else {
-        let device = TpmDevice::builder()
-            .with_path(&cli.device)
-            .with_interrupted(|| TEARDOWN.load(Ordering::Relaxed))
-            .build()
-            .map_err(device_err)?;
+        let device = TpmDevice::new(Box::new(
+            TpmPosixDevice::builder()
+                .with_path(&cli.device)
+                .with_interrupted(|| TEARDOWN.load(Ordering::Relaxed))
+                .build()
+                .map_err(device_err)?,
+        ));
         Some(Rc::new(RefCell::new(device)))
     };
 

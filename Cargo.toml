@@ -27,14 +27,14 @@ log = "0.4"
 nix = { version = "0.29", features = ["fs", "poll"] }
 openssl = "0.10"
 pem = "3.0"
-strum = { version = "0.26", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 tabled = { version = "0.15", default-features = false, features = ["std", "derive", "ansi"] }
-tpm2-crypto = "0.20.3"
-tpm2-device = "0.20.2"
-tpm2-policy-language = "0.20.0"
-tpm2-protocol = "0.20.2"
-tpm2-tpmkey = "0.20.1"
-tpm2-vtpm = "0.20.1"
+tpm2-crypto = "1"
+tpm2-device = "1"
+tpm2-policy-language = "1"
+tpm2-protocol = "1"
+tpm2-tpmkey = "1"
+tpm2-vtpm = "1"
 
 [dev-dependencies]
 assert_cmd = "2.0"

@@ -113,7 +113,7 @@ impl Task for Load {
                 object_context,
                 &public.inner,
                 &parent_public.inner,
-                &policy_blob,
+                policy_blob.as_deref(),
             )?;
 
             writeln!(writer, "{vhandle:08x}")?;

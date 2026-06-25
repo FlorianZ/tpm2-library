@@ -156,7 +156,7 @@ impl<'a> TaskState<'a> {
     /// Returns an error if a TPM context load or flush fails, or if removing a
     /// stale entry from the cache fails.
     pub fn refresh_cache(&mut self, device: &mut TpmDevice) -> Result<()> {
-        let vhandles: Vec<u32> = self.cache.key_iter().map(|(h, _)| *h).collect();
+        let vhandles: Vec<u32> = self.cache.key_iter().map(|(h, _)| h.value()).collect();
         let mut first_error: Option<anyhow::Error> = None;
         let mut handles_to_remove = Vec::new();
 
@@ -168,7 +168,7 @@ impl<'a> TaskState<'a> {
             if let Some(key) = self.cache.find_by_handle(TpmUint32::new(vhandle)) {
                 match Self::refresh_key(device, vhandle, key.context().clone()) {
                     Ok(true) => {
-                        self.cache.mark_dirty(vhandle);
+                        self.cache.mark_dirty(TpmUint32::new(vhandle));
                     }
                     Ok(false) => handles_to_remove.push(vhandle),
                     Err(e) => {
@@ -181,7 +181,7 @@ impl<'a> TaskState<'a> {
         }
 
         for vhandle in handles_to_remove {
-            if let Err(e) = self.cache.remove(vhandle) {
+            if let Err(e) = self.cache.remove(TpmUint32::new(vhandle)) {
                 log::error!("{vhandle:08x}: {e}");
                 first_error.get_or_insert_with(|| e.into());
             }
@@ -467,19 +467,17 @@ impl<'a> TaskState<'a> {
     fn validate_persistent_handles(&mut self, device: &mut TpmDevice) -> Result<()> {
         let mut persistent_vhandles = Vec::new();
         for (vhandle, _) in self.cache.key_iter() {
-            if handle_type(*vhandle) == Some(TpmHt::Persistent) {
-                persistent_vhandles.push(*vhandle);
+            if handle_type(vhandle.value()) == Some(TpmHt::Persistent) {
+                persistent_vhandles.push(vhandle);
             }
         }
 
         for vhandle in persistent_vhandles {
-            let tpm_handle = TpmUint32::new(vhandle);
-
-            let Some(key) = self.cache.find_by_handle(tpm_handle) else {
+            let Some(key) = self.cache.find_by_handle(vhandle) else {
                 continue;
             };
 
-            match device.read_public(tpm_handle) {
+            match device.read_public(vhandle) {
                 Ok((_public, name_on_tpm)) => {
                     let cached_name = tpm_make_name(key.public())?;
 
@@ -550,7 +548,7 @@ impl<'a> TaskState<'a> {
                 .cache
                 .find_by_handle(TpmUint32::new(vhandle))
                 .ok_or_else(|| anyhow!("handle not found: {vhandle:08x}"))?;
-            Ok((phys_handle, key.policy().clone(), key.public().name_alg))
+            Ok((phys_handle, key.policy().to_vec(), key.public().name_alg))
         } else {
             let (public, _) = device.read_public(phys_handle).map_err(device_err)?;
             Ok((phys_handle, Vec::new(), public.name_alg))

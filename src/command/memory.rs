@@ -304,7 +304,7 @@ impl Memory {
         let name_to_handle = Self::build_name_to_handle(session, device);
 
         for (vhandle, key) in session.cache.key_iter() {
-            if handle_type(*vhandle) == Some(TpmHt::Persistent) {
+            if handle_type(vhandle.value()) == Some(TpmHt::Persistent) {
                 continue;
             }
 
@@ -337,7 +337,7 @@ impl Memory {
 
     fn fetch_session_rows(device: &mut TpmDevice, rows: &mut Vec<MemoryRow>) -> Result<()> {
         for handle in device
-            .fetch_handles(TpmHt::LoadedSession)
+            .fetch_handles(TpmHt::LOADED_SESSION)
             .map_err(device_err)?
         {
             let handle_val = handle.value();
@@ -359,7 +359,7 @@ impl Memory {
 
     fn fetch_saved_session_rows(device: &mut TpmDevice, rows: &mut Vec<MemoryRow>) -> Result<()> {
         for handle in device
-            .fetch_handles(TpmHt::SavedSession)
+            .fetch_handles(TpmHt::SAVED_SESSION)
             .map_err(device_err)?
         {
             let handle_val = handle.value();

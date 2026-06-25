@@ -142,7 +142,7 @@ impl CreatePrimary {
             object_context,
             &resp.out_public.inner,
             &Tpm2bPublic::default().inner,
-            &Some(policy_blob),
+            Some(policy_blob).as_deref(),
         )?;
         writeln!(writer, "{vhandle:08x}")?;
         Ok(())

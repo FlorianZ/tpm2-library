@@ -155,7 +155,13 @@ pub fn build_policy_command_list(
         let pcrs = read_all_pcrs(device)?;
         let names = fetch_handle_names(task_state, device)?;
 
-        let policy_context = TpmPolicyContext::new(names, pcrs).context("policy")?;
+        let policy_context = {
+            let mut b = TpmPolicyContext::builder().with_names(names);
+            for (alg, bank) in pcrs {
+                b = b.with_pcr_bank(alg, bank);
+            }
+            b.build().context("policy")?
+        };
         let ast = TpmPolicyExpression::parse(expression, &policy_context).context("policy")?;
         let compiled = ast.compile(name_alg, &policy_context).context("policy")?;
         let (commands, final_digest) = compiled.into_parts();
@@ -243,7 +249,7 @@ fn fetch_handle_names(
 
     for (vhandle, key) in state.cache.key_iter() {
         let name = tpm_make_name(key.public())?;
-        map.insert(TpmUint32::new(*vhandle), name);
+        map.insert(vhandle, name);
     }
 
     Ok(map)

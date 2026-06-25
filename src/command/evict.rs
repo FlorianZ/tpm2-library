@@ -59,17 +59,20 @@ impl Task for Evict {
                 (
                     key.public().clone(),
                     key.parent().clone(),
-                    Some(key.policy().clone()),
+                    Some(key.policy().to_vec()),
                 )
             };
 
             task_state.evict_control(dev, transient_handle, persistent_handle)?;
 
-            task_state
-                .cache
-                .save_persistent(persistent_handle, &public, &parent, &policy)?;
+            task_state.cache.save_persistent(
+                persistent_handle,
+                &public,
+                &parent,
+                policy.as_deref(),
+            )?;
 
-            task_state.cache.remove(input_handle)?;
+            task_state.cache.remove(TpmUint32::new(input_handle))?;
             task_state.untrack(transient_handle);
             Ok(())
         })

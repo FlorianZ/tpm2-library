@@ -103,7 +103,7 @@ fn delete_vtpm_handles(
     let matched_handles: Vec<u32> = task_state
         .cache
         .key_iter()
-        .map(|(h, _)| *h)
+        .map(|(h, _)| h.value())
         .filter(|&h| pattern.matches(h))
         .collect();
 
@@ -114,7 +114,7 @@ fn delete_vtpm_handles(
     let mut failed = false;
 
     for vhandle in matched_handles {
-        match task_state.cache.remove(vhandle) {
+        match task_state.cache.remove(TpmUint32::new(vhandle)) {
             Ok(all_deleted_handles) => {
                 for deleted_vhandle in all_deleted_handles {
                     if let Err(e) = writeln!(writer, "{deleted_vhandle:08x}") {
