@@ -65,13 +65,7 @@ impl TpmPolicyContext {
     pub fn builder() -> TpmPolicyContextBuilder {
         TpmPolicyContextBuilder::new()
     }
-    /// Initializes and returns a new context.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PcrCountMismatch`](crate::TpmPolicyError::PcrCountMismatch) when
-    /// PCR banks don't have exact same amount of PCRs.
-    pub fn new(
+    pub(crate) fn new(
         names: HashMap<TpmHandle, Tpm2bName>,
         pcrs: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>,
     ) -> Result<Self, TpmPolicyError> {
