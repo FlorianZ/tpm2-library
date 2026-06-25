@@ -58,12 +58,10 @@ fn command_list_roundtrip(#[case] input: &str) {
     let compiled = original_ast
         .compile(TpmAlgId::Sha256, &policy_context)
         .unwrap();
-    let commands: Vec<_> = compiled
-        .commands()
-        .iter()
-        .map(|(command, _auth)| command.clone())
-        .collect();
-    let roundtripped_ast = TpmPolicyExpression::from_commands(&commands).unwrap();
+    let roundtripped_ast = TpmPolicyExpression::from_commands(
+        compiled.commands().iter().map(|(cmd, _)| cmd),
+    )
+    .unwrap();
 
     let expected_ast = original_ast.clone();
 

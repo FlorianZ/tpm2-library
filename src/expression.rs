@@ -148,8 +148,8 @@ impl TpmPolicyExpression {
     ///
     /// Returns a [`TpmPolicyError`] variant if an unexpected command is found
     /// or if the sequence of commands is logically inconsistent.
-    pub fn from_commands(
-        command_list: &[TpmCommand],
+    pub fn from_commands<'a>(
+        command_list: impl IntoIterator<Item = &'a TpmCommand>,
     ) -> Result<TpmPolicyExpression, TpmPolicyError> {
         let mut stack: Vec<Vec<TpmPolicyExpression>> = vec![vec![]];
 

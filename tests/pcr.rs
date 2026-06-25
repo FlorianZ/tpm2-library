@@ -45,12 +45,10 @@ fn pcr_roundtrip(
     let policy_context = context_builder.build().unwrap();
     let original_ast = TpmPolicyExpression::parse(input, &policy_context).unwrap();
     let compiled = original_ast.compile(session_alg, &policy_context).unwrap();
-    let commands: Vec<_> = compiled
-        .commands()
-        .iter()
-        .map(|(command, _auth)| command.clone())
-        .collect();
-    let roundtripped_ast = TpmPolicyExpression::from_commands(&commands).unwrap();
+    let roundtripped_ast = TpmPolicyExpression::from_commands(
+        compiled.commands().iter().map(|(cmd, _)| cmd),
+    )
+    .unwrap();
 
     assert_eq!(roundtripped_ast, original_ast);
     assert_eq!(roundtripped_ast.to_string(), original_ast.to_string());
