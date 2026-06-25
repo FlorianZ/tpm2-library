@@ -96,8 +96,7 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let zero_digest = Tpm2bDigest::try_from(vec![0u8; digest_size].as_slice()).unwrap();
 
     let name = policy_context
-        .names()
-        .get(&TpmHandle::from(0x8100_0001))
+        .name(TpmHandle::from(0x8100_0001))
         .unwrap();
     let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
 

@@ -88,9 +88,10 @@ impl TpmPolicyContext {
         })
     }
 
+    /// Returns the name associated with a handle, if any.
     #[must_use]
-    pub fn names(&self) -> &HashMap<TpmHandle, Tpm2bName> {
-        &self.names
+    pub fn name(&self, handle: TpmHandle) -> Option<&Tpm2bName> {
+        self.names.get(&handle)
     }
 }
 
