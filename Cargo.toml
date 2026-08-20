@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/crypto",
+    "crates/device",
+    "crates/policy-language",
+    "crates/protocol",
+    "crates/sh",
+    "crates/tpmkey",
+    "crates/vtpm",
+]
+
+[workspace.package]
+authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
+edition = "2024"
+homepage = "https://gitlab.com/jarkkojs/tpm2-library"
+repository = "https://gitlab.com/jarkkojs/tpm2-library"
+rust-version = "1.85"
+version = "1.0.1"
+
+[workspace.dependencies]
+tpm2-crypto = { version = "1.0.1", path = "crates/crypto" }
+tpm2-device = { version = "1.0.1", path = "crates/device" }
+tpm2-policy-language = { version = "1.0.1", path = "crates/policy-language" }
+tpm2-protocol = { version = "1.0.1", path = "crates/protocol" }
+tpm2-tpmkey = { version = "1.0.1", path = "crates/tpmkey" }
+tpm2-vtpm = { version = "1.0.1", path = "crates/vtpm" }

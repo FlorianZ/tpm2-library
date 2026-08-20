@@ -58,10 +58,8 @@ fn command_list_roundtrip(#[case] input: &str) {
     let compiled = original_ast
         .compile(TpmAlgId::Sha256, &policy_context)
         .unwrap();
-    let roundtripped_ast = TpmPolicyExpression::from_commands(
-        compiled.commands().iter().map(|(cmd, _)| cmd),
-    )
-    .unwrap();
+    let roundtripped_ast =
+        TpmPolicyExpression::from_commands(compiled.commands().iter().map(|(cmd, _)| cmd)).unwrap();
 
     let expected_ast = original_ast.clone();
 
@@ -93,9 +91,7 @@ fn policy_secret_digest_matches_reference(#[case] input: &str) {
     let digest_size = hash.size();
     let zero_digest = Tpm2bDigest::try_from(vec![0u8; digest_size].as_slice()).unwrap();
 
-    let name = policy_context
-        .name(TpmHandle::from(0x8100_0001))
-        .unwrap();
+    let name = policy_context.name(TpmHandle::from(0x8100_0001)).unwrap();
     let cc_bytes = (TpmCc::PolicySecret as u32).to_be_bytes();
 
     let first_chunks: Vec<&[u8]> = vec![zero_digest.as_ref(), &cc_bytes, name.as_ref()];

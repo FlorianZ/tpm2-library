@@ -344,7 +344,11 @@ impl TpmPolicyExpression {
         software_session: &mut TpmPolicySession,
         context: &'a TpmPolicyContext,
     ) -> Result<Tpm2bDigest, TpmPolicyError> {
-        let TpmPolicyExpression::Secret { auth_handle, copy_ref } = self else {
+        let TpmPolicyExpression::Secret {
+            auth_handle,
+            copy_ref,
+        } = self
+        else {
             return Err(TpmPolicyError::InvalidExpression);
         };
 

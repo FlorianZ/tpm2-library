@@ -1,20 +1,20 @@
 [package]
-authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
+authors.workspace = true
 description = "TPM 2.0 policy language interpreter"
-edition = "2024"
-homepage = "https://gitlab.com/tpm-protocol/tpm2-policy-language"
+edition.workspace = true
+homepage.workspace = true
 license = "MIT OR Apache-2.0"
 name = "tpm2-policy-language"
 readme = "README.md"
-repository = "https://gitlab.com/tpm-protocol/tpm2-policy-language"
-rust-version = "1.85"
-version = "1.0.0"
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 hex = "0.4"
 strum = { version = "0.28", features = ["derive"] }
-tpm2-crypto = "1"
-tpm2-protocol = "1"
+tpm2-crypto.workspace = true
+tpm2-protocol.workspace = true
 
 [dev-dependencies]
 rstest = "0.21"
