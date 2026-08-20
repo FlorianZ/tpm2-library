@@ -1,0 +1,49 @@
+[package]
+name = "tpm2sh"
+description = "TPM 2.0 command-line interface"
+version = "1.0.0"
+license = "GPL-3.0-or-later"
+homepage = "https://gitlab.com/tpm-protocol/tpm2sh"
+repository = "https://gitlab.com/tpm-protocol/tpm2sh"
+authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
+edition = "2024"
+rust-version = "1.85"
+readme = "README.md"
+
+[[bin]]
+name = "tpm2sh"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+argh = { version = "0.1", default-features = false, features = ["help"] }
+ctrlc = "3.4"
+directories = "5.0"
+env_logger = { version = "0.11", default-features = false }
+hex = "0.4"
+indicatif = { version = "0.17", default-features = false }
+libc = "0.2.177"
+log = "0.4"
+nix = { version = "0.29", features = ["fs", "poll"] }
+openssl = "0.10"
+pem = "3.0"
+strum = { version = "0.28", features = ["derive"] }
+tabled = { version = "0.15", default-features = false, features = ["std", "derive", "ansi"] }
+tpm2-crypto = "1"
+tpm2-device = "1"
+tpm2-policy-language = "1"
+tpm2-protocol = "1"
+tpm2-tpmkey = "1"
+tpm2-vtpm = "1"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+duct = "0.13"
+predicates = "3.0"
+rstest = "0.23"
+tempfile = "3.10"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+harness = true

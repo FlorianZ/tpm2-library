@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
+
+//! Abstractions and logic for handling Platform Configuration Registers (PCRs).
+
+use crate::{error::device_err, response::parse_response};
+
+use anyhow::{Result, anyhow};
+use std::collections::HashMap;
+
+use tpm2_device::TpmDevice;
+use tpm2_protocol::{
+    data::{Tpm2bDigest, TpmAlgId, TpmlPcrSelection, TpmsPcrSelect, TpmsPcrSelection},
+    frame::{TpmPcrReadCommand, TpmPcrReadResponse},
+};
+
+/// Reads all PCRs from the active banks.
+///
+/// This function handles response fragmentation (reading in chunks) to ensure
+/// all PCRs are retrieved.
+///
+/// # Errors
+///
+/// Returns an error on device, capacity, or unmarshaling failure.
+pub fn read_all_pcrs(
+    device: &mut TpmDevice,
+) -> Result<HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>>> {
+    let (algs, common_mask) = device.fetch_pcr_bank_list().map_err(device_err)?;
+    let mut remaining_selection = TpmlPcrSelection::new();
+
+    for alg in &algs {
+        remaining_selection
+            .try_push(TpmsPcrSelection {
+                hash: *alg,
+                pcr_select: common_mask,
+            })
+            .map_err(|_| anyhow!("capacity exceeded"))?;
+    }
+
+    let mut results: HashMap<TpmAlgId, HashMap<u32, Tpm2bDigest>> = HashMap::new();
+    for alg in algs {
+        results.insert(alg, HashMap::new());
+    }
+
+    while !is_selection_empty(&remaining_selection) {
+        let cmd = TpmPcrReadCommand {
+            pcr_selection_in: remaining_selection,
+            handles: [],
+        };
+
+        let resp = device.transmit(&cmd, &[]).map_err(device_err)?;
+        let pcr_resp = parse_response::<TpmPcrReadResponse>(resp)?;
+
+        let mut value_iter = pcr_resp.pcr_values.iter();
+        for selection_out in pcr_resp.pcr_selection_out.iter() {
+            let bank_store = results
+                .get_mut(&selection_out.hash)
+                .ok_or_else(|| anyhow!("invalid algorithm: {:?}", selection_out.hash))?;
+
+            for (byte_idx, &byte) in selection_out.pcr_select.iter().enumerate() {
+                for bit_idx in 0..8 {
+                    if (byte >> bit_idx) & 1 == 1 {
+                        let pcr_idx = u32::try_from(byte_idx * 8 + bit_idx)
+                            .map_err(|_| anyhow!("capacity exceeded"))?;
+                        let digest = value_iter
+                            .next()
+                            .ok_or_else(|| anyhow!("PCR digest missing"))?;
+
+                        bank_store.insert(pcr_idx, *digest);
+                    }
+                }
+            }
+        }
+
+        update_remaining_selection(&mut remaining_selection, &pcr_resp.pcr_selection_out)?;
+    }
+
+    Ok(results)
+}
+
+fn is_selection_empty(selection: &TpmlPcrSelection) -> bool {
+    selection
+        .iter()
+        .all(|s| s.pcr_select.iter().all(|&b| b == 0))
+}
+
+fn update_remaining_selection(
+    remaining: &mut TpmlPcrSelection,
+    read: &TpmlPcrSelection,
+) -> Result<()> {
+    let mut new_list = TpmlPcrSelection::new();
+
+    for target_sel in remaining.iter() {
+        let mut mask_bytes = target_sel.pcr_select.to_vec();
+
+        if let Some(read_sel) = read.iter().find(|s| s.hash == target_sel.hash) {
+            for (i, &byte) in read_sel.pcr_select.iter().enumerate() {
+                if i < mask_bytes.len() {
+                    mask_bytes[i] &= !byte;
+                }
+            }
+        }
+
+        let new_select = TpmsPcrSelect::try_from(mask_bytes.as_slice())?;
+
+        new_list
+            .try_push(TpmsPcrSelection {
+                hash: target_sel.hash,
+                pcr_select: new_select,
+            })
+            .map_err(|_| anyhow!("capacity exceeded"))?;
+    }
+
+    *remaining = new_list;
+    Ok(())
+}

@@ -1,0 +1,119 @@
+.TH TPM2SH 1 "2026-06-25" "tpm2sh 1.0.0" "User Commands"
+.SH NAME
+tpm2sh \- a command-line tool for accessing TPM 2.0 devices
+.SH SYNOPSIS
+.B tpm2sh
+[\fIOPTIONS\fR] \fICOMMAND\fR [\fICOMMAND-OPTIONS\fR] [\fIARGUMENTS\fR]...
+.SH DESCRIPTION
+.B tpm2sh
+is a command-line tool for accessing TPM 2.0 devices.
+.P
+.B tpm2sh
+provides a virtual memory manager for sharing transient TPM
+resources across multiple commands.
+.P
+Transient handles are cached in a per-user cache directory. The cache
+automatically invalidates and resets on reboot, and does not require
+attention from the user.
+.P
+.B tpm2sh
+provides subcommands for creating and loading PEM encoded keys in TPMKey
+ASN.1 format.
+.P
+Several commands, such as
+.BR create ,
+.BR create-primary ,
+and
+.BR convert ,
+accept a
+.BR --policy " option to specify an inline authorization policy expression."
+
+.SH OPTIONS
+.TP
+.B -d, --device=\fI<DEVICE>\fR
+Device file [default: /dev/tpmrm0].
+.TP
+.B -h, --help
+Print help.
+.TP
+.B -V, --version
+Print version.
+
+.SH INPUT/OUTPUT FORMATTING
+.B tpm2sh
+uses the \fBPEM\fR format for all key input and output operations.
+.TP
+.B Stdin/Stdout
+If \fI--input\fR is not specified, input is read from stdin as \fBPEM\fR.
+If \fI--output\fR is not specified, output is written to stdout as \fBPEM\fR.
+.TP
+.B Files
+When reading from or writing to files, data is treated as \fBPEM\fR formatted text.
+
+.SH COMMANDS
+.TP
+.B algorithm
+Lists available algorithms supported by the chip.
+.TP
+.B cache
+Lists cached TPM objects.
+.TP
+.B convert
+Convert external keys to TPM keys.
+.TP
+.B create
+Creates a secondary key or a sealed data object.
+.TP
+.B create-primary
+Creates a new primary key in a specified hierarchy.
+.TP
+.B delete
+Deletes active and cached objects.
+.TP
+.B evict
+Create persistent object from transient object.
+.TP
+.B help
+Print this message or the help of the given subcommand(s).
+.TP
+.B load
+Loads a PEM TPMKey file to cache. If the TPMKey file does not include
+a parent public area, a parent handle must be supplied with
+.BR -P " or " --parent .
+.TP
+.B memory
+Lists objects inside TPM memory or inspects a single handle.
+.TP
+.B pcr-event
+Extends a PCR with an event.
+.TP
+.B reset-lock
+Resets the dictionary attack lockout counter.
+.TP
+.B return-code
+Prints a TPM return code in human-readable format.
+.TP
+.B unseal
+Retrieves data from a sealed data object.
+
+.SH ENVIRONMENT
+.TP
+.B TPM2SH_CACHE_PATH
+Overrides the default per-user cache directory used to store virtual TPM
+state. When unset, a system-appropriate per-user cache directory is used.
+.TP
+.B TPM2SH_AUTH
+A comma-separated list of handle authentication values in the format
+<handle>:<hex>. This allows providing passwords without exposing them in the
+process argument list. Values provided via \-\-auth take precedence.
+
+.SH BUGS
+Please report bugs to the project's mailing list at tpm-protocol@lists.linux.dev.
+.SH LICENSE
+tpm2sh is licensed under the GPL-3.0-or-later.
+.SH AUTHOR
+Jarkko Sakkinen <jarkko@kernel.org>
+.SH SEE ALSO
+.BR openssl (1),
+.BR credentials (7),
+.BR keyrings (7)
