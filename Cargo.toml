@@ -13,8 +13,8 @@ members = [
 [workspace.package]
 authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
 edition = "2024"
-homepage = "https://gitlab.com/jarkkojs/tpm2-library"
-repository = "https://gitlab.com/jarkkojs/tpm2-library"
+homepage = "https://github.com/jarkkojs/tpm2-library"
+repository = "https://github.com/jarkkojs/tpm2-library"
 rust-version = "1.95"
 version = "1.1.0"
 
