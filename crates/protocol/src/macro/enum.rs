@@ -2,10 +2,6 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-//! The chain of `if`-statements is a deliberate design choice as patterns in
-//! a `match`-statement is too restricted for arbitrary expressions (e.g, see
-//! `TpmRc` for an example).
-
 #[doc(hidden)]
 #[macro_export]
 macro_rules! tpm_enum {
@@ -28,11 +24,14 @@ macro_rules! tpm_enum {
         impl TryFrom<$repr> for $name {
             type Error = $crate::TpmError;
 
-            #[allow(clippy::cast_lossless, clippy::cast_sign_loss)]
+            #[allow(clippy::cast_lossless, clippy::cast_sign_loss, non_upper_case_globals)]
             fn try_from(value: $repr) -> Result<Self, $crate::TpmError> {
+                $(
+                    const $variant: $repr = $value;
+                )*
                 match value {
                     $(
-                        _ if value == $value => Ok(Self::$variant),
+                        $variant => Ok(Self::$variant),
                     )*
                     _ => Err($crate::TpmError::VariantNotAvailable { offset: 0, value: value as u64 }),
                 }
@@ -79,6 +78,12 @@ macro_rules! tpm_enum {
                 let enum_val = Self::try_from(raw)?;
 
                 Ok((enum_val, buf))
+            }
+        }
+
+        impl $crate::TpmUnmarshal for $name {
+            fn unmarshal(buffer: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                <Self as $crate::TpmField>::cast_prefix_field(buffer)
             }
         }
     };

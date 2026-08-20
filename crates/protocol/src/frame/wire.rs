@@ -4,7 +4,8 @@
 
 use super::{TPM_DISPATCH_TABLE, TPM_HEADER_SIZE};
 use crate::{
-    TpmCast, TpmCastMut, TpmError, TpmResult,
+    TpmCast, TpmCastMut, TpmError, TpmResult, TpmUnmarshal,
+    basic::TpmUint32,
     constant::MAX_SESSIONS,
     data::{TpmCc, TpmRc, TpmRcBase, TpmSt},
 };
@@ -206,6 +207,24 @@ impl TpmCommand {
         let (_, parameters) = self.session_and_parameter_ranges()?;
 
         Ok(&mut self.0[parameters])
+    }
+
+    /// Reconstructs an owned command body from this frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the frame is malformed or does not match `R`.
+    pub fn unmarshal<R: super::TpmUnmarshalBody>(&self) -> TpmResult<R> {
+        self.validate()?;
+        let cc = self.cc()?;
+        if cc != R::CC {
+            return Err(TpmError::InvalidCc {
+                offset: CODE_OFFSET,
+                value: u64::from(cc.value()),
+            });
+        }
+
+        R::unmarshal_body(self.handles()?, self.parameters()?)
     }
 
     /// Validates command frame structure without constructing an owned command body.
@@ -579,6 +598,50 @@ impl TpmResponse {
         }
 
         validate_auth_responses(&self.0, &after_handles[sessions_start..])
+    }
+
+    /// Reconstructs an owned response body from this frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when the frame is malformed or does not match `R`.
+    pub fn unmarshal<R: super::TpmUnmarshalBody>(&self) -> TpmResult<R> {
+        self.validate(R::CC)?;
+        let (handles, parameters) = self.body_parts::<R>()?;
+        R::unmarshal_body(handles, parameters)
+    }
+
+    fn body_parts<R: super::TpmHeader>(&self) -> TpmResult<(&[u8], &[u8])> {
+        let handle_area_size = handle_area_size(R::HANDLES, HEADER_SIZE)?;
+        let body = self.body();
+        if body.len() < handle_area_size {
+            return Err(TpmError::UnexpectedEnd {
+                offset: HEADER_SIZE,
+                needed: handle_area_size,
+                available: body.len(),
+            });
+        }
+
+        let (handles, after_handles) = body.split_at(handle_area_size);
+        if self.tag()? != TpmSt::Sessions {
+            return Ok((handles, after_handles));
+        }
+
+        let (parameter_size, after_size) = TpmUint32::unmarshal(after_handles)?;
+        let parameter_size =
+            usize::try_from(parameter_size.value()).map_err(|_| TpmError::IntegerTooLarge {
+                offset: HEADER_SIZE + handle_area_size,
+                value: u64::from(parameter_size.value()),
+            })?;
+        if after_size.len() < parameter_size {
+            return Err(TpmError::UnexpectedEnd {
+                offset: HEADER_SIZE + handle_area_size + size_of::<u32>(),
+                needed: parameter_size,
+                available: after_size.len(),
+            });
+        }
+
+        Ok((handles, &after_size[..parameter_size]))
     }
 
     /// Returns `true` when the response frame contains no bytes.

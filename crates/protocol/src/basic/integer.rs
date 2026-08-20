@@ -2,7 +2,9 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmCast, TpmCastMut, TpmMarshal, TpmResult, TpmSized, TpmWireBytes, TpmWriter};
+use crate::{
+    TpmCast, TpmCastMut, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmWireBytes, TpmWriter,
+};
 use core::{
     cmp::Ordering,
     convert::TryFrom,
@@ -212,6 +214,13 @@ impl<T, const N: usize> TpmSized for TpmInt<T, N> {
 impl<T, const N: usize> TpmMarshal for TpmInt<T, N> {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         writer.write_bytes(self.as_bytes())
+    }
+}
+
+impl<T, const N: usize> TpmUnmarshal for TpmInt<T, N> {
+    fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (value, remainder) = TpmWireBytes::<N>::cast_prefix(buffer)?;
+        Ok((Self::from_be_bytes(*value.as_bytes()), remainder))
     }
 }
 

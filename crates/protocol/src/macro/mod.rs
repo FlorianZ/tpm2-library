@@ -225,6 +225,12 @@ macro_rules! tpm_bitflags {
                 Self::SIZE
             }
         }
+
+        impl $crate::TpmUnmarshal for $name {
+            fn unmarshal(buffer: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                <Self as $crate::TpmField>::cast_prefix_field(buffer)
+            }
+        }
     };
 
     ($(#[$meta:meta])* $vis:vis struct $name:ident(TpmUint8) { $($rest:tt)* }) => {
@@ -287,6 +293,12 @@ macro_rules! tpm_bool {
             const SIZE: usize = core::mem::size_of::<$crate::basic::TpmUint8>();
             fn len(&self) -> usize {
                 Self::SIZE
+            }
+        }
+
+        impl $crate::TpmUnmarshal for $name {
+            fn unmarshal(buffer: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                <Self as $crate::TpmField>::cast_prefix_field(buffer)
             }
         }
     };

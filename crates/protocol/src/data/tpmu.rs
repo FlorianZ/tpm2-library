@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmError, TpmMarshal, TpmResult, TpmSized, TpmWriter,
+    TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshalTagged, TpmWriter,
     basic::{TpmBuffer, TpmUint16},
     constant::{MAX_DIGEST_SIZE, TPM_MAX_COMMAND_SIZE},
     data::{
@@ -80,6 +80,27 @@ macro_rules! tpmu_view {
                     )*
                     $(
                         $($null_tag)|+ => Ok(($view::$null_variant, buf)),
+                    )?
+                    _ => Err(TpmError::VariantNotAvailable { offset: 0, value: u64::from(tag.value()) }),
+                }
+            }
+        }
+
+        impl crate::TpmUnmarshalTagged<$tag_ty> for $union
+        where
+            $($field_ty: crate::TpmUnmarshal,)*
+        {
+            fn unmarshal_tagged(tag: $tag_ty, buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+                #[allow(unreachable_patterns)]
+                match tag {
+                    $(
+                        $($tag)|+ => {
+                            let (value, buffer) = <$field_ty as crate::TpmUnmarshal>::unmarshal(buffer)?;
+                            Ok((Self::$variant(value), buffer))
+                        }
+                    )*
+                    $(
+                        $($null_tag)|+ => Ok((Self::$null_variant, buffer)),
                     )?
                     _ => Err(TpmError::VariantNotAvailable { offset: 0, value: u64::from(tag.value()) }),
                 }
@@ -254,6 +275,17 @@ impl<'a> crate::TpmTaggedField<'a, TpmAlgId> for TpmuHa {
 
         let (digest, buf) = buf.split_at(digest_size);
         Ok((TpmuHaView::Digest(digest), buf))
+    }
+}
+
+impl TpmUnmarshalTagged<TpmAlgId> for TpmuHa {
+    fn unmarshal_tagged(tag: TpmAlgId, buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (view, buffer) = Self::cast_tagged(tag, buffer)?;
+        let value = match view {
+            TpmuHaView::Null => Self::Null,
+            TpmuHaView::Digest(digest) => Self::Digest(TpmBuffer::try_from(digest)?),
+        };
+        Ok((value, buffer))
     }
 }
 

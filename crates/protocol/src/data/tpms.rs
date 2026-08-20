@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmError, TpmMarshal, TpmResult, TpmSized, TpmWriter,
+    TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
     basic::{TpmHandle, TpmUint8, TpmUint16, TpmUint32, TpmUint64},
     constant::{TPM_GENERATED_VALUE, TPM_PCR_SELECT_MAX},
     data::{
@@ -130,6 +130,13 @@ impl<'a> crate::TpmField<'a> for TpmsPcrSelect {
     }
 }
 
+impl TpmUnmarshal for TpmsPcrSelect {
+    fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (value, remainder) = <Self as crate::TpmField>::cast_prefix_field(buffer)?;
+        Ok((Self::try_from(value)?, remainder))
+    }
+}
+
 tpm_struct! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
     wire: TpmsAcOutputWire,
@@ -196,6 +203,14 @@ impl TpmMarshal for TpmsCapabilityData {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         self.capability.marshal(writer)?;
         self.data.marshal(writer)
+    }
+}
+
+impl TpmUnmarshal for TpmsCapabilityData {
+    fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (capability, buffer) = TpmCap::unmarshal(buffer)?;
+        let (data, buffer) = TpmuCapabilities::unmarshal_tagged(capability, buffer)?;
+        Ok((Self { capability, data }, buffer))
     }
 }
 
@@ -311,6 +326,14 @@ impl<'a> crate::TpmField<'a> for TpmsPcrSelection {
         let (pcr_select, buf) = <TpmsPcrSelect as crate::TpmField>::cast_prefix_field(buf)?;
 
         Ok(((hash, pcr_select), buf))
+    }
+}
+
+impl TpmUnmarshal for TpmsPcrSelection {
+    fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (hash, buffer) = TpmAlgId::unmarshal(buffer)?;
+        let (pcr_select, buffer) = TpmsPcrSelect::unmarshal(buffer)?;
+        Ok((Self { hash, pcr_select }, buffer))
     }
 }
 
@@ -517,6 +540,37 @@ impl TpmMarshal for TpmsAttest {
         self.clock_info.marshal(writer)?;
         self.firmware_version.marshal(writer)?;
         self.attested.marshal(writer)
+    }
+}
+
+impl TpmUnmarshal for TpmsAttest {
+    fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (magic, buffer) = TpmUint32::unmarshal(buffer)?;
+        if magic.value() != TPM_GENERATED_VALUE {
+            return Err(TpmError::InvalidMagicNumber {
+                offset: 0,
+                value: u64::from(magic.value()),
+            });
+        }
+
+        let (attest_type, buffer) = TpmSt::unmarshal(buffer)?;
+        let (qualified_signer, buffer) = Tpm2bName::unmarshal(buffer)?;
+        let (extra_data, buffer) = Tpm2bData::unmarshal(buffer)?;
+        let (clock_info, buffer) = TpmsClockInfo::unmarshal(buffer)?;
+        let (firmware_version, buffer) = TpmUint64::unmarshal(buffer)?;
+        let (attested, buffer) = TpmuAttest::unmarshal_tagged(attest_type, buffer)?;
+
+        Ok((
+            Self {
+                attest_type,
+                qualified_signer,
+                extra_data,
+                clock_info,
+                firmware_version,
+                attested,
+            },
+            buffer,
+        ))
     }
 }
 

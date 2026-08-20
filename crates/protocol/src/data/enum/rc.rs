@@ -2,7 +2,7 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmError, tpm_enum};
+use crate::{TpmError, TpmUnmarshal, tpm_enum};
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Display, Formatter},
@@ -205,6 +205,21 @@ impl crate::TpmSized for TpmRc {
 impl crate::TpmMarshal for TpmRc {
     fn marshal(&self, writer: &mut crate::TpmWriter) -> crate::TpmResult<()> {
         crate::basic::TpmUint32::from(self.value()).marshal(writer)
+    }
+}
+
+impl crate::TpmUnmarshal for TpmRc {
+    fn unmarshal(buffer: &[u8]) -> crate::TpmResult<(Self, &[u8])> {
+        let (value, remainder) = crate::basic::TpmUint32::unmarshal(buffer)?;
+        Ok((Self::try_from(value.value())?, remainder))
+    }
+}
+
+impl<'a> crate::TpmField<'a> for TpmRc {
+    type View = Self;
+
+    fn cast_prefix_field(buf: &'a [u8]) -> crate::TpmResult<(Self::View, &'a [u8])> {
+        Self::unmarshal(buf)
     }
 }
 

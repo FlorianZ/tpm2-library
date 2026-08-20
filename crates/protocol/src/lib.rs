@@ -501,3 +501,24 @@ pub trait TpmMarshal {
     /// Returns `Err(TpmError)` on a marshal failure.
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()>;
 }
+
+/// Reconstructs an owned TPM value from wire bytes.
+pub trait TpmUnmarshal: Sized {
+    /// Reads one owned value from the start of `buffer`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when `buffer` does not start with a valid value.
+    fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])>;
+}
+
+/// Reconstructs an owned tagged union payload selected by a previously-read tag.
+pub trait TpmUnmarshalTagged<Tag>: Sized {
+    /// Reads one owned tagged value from the start of `buffer`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when `tag` does not select a valid variant or
+    /// `buffer` does not start with a valid selected payload.
+    fn unmarshal_tagged(tag: Tag, buffer: &[u8]) -> TpmResult<(Self, &[u8])>;
+}

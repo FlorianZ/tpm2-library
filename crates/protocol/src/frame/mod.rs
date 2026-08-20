@@ -2,7 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmMarshal, TpmResult, TpmSized, TpmWriter, basic::TpmList};
+use crate::{
+    TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmWriter,
+    basic::{TpmHandle, TpmList},
+};
 use core::fmt::Debug;
 
 mod data;
@@ -55,6 +58,42 @@ pub trait TpmMarshalBody: TpmSized {
     ///
     /// Returns `Err(TpmError)` on a marshal failure.
     fn marshal_parameters(&self, writer: &mut TpmWriter) -> TpmResult<()>;
+}
+
+/// Reconstructs an owned command/response body from separate handle and parameter areas.
+pub trait TpmUnmarshalBody: TpmHeader + Sized {
+    /// Reads the handle area and parameter area into an owned body.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(TpmError)` when either area is malformed or contains trailing data.
+    fn unmarshal_body(handles: &[u8], parameters: &[u8]) -> TpmResult<Self>;
+}
+
+/// Reads exactly `N` handles and rejects leftover bytes.
+pub(crate) fn unmarshal_handle_area<const N: usize>(
+    mut buffer: &[u8],
+) -> TpmResult<[TpmHandle; N]> {
+    let mut handles = [TpmHandle::new(0); N];
+    for slot in &mut handles {
+        let (handle, tail) = TpmHandle::unmarshal(buffer)?;
+        *slot = handle;
+        buffer = tail;
+    }
+    ensure_consumed(buffer)?;
+    Ok(handles)
+}
+
+/// Rejects leftover bytes after an exact unmarshal.
+pub(crate) fn ensure_consumed(buffer: &[u8]) -> TpmResult<()> {
+    if buffer.is_empty() {
+        Ok(())
+    } else {
+        Err(TpmError::TrailingData {
+            offset: 0,
+            actual: buffer.len(),
+        })
+    }
 }
 
 tpm_dispatch! {

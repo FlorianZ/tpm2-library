@@ -7,6 +7,28 @@
 macro_rules! tpm_struct {
     (@wire_field_methods [$($prev_type:ty,)*],) => {};
 
+    (@unmarshal_body $name:ident, $count:literal { $(pub $param_field:ident: $param_type:ty),* $(,)? }) => {
+        impl $crate::frame::TpmUnmarshalBody for $name
+        where
+            $($param_type: $crate::TpmUnmarshal,)*
+        {
+            #[allow(unused_variables)]
+            fn unmarshal_body(
+                handles: &[u8],
+                parameters: &[u8],
+            ) -> $crate::TpmResult<Self> {
+                let handles = $crate::frame::unmarshal_handle_area::<$count>(handles)?;
+                $(let ($param_field, parameters) =
+                    <$param_type as $crate::TpmUnmarshal>::unmarshal(parameters)?;)*
+                $crate::frame::ensure_consumed(parameters)?;
+                Ok(Self {
+                    handles,
+                    $($param_field,)*
+                })
+            }
+        }
+    };
+
     (@wire_field_methods [$($prev_type:ty,)*], pub $field_name:ident: $field_type:ty $(, pub $rest_field:ident: $rest_type:ty)* $(,)?) => {
         /// Returns a borrowed field view.
         ///
@@ -132,6 +154,8 @@ macro_rules! tpm_struct {
                 Ok(())
             }
         }
+
+        $crate::tpm_struct!(@unmarshal_body $name, $count { $(pub $param_field: $param_type),* });
     };
 
     (
@@ -201,6 +225,8 @@ macro_rules! tpm_struct {
                 Ok(())
             }
         }
+
+        $crate::tpm_struct!(@unmarshal_body $name, $count { $(pub $param_field: $param_type),* });
 
         impl $crate::TpmSized for $name {
             const SIZE: usize = (Self::HANDLES * <$crate::basic::TpmHandle>::SIZE) $(+ <$param_type>::SIZE)*;
@@ -374,6 +400,16 @@ macro_rules! tpm_struct {
             }
         }
 
+        impl $crate::TpmUnmarshal for $name
+        where
+            $($field_type: $crate::TpmUnmarshal,)*
+        {
+            #[allow(unused_variables)]
+            fn unmarshal(buffer: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                $(let ($field_name, buffer) = <$field_type as $crate::TpmUnmarshal>::unmarshal(buffer)?;)*
+                Ok((Self { $($field_name,)* }, buffer))
+            }
+        }
     };
 }
 
@@ -556,6 +592,35 @@ macro_rules! tpm2b_struct {
                     .map_err(|_| $crate::TpmError::IntegerTooLarge { offset: writer.len(), value: $crate::tpm_value(inner_len) })?;
                 len_field.marshal(writer)?;
                 $crate::TpmMarshal::marshal(&self.inner, writer)
+            }
+        }
+
+        impl $crate::TpmUnmarshal for $wrapper_ty
+        where
+            $inner_ty: $crate::TpmUnmarshal,
+        {
+            fn unmarshal(buffer: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
+                let (size, buffer) =
+                    <$crate::basic::TpmUint16 as $crate::TpmUnmarshal>::unmarshal(buffer)?;
+                let size = usize::from(size.value());
+                if buffer.len() < size {
+                    return Err($crate::TpmError::UnexpectedEnd {
+                        offset: <$crate::basic::TpmUint16 as $crate::TpmSized>::SIZE,
+                        needed: size,
+                        available: buffer.len(),
+                    });
+                }
+
+                let (inner_buffer, remainder) = buffer.split_at(size);
+                let (inner, tail) = <$inner_ty as $crate::TpmUnmarshal>::unmarshal(inner_buffer)?;
+                if !tail.is_empty() {
+                    return Err($crate::TpmError::TrailingData {
+                        offset: size.saturating_sub(tail.len()),
+                        actual: tail.len(),
+                    });
+                }
+
+                Ok((Self { inner }, remainder))
             }
         }
 

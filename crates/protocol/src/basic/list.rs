@@ -2,7 +2,9 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, basic::TpmUint32};
+use crate::{
+    TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, basic::TpmUint32,
+};
 use core::{
     convert::TryFrom,
     fmt::Debug,
@@ -485,5 +487,24 @@ impl<T: TpmMarshal + Copy, const CAPACITY: usize> TpmMarshal for TpmList<T, CAPA
             TpmMarshal::marshal(item, writer)?;
         }
         Ok(())
+    }
+}
+
+impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, CAPACITY> {
+    fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (count, mut cursor) = TpmUint32::unmarshal(buffer)?;
+        let count = usize::try_from(count.value()).map_err(|_| TpmError::IntegerTooLarge {
+            offset: 0,
+            value: u64::from(count.value()),
+        })?;
+        let mut list = Self::new();
+
+        for _ in 0..count {
+            let (item, tail) = T::unmarshal(cursor)?;
+            list.try_push(item)?;
+            cursor = tail;
+        }
+
+        Ok((list, cursor))
     }
 }

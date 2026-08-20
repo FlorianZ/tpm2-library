@@ -3,7 +3,8 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 use crate::{
-    TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, TpmWriter, basic::TpmUint16,
+    TpmCast, TpmCastMut, TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmWriter,
+    basic::TpmUint16,
 };
 use core::{
     convert::TryFrom,
@@ -354,6 +355,13 @@ impl<const CAPACITY: usize> TpmMarshal for TpmBuffer<CAPACITY> {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
         TpmUint16::from(self.size).marshal(writer)?;
         writer.write_bytes(self)
+    }
+}
+
+impl<const CAPACITY: usize> TpmUnmarshal for TpmBuffer<CAPACITY> {
+    fn unmarshal(buffer: &[u8]) -> TpmResult<(Self, &[u8])> {
+        let (value, remainder) = crate::basic::Tpm2b::<CAPACITY>::cast_prefix(buffer)?;
+        Ok((Self::try_from(value.data())?, remainder))
     }
 }
 
