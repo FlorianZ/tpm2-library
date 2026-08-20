@@ -4,7 +4,6 @@
 use crate::{
     cli::Task,
     io::{parse_u32, read_file_input},
-    response::parse_response,
     task::TaskState,
 };
 use anyhow::{Result, anyhow};
@@ -57,7 +56,7 @@ impl Task for PcrEvent {
             let auth = task_state.auth_for(self.pcr_index);
 
             let resp = task_state.execute(device, &command, &[auth])?;
-            let pcr_resp = parse_response::<TpmPcrEventResponse>(resp)?;
+            let pcr_resp = resp.unmarshal::<TpmPcrEventResponse>()?;
 
             let clauses: Vec<String> = pcr_resp
                 .digests

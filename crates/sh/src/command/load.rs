@@ -7,15 +7,14 @@ use crate::{
     error::device_err,
     handle::handle_type,
     io::read_file_input,
-    response::parse_response,
     task::{Auth, TaskState},
-    unmarshal::TpmUnmarshal,
 };
 use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use std::{ffi::CString, path::PathBuf};
 use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
+    TpmUnmarshal,
     basic::{TpmHandle, TpmUint32},
     data::{
         Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmHt,
@@ -226,7 +225,7 @@ impl Load {
         };
 
         let resp = task_state.execute(device, &cmd, auths)?;
-        let resp = parse_response::<TpmLoadResponse>(resp)?;
+        let resp = resp.unmarshal::<TpmLoadResponse>()?;
 
         task_state.track(device, resp.handles[0])?;
         Ok((resp.handles[0], in_public.clone()))

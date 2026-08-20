@@ -8,16 +8,14 @@ use std::{
     rc::Rc,
 };
 
-use crate::{
-    error::device_err, handle::handle_type, response::parse_response, unmarshal::TpmUnmarshal,
-};
+use crate::{error::device_err, handle::handle_type};
 
 use anyhow::{Result, anyhow};
 use openssl::rand::rand_bytes;
 use tpm2_crypto::{TpmHash, tpm_make_name};
 use tpm2_device::{TpmDevice, TpmDeviceError, TpmPolicySession};
 use tpm2_protocol::{
-    TpmWriter,
+    TpmUnmarshal, TpmWriter,
     basic::{TpmHandle, TpmInt32, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -272,7 +270,7 @@ impl<'a> TaskState<'a> {
         };
 
         let resp = self.execute(device, &import_cmd, auth_list)?;
-        let import_resp = parse_response::<TpmImportResponse>(resp)?;
+        let import_resp = resp.unmarshal::<TpmImportResponse>()?;
 
         Ok(import_resp.out_private)
     }
@@ -411,7 +409,7 @@ impl<'a> TaskState<'a> {
         };
 
         let resp = self.execute(device, &cmd, &[auth])?;
-        parse_response::<TpmEvictControlResponse>(resp)?;
+        resp.unmarshal::<TpmEvictControlResponse>()?;
         Ok(())
     }
 

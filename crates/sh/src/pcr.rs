@@ -4,7 +4,7 @@
 
 //! Abstractions and logic for handling Platform Configuration Registers (PCRs).
 
-use crate::{error::device_err, response::parse_response};
+use crate::error::device_err;
 
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
@@ -50,7 +50,7 @@ pub fn read_all_pcrs(
         };
 
         let resp = device.transmit(&cmd, &[]).map_err(device_err)?;
-        let pcr_resp = parse_response::<TpmPcrReadResponse>(resp)?;
+        let pcr_resp = resp.unmarshal::<TpmPcrReadResponse>()?;
 
         let mut value_iter = pcr_resp.pcr_values.iter();
         for selection_out in pcr_resp.pcr_selection_out.iter() {

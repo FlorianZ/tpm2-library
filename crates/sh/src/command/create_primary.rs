@@ -9,7 +9,6 @@ use crate::{
         resolve_public_template,
     },
     error::device_err,
-    response::parse_response,
     task::TaskState,
 };
 use anyhow::Result;
@@ -130,7 +129,7 @@ impl CreatePrimary {
         let auth = task_state.auth_for(TpmUint32::new(primary_handle as u32));
 
         let resp = task_state.execute(device, &cmd, &[auth])?;
-        let resp = parse_response::<TpmCreatePrimaryResponse>(resp)?;
+        let resp = resp.unmarshal::<TpmCreatePrimaryResponse>()?;
 
         let object_handle = resp.handles[0];
         task_state.track(device, object_handle)?;

@@ -6,7 +6,6 @@ use crate::{
     cli::Task,
     command::common::{build_policy_command_list, default_symmetric, parse_password},
     io::{read_file_input, write_key_data},
-    response::parse_response,
     task::TaskState,
 };
 use anyhow::{Result, anyhow};
@@ -191,7 +190,7 @@ impl Seal {
             self.build_create_command(task_state, device, parent_phys_handle)?;
 
         let resp = task_state.execute(device, &create_cmd, &[auth])?;
-        let resp = parse_response::<TpmCreateResponse>(resp)?;
+        let resp = resp.unmarshal::<TpmCreateResponse>()?;
 
         let policy = task_state.save_key_policy(device, policy_commands)?;
 

@@ -7,7 +7,6 @@ use crate::{
     command::print_table,
     error::device_err,
     handle::handle_type,
-    response::parse_response,
     task::{Auth, TaskState},
 };
 use anyhow::{Result, anyhow};
@@ -412,7 +411,7 @@ impl Memory {
             handles: [handle.into()],
         };
         let resp = session.execute(device, &nv_read_public_cmd, &[])?;
-        let read_public_resp = parse_response::<TpmNvReadPublicResponse>(resp)?;
+        let read_public_resp = resp.unmarshal::<TpmNvReadPublicResponse>()?;
         Ok(read_public_resp.nv_public)
     }
 
@@ -456,7 +455,7 @@ impl Memory {
             };
 
             let resp = session.execute(device, &nv_read_cmd, effective_auths)?;
-            let read_resp = parse_response::<TpmNvReadResponse>(resp)?;
+            let read_resp = resp.unmarshal::<TpmNvReadResponse>()?;
 
             let received_len = read_resp.data.len();
             if received_len == 0 {

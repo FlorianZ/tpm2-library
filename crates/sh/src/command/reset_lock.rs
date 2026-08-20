@@ -2,7 +2,7 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, response::parse_response, task::TaskState};
+use crate::{cli::Task, task::TaskState};
 use anyhow::Result;
 use argh::FromArgs;
 use tpm2_device::with_device;
@@ -33,7 +33,7 @@ impl Task for ResetLock {
             let auth = task_state.auth_for(TpmUint32::new(u32::from(lock_handle)));
 
             let resp = task_state.execute(device, &command, &[auth])?;
-            parse_response::<TpmDictionaryAttackLockResetResponse>(resp)?;
+            resp.unmarshal::<TpmDictionaryAttackLockResetResponse>()?;
             Ok(())
         })
     }

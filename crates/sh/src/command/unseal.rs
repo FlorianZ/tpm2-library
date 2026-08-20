@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3-0-or-later
 // Copyright (c) 2025 Opinsys Oy
 
-use crate::{cli::Task, response::parse_response, task::TaskState};
+use crate::{cli::Task, task::TaskState};
 use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use std::path::PathBuf;
@@ -44,7 +44,7 @@ impl Task for Unseal {
             };
 
             let resp = task_state.execute(device, &unseal_cmd, &[auth])?;
-            let out_data = parse_response::<TpmUnsealResponse>(resp)?.out_data;
+            let out_data = resp.unmarshal::<TpmUnsealResponse>()?.out_data;
 
             if let Some(path) = &self.output {
                 std::fs::write(path, out_data.as_ref())?;
