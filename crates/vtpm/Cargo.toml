@@ -1,0 +1,21 @@
+[package]
+name = "tpm2-vtpm"
+description = "TPM 2.0 virtual TPM context cache"
+version = "1.0.0"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.com/tpm-protocol/tpm2-vtpm"
+repository = "https://gitlab.com/tpm-protocol/tpm2-vtpm"
+authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
+edition = "2024"
+rust-version = "1.85"
+readme = "README.md"
+
+[dependencies]
+log = "0.4"
+strum = { version = "0.28", features = ["derive"] }
+tpm2-crypto = "1"
+tpm2-protocol = "1"
+
+[dev-dependencies]
+rstest = "0.18"
+tempfile = "3.10"
