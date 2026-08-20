@@ -8,7 +8,6 @@
 #![deny(clippy::pedantic)]
 
 mod policy;
-mod unmarshal;
 
 pub use policy::*;
 
@@ -19,12 +18,11 @@ use std::{
 };
 use tpm2_crypto::tpm_make_name;
 use tpm2_protocol::{
-    TpmError, TpmMarshal, TpmWriter,
+    TpmError, TpmMarshal, TpmUnmarshal, TpmWriter,
     basic::{TpmBuffer, TpmHandle, TpmUint32, TpmUint64},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmsContext, TpmtPublic},
 };
-use unmarshal::TpmUnmarshal;
 
 const VERSION: u32 = 0x0000_0002;
 const TRANSIENT_START: u32 = 0x8000_0000;

@@ -2,10 +2,10 @@
 // Copyright (c) 2025 Opinsys Oy
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
-use crate::{VtpmError, unmarshal::TpmUnmarshal};
+use crate::VtpmError;
 use std::fmt::Debug;
 use tpm2_protocol::{
-    TpmError, TpmMarshal, TpmSized, TpmWriter,
+    TpmError, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
     basic::{TpmHandle, TpmInt32, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
@@ -193,24 +193,15 @@ fn vtpm_policy_secret_from_command(
     command: &TpmCommand,
     object_name: &Tpm2bName,
 ) -> Result<Box<dyn VtpmPolicyCommand>, VtpmError> {
-    let handles = command.handles().map_err(VtpmError::Unmarshal)?;
-    let (object_handle_hint, _) = TpmHandle::cast_prefix(handles).map_err(VtpmError::Unmarshal)?;
-
-    let mut params = command.parameters().map_err(VtpmError::Unmarshal)?;
-    let (_, tail) = Tpm2bDigest::unmarshal(params).map_err(VtpmError::Unmarshal)?;
-    params = tail;
-    let (_, tail) = Tpm2bDigest::unmarshal(params).map_err(VtpmError::Unmarshal)?;
-    params = tail;
-    let (policy_ref, tail) = Tpm2bDigest::unmarshal(params).map_err(VtpmError::Unmarshal)?;
-    let (_, tail) = TpmInt32::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
-    if !tail.is_empty() {
-        return Err(VtpmError::InvalidPolicy);
-    }
+    let inner = command
+        .unmarshal::<TpmPolicySecretCommand>()
+        .map_err(VtpmError::Unmarshal)?;
+    let [object_handle_hint, _] = inner.handles;
 
     Ok(Box::new(VtpmPolicySecretCommand {
-        object_handle_hint: *object_handle_hint,
+        object_handle_hint,
         object_name: *object_name,
-        policy_ref,
+        policy_ref: inner.policy_ref,
     }))
 }
 
