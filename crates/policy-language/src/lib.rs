@@ -379,17 +379,15 @@ fn parse_pcr_call<'a>(
         }
     }
 
-    if let Some((selection_part, digest_part)) = buf.rsplit_once(':') {
-        if let Ok(selections) = parse_tpml_pcr_selection_str(selection_part, context) {
-            if let Ok(digest_bytes) = hex::decode(digest_part) {
-                if let Ok(digest) = Tpm2bDigest::try_from(digest_bytes.as_slice()) {
-                    return Ok(TpmPolicyExpression::Pcr {
-                        selections,
-                        digest: Some(digest),
-                    });
-                }
-            }
-        }
+    if let Some((selection_part, digest_part)) = buf.rsplit_once(':')
+        && let Ok(selections) = parse_tpml_pcr_selection_str(selection_part, context)
+        && let Ok(digest_bytes) = hex::decode(digest_part)
+        && let Ok(digest) = Tpm2bDigest::try_from(digest_bytes.as_slice())
+    {
+        return Ok(TpmPolicyExpression::Pcr {
+            selections,
+            digest: Some(digest),
+        });
     }
 
     let selections = parse_tpml_pcr_selection_str(&buf, context)?;

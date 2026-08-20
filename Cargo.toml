@@ -15,7 +15,7 @@ authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
 edition = "2024"
 homepage = "https://gitlab.com/jarkkojs/tpm2-library"
 repository = "https://gitlab.com/jarkkojs/tpm2-library"
-rust-version = "1.85"
+rust-version = "1.95"
 version = "1.0.2"
 
 [workspace.dependencies]

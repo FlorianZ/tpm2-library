@@ -205,20 +205,20 @@ impl<'a> TaskState<'a> {
             return Ok((phys_handle, name_alg, auth));
         }
 
-        if let Some(commands) = self.load_policy(device, &policy)? {
-            if !commands.is_empty() {
-                let session = TpmPolicySession::builder()
-                    .with_auth_hash(name_alg)
-                    .open(device)
-                    .map_err(device_err)?;
-                if let Err(e) = session.run(device, commands) {
-                    let _ = session.flush(device);
-                    return Err(device_err(e));
-                }
-                let vhandle = session.handle();
-                self.sessions.insert(vhandle, session);
-                return Ok((phys_handle, name_alg, Auth::Session(vhandle.value())));
+        if let Some(commands) = self.load_policy(device, &policy)?
+            && !commands.is_empty()
+        {
+            let session = TpmPolicySession::builder()
+                .with_auth_hash(name_alg)
+                .open(device)
+                .map_err(device_err)?;
+            if let Err(e) = session.run(device, commands) {
+                let _ = session.flush(device);
+                return Err(device_err(e));
             }
+            let vhandle = session.handle();
+            self.sessions.insert(vhandle, session);
+            return Ok((phys_handle, name_alg, Auth::Session(vhandle.value())));
         }
 
         Ok((phys_handle, name_alg, Auth::default()))
@@ -636,18 +636,18 @@ impl<'a> TaskState<'a> {
 
 impl Drop for TaskState<'_> {
     fn drop(&mut self) {
-        if let Some(device_rc) = self.device.clone() {
-            if let Ok(mut dev) = device_rc.try_borrow_mut() {
-                let handles_to_flush: Vec<TpmHandle> = self.phys_handles.drain().collect();
-                for handle in handles_to_flush {
-                    if let Err(err) = dev.flush_context(handle) {
-                        log::error!("{handle}: {err}");
-                    }
+        if let Some(device_rc) = self.device.clone()
+            && let Ok(mut dev) = device_rc.try_borrow_mut()
+        {
+            let handles_to_flush: Vec<TpmHandle> = self.phys_handles.drain().collect();
+            for handle in handles_to_flush {
+                if let Err(err) = dev.flush_context(handle) {
+                    log::error!("{handle}: {err}");
                 }
-                for session in self.sessions.values() {
-                    if let Err(e) = session.flush(&mut dev) {
-                        log::error!("{:08x}: {e}", session.handle());
-                    }
+            }
+            for session in self.sessions.values() {
+                if let Err(e) = session.flush(&mut dev) {
+                    log::error!("{:08x}: {e}", session.handle());
                 }
             }
         }

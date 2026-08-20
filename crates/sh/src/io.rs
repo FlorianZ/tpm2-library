@@ -31,10 +31,10 @@ pub fn read_file_input(input: Option<&Path>) -> Result<Vec<u8>> {
         return Err(anyhow!("unexpected eof"));
     }
 
-    if input.is_none() {
-        if let Ok(s) = std::str::from_utf8(&bytes) {
-            bytes = s.trim().as_bytes().to_vec();
-        }
+    if input.is_none()
+        && let Ok(s) = std::str::from_utf8(&bytes)
+    {
+        bytes = s.trim().as_bytes().to_vec();
     }
 
     Ok(bytes)

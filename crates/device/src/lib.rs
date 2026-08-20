@@ -417,7 +417,7 @@ impl Default for TpmPosixDeviceBuilder {
     fn default() -> Self {
         Self {
             path: PathBuf::from("/dev/tpmrm0"),
-            timeout: Duration::from_secs(120),
+            timeout: Duration::from_mins(2),
             interrupted: Box::new(|| false),
         }
     }

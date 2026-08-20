@@ -126,10 +126,10 @@ impl VtpmKey {
     fn delete(&self, cache_dir: &Path) -> Result<(), VtpmError> {
         let virtual_handle = self.handle.value();
         let path = cache_dir.join(format!("{virtual_handle:08x}.bin"));
-        if let Err(e) = fs::remove_file(path) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                return Err(e.into());
-            }
+        if let Err(e) = fs::remove_file(path)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(e.into());
         }
         Ok(())
     }
@@ -246,15 +246,15 @@ impl<'a> VtpmCache<'a> {
         };
         cache.load()?;
 
-        if let Some(max_handle) = cache.contexts.keys().max() {
-            if *max_handle >= cache.next_virtual_handle {
-                let next = max_handle.wrapping_add(1);
-                cache.next_virtual_handle = if next > TRANSIENT_END {
-                    TRANSIENT_START
-                } else {
-                    next
-                };
-            }
+        if let Some(max_handle) = cache.contexts.keys().max()
+            && *max_handle >= cache.next_virtual_handle
+        {
+            let next = max_handle.wrapping_add(1);
+            cache.next_virtual_handle = if next > TRANSIENT_END {
+                TRANSIENT_START
+            } else {
+                next
+            };
         }
 
         Ok(cache)
@@ -269,10 +269,10 @@ impl<'a> VtpmCache<'a> {
     /// Live handles are consulted first, then the cache is scanned.
     #[must_use]
     pub fn find_by_name(&self, target_name: &Tpm2bName) -> Option<&VtpmKey> {
-        if let Some(handle) = self.handles.get(target_name) {
-            if let Some(key) = self.contexts.get(&handle.value()) {
-                return Some(key);
-            }
+        if let Some(handle) = self.handles.get(target_name)
+            && let Some(key) = self.contexts.get(&handle.value())
+        {
+            return Some(key);
         }
 
         None

@@ -48,7 +48,7 @@ impl TpmRsaExternalKey {
         key_bits: TpmUint16,
     ) -> Result<Self, TpmCryptoError> {
         let key_bits_value = key_bits.value();
-        if key_bits_value == 0 || key_bits_value % 8 != 0 {
+        if key_bits_value == 0 || !key_bits_value.is_multiple_of(8) {
             return Err(TpmCryptoError::InvalidKeyBits(key_bits_value));
         }
 
@@ -59,7 +59,7 @@ impl TpmRsaExternalKey {
         }
 
         let exponent_value = exponent.value();
-        if exponent_value != 0 && (exponent_value < 3 || exponent_value % 2 == 0) {
+        if exponent_value != 0 && (exponent_value < 3 || exponent_value.is_multiple_of(2)) {
             return Err(TpmCryptoError::InvalidRsaExponent(exponent));
         }
 
