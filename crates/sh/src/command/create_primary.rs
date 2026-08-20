@@ -40,7 +40,7 @@ pub struct CreatePrimary {
     #[argh(option, short = 'H', default = "Hierarchy::Owner")]
     pub hierarchy: Hierarchy,
 
-    /// key algorithm
+    /// key algorithm: e.g., 'ecc-nist-p256:sha256', 'rsa-2048:sha256:rsassa'
     #[argh(positional)]
     pub algorithm: TpmPublicTemplate,
 

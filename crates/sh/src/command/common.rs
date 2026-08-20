@@ -16,9 +16,8 @@ use tpm2_policy_language::{TpmPolicyContext, TpmPolicyExpression};
 use tpm2_protocol::{
     basic::{TpmHandle, TpmUint16, TpmUint32},
     data::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmaObject, TpmsSchemeHash,
-        TpmtPublic, TpmtSymDefObject, TpmuKeyedhashScheme, TpmuPublicParms, TpmuSymKeyBits,
-        TpmuSymMode,
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmaObject, TpmtPublic,
+        TpmtSymDefObject, TpmuSymKeyBits, TpmuSymMode,
     },
     frame::{TpmAuthCommands, TpmCommandValue as TpmCommand},
 };
@@ -104,7 +103,31 @@ pub fn parse_password(password: Option<&str>) -> Result<Tpm2bAuth> {
     }
 }
 
-/// Creates object attributes based on the algorithm and policy configuration.
+fn parse_auth_attributes(
+    password: Option<&str>,
+    policy_expression: Option<&str>,
+    lock: bool,
+) -> TpmaObject {
+    let mut attributes = TpmaObject::empty();
+
+    if !lock {
+        attributes |= TpmaObject::NO_DA;
+    }
+    if password.is_some() || policy_expression.is_none() {
+        attributes |= TpmaObject::USER_WITH_AUTH;
+    }
+    if policy_expression.is_some() {
+        attributes |= TpmaObject::ADMIN_WITH_POLICY;
+    }
+
+    attributes
+}
+
+/// Creates object attributes for `TPM2_Create` / `TPM2_CreatePrimary`.
+///
+/// Usage bits (`DECRYPT`, `SIGN_ENCRYPT`, `RESTRICTED`) come from the
+/// algorithm string. Created objects also get `FIXED_TPM`, `FIXED_PARENT`,
+/// and `SENSITIVE_DATA_ORIGIN`.
 ///
 /// # Errors
 ///
@@ -117,25 +140,27 @@ pub fn parse_creation_attributes(
 ) -> Result<TpmaObject> {
     let mut attributes =
         TpmaObject::FIXED_TPM | TpmaObject::FIXED_PARENT | TpmaObject::SENSITIVE_DATA_ORIGIN;
-
-    if !lock {
-        attributes |= TpmaObject::NO_DA;
-    }
-
-    if alg.object_type() == TpmAlgId::KeyedHash {
-        attributes |= TpmaObject::SIGN_ENCRYPT;
-    } else {
-        attributes |= TpmaObject::DECRYPT | TpmaObject::RESTRICTED;
-    }
-
-    if password.is_some() || policy_expression.is_none() {
-        attributes |= TpmaObject::USER_WITH_AUTH;
-    }
-    if policy_expression.is_some() {
-        attributes |= TpmaObject::ADMIN_WITH_POLICY;
-    }
-
+    attributes |= parse_auth_attributes(password, policy_expression, lock);
+    attributes |= alg.usage_attributes();
     Ok(attributes)
+}
+
+/// Creates object attributes for `TPM2_Import`.
+///
+/// Imported keys are not TPM-generated, so they omit `FIXED_TPM`,
+/// `FIXED_PARENT`, and `SENSITIVE_DATA_ORIGIN`. Usage bits come from the
+/// algorithm string.
+///
+/// # Errors
+///
+/// Returns an error when attribute construction fails.
+pub fn parse_import_attributes(
+    password: Option<&str>,
+    policy_expression: Option<&str>,
+    lock: bool,
+    alg: &TpmPublicTemplate,
+) -> Result<TpmaObject> {
+    Ok(parse_auth_attributes(password, policy_expression, lock) | alg.usage_attributes())
 }
 
 /// Resolves the policy expression (if any) into a policy digest and a list of
@@ -185,8 +210,8 @@ pub fn default_symmetric() -> TpmtSymDefObject {
 
 /// Constructs a `TpmtPublic` structure from a template, attributes, and policy.
 ///
-/// This function applies default symmetric parameters (AES-128-CFB) and ensures
-/// `KeyedHash` objects have a valid scheme (defaulting to HMAC if Null).
+/// Restricted storage parents get AES-128-CFB wrapping. Other objects keep a
+/// NULL symmetric definition.
 ///
 /// # Errors
 ///
@@ -196,7 +221,11 @@ pub fn resolve_public_template(
     attributes: TpmaObject,
     auth_policy: Tpm2bDigest,
 ) -> Result<TpmtPublic> {
-    let symmetric = default_symmetric();
+    let symmetric = if template.is_storage_parent() {
+        default_symmetric()
+    } else {
+        TpmtSymDefObject::default()
+    };
 
     let template_with_attrs = template
         .clone()
@@ -204,20 +233,7 @@ pub fn resolve_public_template(
         .with_auth_policy(auth_policy)
         .with_symmetric(symmetric);
 
-    let mut public_area: TpmtPublic = (&template_with_attrs).try_into()?;
-
-    if public_area.object_type == TpmAlgId::KeyedHash {
-        if let TpmuPublicParms::KeyedHash(parms) = &mut public_area.parameters {
-            if parms.scheme.scheme == TpmAlgId::Null {
-                parms.scheme.scheme = TpmAlgId::Hmac;
-                parms.scheme.details = TpmuKeyedhashScheme::Hmac(TpmsSchemeHash {
-                    hash_alg: public_area.name_alg,
-                });
-            }
-        }
-    }
-
-    Ok(public_area)
+    Ok((&template_with_attrs).try_into()?)
 }
 
 /// Fetches the mapping of persistent handles to their names from the device.

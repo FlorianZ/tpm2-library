@@ -23,10 +23,22 @@ ASN.1 format.
 Several commands, such as
 .BR create ,
 .BR create-primary ,
+.BR import ,
 and
-.BR convert ,
+.BR seal ,
 accept a
 .BR --policy " option to specify an inline authorization policy expression."
+.P
+RSA and ECC algorithm strings use the form
+.IR type-selector:hash[:scheme] .
+Omitting the scheme suffix describes a restricted storage parent
+(\fBrsa-2048:sha256\fR, \fBecc-nist-p256:sha256\fR).
+A \fB:null\fR suffix describes an unrestricted signing and decrypt key.
+A bound scheme (\fB:rsassa\fR, \fB:ecdsa\fR, \fB:oaep\fR, \fB:ecdh\fR, and so on)
+selects that scheme and the matching usage bits.
+The
+.B algorithm
+command lists the forms supported by the attached TPM.
 
 .SH OPTIONS
 .TP
@@ -58,9 +70,6 @@ Lists available algorithms supported by the chip.
 .B cache
 Lists cached TPM objects.
 .TP
-.B convert
-Convert external keys to TPM keys.
-.TP
 .B create
 Creates a secondary key or a sealed data object.
 .TP
@@ -75,6 +84,12 @@ Create persistent object from transient object.
 .TP
 .B help
 Print this message or the help of the given subcommand(s).
+.TP
+.B import
+Import an external PEM private key as a TPMKey. The optional algorithm
+argument selects the public-area form; when omitted, an unrestricted
+.B :null
+key of the imported type and size is used.
 .TP
 .B load
 Loads a PEM TPMKey file to cache. If the TPMKey file does not include

@@ -44,7 +44,7 @@ pub struct Create {
     #[argh(positional)]
     pub parent: crate::handle::Handle,
 
-    /// object algorithm: e.g., 'ecc-nist-p256:sha256' or 'keyedhash-hmac:sha256'
+    /// object algorithm: e.g., 'ecc-nist-p256:sha256', 'rsa-2048:sha256:rsassa'
     #[argh(positional)]
     pub algorithm: TpmPublicTemplate,
 

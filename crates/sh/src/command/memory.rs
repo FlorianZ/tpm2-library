@@ -577,8 +577,5 @@ impl Memory {
 }
 
 fn public_to_template(public: &TpmtPublic) -> Result<TpmPublicTemplate> {
-    let name_alg = TpmHash::try_from(public.name_alg)?;
-    Ok(TpmPublicTemplate::new()
-        .with_public(public.unique.clone(), public.parameters)?
-        .with_name_alg(name_alg))
+    TpmPublicTemplate::try_from(public).map_err(Into::into)
 }

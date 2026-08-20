@@ -4,7 +4,9 @@
 
 use crate::{
     cli::Task,
-    command::common::{build_policy_command_list, parse_password},
+    command::common::{
+        build_policy_command_list, default_symmetric, parse_import_attributes, parse_password,
+    },
     error::device_err,
     io::{read_file_input, write_key_data, write_object},
     task::{Auth, TaskState},
@@ -12,7 +14,7 @@ use crate::{
 use anyhow::{Result, anyhow};
 use argh::FromArgs;
 use openssl::symm::{Cipher, encrypt};
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 use tpm2_crypto::{
     KDF_LABEL_INTEGRITY, KDF_LABEL_STORAGE, TpmEccExternalKey, TpmExternalKey, TpmHash,
     TpmPublicTemplate, TpmRsaExternalKey, tpm_make_name,
@@ -25,7 +27,7 @@ use tpm2_protocol::{
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, Tpm2bName,
         Tpm2bPrivate, Tpm2bPublic, Tpm2bSensitive, Tpm2bSensitiveData, Tpm2bSymKey, TpmAlgId,
-        TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuPublicParms,
+        TpmEccCurve, TpmaObject, TpmtPublic, TpmtSensitive, TpmtSymDefObject, TpmuPublicParms,
         TpmuSensitiveComposite, TpmuSymKeyBits,
     },
     frame::{TpmAuthCommands, TpmCommandValue as TpmCommand},
@@ -39,6 +41,10 @@ pub struct Import {
     /// parent's TPM handle as an eight characters hex string
     #[argh(positional)]
     pub parent: crate::handle::Handle,
+
+    /// object algorithm: e.g., 'rsa-2048:sha256:rsassa' (defaults to unrestricted :null)
+    #[argh(positional)]
+    pub algorithm: Option<TpmPublicTemplate>,
 
     /// create a loadable key instead of an importable key
     #[argh(switch)]
@@ -69,6 +75,11 @@ pub struct Import {
     pub lock: bool,
 }
 
+enum ImportKeyShape {
+    Rsa(tpm2_protocol::basic::TpmUint16),
+    Ecc(tpm2_crypto::TpmEllipticCurve),
+}
+
 impl Task for Import {
     fn run(
         &self,
@@ -86,39 +97,33 @@ impl Task for Import {
                 task_state.resolve_auth(device, TpmUint32::new(parent))?;
 
             let input_bytes = read_file_input(self.input.as_deref())?;
-
             let user_auth = parse_password(self.password.as_deref())?;
-
-            let mut object_attributes = TpmaObject::DECRYPT;
-
-            if self.password.is_some() || self.policy_expression.is_none() {
-                object_attributes |= TpmaObject::USER_WITH_AUTH;
-            }
-
+            let (der_bytes, template) =
+                Self::parse_external_key(&input_bytes, name_alg, self.algorithm.as_ref())?;
             let (auth_policy, policy_commands) = build_policy_command_list(
                 self.policy_expression.as_deref(),
                 task_state,
                 device,
-                name_alg,
+                template.name_alg(),
             )?;
-
-            if !auth_policy.is_empty() {
-                object_attributes |= TpmaObject::ADMIN_WITH_POLICY;
-            }
-
-            let tpm_key_result = self.build_external_key(
+            let object_attributes = parse_import_attributes(
+                self.password.as_deref(),
+                self.policy_expression.as_deref(),
+                self.lock,
+                &template,
+            )?;
+            let tpm_key = self.build_external_key(
                 task_state,
                 device,
                 parent_handle,
-                &input_bytes,
+                &der_bytes,
+                template,
                 &[auth],
                 user_auth,
                 auth_policy,
                 object_attributes,
                 policy_commands,
-            );
-
-            let tpm_key = tpm_key_result?;
+            )?;
 
             write_key_data(writer, &tpm_key, self.output.as_deref())
         })
@@ -267,22 +272,21 @@ impl Import {
         Ok((duplicate, in_sym_seed, Tpm2bData::default()))
     }
 
-    /// Parses external key bytes (PEM) into a TPM public structure and
-    /// private data.
+    /// Parses an external PEM private key and resolves its public-area template.
     ///
-    /// This function attempts to interpret the input as RSA first, falling back to ECC
-    /// if RSA parsing fails.
+    /// Attempts RSA first, then ECC. When `algorithm` is omitted, the template
+    /// is an unrestricted `:null` key of the imported type and size.
     ///
     /// # Errors
     ///
-    /// Returns an error if the input is not valid PEM containing a supported private key,
-    /// or if the key cannot be parsed as either RSA or ECC.
+    /// Returns an error if the input is not valid PEM containing a supported
+    /// private key, the key cannot be parsed as RSA or ECC, or `algorithm` does
+    /// not match the imported key.
     fn parse_external_key(
         input_bytes: &[u8],
         name_alg: TpmAlgId,
-        auth_policy: Tpm2bDigest,
-        object_attributes: TpmaObject,
-    ) -> Result<(TpmtPublic, Vec<u8>)> {
+        algorithm: Option<&TpmPublicTemplate>,
+    ) -> Result<(Vec<u8>, TpmPublicTemplate)> {
         let der_bytes = pem::parse_many(input_bytes)
             .map_err(|_| anyhow!("invalid input: Input is not valid PEM"))?
             .into_iter()
@@ -298,22 +302,66 @@ impl Import {
             })
             .ok_or_else(|| anyhow!("invalid input: No supported private key found in PEM"))?;
 
-        let symmetric = TpmtSymDefObject::default();
-        let template = TpmPublicTemplate::new()
-            .with_name_alg(TpmHash::try_from(name_alg)?)
-            .with_object_attributes(object_attributes)
-            .with_symmetric(symmetric);
+        let shape = Self::import_key_shape(&der_bytes)?;
+        let template = Self::resolve_import_template(&shape, name_alg, algorithm)?;
+        Ok((der_bytes, template))
+    }
 
-        if let Ok((public_key, sensitive)) = TpmRsaExternalKey::from_der(&der_bytes) {
-            let mut public = public_key.to_public(&template);
-            public.auth_policy = auth_policy;
-            Ok((public, sensitive.to_vec()))
+    fn import_key_shape(der_bytes: &[u8]) -> Result<ImportKeyShape> {
+        if let Ok((key, _)) = TpmRsaExternalKey::from_der(der_bytes) {
+            Ok(ImportKeyShape::Rsa(key.key_bits()))
         } else {
-            let (public_key, sensitive) = TpmEccExternalKey::from_der(&der_bytes)?;
-            let mut public = public_key.to_public(&template);
-            public.auth_policy = auth_policy;
-            Ok((public, sensitive.to_vec()))
+            let (key, _) = TpmEccExternalKey::from_der(der_bytes)?;
+            Ok(ImportKeyShape::Ecc(key.curve()))
         }
+    }
+
+    fn resolve_import_template(
+        shape: &ImportKeyShape,
+        name_alg: TpmAlgId,
+        algorithm: Option<&TpmPublicTemplate>,
+    ) -> Result<TpmPublicTemplate> {
+        match algorithm {
+            Some(template) => Self::validate_import_template(shape, template),
+            None => Self::default_unrestricted_template(shape, name_alg),
+        }
+    }
+
+    fn validate_import_template(
+        shape: &ImportKeyShape,
+        template: &TpmPublicTemplate,
+    ) -> Result<TpmPublicTemplate> {
+        match shape {
+            ImportKeyShape::Rsa(key_bits) => {
+                let TpmuPublicParms::Rsa(parms) = template.public_parms() else {
+                    return Err(anyhow!("algorithm type does not match imported key"));
+                };
+                if parms.key_bits != *key_bits {
+                    return Err(anyhow!("algorithm size does not match imported key"));
+                }
+            }
+            ImportKeyShape::Ecc(curve) => {
+                let TpmuPublicParms::Ecc(parms) = template.public_parms() else {
+                    return Err(anyhow!("algorithm type does not match imported key"));
+                };
+                if parms.curve_id != TpmEccCurve::from(*curve) {
+                    return Err(anyhow!("algorithm curve does not match imported key"));
+                }
+            }
+        }
+        Ok(template.clone())
+    }
+
+    fn default_unrestricted_template(
+        shape: &ImportKeyShape,
+        name_alg: TpmAlgId,
+    ) -> Result<TpmPublicTemplate> {
+        let hash = TpmHash::try_from(name_alg)?;
+        let s = match shape {
+            ImportKeyShape::Rsa(key_bits) => format!("rsa-{key_bits}:{hash}:null"),
+            ImportKeyShape::Ecc(curve) => format!("ecc-{curve}:{hash}:null"),
+        };
+        TpmPublicTemplate::from_str(&s).map_err(Into::into)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -376,7 +424,8 @@ impl Import {
         task_state: &mut TaskState,
         device: &mut TpmDevice,
         parent_handle: TpmHandle,
-        input_bytes: &[u8],
+        der_bytes: &[u8],
+        template: TpmPublicTemplate,
         auths: &[Auth],
         user_auth: Tpm2bAuth,
         auth_policy: Tpm2bDigest,
@@ -384,16 +433,24 @@ impl Import {
         policy_commands: Vec<(TpmCommand, TpmAuthCommands)>,
     ) -> Result<TpmKeyFile> {
         let (parent_public, _) = device.read_public(parent_handle).map_err(device_err)?;
-
-        let (public, sensitive_blob) = Self::parse_external_key(
-            input_bytes,
-            parent_public.name_alg,
-            auth_policy,
-            object_attributes,
-        )?;
+        let symmetric = if template.is_storage_parent() {
+            default_symmetric()
+        } else {
+            TpmtSymDefObject::default()
+        };
+        let template = template
+            .with_object_attributes(object_attributes)
+            .with_auth_policy(auth_policy)
+            .with_symmetric(symmetric);
+        let (public, sensitive_blob) =
+            if let Ok((key, sensitive)) = TpmRsaExternalKey::from_der(der_bytes) {
+                (key.to_public(&template), sensitive.to_vec())
+            } else {
+                let (key, sensitive) = TpmEccExternalKey::from_der(der_bytes)?;
+                (key.to_public(&template), sensitive.to_vec())
+            };
 
         let object_name = tpm_make_name(&public)?;
-
         let (duplicate, in_sym_seed, encryption_key) = Self::build_import_blob(
             &parent_public,
             &public,

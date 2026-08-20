@@ -95,31 +95,70 @@ impl Algorithm {
         TpmHash::try_from(hash).map_or_else(|_| format!("{hash:?}"), |hash| hash.to_string())
     }
 
-    fn format_rsa_alg(bits: u16, hash: TpmAlgId) -> String {
+    fn format_rsa_prefix(bits: u16, hash: TpmAlgId) -> String {
         format!("rsa-{}:{}", bits, Self::format_hash(hash))
     }
 
-    fn format_ecc_alg(curve: TpmEllipticCurve, hash: TpmAlgId) -> String {
+    fn format_ecc_prefix(curve: TpmEllipticCurve, hash: TpmAlgId) -> String {
         format!("ecc-{}:{}", curve, Self::format_hash(hash))
     }
 
-    fn fetch_rsa_algs(device: &mut TpmDevice, name_algs: &[TpmAlgId]) -> Result<Vec<String>> {
+    fn push_asym_forms(
+        results: &mut Vec<String>,
+        prefix: &str,
+        schemes: &[(&str, TpmAlgId)],
+        all_algs: &HashSet<TpmAlgId>,
+    ) {
+        results.push(prefix.to_string());
+        results.push(format!("{prefix}:null"));
+        for (name, alg) in schemes {
+            if all_algs.contains(alg) {
+                results.push(format!("{prefix}:{name}"));
+            }
+        }
+    }
+
+    fn fetch_rsa_algs(
+        device: &mut TpmDevice,
+        name_algs: &[TpmAlgId],
+        all_algs: &HashSet<TpmAlgId>,
+    ) -> Result<Vec<String>> {
+        const RSA_SCHEMES: [(&str, TpmAlgId); 4] = [
+            ("rsassa", TpmAlgId::Rsassa),
+            ("rsapss", TpmAlgId::Rsapss),
+            ("rsaes", TpmAlgId::Rsaes),
+            ("oaep", TpmAlgId::Oaep),
+        ];
         let mut results = Vec::new();
         for bits in Self::fetch_supported_rsa_sizes(device)? {
             for &hash in name_algs {
-                results.push(Self::format_rsa_alg(bits, hash));
+                let prefix = Self::format_rsa_prefix(bits, hash);
+                Self::push_asym_forms(&mut results, &prefix, &RSA_SCHEMES, all_algs);
             }
         }
         Ok(results)
     }
 
-    fn fetch_ecc_algs(device: &mut TpmDevice, name_algs: &[TpmAlgId]) -> Result<Vec<String>> {
+    fn fetch_ecc_algs(
+        device: &mut TpmDevice,
+        name_algs: &[TpmAlgId],
+        all_algs: &HashSet<TpmAlgId>,
+    ) -> Result<Vec<String>> {
+        const ECC_SCHEMES: [(&str, TpmAlgId); 6] = [
+            ("ecdsa", TpmAlgId::Ecdsa),
+            ("ecdh", TpmAlgId::Ecdh),
+            ("ecdaa", TpmAlgId::Ecdaa),
+            ("ecschnorr", TpmAlgId::Ecschnorr),
+            ("sm2", TpmAlgId::Sm2),
+            ("ecmqv", TpmAlgId::Ecmqv),
+        ];
         let mut results = Vec::new();
         let supported_curves = device.fetch_ecc_curves().map_err(device_err)?;
         for curve_id in supported_curves {
             if let Ok(curve) = TpmEllipticCurve::try_from(curve_id) {
                 for &hash in name_algs {
-                    results.push(Self::format_ecc_alg(curve, hash));
+                    let prefix = Self::format_ecc_prefix(curve, hash);
+                    Self::push_asym_forms(&mut results, &prefix, &ECC_SCHEMES, all_algs);
                 }
             }
         }
@@ -156,11 +195,11 @@ impl Algorithm {
             .collect();
 
         if all_algs.contains(&TpmAlgId::Rsa) {
-            results.extend(Self::fetch_rsa_algs(device, &name_algs)?);
+            results.extend(Self::fetch_rsa_algs(device, &name_algs, &all_algs)?);
         }
 
         if all_algs.contains(&TpmAlgId::Ecc) {
-            results.extend(Self::fetch_ecc_algs(device, &name_algs)?);
+            results.extend(Self::fetch_ecc_algs(device, &name_algs, &all_algs)?);
         }
 
         if all_algs.contains(&TpmAlgId::KeyedHash) {
