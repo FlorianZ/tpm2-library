@@ -3,7 +3,6 @@
 // Copyright (c) 2024-2025 Jarkko Sakkinen
 
 pub mod r#enum;
-pub mod integer;
 pub mod r#struct;
 
 /// Generates the unchecked reinterpret casts shared by every
@@ -26,6 +25,9 @@ macro_rules! tpm_byte_view {
     };
     (array $name:ident<const $param:ident: usize>) => {
         $crate::tpm_byte_view!(@emit_array { <const $param: usize> } { $name<$param> });
+    };
+    (array $name:ident<$t:ident, const $param:ident: usize>) => {
+        $crate::tpm_byte_view!(@emit_array { <$t, const $param: usize> } { $name<$t, $param> });
     };
     (@emit_array { $($generics:tt)* } { $($ty:tt)* }) => {
         impl $($generics)* $($ty)* {
