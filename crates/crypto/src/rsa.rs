@@ -19,8 +19,7 @@ use tpm2_protocol::{
     constant::{MAX_DIGEST_SIZE, MAX_RSA_KEY_BYTES},
     data::{
         Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bPrivateKeyRsa, Tpm2bPublicKeyRsa, TpmAlgId,
-        TpmsRsaParms, TpmsSchemeHash, TpmtPublic, TpmtRsaScheme, TpmuAsymScheme, TpmuPublicId,
-        TpmuPublicParms,
+        TpmsRsaParms, TpmtPublic, TpmuPublicId, TpmuPublicParms,
     },
 };
 
@@ -181,12 +180,7 @@ impl TpmExternalKey for TpmRsaExternalKey {
             auth_policy: template.auth_policy(),
             parameters: TpmuPublicParms::Rsa(TpmsRsaParms {
                 symmetric: template.symmetric(),
-                scheme: TpmtRsaScheme {
-                    scheme: TpmAlgId::Oaep,
-                    details: TpmuAsymScheme::Hash(TpmsSchemeHash {
-                        hash_alg: template.name_alg(),
-                    }),
-                },
+                scheme: template.rsa_scheme(),
                 key_bits: self.key_bits,
                 exponent: self.exponent,
             }),

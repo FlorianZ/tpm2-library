@@ -22,8 +22,7 @@ use tpm2_protocol::{
     constant::{MAX_DIGEST_SIZE, MAX_ECC_KEY_BYTES, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bDigest, Tpm2bEccParameter, Tpm2bEncryptedSecret, TpmAlgId, TpmEccCurve, TpmsEccParms,
-        TpmsEccPoint, TpmsSchemeHash, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmuAsymScheme,
-        TpmuPublicId, TpmuPublicParms,
+        TpmsEccPoint, TpmtKdfScheme, TpmtPublic, TpmuPublicId, TpmuPublicParms,
     },
 };
 
@@ -255,12 +254,7 @@ impl TpmExternalKey for TpmEccExternalKey {
             auth_policy: template.auth_policy(),
             parameters: TpmuPublicParms::Ecc(TpmsEccParms {
                 symmetric: template.symmetric(),
-                scheme: TpmtEccScheme {
-                    scheme: TpmAlgId::Ecdh,
-                    details: TpmuAsymScheme::Hash(TpmsSchemeHash {
-                        hash_alg: template.name_alg(),
-                    }),
-                },
+                scheme: template.ecc_scheme(),
                 curve_id: self.curve.into(),
                 kdf: TpmtKdfScheme::default(),
             }),
