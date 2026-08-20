@@ -16,12 +16,12 @@ edition = "2024"
 homepage = "https://github.com/jarkkojs/tpm2-library"
 repository = "https://github.com/jarkkojs/tpm2-library"
 rust-version = "1.95"
-version = "1.1.0"
+version = "1.1.1"
 
 [workspace.dependencies]
-tpm2-crypto = { version = "1.1.0", path = "crates/crypto" }
-tpm2-device = { version = "1.1.0", path = "crates/device" }
-tpm2-policy-language = { version = "1.1.0", path = "crates/policy-language" }
-tpm2-protocol = { version = "1.1.0", path = "crates/protocol" }
-tpm2-tpmkey = { version = "1.1.0", path = "crates/tpmkey" }
-tpm2-vtpm = { version = "1.1.0", path = "crates/vtpm" }
+tpm2-crypto = { version = "1.1.1", path = "crates/crypto" }
+tpm2-device = { version = "1.1.1", path = "crates/device" }
+tpm2-policy-language = { version = "1.1.1", path = "crates/policy-language" }
+tpm2-protocol = { version = "1.1.1", path = "crates/protocol" }
+tpm2-tpmkey = { version = "1.1.1", path = "crates/tpmkey" }
+tpm2-vtpm = { version = "1.1.1", path = "crates/vtpm" }
