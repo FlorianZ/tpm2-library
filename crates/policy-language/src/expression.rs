@@ -1,0 +1,435 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2025 Opinsys Oy
+// Copyright (c) 2024-2025 Jarkko Sakkinen
+
+use crate::{TpmPolicyContext, TpmPolicyError, TpmPolicySession, build_and_branch};
+use std::borrow::Cow;
+use std::fmt;
+use tpm2_crypto::TpmHash;
+use tpm2_protocol::{
+    basic::{TpmHandle, TpmInt32},
+    data::{
+        Tpm2bDigest, Tpm2bName, Tpm2bNonce, TpmAlgId, TpmHt, TpmRh, TpmlDigest, TpmlPcrSelection,
+    },
+    frame::{
+        TpmAuthCommands, TpmCommandValue as TpmCommand, TpmFrame, TpmPolicyOrCommand,
+        TpmPolicyPcrCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
+    },
+};
+
+/// Compiled TPM policy command stream and resulting policy digest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TpmCompiledPolicy {
+    commands: Vec<(TpmCommand, TpmAuthCommands)>,
+    digest: Tpm2bDigest,
+}
+
+impl TpmCompiledPolicy {
+    /// Returns compiled TPM policy commands with their auth sessions.
+    #[must_use]
+    pub fn commands(&self) -> &[(TpmCommand, TpmAuthCommands)] {
+        &self.commands
+    }
+
+    /// Returns the resulting policy digest.
+    #[must_use]
+    pub const fn digest(&self) -> Tpm2bDigest {
+        self.digest
+    }
+
+    /// Consumes the compiled policy and returns its command stream and digest.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<(TpmCommand, TpmAuthCommands)>, Tpm2bDigest) {
+        (self.commands, self.digest)
+    }
+}
+
+/// The Abstract Syntax Tree (AST) for the unified policy language.
+#[derive(Debug, Eq, Clone, PartialEq)]
+pub enum TpmPolicyExpression {
+    Pcr {
+        selections: TpmlPcrSelection,
+        digest: Option<Tpm2bDigest>,
+    },
+    Secret {
+        auth_handle: Box<TpmPolicyExpression>,
+        copy_ref: Option<Tpm2bDigest>,
+    },
+    And(Vec<TpmPolicyExpression>),
+    Or(Vec<TpmPolicyExpression>),
+    Handle(TpmHandle),
+}
+
+impl fmt::Display for TpmPolicyExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TpmPolicyExpression::Pcr { selections, digest } => {
+                let selection_strings: Vec<String> = selections
+                    .iter()
+                    .map(|tpms| {
+                        let alg_str = TpmHash::try_from(tpms.hash)
+                            .map_or_else(|_| format!("{:?}", tpms.hash), |alg| alg.to_string());
+                        let mut indices = Vec::new();
+                        for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
+                            for bit_index in 0..8 {
+                                if (byte & (1 << bit_index)) != 0 {
+                                    #[allow(clippy::cast_possible_truncation)]
+                                    let pcr_index = (byte_index * 8 + bit_index) as u32;
+                                    indices.push(pcr_index.to_string());
+                                }
+                            }
+                        }
+                        format!("{}:{}", alg_str, indices.join(","))
+                    })
+                    .collect();
+
+                write!(f, "pcr({}", selection_strings.join("+"))?;
+
+                if let Some(d) = digest {
+                    write!(f, ":{}", hex::encode(d.as_ref()))?;
+                }
+                write!(f, ")")
+            }
+            TpmPolicyExpression::Secret {
+                auth_handle,
+                copy_ref,
+            } => {
+                write!(f, "secret({auth_handle}")?;
+                if let Some(cr) = copy_ref {
+                    write!(f, ", copy_ref:{}", hex::encode(cr.as_ref()))?;
+                }
+                write!(f, ")")
+            }
+            TpmPolicyExpression::And(expressions) => {
+                let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
+                write!(f, "({})", s.join(" and "))
+            }
+            TpmPolicyExpression::Or(expressions) => {
+                let s: Vec<String> = expressions.iter().map(ToString::to_string).collect();
+                write!(f, "({})", s.join(" or "))
+            }
+            TpmPolicyExpression::Handle(handle) => write!(f, "{handle:08x}"),
+        }
+    }
+}
+
+impl TpmPolicyExpression {
+    /// Parses a policy expression string into a [`TpmPolicyExpression`] AST.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TpmPolicyError`] variant if parsing fails due to syntactic
+    /// errors, malformed literals (handles, auth strings, PCR selections), or
+    /// other structural problems in the input string.
+    pub fn parse(
+        input: &str,
+        context: &TpmPolicyContext,
+    ) -> Result<TpmPolicyExpression, TpmPolicyError> {
+        let tokens = crate::tokenize(input);
+        let mut iter = tokens.iter().peekable();
+        let expr = crate::parse_expression(&mut iter, context)?;
+
+        if iter.peek().is_none() {
+            Ok(expr)
+        } else {
+            Err(TpmPolicyError::TrailingData)
+        }
+    }
+
+    /// Reconstructs a policy AST from TPM policy commands.
+    ///
+    /// This function performs the inverse of [`compile`](Self::compile). It
+    /// rebuilds the logical `Expression` tree that represents the policy.
+    ///
+    /// This is useful for analyzing or replaying policy command streams
+    /// generated by other tools.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`TpmPolicyError`] variant if an unexpected command is found
+    /// or if the sequence of commands is logically inconsistent.
+    pub fn from_commands<'a>(
+        command_list: impl IntoIterator<Item = &'a TpmCommand>,
+    ) -> Result<TpmPolicyExpression, TpmPolicyError> {
+        let mut stack: Vec<Vec<TpmPolicyExpression>> = vec![vec![]];
+
+        for command_body in command_list {
+            let current_branch = stack
+                .last_mut()
+                .ok_or(TpmPolicyError::CommandStreamBranchUnderflow)?;
+
+            match command_body {
+                TpmCommand::PolicyRestart(_) => {
+                    stack.push(vec![]);
+                }
+                TpmCommand::PolicyPcr(cmd) => {
+                    let selections = cmd.pcrs;
+                    let digest = Some(cmd.pcr_digest);
+                    let expr = TpmPolicyExpression::Pcr { selections, digest };
+                    current_branch.push(expr);
+                }
+                TpmCommand::PolicySecret(cmd) => {
+                    let auth_handle = Box::new(TpmPolicyExpression::Handle(cmd.handles[0]));
+
+                    let copy_ref = if cmd.policy_ref.as_ref().is_empty() {
+                        None
+                    } else {
+                        Some(cmd.policy_ref)
+                    };
+
+                    let expr = TpmPolicyExpression::Secret {
+                        auth_handle,
+                        copy_ref,
+                    };
+                    current_branch.push(expr);
+                }
+                TpmCommand::PolicyOr(cmd) => {
+                    let num_branches = cmd.p_hash_list.iter().len();
+                    if stack.len() < num_branches {
+                        return Err(TpmPolicyError::CommandStreamBranchUnderflow);
+                    }
+
+                    let mut branches = Vec::with_capacity(num_branches);
+                    for _ in 0..num_branches {
+                        if let Some(branch_vec) = stack.pop() {
+                            branches.push(build_and_branch(branch_vec));
+                        } else {
+                            return Err(TpmPolicyError::CommandStreamBranchUnderflow);
+                        }
+                    }
+
+                    branches.reverse();
+                    let expr = TpmPolicyExpression::Or(branches);
+
+                    if let Some(branch_to_push_to) = stack.last_mut() {
+                        branch_to_push_to.push(expr);
+                    } else {
+                        return Err(TpmPolicyError::CommandStreamBranchUnderflow);
+                    }
+                }
+                _ => return Err(TpmPolicyError::InvalidCc(command_body.cc())),
+            }
+        }
+
+        if stack.len() != 1 {
+            return Err(TpmPolicyError::CommandStreamUnbalancedBranches);
+        }
+
+        if let Some(final_branch) = stack.pop() {
+            Ok(build_and_branch(final_branch))
+        } else {
+            Err(TpmPolicyError::CommandStreamBranchUnderflow)
+        }
+    }
+
+    /// Converts a parsed policy AST into a list of serialized TPM policy
+    /// commands.
+    ///
+    /// This function performs an iterative, stack-based traversal of the
+    /// `Expression` tree and generates a `Vec<Vec<u8>>`. Each inner `Vec<u8>`
+    /// is a complete, serialized TPM command, including the header, tag, body,
+    /// and auth area.
+    ///
+    /// Commands that require authorization, like `PolicySecret`, have their
+    /// authorization (e.g., password) serialized directly into the auth area
+    /// of the command blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Error`] variant if the expression tree is invalid for
+    /// command generation (e.g., containing a standalone `Auth` node), if
+    /// required context from `TpmPolicyContext` is missing (e.g., a handle name),
+    /// or if any part of the TPM command construction fails.
+    pub fn compile(
+        &self,
+        session_hash_alg: TpmAlgId,
+        context: &TpmPolicyContext,
+    ) -> Result<TpmCompiledPolicy, TpmPolicyError> {
+        let mut command_list: Vec<(TpmCommand, TpmAuthCommands)> = Vec::new();
+        let mut software_session = TpmPolicySession::new(session_hash_alg)?;
+
+        let final_digest = self.compile_walk(&mut command_list, &mut software_session, context)?;
+        Ok(TpmCompiledPolicy {
+            commands: command_list,
+            digest: final_digest,
+        })
+    }
+
+    fn compile_walk<'a>(
+        &'a self,
+        command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
+        software_session: &mut TpmPolicySession,
+        context: &'a TpmPolicyContext,
+    ) -> Result<Tpm2bDigest, TpmPolicyError> {
+        match self {
+            TpmPolicyExpression::And(branches) => {
+                for branch in branches {
+                    branch.compile_walk(command_list, software_session, context)?;
+                }
+                Ok(software_session.get_digest())
+            }
+            expr @ TpmPolicyExpression::Or { .. } => {
+                expr.compile_walk_or(command_list, software_session, context)
+            }
+            expr @ TpmPolicyExpression::Pcr { .. } => {
+                expr.compile_walk_pcr(command_list, software_session, context)
+            }
+            expr @ TpmPolicyExpression::Secret { .. } => {
+                expr.compile_walk_secret(command_list, software_session, context)
+            }
+            TpmPolicyExpression::Handle(_) => Err(TpmPolicyError::InvalidExpression),
+        }
+    }
+
+    fn compile_walk_pcr(
+        &self,
+        command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
+        software_session: &mut TpmPolicySession,
+        context: &TpmPolicyContext,
+    ) -> Result<Tpm2bDigest, TpmPolicyError> {
+        let TpmPolicyExpression::Pcr { selections, digest } = self else {
+            return Err(TpmPolicyError::InvalidExpression);
+        };
+
+        let pcr_digest = if let Some(digest) = digest {
+            *digest
+        } else {
+            let mut pcr_data = Vec::new();
+            for selection in selections.iter() {
+                let bank_pcrs = context
+                    .pcrs
+                    .get(&selection.hash)
+                    .ok_or(TpmPolicyError::PcrDigestMissing)?;
+
+                for (byte_index, &byte) in selection.pcr_select.iter().enumerate() {
+                    for bit_index in 0..8 {
+                        if (byte & (1 << bit_index)) != 0 {
+                            #[allow(clippy::cast_possible_truncation)]
+                            let pcr_index = (byte_index * 8 + bit_index) as u32;
+                            let pcr_value = bank_pcrs
+                                .get(&pcr_index)
+                                .ok_or(TpmPolicyError::PcrDigestMissing)?;
+                            pcr_data.extend_from_slice(pcr_value.as_ref());
+                        }
+                    }
+                }
+            }
+
+            let calculated_digest = software_session
+                .hash_alg
+                .digest(&[&pcr_data])
+                .map_err(TpmPolicyError::Crypto)?;
+            Tpm2bDigest::try_from(calculated_digest.as_slice()).map_err(TpmPolicyError::Marshal)?
+        };
+
+        if pcr_digest.as_ref().len() != software_session.digest_size {
+            return Err(TpmPolicyError::InvalidPcrDigest);
+        }
+
+        let cmd = TpmPolicyPcrCommand {
+            pcr_digest,
+            pcrs: *selections,
+            handles: [0.into()],
+        };
+
+        command_list.push((TpmCommand::PolicyPcr(cmd), TpmAuthCommands::new()));
+        software_session.policy_pcr(&cmd)?;
+
+        Ok(software_session.get_digest())
+    }
+
+    fn compile_walk_secret<'a>(
+        &'a self,
+        command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
+        software_session: &mut TpmPolicySession,
+        context: &'a TpmPolicyContext,
+    ) -> Result<Tpm2bDigest, TpmPolicyError> {
+        let TpmPolicyExpression::Secret { auth_handle, copy_ref } = self else {
+            return Err(TpmPolicyError::InvalidExpression);
+        };
+
+        let TpmPolicyExpression::Handle(handle) = &**auth_handle else {
+            return Err(TpmPolicyError::InvalidExpression);
+        };
+
+        let h_val: u32 = (*handle).into();
+
+        let ht_byte = (h_val >> 24) as u8;
+        let ht =
+            TpmHt::try_from(ht_byte).map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))?;
+
+        let name = match ht {
+            TpmHt::Persistent | TpmHt::Transient => Cow::Borrowed(
+                context
+                    .names
+                    .get(handle)
+                    .ok_or(TpmPolicyError::InvalidExpression)?,
+            ),
+            TpmHt::Permanent => {
+                let rh = TpmRh::try_from(h_val)
+                    .map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))?;
+                match rh {
+                    TpmRh::Owner | TpmRh::Endorsement | TpmRh::Platform | TpmRh::Lockout => {
+                        let handle_bytes = (rh as u32).to_be_bytes();
+                        let name = Tpm2bName::try_from(handle_bytes.as_slice())
+                            .map_err(|_| TpmPolicyError::InvalidHandleType(ht_byte))?;
+                        Cow::Owned(name)
+                    }
+                    _ => return Err(TpmPolicyError::InvalidHandleType(ht_byte)),
+                }
+            }
+            _ => return Err(TpmPolicyError::InvalidHandleType(ht_byte)),
+        };
+
+        let policy_ref = copy_ref.unwrap_or_default();
+        let cmd = TpmPolicySecretCommand {
+            nonce_tpm: Tpm2bNonce::default(),
+            cp_hash_a: Tpm2bDigest::default(),
+            policy_ref,
+            expiration: TpmInt32::new(0),
+            handles: [h_val.into(), 0.into()],
+        };
+
+        command_list.push((TpmCommand::PolicySecret(cmd), TpmAuthCommands::new()));
+        software_session.policy_secret(name.as_ref(), &policy_ref)?;
+        Ok(software_session.get_digest())
+    }
+
+    fn compile_walk_or<'a>(
+        &'a self,
+        command_list: &mut Vec<(TpmCommand, TpmAuthCommands)>,
+        software_session: &mut TpmPolicySession,
+        context: &'a TpmPolicyContext,
+    ) -> Result<Tpm2bDigest, TpmPolicyError> {
+        let TpmPolicyExpression::Or(branches) = self else {
+            return Err(TpmPolicyError::InvalidExpression);
+        };
+
+        let mut digest_list = TpmlDigest::new();
+        for branch in branches {
+            let restart_cmd = TpmPolicyRestartCommand {
+                handles: [0.into()],
+            };
+            command_list.push((
+                TpmCommand::PolicyRestart(restart_cmd),
+                TpmAuthCommands::new(),
+            ));
+            software_session.policy_restart()?;
+
+            let digest = branch.compile_walk(command_list, software_session, context)?;
+
+            digest_list
+                .try_push(digest)
+                .map_err(|_| TpmPolicyError::TooManyBranches)?;
+        }
+
+        let or_cmd = TpmPolicyOrCommand {
+            p_hash_list: digest_list,
+            handles: [0.into()],
+        };
+        command_list.push((TpmCommand::PolicyOr(or_cmd), TpmAuthCommands::new()));
+        software_session.policy_or(&or_cmd)?;
+
+        Ok(software_session.get_digest())
+    }
+}
