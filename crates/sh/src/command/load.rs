@@ -9,20 +9,17 @@ use crate::{
     io::read_file_input,
     task::{Auth, TaskState},
 };
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use argh::FromArgs;
 use std::{ffi::CString, path::PathBuf};
 use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
     TpmUnmarshal,
     basic::{TpmHandle, TpmUint32},
-    data::{
-        Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmHt,
-        TpmtSymDefObject,
-    },
+    data::{Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPrivate, Tpm2bPublic, TpmHt, TpmtSymDefObject},
     frame::{TpmLoadCommand, TpmLoadResponse},
 };
-use tpm2_tpmkey::TpmKeyFile;
+use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
 use tpm2_vtpm::{VtpmPolicyCommand, vtpm_policy_command_from_parts};
 
 /// Loads a PEM or DER TPMKey file to cache.
@@ -50,24 +47,23 @@ impl Task for Load {
         _is_tty: bool,
     ) -> Result<()> {
         let input_bytes = read_file_input(self.input.as_deref())?;
+        let tpm_key =
+            TpmKeyFile::from_pem(&input_bytes).or_else(|_| TpmKeyFile::from_der(&input_bytes))?;
+        let parent = self
+            .parent
+            .require_value()
+            .map_err(|_| anyhow!("handle pattern not allowed: {}", self.parent))?;
 
-        let tpm_key = TpmKeyFile::from_pem(&input_bytes)?;
+        if let Some(name) = &self.kernel {
+            return Self::load_kernel_key(&tpm_key, name, writer, TpmUint32::new(parent));
+        }
+
         let public = Self::parse_public(tpm_key.public())?;
         let private = Self::parse_private(tpm_key.private())?;
 
         with_device(task_state.device.clone().as_ref(), |device| -> Result<()> {
-            let (parent_public, parent_handle_ref) = {
-                let parent = self
-                    .parent
-                    .require_value()
-                    .map_err(|_| anyhow!("handle pattern not allowed: {}", self.parent))?;
-                Self::parent_from_handle(task_state, device, TpmUint32::new(parent))?
-            };
-
-            if let Some(name) = &self.kernel {
-                return Self::load_kernel_key(&tpm_key, name, writer, parent_handle_ref);
-            }
-
+            let (parent_public, parent_handle_ref) =
+                Self::parent_from_handle(task_state, device, TpmUint32::new(parent))?;
             let (parent_handle, _, auth) = task_state.resolve_auth(device, parent_handle_ref)?;
 
             let object_private = if tpm_key.secret().is_empty() {
@@ -119,6 +115,10 @@ impl Task for Load {
             Ok(())
         })
     }
+
+    fn is_local(&self) -> bool {
+        self.kernel.is_some()
+    }
 }
 
 impl Load {
@@ -128,8 +128,32 @@ impl Load {
         writer: &mut dyn std::io::Write,
         parent_handle: TpmHandle,
     ) -> Result<()> {
-        if tpm_key.public_alg() != TpmAlgId::KeyedHash {
-            return Err(anyhow!("unsupported key algorithm"));
+        if tpm_key.kind() != TpmKeyType::SealedData {
+            return Err(anyhow!("kernel trusted keys require sealed data"));
+        }
+
+        if handle_type(parent_handle.value()) != Some(TpmHt::Persistent) {
+            return Err(anyhow!("kernel trusted keys require a persistent parent"));
+        }
+
+        if !tpm_key.empty_auth() {
+            return Err(anyhow!(
+                "kernel trusted keys require an empty authorization value"
+            ));
+        }
+
+        let public = Self::parse_public(tpm_key.public())?;
+        if !tpm_key.policy().is_empty()
+            || tpm_key.auth_policy().is_some()
+            || !public.inner.auth_policy.is_empty()
+        {
+            return Err(anyhow!(
+                "kernel trusted keys do not support policy authorization"
+            ));
+        }
+
+        if !tpm_key.secret().is_empty() {
+            return Err(anyhow!("kernel trusted keys do not support import secrets"));
         }
 
         let trimmed_key = TpmKeyFile::new()
@@ -161,7 +185,13 @@ impl Load {
         };
 
         if ret < 0 {
-            return Err(std::io::Error::last_os_error().into());
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ENODEV) {
+                return Err(error).context(
+                    "kernel trusted-key backend unavailable; check CONFIG_TRUSTED_KEYS and CONFIG_TRUSTED_KEYS_TPM",
+                );
+            }
+            return Err(error).context("failed to add trusted key to the user keyring");
         }
 
         writeln!(writer, "{ret}")?;
