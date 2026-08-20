@@ -1,0 +1,25 @@
+[package]
+name = "tpm2-device"
+description = "TPM 2.0 device interface"
+version = "1.0.0"
+license = "MIT OR Apache-2.0"
+homepage = "https://gitlab.com/tpm-protocol/tpm2-device"
+repository = "https://gitlab.com/tpm-protocol/tpm2-device"
+authors = ["Jarkko Sakkinen <jarkko@kernel.org>"]
+edition = "2024"
+rust-version = "1.85"
+readme = "README.md"
+
+[dependencies]
+hex = "0.4"
+log = "0.4"
+nix = { version = "0.29", features = ["fs", "poll"] }
+rand = "0.8"
+strum = { version = "0.28", features = ["derive"] }
+tpm2-crypto = "1"
+tpm2-protocol = "1"
+tracing = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+rstest = "0.21"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
