@@ -1192,15 +1192,37 @@ impl TpmPolicySession {
         commands: impl IntoIterator<Item = (TpmCommand, TpmAuthCommands)>,
     ) -> Result<(), TpmDeviceError> {
         for (mut command_body, auth_sessions) in commands {
+            // Policy commands take the policy session handle either as the
+            // first handle (`sessionHandle`), the second handle for commands
+            // with an entity (`authHandle`, `sessionHandle`), or the third
+            // handle for commands with two preceding handles.
+            let session_handle = self.handle;
             match &mut command_body {
-                TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = self.handle,
-                TpmCommand::PolicyOr(cmd) => cmd.handles[0] = self.handle,
-                TpmCommand::PolicyRestart(cmd) => {
-                    cmd.handles[0] = self.handle;
-                }
-                TpmCommand::PolicySecret(cmd) => {
-                    cmd.handles[1] = self.handle;
-                }
+                TpmCommand::PolicyPcr(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyOr(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyRestart(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyAuthorize(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyAuthValue(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyCommandCode(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyCounterTimer(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyCpHash(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyLocality(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyNameHash(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyTicket(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyPhysicalPresence(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyDuplicationSelect(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyGetDigest(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyPassword(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyNvWritten(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyTemplate(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyCapability(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyParameters(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicyTransportSpdm(cmd) => cmd.handles[0] = session_handle,
+                TpmCommand::PolicySecret(cmd) => cmd.handles[1] = session_handle,
+                TpmCommand::PolicySigned(cmd) => cmd.handles[1] = session_handle,
+                TpmCommand::PolicyNv(cmd) => cmd.handles[2] = session_handle,
+                TpmCommand::PolicyAuthorizeNv(cmd) => cmd.handles[2] = session_handle,
+                TpmCommand::PolicyAcSendSelect(cmd) => cmd.handles[2] = session_handle,
                 _ => {
                     return Err(TpmDeviceError::InvalidCc(command_body.cc()));
                 }
