@@ -29,6 +29,7 @@ pub type TpmiStCommandTag = TpmSt;
 
 pub type TpmiDhObject = TpmHandle;
 pub type TpmiDhParent = TpmHandle;
+pub type TpmiDhPcr = TpmHandle;
 pub type TpmiShAuthSession = TpmHandle;
 pub type TpmiRhHierarchy = TpmHandle;
 pub type TpmiRhNvExpIndex = TpmHandle;

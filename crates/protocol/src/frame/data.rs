@@ -11,11 +11,12 @@ use crate::{
         Tpm2bMaxNvBuffer, Tpm2bName, Tpm2bNonce, Tpm2bNvPublic, Tpm2bPrivate, Tpm2bPublic,
         Tpm2bPublicKeyRsa, Tpm2bSensitive, Tpm2bSensitiveCreate, Tpm2bSensitiveData, Tpm2bTemplate,
         Tpm2bTimeout, TpmAlgId, TpmAt, TpmCap, TpmCc, TpmClockAdjust, TpmEccCurve, TpmEo, TpmRh,
-        TpmSe, TpmSu, TpmaLocality, TpmiAlgCipherMode, TpmiAlgHash, TpmiEccKeyExchange, TpmiYesNo,
-        TpmlAcCapabilities, TpmlAlg, TpmlCc, TpmlDigest, TpmlDigestValues, TpmlPcrSelection,
-        TpmsAcOutput, TpmsAlgorithmDetailEcc, TpmsCapabilityData, TpmsContext, TpmsTimeInfo,
-        TpmtHa, TpmtKdfScheme, TpmtPublicParms, TpmtRsaDecrypt, TpmtSigScheme, TpmtSignature,
-        TpmtSymDef, TpmtSymDefObject, TpmtTkAuth, TpmtTkCreation, TpmtTkHashcheck, TpmtTkVerified,
+        TpmSe, TpmSu, TpmaLocality, TpmiAlgCipherMode, TpmiAlgHash, TpmiDhPcr, TpmiEccKeyExchange,
+        TpmiYesNo, TpmlAcCapabilities, TpmlAlg, TpmlCc, TpmlDigest, TpmlDigestValues,
+        TpmlPcrSelection, TpmsAcOutput, TpmsAlgorithmDetailEcc, TpmsCapabilityData, TpmsContext,
+        TpmsTimeInfo, TpmtHa, TpmtKdfScheme, TpmtPublicParms, TpmtRsaDecrypt, TpmtSigScheme,
+        TpmtSignature, TpmtSymDef, TpmtSymDefObject, TpmtTkAuth, TpmtTkCreation, TpmtTkHashcheck,
+        TpmtTkVerified,
     },
     frame::TpmHeader,
 };
@@ -154,7 +155,7 @@ tpm_struct! {
     handles: 2,
     parameters: {
         pub qualifying_data: Tpm2bData,
-        pub in_scheme: TpmtSignature,
+        pub in_scheme: TpmtSigScheme,
     }
 }
 
@@ -179,7 +180,7 @@ tpm_struct! {
     parameters: {
         pub qualifying_data: Tpm2bData,
         pub creation_hash: Tpm2bDigest,
-        pub in_scheme: TpmtSignature,
+        pub in_scheme: TpmtSigScheme,
         pub creation_ticket: TpmtTkCreation,
     }
 }
@@ -840,7 +841,7 @@ tpm_struct! {
     handles: 2,
     parameters: {
         pub qualifying_data: Tpm2bData,
-        pub in_scheme: TpmtSignature,
+        pub in_scheme: TpmtSigScheme,
     }
 }
 
@@ -886,7 +887,7 @@ tpm_struct! {
     handles: 3,
     parameters: {
         pub qualifying_data: Tpm2bData,
-        pub in_scheme: TpmtSignature,
+        pub in_scheme: TpmtSigScheme,
     }
 }
 
@@ -931,7 +932,7 @@ tpm_struct! {
     handles: 2,
     parameters: {
         pub qualifying_data: Tpm2bData,
-        pub in_scheme: TpmtSignature,
+        pub in_scheme: TpmtSigScheme,
     }
 }
 
@@ -1205,7 +1206,7 @@ tpm_struct! {
     handles: 3,
     parameters: {
         pub qualifying_data: Tpm2bData,
-        pub in_scheme: TpmtSignature,
+        pub in_scheme: TpmtSigScheme,
         pub size: TpmUint16,
         pub offset: TpmUint16,
     }
@@ -1659,7 +1660,7 @@ tpm_struct! {
     parameters: {
         pub auth_policy: Tpm2bDigest,
         pub hash_alg: TpmAlgId,
-        pub pcr_num: TpmRh,
+        pub pcr_num: TpmiDhPcr,
     }
 }
 
@@ -1697,7 +1698,7 @@ tpm_struct! {
     kind: Command,
     name: TpmPolicyAcSendSelectCommand,
     cc: TpmCc::PolicyAcSendSelect,
-    handles: 1,
+    handles: 3,
     parameters: {
         pub object_name: Tpm2bName,
         pub auth_handle_name: Tpm2bName,
@@ -2245,7 +2246,7 @@ tpm_struct! {
     handles: 1,
     parameters: {
         pub qualifying_data: Tpm2bData,
-        pub in_scheme: TpmtSignature,
+        pub in_scheme: TpmtSigScheme,
         pub pcr_select: TpmlPcrSelection,
     }
 }
