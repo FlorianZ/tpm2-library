@@ -7,7 +7,6 @@ use anyhow::Result;
 use argh::FromArgs;
 use tpm2_device::with_device;
 use tpm2_protocol::{
-    basic::TpmUint32,
     data::TpmRh,
     frame::{TpmDictionaryAttackLockResetCommand, TpmDictionaryAttackLockResetResponse},
 };
@@ -30,7 +29,7 @@ impl Task for ResetLock {
                 handles: [lock_handle],
             };
 
-            let auth = task_state.auth_for(TpmUint32::new(u32::from(lock_handle)));
+            let auth = task_state.auth_for(lock_handle);
 
             let resp = task_state.execute(device, &command, &[auth])?;
             resp.unmarshal::<TpmDictionaryAttackLockResetResponse>()?;

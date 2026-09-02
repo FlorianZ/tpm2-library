@@ -17,7 +17,7 @@ use tpm2_device::{TpmDevice, TpmDeviceError, TpmPolicySession};
 use tpm2_protocol::{
     TpmUnmarshal, TpmWriter,
     basic::{TpmHandle, TpmInt32, TpmUint32},
-    constant::TPM_MAX_COMMAND_SIZE,
+    constant::{MAX_DIGEST_SIZE, MAX_SESSIONS, TPM_MAX_COMMAND_SIZE},
     data::{
         Tpm2bAuth, Tpm2bData, Tpm2bDigest, Tpm2bEncryptedSecret, Tpm2bName, Tpm2bNonce,
         Tpm2bPrivate, Tpm2bPublic, TpmAlgId, TpmCc, TpmHt, TpmRcBase, TpmRh, TpmSt, TpmaSession,
@@ -58,7 +58,7 @@ pub struct TaskState<'a> {
     pub progress: Option<Box<dyn TaskStateProgress>>,
     /// Holds all temporary sessions, indexed by their virtual handle.
     pub sessions: HashMap<TpmHandle, TpmPolicySession>,
-    /// Loaded virtual handles. Handles containted are s a subset of
+    /// Loaded virtual handles. Handles contained are a subset of
     /// `phys_handles`.
     pub virt_handles: HashMap<u32, TpmHandle>,
     /// Tracked physical handles. Handles contained are a superset of
@@ -359,8 +359,11 @@ impl<'a> TaskState<'a> {
                     let mut nonce_bytes = vec![0; nonce_size];
                     rand_bytes(&mut nonce_bytes)
                         .map_err(|_| anyhow!("failed to generate nonce"))?;
-                    let nonce = Tpm2bNonce::try_from(nonce_bytes.as_slice())
-                        .map_err(|_| anyhow!("out of memory"))?;
+                    let nonce = Tpm2bNonce::try_from(nonce_bytes.as_slice()).map_err(|_| {
+                        anyhow!(
+                            "nonce of {nonce_size} bytes exceeds {MAX_DIGEST_SIZE} byte capacity"
+                        )
+                    })?;
 
                     TpmsAuthCommand {
                         session_handle: session.handle(),
@@ -628,7 +631,7 @@ impl<'a> TaskState<'a> {
         let mut auths = TpmAuthCommands::new();
         auths
             .try_push(auth_cmd)
-            .map_err(|_| anyhow!("out of memory"))?;
+            .map_err(|_| anyhow!("too many auth sessions (limit {MAX_SESSIONS})"))?;
 
         Ok((tpm_cmd, auths))
     }
@@ -660,7 +663,12 @@ fn build_password_session(password: &[u8]) -> Result<TpmsAuthCommand> {
         session_handle: (tpm2_protocol::data::TpmRh::Pw as u32).into(),
         nonce: Tpm2bNonce::default(),
         session_attributes: TpmaSession::empty(),
-        hmac: Tpm2bAuth::try_from(password).map_err(|_| anyhow!("out of memory"))?,
+        hmac: Tpm2bAuth::try_from(password).map_err(|_| {
+            anyhow!(
+                "password of {} bytes exceeds {MAX_DIGEST_SIZE} byte capacity",
+                password.len()
+            )
+        })?,
     })
 }
 

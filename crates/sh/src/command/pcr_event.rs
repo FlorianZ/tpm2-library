@@ -31,7 +31,7 @@ pub struct PcrEvent {
     #[argh(positional, arg_name = "pcr-index", from_str_fn(parse_pcr_index))]
     pub pcr_index: TpmHandle,
 
-    /// input file path (defaults to stdin as PEM)
+    /// input file path (defaults to stdin)
     #[argh(option, short = 'I')]
     pub input: Option<PathBuf>,
 }
