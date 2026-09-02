@@ -6,16 +6,19 @@ use crate::VtpmError;
 use std::fmt::Debug;
 use tpm2_protocol::{
     TpmError, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
-    basic::{TpmHandle, TpmInt32, TpmUint32},
+    basic::{TpmHandle, TpmInt32, TpmUint16, TpmUint32},
     constant::TPM_MAX_COMMAND_SIZE,
     data::{
-        Tpm2bDigest, Tpm2bName, Tpm2bPublic, TpmCc, TpmlDigest, TpmlPcrSelection, TpmtSignature,
+        Tpm2bDigest, Tpm2bMaxBuffer, Tpm2bName, Tpm2bPublic, TpmCc, TpmEo, TpmiYesNo, TpmlDigest,
+        TpmlPcrSelection, TpmtSignature,
     },
     frame::{
         TpmCommand, TpmCommandValue, TpmCommandView, TpmPolicyAuthValueCommand,
-        TpmPolicyGetDigestCommand, TpmPolicyOrCommand, TpmPolicyPasswordCommand,
-        TpmPolicyPcrCommand, TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand,
-        TpmPolicySecretCommand,
+        TpmPolicyCommandCodeCommand, TpmPolicyCounterTimerCommand, TpmPolicyCpHashCommand,
+        TpmPolicyGetDigestCommand, TpmPolicyNameHashCommand, TpmPolicyNvWrittenCommand,
+        TpmPolicyOrCommand, TpmPolicyPasswordCommand, TpmPolicyPcrCommand,
+        TpmPolicyPhysicalPresenceCommand, TpmPolicyRestartCommand, TpmPolicySecretCommand,
+        TpmPolicyTemplateCommand,
     },
 };
 
@@ -84,6 +87,7 @@ impl TryFrom<Box<dyn VtpmPolicyCommand>> for TpmCommandValue {
 /// Returns [`InvalidCc`](crate::VtpmError::InvalidCc) when `cc` is not valid.
 /// Returns [`InvalidPolicy`](crate::VtpmError::InvalidPolicy) when `body`
 /// violates command-specific constraints.
+#[allow(clippy::too_many_lines)]
 pub fn vtpm_policy_command_from_parts(
     cc: TpmCc,
     body: &[u8],
@@ -146,6 +150,53 @@ pub fn vtpm_policy_command_from_parts(
                 body: body.into(),
             }))
         }
+        TpmCc::PolicyCommandCode => {
+            let (code, rest) = TpmCc::unmarshal(body).map_err(VtpmError::Unmarshal)?;
+            if !rest.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+            let _ = code;
+            Ok(Box::new(VtpmPolicyDefaultCommand {
+                cc,
+                body: body.into(),
+            }))
+        }
+        TpmCc::PolicyCpHash | TpmCc::PolicyNameHash | TpmCc::PolicyTemplate => {
+            let (hash, rest) = Tpm2bDigest::unmarshal(body).map_err(VtpmError::Unmarshal)?;
+            if !rest.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+            let _ = hash;
+            Ok(Box::new(VtpmPolicyDefaultCommand {
+                cc,
+                body: body.into(),
+            }))
+        }
+        TpmCc::PolicyNvWritten => {
+            let (written_set, rest) = TpmiYesNo::unmarshal(body).map_err(VtpmError::Unmarshal)?;
+            if !rest.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+            let _ = written_set;
+            Ok(Box::new(VtpmPolicyDefaultCommand {
+                cc,
+                body: body.into(),
+            }))
+        }
+        TpmCc::PolicyCounterTimer => {
+            let (operand_b, rest) =
+                Tpm2bMaxBuffer::unmarshal(body).map_err(VtpmError::Unmarshal)?;
+            let (offset, rest) = TpmUint16::unmarshal(rest).map_err(VtpmError::Unmarshal)?;
+            let (operation, rest) = TpmEo::unmarshal(rest).map_err(VtpmError::Unmarshal)?;
+            if !rest.is_empty() {
+                return Err(VtpmError::InvalidPolicy);
+            }
+            let _ = (operand_b, offset, operation);
+            Ok(Box::new(VtpmPolicyDefaultCommand {
+                cc,
+                body: body.into(),
+            }))
+        }
         _ => Err(VtpmError::InvalidCc(cc)),
     }
 }
@@ -165,7 +216,14 @@ pub fn vtpm_policy_command_from(
     let view = TpmCommandView::cast(cmd).map_err(VtpmError::Unmarshal)?;
 
     match view {
-        TpmCommandView::PolicyPcr(_) | TpmCommandView::PolicyOr(_) => {
+        TpmCommandView::PolicyPcr(_)
+        | TpmCommandView::PolicyOr(_)
+        | TpmCommandView::PolicyCommandCode(_)
+        | TpmCommandView::PolicyCpHash(_)
+        | TpmCommandView::PolicyNameHash(_)
+        | TpmCommandView::PolicyTemplate(_)
+        | TpmCommandView::PolicyNvWritten(_)
+        | TpmCommandView::PolicyCounterTimer(_) => {
             let buf = vtpm_marshal_command_parameters(cmd)?;
             Ok(Box::new(VtpmPolicyDefaultCommand {
                 cc: view.cc(),
@@ -223,14 +281,23 @@ pub(crate) fn vtpm_marshal_policy_list(
     Ok(())
 }
 
+/// Maximum number of policy commands accepted in a cache record policy list.
+const MAX_POLICY_COUNT: usize = 16;
+
 #[allow(clippy::type_complexity)]
 pub(crate) fn vtpm_unmarshal_policy_list(
     buffer: &[u8],
 ) -> Result<(Vec<Box<dyn VtpmPolicyCommand>>, &[u8]), VtpmError> {
     let (count, mut tail) = TpmUint32::unmarshal(buffer).map_err(VtpmError::Unmarshal)?;
+    let count = count.value() as usize;
+
+    if count > MAX_POLICY_COUNT {
+        return Err(VtpmError::TooManyPolicies(count));
+    }
+
     let mut policy = Vec::new();
 
-    for _ in 0..count.value() {
+    for _ in 0..count {
         let (cc, tail_next) = TpmCc::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
         let (len_u32, tail_next) = TpmUint32::unmarshal(tail_next).map_err(VtpmError::Unmarshal)?;
         let len = len_u32.value() as usize;
@@ -268,6 +335,7 @@ impl VtpmPolicyCommand for VtpmPolicyDefaultCommand {
         TpmCc::SIZE + TpmUint32::SIZE + self.body.len()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn to_command(&self) -> Result<TpmCommandValue, VtpmError> {
         match self.cc {
             TpmCc::PolicyAuthValue => {
@@ -330,6 +398,82 @@ impl VtpmPolicyCommand for VtpmPolicyDefaultCommand {
                 };
 
                 Ok(TpmCommandValue::PolicyOr(inner))
+            }
+            TpmCc::PolicyCommandCode => {
+                let (code, rest) =
+                    TpmCc::unmarshal(self.body.as_slice()).map_err(VtpmError::Unmarshal)?;
+                if !rest.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
+                let inner = TpmPolicyCommandCodeCommand {
+                    handles: [ZERO_HANDLE],
+                    code,
+                };
+                Ok(TpmCommandValue::PolicyCommandCode(inner))
+            }
+            TpmCc::PolicyCpHash => {
+                let (cp_hash_a, rest) =
+                    Tpm2bDigest::unmarshal(self.body.as_slice()).map_err(VtpmError::Unmarshal)?;
+                if !rest.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
+                let inner = TpmPolicyCpHashCommand {
+                    handles: [ZERO_HANDLE],
+                    cp_hash_a,
+                };
+                Ok(TpmCommandValue::PolicyCpHash(inner))
+            }
+            TpmCc::PolicyNameHash => {
+                let (name_hash, rest) =
+                    Tpm2bDigest::unmarshal(self.body.as_slice()).map_err(VtpmError::Unmarshal)?;
+                if !rest.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
+                let inner = TpmPolicyNameHashCommand {
+                    handles: [ZERO_HANDLE],
+                    name_hash,
+                };
+                Ok(TpmCommandValue::PolicyNameHash(inner))
+            }
+            TpmCc::PolicyTemplate => {
+                let (template_hash, rest) =
+                    Tpm2bDigest::unmarshal(self.body.as_slice()).map_err(VtpmError::Unmarshal)?;
+                if !rest.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
+                let inner = TpmPolicyTemplateCommand {
+                    handles: [ZERO_HANDLE],
+                    template_hash,
+                };
+                Ok(TpmCommandValue::PolicyTemplate(inner))
+            }
+            TpmCc::PolicyNvWritten => {
+                let (written_set, rest) =
+                    TpmiYesNo::unmarshal(self.body.as_slice()).map_err(VtpmError::Unmarshal)?;
+                if !rest.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
+                let inner = TpmPolicyNvWrittenCommand {
+                    handles: [ZERO_HANDLE],
+                    written_set,
+                };
+                Ok(TpmCommandValue::PolicyNvWritten(inner))
+            }
+            TpmCc::PolicyCounterTimer => {
+                let (operand_b, rest) = Tpm2bMaxBuffer::unmarshal(self.body.as_slice())
+                    .map_err(VtpmError::Unmarshal)?;
+                let (offset, rest) = TpmUint16::unmarshal(rest).map_err(VtpmError::Unmarshal)?;
+                let (operation, rest) = TpmEo::unmarshal(rest).map_err(VtpmError::Unmarshal)?;
+                if !rest.is_empty() {
+                    return Err(VtpmError::InvalidPolicy);
+                }
+                let inner = TpmPolicyCounterTimerCommand {
+                    handles: [ZERO_HANDLE],
+                    operand_b,
+                    offset,
+                    operation,
+                };
+                Ok(TpmCommandValue::PolicyCounterTimer(inner))
             }
             other => Err(VtpmError::InvalidCc(other)),
         }
