@@ -58,6 +58,22 @@ macro_rules! tpmu_view {
             {
                 <Self as crate::TpmTaggedField<'a, $tag_ty>>::cast_tagged_prefix_field(tag, buf)
             }
+
+            /// Returns `true` when the union payload is the variant selected
+            /// by `tag`.
+            #[must_use]
+            pub fn matches_tag(&self, tag: $tag_ty) -> bool {
+                #[allow(unreachable_patterns)]
+                match (self, tag) {
+                    $(
+                        (Self::$variant(_), $($tag)|+) => true,
+                    )*
+                    $(
+                        (Self::$null_variant, $($null_tag)|+) => true,
+                    )?
+                    _ => false,
+                }
+            }
         }
 
         impl<'a> crate::TpmTaggedField<'a, $tag_ty> for $union
@@ -232,7 +248,34 @@ pub enum TpmuHaView<'a> {
     Digest(&'a [u8]),
 }
 
+/// Returns the digest size in bytes for a hash algorithm selector.
+fn digest_size(tag: TpmAlgId) -> Option<usize> {
+    match tag {
+        TpmAlgId::Sha1 => Some(20),
+        TpmAlgId::Shake256_192 => Some(24),
+        TpmAlgId::Sha256 | TpmAlgId::Sm3_256 | TpmAlgId::Sha3_256 | TpmAlgId::Shake256_256 => {
+            Some(32)
+        }
+        TpmAlgId::Sha384 | TpmAlgId::Sha3_384 => Some(48),
+        TpmAlgId::Sha512 | TpmAlgId::Sha3_512 | TpmAlgId::Shake256_512 => Some(64),
+        _ => None,
+    }
+}
+
 impl TpmuHa {
+    /// Returns `true` when the union payload matches the digest algorithm and
+    /// digest size selected by `tag`.
+    #[must_use]
+    pub fn matches_tag(&self, tag: TpmAlgId) -> bool {
+        match (self, tag) {
+            (Self::Null, TpmAlgId::Null) => true,
+            (Self::Digest(digest), tag) => {
+                digest_size(tag).is_some_and(|size| digest.len() == size)
+            }
+            _ => false,
+        }
+    }
+
     /// Casts a tag-selected digest payload into a borrowed view.
     ///
     /// # Errors
@@ -248,21 +291,15 @@ impl<'a> crate::TpmTaggedField<'a, TpmAlgId> for TpmuHa {
     type View = TpmuHaView<'a>;
 
     fn cast_tagged_prefix_field(tag: TpmAlgId, buf: &'a [u8]) -> TpmResult<(Self::View, &'a [u8])> {
-        let digest_size = match tag {
-            TpmAlgId::Null => return Ok((TpmuHaView::Null, buf)),
-            TpmAlgId::Sha1 => 20,
-            TpmAlgId::Shake256_192 => 24,
-            TpmAlgId::Sha256 | TpmAlgId::Sm3_256 | TpmAlgId::Sha3_256 | TpmAlgId::Shake256_256 => {
-                32
+        let Some(digest_size) = digest_size(tag) else {
+            if tag == TpmAlgId::Null {
+                return Ok((TpmuHaView::Null, buf));
             }
-            TpmAlgId::Sha384 | TpmAlgId::Sha3_384 => 48,
-            TpmAlgId::Sha512 | TpmAlgId::Sha3_512 | TpmAlgId::Shake256_512 => 64,
-            _ => {
-                return Err(TpmError::VariantNotAvailable {
-                    offset: 0,
-                    value: u64::from(tag.value()),
-                });
-            }
+
+            return Err(TpmError::VariantNotAvailable {
+                offset: 0,
+                value: u64::from(tag.value()),
+            });
         };
 
         if buf.len() < digest_size {

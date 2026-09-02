@@ -8,7 +8,7 @@ use super::{
     TpmuSigScheme, TpmuSymKeyBits, TpmuSymMode,
 };
 use crate::{
-    TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
+    TpmError, TpmMarshal, TpmResult, TpmSized, TpmUnmarshal, TpmUnmarshalTagged, TpmWriter,
     constant::TPM_MAX_COMMAND_SIZE, tpm_struct,
 };
 
@@ -35,6 +35,13 @@ macro_rules! tpm_struct_tagged {
 
         impl $crate::TpmMarshal for $name {
             fn marshal(&self, writer: &mut $crate::TpmWriter) -> $crate::TpmResult<()> {
+                if !self.$value_field.matches_tag(self.$tag_field) {
+                    return Err($crate::TpmError::VariantNotAvailable {
+                        offset: writer.len(),
+                        value: u64::from(self.$tag_field.value()),
+                    });
+                }
+
                 $crate::TpmMarshal::marshal(&self.$tag_field, writer)?;
                 $crate::TpmMarshal::marshal(&self.$value_field, writer)
             }
@@ -107,6 +114,15 @@ impl TpmSized for TpmtPublic {
 
 impl TpmMarshal for TpmtPublic {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        if !self.parameters.matches_tag(self.object_type)
+            || !self.unique.matches_tag(self.object_type)
+        {
+            return Err(TpmError::VariantNotAvailable {
+                offset: writer.len(),
+                value: u64::from(self.object_type.value()),
+            });
+        }
+
         self.object_type.marshal(writer)?;
         self.name_alg.marshal(writer)?;
         self.object_attributes.marshal(writer)?;
@@ -245,6 +261,13 @@ impl TpmSized for TpmtSensitive {
 
 impl TpmMarshal for TpmtSensitive {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        if !self.sensitive.matches_tag(self.sensitive_type) {
+            return Err(TpmError::VariantNotAvailable {
+                offset: writer.len(),
+                value: u64::from(self.sensitive_type.value()),
+            });
+        }
+
         self.sensitive_type.marshal(writer)?;
         self.auth_value.marshal(writer)?;
         self.seed_value.marshal(writer)?;
@@ -291,6 +314,16 @@ impl TpmSized for TpmtSymDef {
 
 impl TpmMarshal for TpmtSymDef {
     fn marshal(&self, writer: &mut TpmWriter) -> TpmResult<()> {
+        if self.algorithm != TpmAlgId::Null
+            && (!self.key_bits.matches_tag(self.algorithm)
+                || !self.mode.matches_tag(self.algorithm))
+        {
+            return Err(TpmError::VariantNotAvailable {
+                offset: writer.len(),
+                value: u64::from(self.algorithm.value()),
+            });
+        }
+
         self.algorithm.marshal(writer)?;
         if self.algorithm != TpmAlgId::Null {
             self.key_bits.marshal(writer)?;
