@@ -406,7 +406,7 @@ impl Import {
                 .with_empty_auth(user_auth.is_empty())
                 .with_public(public)
                 .with_private(*duplicate)
-                .with_secret(in_sym_seed.as_ref())
+                .with_secret(in_sym_seed)
                 .with_parent(parent_handle)
                 .with_policy(&policy)
         };

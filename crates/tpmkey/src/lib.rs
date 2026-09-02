@@ -6,9 +6,6 @@
 //! Key](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html) ASN.1
 //! files.
 //!
-//! The format has been extended with an optional `parentPubkey` field,
-//! containing `Tpm2bPublic` of the parent key.
-//!
 //! ## Policy command bodies
 //!
 //! Only the parameter area for each policy command is stored. This includes
@@ -30,9 +27,6 @@
 //!
 //! The command body for `TPM2_PolicyAuthorize` has `TPM2B_PUBLIC`,
 //! `TPM2B_DIGEST` and `TPMT_SIGNATURE` serialized in sequence.
-//!
-//! For the time being, conversion is not supported in either direction and will
-//! return [`InvalidPolicy`](crate::TpmKeyError::InvalidPolicy).
 //!
 //! ## `TPM2_PolicySecret`
 //!
@@ -72,9 +66,10 @@ pub const OID_SEALED_DATA: rasn::prelude::ObjectIdentifier =
 
 use std::convert::TryFrom;
 use tpm2_protocol::{
+    TpmMarshal, TpmSized, TpmWriter,
     basic::{Tpm2b, TpmHandle, TpmUint32},
-    constant::MAX_PRIVATE_SIZE,
-    data::{Tpm2bPrivate, Tpm2bPublic, Tpm2bPublicWire, TpmAlgId},
+    constant::{MAX_PRIVATE_SIZE, MAX_RSA_KEY_BYTES},
+    data::{Tpm2bEncryptedSecret, Tpm2bPrivate, Tpm2bPublic, Tpm2bPublicWire, TpmAlgId},
 };
 
 /// The type of the TPM key as defined by the OID.
@@ -111,6 +106,37 @@ fn tpm_public_alg(buf: &[u8]) -> tpm2_protocol::TpmResult<TpmAlgId> {
 
 fn tpm_private(buf: &[u8]) -> tpm2_protocol::TpmResult<()> {
     Tpm2b::<MAX_PRIVATE_SIZE>::validate(buf)
+}
+
+/// Validates the `secret` field against the key type.
+///
+/// Section 3.1.4 of the TPMKEY draft requires `secret` for `id-importablekey`,
+/// forbids it for `id-loadablekey`, and permits it for `id-sealedkey`, where its
+/// presence marks the object as importable.
+///
+/// `secret` stores a fully marshaled `TPM2B_ENCRYPTED_SECRET`: a two-byte
+/// big-endian size prefix followed by exactly that many payload bytes. An empty
+/// payload is not a valid encoding: it cannot be distinguished from an absent
+/// field and would be dropped on the next serialization.
+fn tpm_validate_secret(kind: TpmKeyType, secret: &[u8]) -> Result<(), TpmKeyError> {
+    match kind {
+        TpmKeyType::Loadable if !secret.is_empty() => return Err(TpmKeyError::UnexpectedSecret),
+        TpmKeyType::Loadable => return Ok(()),
+        TpmKeyType::Importable if secret.is_empty() => return Err(TpmKeyError::MissingSecret),
+        TpmKeyType::SealedData if secret.is_empty() => return Ok(()),
+        TpmKeyType::Importable | TpmKeyType::SealedData => {}
+    }
+
+    let Some(payload_len) = secret.first_chunk::<2>() else {
+        return Err(TpmKeyError::InvalidSecret);
+    };
+    let payload_len = usize::from(u16::from_be_bytes(*payload_len));
+
+    if secret.len() != payload_len + 2 || payload_len > MAX_RSA_KEY_BYTES {
+        return Err(TpmKeyError::InvalidSecret);
+    }
+
+    Ok(())
 }
 
 impl Default for TpmKeyFile {
@@ -196,9 +222,19 @@ impl TpmKeyFile {
         self
     }
 
+    /// Sets the `secret` field, storing it as a fully marshaled
+    /// `TPM2B_ENCRYPTED_SECRET` (two-byte size prefix followed by the payload)
+    /// as required by section 3.1.4 of the TPMKEY draft.
     #[must_use]
-    pub fn with_secret(mut self, secret: &[u8]) -> Self {
-        secret.clone_into(&mut self.secret);
+    pub fn with_secret(mut self, secret: &Tpm2bEncryptedSecret) -> Self {
+        let mut buf = vec![0_u8; TpmSized::len(secret)];
+        let len = {
+            let mut writer = TpmWriter::new(&mut buf);
+            TpmMarshal::marshal(secret, &mut writer).ok();
+            writer.len()
+        };
+        buf.truncate(len);
+        self.secret = buf;
         self
     }
 
@@ -249,6 +285,8 @@ impl TpmKeyFile {
         &self.policy
     }
 
+    /// Returns the marshaled `TPM2B_ENCRYPTED_SECRET` stored in the `secret`
+    /// field, or an empty slice when the field is absent.
     #[must_use]
     pub fn secret(&self) -> &[u8] {
         &self.secret
@@ -295,6 +333,10 @@ impl TpmKeyFile {
     ///
     /// Returns [`Asn1EncodingFailed`](TpmKeyError::Asn1EncodingFailed) when ASN.1
     /// DER encoding fails.
+    /// Returns [`MissingSecret`](TpmKeyError::MissingSecret),
+    /// [`UnexpectedSecret`](TpmKeyError::UnexpectedSecret), or
+    /// [`InvalidSecret`](TpmKeyError::InvalidSecret) when `secret` does not
+    /// satisfy the constraints for this key type.
     pub fn to_pem(&self) -> Result<String, TpmKeyError> {
         let der = self.to_der()?;
         let pem = Pem::new("TSS2 PRIVATE KEY", der);
@@ -318,8 +360,10 @@ impl TpmKeyFile {
     /// recognized TPM key type.
     /// Returns [`InvalidKeyAlgorithm`](TpmKeyError::InvalidKeyAlgorithm) when the
     /// OID and inner public key algorithm mismatch.
-    /// Returns [`MissingSecret`](TpmKeyError::MissingSecret) when the OID indicates
-    /// an importable key but `secret` is absent.
+    /// Returns [`MissingSecret`](TpmKeyError::MissingSecret),
+    /// [`UnexpectedSecret`](TpmKeyError::UnexpectedSecret), or
+    /// [`InvalidSecret`](TpmKeyError::InvalidSecret) when `secret` does not
+    /// satisfy the constraints for the key type named by the OID.
     /// Returns [`InvalidCc`](TpmKeyError::InvalidCc) when a policy item uses an
     /// unknown or non-policy TPM command code.
     pub fn from_pem(pem_bytes: &[u8]) -> Result<Self, TpmKeyError> {
@@ -337,7 +381,17 @@ impl TpmKeyFile {
     ///
     /// Returns [`Asn1EncodingFailed`](TpmKeyError::Asn1EncodingFailed) when ASN.1
     /// DER encoding fails.
+    /// Returns [`MissingSecret`](TpmKeyError::MissingSecret),
+    /// [`UnexpectedSecret`](TpmKeyError::UnexpectedSecret), or
+    /// [`InvalidSecret`](TpmKeyError::InvalidSecret) when `secret` does not
+    /// satisfy the constraints for this key type.
     pub fn to_der(&self) -> Result<Vec<u8>, TpmKeyError> {
+        tpm_validate_secret(self.kind, &self.secret)?;
+
+        if self.rsa_parent && (self.parent.value() >> 24) != 0x40 {
+            return Err(TpmKeyError::InvalidPolicy);
+        }
+
         let asn1 = self.to_asn1();
         rasn::der::encode(&asn1).map_err(TpmKeyError::Asn1EncodingFailed)
     }
@@ -354,13 +408,15 @@ impl TpmKeyFile {
     /// recognized TPM key type.
     /// Returns [`InvalidKeyAlgorithm`](TpmKeyError::InvalidKeyAlgorithm) when the
     /// OID and inner public key algorithm mismatch.
-    /// Returns [`MissingSecret`](TpmKeyError::MissingSecret) when the OID indicates
-    /// an importable key but `secret` is absent.
+    /// Returns [`MissingSecret`](TpmKeyError::MissingSecret),
+    /// [`UnexpectedSecret`](TpmKeyError::UnexpectedSecret), or
+    /// [`InvalidSecret`](TpmKeyError::InvalidSecret) when `secret` does not
+    /// satisfy the constraints for the key type named by the OID.
     /// Returns [`InvalidCc`](TpmKeyError::InvalidCc) when a policy item uses an
     /// unknown or non-policy TPM command code.
     pub fn from_der(der_bytes: &[u8]) -> Result<Self, TpmKeyError> {
         let asn1: TpmKeyAsn1 =
-            rasn::der::decode(der_bytes).map_err(TpmKeyError::Asn1DecodingFailed)?;
+            rasn::ber::decode(der_bytes).map_err(TpmKeyError::Asn1DecodingFailed)?;
         Self::from_asn1(asn1)
     }
 
@@ -408,28 +464,19 @@ impl TpmKeyFile {
         let public_alg = tpm_public_alg(&asn1.pubkey).map_err(TpmKeyError::Unmarshal)?;
         tpm_private(&asn1.privkey).map_err(TpmKeyError::Unmarshal)?;
 
-        let kind = if asn1.key_type == OID_LOADABLE_KEY {
+        let kind = if asn1.key_type == OID_LOADABLE_KEY || asn1.key_type == OID_IMPORTABLE_KEY {
+            let key_type = if asn1.key_type == OID_LOADABLE_KEY {
+                TpmKeyType::Loadable
+            } else {
+                TpmKeyType::Importable
+            };
             if public_alg != TpmAlgId::Rsa
                 && public_alg != TpmAlgId::Ecc
                 && public_alg != TpmAlgId::KeyedHash
             {
-                return Err(TpmKeyError::InvalidKeyAlgorithm(
-                    TpmKeyType::Loadable,
-                    public_alg,
-                ));
+                return Err(TpmKeyError::InvalidKeyAlgorithm(key_type, public_alg));
             }
-            TpmKeyType::Loadable
-        } else if asn1.key_type == OID_IMPORTABLE_KEY {
-            if public_alg != TpmAlgId::Rsa
-                && public_alg != TpmAlgId::Ecc
-                && public_alg != TpmAlgId::KeyedHash
-            {
-                return Err(TpmKeyError::InvalidKeyAlgorithm(
-                    TpmKeyType::Importable,
-                    public_alg,
-                ));
-            }
-            TpmKeyType::Importable
+            key_type
         } else if asn1.key_type == OID_SEALED_DATA {
             if public_alg != TpmAlgId::KeyedHash {
                 return Err(TpmKeyError::InvalidKeyAlgorithm(
@@ -442,9 +489,16 @@ impl TpmKeyFile {
             return Err(TpmKeyError::InvalidOid(asn1.key_type));
         };
 
-        if kind == TpmKeyType::Importable && asn1.secret.is_none() {
-            return Err(TpmKeyError::MissingSecret);
+        if asn1.rsa_parent == Some(true) && (asn1.parent >> 24) != 0x40 {
+            return Err(TpmKeyError::InvalidPolicy);
         }
+
+        let secret = asn1
+            .secret
+            .as_ref()
+            .map_or_else(Vec::new, |secret| secret.to_vec());
+
+        tpm_validate_secret(kind, &secret)?;
 
         let mut policy = Vec::new();
         for command in asn1.policy.unwrap_or_default() {
@@ -463,7 +517,6 @@ impl TpmKeyFile {
 
         let empty_auth = asn1.empty_auth.unwrap_or_default();
         let rsa_parent = asn1.rsa_parent.unwrap_or_default();
-        let secret = asn1.secret.unwrap_or_default().to_vec();
 
         Ok(Self {
             kind,
@@ -779,10 +832,6 @@ mod tests {
         key.empty_auth = false;
         let asn1_false = key.to_asn1();
         assert!(asn1_false.empty_auth.is_none());
-
-        key.empty_auth = false;
-        let asn1_none = key.to_asn1();
-        assert!(asn1_none.empty_auth.is_none());
     }
 
     #[test]
@@ -836,5 +885,37 @@ mod tests {
 
         assert_eq!(restored.kind, TpmKeyType::SealedData);
         assert_eq!(restored.public, key.public);
+    }
+
+    #[test]
+    fn rsa_parent_requires_permanent_handle() {
+        let mut key = minimal_key();
+        key.rsa_parent = true;
+        key.parent = TpmUint32::new(0x8100_0001); // Persistent, not permanent (0x40)
+
+        assert!(matches!(key.to_der(), Err(TpmKeyError::InvalidPolicy)));
+
+        key.parent = TpmUint32::new(0x4000_0001);
+        assert!(key.to_der().is_ok());
+    }
+
+    #[test]
+    fn non_canonical_boolean_in_der_is_accepted() {
+        let mut key_with_auth = minimal_key();
+        key_with_auth.empty_auth = true;
+        let mut der = key_with_auth.to_der().unwrap();
+
+        let mut replaced = false;
+        for i in 0..der.len() - 2 {
+            if der[i] == 0x01 && der[i + 1] == 0x01 && der[i + 2] == 0xFF {
+                der[i + 2] = 0x01;
+                replaced = true;
+                break;
+            }
+        }
+        assert!(replaced, "should find boolean 0xFF to replace");
+
+        let decoded = TpmKeyFile::from_der(&der).expect("non-canonical boolean should be accepted");
+        assert!(decoded.empty_auth());
     }
 }
