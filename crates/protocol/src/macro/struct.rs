@@ -548,10 +548,18 @@ macro_rules! tpm2b_struct {
             /// wrapper for the inner type.
             pub fn validate_prefix(buf: &[u8]) -> $crate::TpmResult<usize>
             where
-                $inner_ty: for<'a> $crate::TpmField<'a>,
+                $inner_ty: for<'a> $crate::TpmField<'a> + $crate::TpmSized,
             {
                 let (size_field, payload) = <$crate::basic::TpmUint16 as $crate::TpmCast>::cast_prefix(buf)?;
                 let payload_len = size_field.value() as usize;
+
+                if payload_len > <$inner_ty as $crate::TpmSized>::SIZE {
+                    return Err($crate::TpmError::TooManyBytes {
+                        offset: $crate::tpm_offset(buf, payload),
+                        limit: <$inner_ty as $crate::TpmSized>::SIZE,
+                        actual: payload_len,
+                    });
+                }
 
                 if payload.len() < payload_len {
                     return Err($crate::TpmError::UnexpectedEnd { offset: $crate::tpm_offset(buf, payload), needed: payload_len, available: payload.len() });
@@ -613,6 +621,14 @@ macro_rules! tpm2b_struct {
                 let (size, buffer) =
                     <$crate::basic::TpmUint16 as $crate::TpmUnmarshal>::unmarshal(buffer)?;
                 let size = usize::from(size.value());
+                if size > <$inner_ty as $crate::TpmSized>::SIZE {
+                    return Err($crate::TpmError::TooManyBytes {
+                        offset: <$crate::basic::TpmUint16 as $crate::TpmSized>::SIZE,
+                        limit: <$inner_ty as $crate::TpmSized>::SIZE,
+                        actual: size,
+                    });
+                }
+
                 if buffer.len() < size {
                     return Err($crate::TpmError::UnexpectedEnd {
                         offset: <$crate::basic::TpmUint16 as $crate::TpmSized>::SIZE,

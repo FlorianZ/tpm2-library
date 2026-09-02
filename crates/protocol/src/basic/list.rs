@@ -348,14 +348,6 @@ impl<'a, T: crate::TpmField<'a> + Copy, const CAPACITY: usize> crate::TpmField<'
             cursor = tail;
         }
 
-        if buf.len() < consumed {
-            return Err(TpmError::UnexpectedEnd {
-                offset: 0,
-                needed: consumed,
-                available: buf.len(),
-            });
-        }
-
         let (head, tail) = buf.split_at(consumed);
 
         // SAFETY: The loop above checked the TPML count and all item boundaries.
@@ -497,6 +489,14 @@ impl<T: TpmUnmarshal + Copy, const CAPACITY: usize> TpmUnmarshal for TpmList<T, 
             offset: 0,
             value: u64::from(count.value()),
         })?;
+        if count > CAPACITY {
+            return Err(TpmError::TooManyItems {
+                offset: 0,
+                limit: CAPACITY,
+                actual: count,
+            });
+        }
+
         let mut list = Self::new();
 
         for _ in 0..count {
