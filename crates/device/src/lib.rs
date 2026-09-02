@@ -597,15 +597,19 @@ impl TpmDevice {
             let items: &[T] = extract(&cap_data.data)?;
             results.extend_from_slice(items);
 
-            if more_data {
-                if let Some(last) = items.last() {
-                    prop = next_prop(last);
-                } else {
-                    break;
-                }
-            } else {
+            if !more_data {
                 break;
             }
+
+            let Some(last) = items.last() else {
+                break;
+            };
+
+            let next = next_prop(last);
+            if next <= prop {
+                break;
+            }
+            prop = next;
         }
         Ok(results)
     }
@@ -640,17 +644,24 @@ impl TpmDevice {
     /// Returns other [`TpmDeviceError`](crate::TpmDeviceError) variants when
     /// [`TpmDevice::transmit`](crate::TpmDevice::transmit) fails.
     pub fn fetch_handles(&mut self, class: TpmHt) -> Result<Vec<TpmHandle>, TpmDeviceError> {
+        let class_prefix = (class as u32) << 24;
+
         self.get_capability(
             TpmCap::Handles,
-            (class as u32) << 24,
+            class_prefix,
             Self::CAPABILITY_PAGE_SIZE,
             |caps| match caps {
                 TpmuCapabilities::Handles(handles) => Ok(handles),
                 _ => Err(TpmDeviceError::CapabilityMissing(TpmCap::Handles)),
             },
-            |last| last.value() + 1,
+            |last| last.value().saturating_add(1),
         )
-        .map(|handles| handles.into_iter().collect())
+        .map(|handles| {
+            handles
+                .into_iter()
+                .filter(|handle| handle.value() >> 24 == class as u32)
+                .collect()
+        })
     }
 
     /// Retrieves all available ECC curves supported by the TPM.
