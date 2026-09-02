@@ -97,9 +97,11 @@ tpm_enum! {
         (AuditCommands, 0x0000_0004, "TPM_CAP_AUDIT_COMMANDS"),
         (Pcrs, 0x0000_0005, "TPM_CAP_PCRS"),
         (TpmProperties, 0x0000_0006, "TPM_CAP_TPM_PROPERTIES"),
+        (PcrProperties, 0x0000_0007, "TPM_CAP_PCR_PROPERTIES"),
         (EccCurves, 0x0000_0008, "TPM_CAP_ECC_CURVES"),
         (AuthPolicies, 0x0000_0009, "TPM_CAP_AUTH_POLICIES"),
         (Act, 0x0000_000A, "TPM_CAP_ACT"),
+        (VendorProperty, 0x0000_0100, "TPM_CAP_VENDOR_PROPERTY"),
     }
 }
 
