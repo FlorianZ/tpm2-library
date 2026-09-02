@@ -13,14 +13,16 @@ pub use policy::*;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
-    fs, io,
-    path::Path,
+    fs::{self, File},
+    io::{self, Write},
+    mem::size_of,
+    path::{Path, PathBuf},
+    process,
 };
 use tpm2_crypto::tpm_make_name;
 use tpm2_protocol::{
-    TpmError, TpmMarshal, TpmUnmarshal, TpmWriter,
+    TpmError, TpmMarshal, TpmSized, TpmUnmarshal, TpmWriter,
     basic::{TpmBuffer, TpmHandle, TpmUint32, TpmUint64},
-    constant::TPM_MAX_COMMAND_SIZE,
     data::{Tpm2bName, TpmAlgId, TpmHt, TpmRh, TpmsContext, TpmtPublic},
 };
 
@@ -28,6 +30,12 @@ const VERSION: u32 = 0x0000_0002;
 const TRANSIENT_START: u32 = 0x8000_0000;
 const TRANSIENT_END: u32 = 0x80FF_FFFF;
 const TRANSIENT_COUNT: u32 = 0x0100_0000;
+
+/// Maximum size of a serialized cache record.
+///
+/// Bounds `public` (4096), `parent` (4096), `context` (~4114) and the policy
+/// list, so a corrupt or hostile cache file cannot exhaust memory on load.
+const MAX_RECORD_SIZE: usize = 16 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct VtpmKey {
@@ -37,6 +45,38 @@ pub struct VtpmKey {
     parent: TpmtPublic,
     context: TpmsContext,
     policy: Vec<Box<dyn VtpmPolicyCommand>>,
+}
+
+/// Writes `bytes` to `path` atomically.
+///
+/// The data is written to a uniquely named temporary file in the same directory,
+/// flushed and synced to stable storage, and then renamed over `path`. A crash
+/// at any point therefore leaves either the previous contents or the complete
+/// new contents, never a partial record.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), VtpmError> {
+    let directory = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .map_or_else(|| "cache".into(), |name| name.to_string_lossy());
+    let temp_path: PathBuf = directory.join(format!(".{file_name}.{}.tmp", process::id()));
+
+    let write_result = (|| -> io::Result<()> {
+        let mut file = File::create(&temp_path)?;
+        file.write_all(bytes)?;
+        file.sync_all()
+    })();
+
+    if let Err(e) = write_result {
+        let _ = fs::remove_file(&temp_path);
+        return Err(e.into());
+    }
+
+    if let Err(e) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(e.into());
+    }
+
+    Ok(())
 }
 
 impl VtpmKey {
@@ -65,7 +105,14 @@ impl VtpmKey {
         &self.policy
     }
 
-    fn load(path: &Path) -> Result<Self, VtpmError> {
+    fn load(path: &Path, expected_handle: u32) -> Result<Self, VtpmError> {
+        let metadata = fs::metadata(path)?;
+        if metadata.len() > MAX_RECORD_SIZE as u64 {
+            return Err(VtpmError::RecordTooLarge(
+                usize::try_from(metadata.len()).unwrap_or(usize::MAX),
+            ));
+        }
+
         let buffer = fs::read(path)?;
         let (version, tail) = TpmUint32::unmarshal(&buffer).map_err(|_| VtpmError::StaleHandle)?;
 
@@ -74,6 +121,11 @@ impl VtpmKey {
         }
 
         let (handle, tail) = TpmHandle::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
+
+        if handle.value() != expected_handle {
+            return Err(VtpmError::StaleHandle);
+        }
+
         let (public, tail) = TpmtPublic::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
         let (parent, tail) = TpmtPublic::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
         let (context, tail) = TpmsContext::unmarshal(tail).map_err(VtpmError::Unmarshal)?;
@@ -81,7 +133,10 @@ impl VtpmKey {
         let (policy, tail) = vtpm_unmarshal_policy_list(tail)?;
 
         if !tail.is_empty() {
-            log::warn!("trailing data");
+            return Err(VtpmError::Unmarshal(TpmError::TrailingData {
+                offset: buffer.len() - tail.len(),
+                actual: tail.len(),
+            }));
         }
 
         Ok(Self {
@@ -94,8 +149,23 @@ impl VtpmKey {
         })
     }
 
+    /// Returns the exact serialized length of this cache record.
+    fn serialized_len(&self) -> usize {
+        TpmSized::len(&self.version)
+            + TpmSized::len(&self.handle)
+            + TpmSized::len(&self.public)
+            + TpmSized::len(&self.parent)
+            + TpmSized::len(&self.context)
+            + size_of::<u32>()
+            + self
+                .policy
+                .iter()
+                .map(|command| command.len())
+                .sum::<usize>()
+    }
+
     fn save(&self, path: &Path) -> Result<(), VtpmError> {
-        let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
+        let mut buf = vec![0u8; self.serialized_len()];
         let len = {
             let mut writer = TpmWriter::new(&mut buf);
             self.version
@@ -119,8 +189,7 @@ impl VtpmKey {
         };
 
         buf.truncate(len);
-        fs::write(path, buf)?;
-        Ok(())
+        write_atomic(path, &buf)
     }
 
     fn delete(&self, cache_dir: &Path) -> Result<(), VtpmError> {
@@ -221,6 +290,12 @@ pub struct VtpmCache<'a> {
     /// Map from `Tpm2bName` to live handles.
     handles: HashMap<Tpm2bName, TpmHandle>,
 
+    /// Reverse index from virtual handles to the name they published in
+    /// `handles`. Two contexts may share a public area, and therefore a name, so
+    /// removals must only drop a mapping that still points back at the handle
+    /// being removed.
+    names: HashMap<u32, Tpm2bName>,
+
     /// Set of virtual handles, which must be persisted.
     dirty: HashSet<u32>,
 
@@ -258,6 +333,7 @@ impl<'a> VtpmCache<'a> {
         fs::create_dir_all(cache_dir)?;
         let mut cache = Self {
             contexts: HashMap::new(),
+            names: HashMap::new(),
             handles,
             dirty: HashSet::new(),
             cache_dir,
@@ -281,6 +357,32 @@ impl<'a> VtpmCache<'a> {
 
     fn cache_dir(&self) -> &Path {
         self.cache_dir
+    }
+
+    /// Publishes `name` as the lookup key for `virtual_handle`.
+    ///
+    /// Any name previously published by this handle is retired first, so a
+    /// handle whose public area changed never leaves a dangling mapping behind.
+    fn publish_name(&mut self, virtual_handle: u32, name: Tpm2bName) {
+        self.unpublish_name(virtual_handle);
+        self.handles.insert(name, TpmUint32::new(virtual_handle));
+        self.names.insert(virtual_handle, name);
+    }
+
+    /// Retires the name published by `virtual_handle`.
+    ///
+    /// The `handles` entry is only dropped when it still resolves to this
+    /// handle. Contexts that share a public area therefore cannot delete each
+    /// other's mapping, and persistent handles supplied to [`Self::new`] are
+    /// left untouched.
+    fn unpublish_name(&mut self, virtual_handle: u32) {
+        let Some(name) = self.names.remove(&virtual_handle) else {
+            return;
+        };
+
+        if self.handles.get(&name).map(|handle| handle.value()) == Some(virtual_handle) {
+            self.handles.remove(&name);
+        }
     }
 
     /// Finds a VTPM key by its `Tpm2bName`.
@@ -393,14 +495,12 @@ impl<'a> VtpmCache<'a> {
             return Ok(deleted_handles);
         };
 
-        let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
-
         key.delete(self.cache_dir())?;
 
         if let Some(key) = self.contexts.remove(&virtual_handle) {
             deleted_handles.push(handle);
             self.dirty.remove(&virtual_handle);
-            self.handles.remove(&name);
+            self.unpublish_name(virtual_handle);
 
             let deleted_children = self.remove_subtree(&key.public)?;
             deleted_handles.extend(deleted_children.into_iter().map(TpmUint32::new));
@@ -467,7 +567,7 @@ impl<'a> VtpmCache<'a> {
 
                 e.insert(key);
 
-                self.handles.insert(name, TpmUint32::new(virtual_handle));
+                self.publish_name(virtual_handle, name);
                 self.dirty.insert(virtual_handle);
 
                 let next = virtual_handle.wrapping_add(1);
@@ -523,7 +623,7 @@ impl<'a> VtpmCache<'a> {
         let name = tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
 
         self.contexts.insert(handle.value(), key);
-        self.handles.insert(name, handle);
+        self.publish_name(handle.value(), name);
         self.dirty.insert(handle.value());
 
         Ok(())
@@ -563,25 +663,25 @@ impl<'a> VtpmCache<'a> {
 
             let ht = (virtual_handle >> 24) as u8;
             if ht == TpmHt::Transient as u8 || ht == TpmHt::Persistent as u8 {
-                match VtpmKey::load(&path) {
+                match VtpmKey::load(&path, virtual_handle) {
                     Ok(key) => {
                         let name =
                             tpm_make_name(&key.public).map_err(|_| VtpmError::OperationFailed)?;
                         self.contexts.insert(virtual_handle, key);
-                        self.handles.insert(name, TpmUint32::new(virtual_handle));
-                    }
-                    Err(VtpmError::StaleHandle) => {
-                        log::debug!("removing stale vtpm file: {}", path.display());
-                        if let Err(e) = fs::remove_file(&path) {
-                            log::warn!(
-                                "failed to remove stale vtpm file {}: {}",
-                                path.display(),
-                                e
-                            );
-                        }
+                        self.publish_name(virtual_handle, name);
                     }
                     Err(e) => {
+                        // Self-heal: a record that fails to load (stale,
+                        // corrupt, trailing bytes or oversized) is unusable
+                        // and would keep failing on every start, so remove it.
                         log::warn!("{}: {}", path.display(), e);
+                        if let Err(remove_err) = fs::remove_file(&path) {
+                            log::warn!(
+                                "failed to remove invalid vtpm file {}: {}",
+                                path.display(),
+                                remove_err
+                            );
+                        }
                     }
                 }
             } else if ht == TpmHt::HmacSession as u8 || ht == TpmHt::PolicySession as u8 {
@@ -618,15 +718,11 @@ impl<'a> VtpmCache<'a> {
     fn remove_subtree(&mut self, first_public: &TpmtPublic) -> Result<Vec<u32>, VtpmError> {
         let mut parent_to_children: HashMap<Vec<u8>, Vec<(u32, TpmtPublic)>> = HashMap::new();
         for (virtual_handle, key) in self.key_iter() {
-            let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
-            let len = {
-                let mut writer = TpmWriter::new(&mut buf);
-                key.parent
-                    .marshal(&mut writer)
-                    .map_err(VtpmError::Marshal)?;
-                writer.len()
-            };
-            buf.truncate(len);
+            let mut buf = vec![0u8; key.parent.len()];
+            let mut writer = TpmWriter::new(&mut buf);
+            key.parent
+                .marshal(&mut writer)
+                .map_err(VtpmError::Marshal)?;
             let parent_key_bytes = buf;
 
             parent_to_children
@@ -640,25 +736,19 @@ impl<'a> VtpmCache<'a> {
         let mut deleted_children = Vec::new();
 
         while let Some(parent_public) = ancestor_list.pop_front() {
-            let mut buf = vec![0u8; TPM_MAX_COMMAND_SIZE];
-            let len = {
-                let mut writer = TpmWriter::new(&mut buf);
-                parent_public
-                    .marshal(&mut writer)
-                    .map_err(VtpmError::Marshal)?;
-                writer.len()
-            };
-            buf.truncate(len);
+            let mut buf = vec![0u8; parent_public.len()];
+            let mut writer = TpmWriter::new(&mut buf);
+            parent_public
+                .marshal(&mut writer)
+                .map_err(VtpmError::Marshal)?;
             let parent_key_bytes = buf;
 
             if let Some(children_to_process) = parent_to_children.get(&parent_key_bytes) {
                 for (child_virtual_handle, child_public) in children_to_process.clone() {
                     if let Some(context) = self.contexts.get(&child_virtual_handle) {
-                        let name = tpm_make_name(&context.public)
-                            .map_err(|_| VtpmError::OperationFailed)?;
                         context.delete(self.cache_dir())?;
                         if self.contexts.remove(&child_virtual_handle).is_some() {
-                            self.handles.remove(&name);
+                            self.unpublish_name(child_virtual_handle);
                             self.dirty.remove(&child_virtual_handle);
                             deleted_children.push(child_virtual_handle);
                             ancestor_list.push_back(child_public);
