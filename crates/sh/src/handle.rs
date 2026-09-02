@@ -157,7 +157,6 @@ impl FromStr for Handle {
                 }
                 None if c == '?' => {}
                 None => {
-                    let c = if c.is_alphanumeric() { c } else { '?' };
                     return Err(HandleError::InvalidHandleCharacter(c));
                 }
             }
@@ -211,6 +210,12 @@ mod tests {
     fn reject_too_short() {
         let err = Handle::from_str("123").unwrap_err();
         assert!(matches!(err, HandleError::HandleTooShort));
+    }
+
+    #[test]
+    fn reject_invalid_non_alphanumeric_character() {
+        let err = Handle::from_str("8000000-").unwrap_err();
+        assert!(matches!(err, HandleError::InvalidHandleCharacter('-')));
     }
 
     #[test]
