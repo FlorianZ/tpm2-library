@@ -16,7 +16,9 @@ use tpm2_device::{TpmDevice, with_device};
 use tpm2_protocol::{
     TpmUnmarshal,
     basic::{TpmHandle, TpmUint32},
-    data::{Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPrivate, Tpm2bPublic, TpmHt, TpmtSymDefObject},
+    data::{
+        Tpm2bData, Tpm2bEncryptedSecret, Tpm2bPrivate, Tpm2bPublic, TpmCc, TpmHt, TpmtSymDefObject,
+    },
     frame::{TpmLoadCommand, TpmLoadResponse},
 };
 use tpm2_tpmkey::{TpmKeyFile, TpmKeyType};
@@ -58,6 +60,10 @@ impl Task for Load {
             return Self::load_kernel_key(&tpm_key, name, writer, TpmUint32::new(parent));
         }
 
+        if tpm_key.auth_policy().is_some() {
+            return Err(anyhow!("authPolicy extension is not supported for loading"));
+        }
+
         let public = Self::parse_public(tpm_key.public())?;
         let private = Self::parse_private(tpm_key.private())?;
 
@@ -69,8 +75,11 @@ impl Task for Load {
             let object_private = if tpm_key.secret().is_empty() {
                 private
             } else {
-                let in_sym_seed = Tpm2bEncryptedSecret::try_from(tpm_key.secret())
-                    .map_err(|_| anyhow!("capacity exceeded"))?;
+                let (in_sym_seed, rest) = Tpm2bEncryptedSecret::unmarshal(tpm_key.secret())
+                    .map_err(|_| anyhow!("invalid TPM2B_ENCRYPTED_SECRET in secret field"))?;
+                if !rest.is_empty() {
+                    return Err(anyhow!("trailing data in secret field"));
+                }
 
                 task_state.import_key(
                     device,
@@ -98,6 +107,9 @@ impl Task for Load {
             } else {
                 let mut policy_vec: Vec<Box<dyn VtpmPolicyCommand>> = Vec::new();
                 for cmd in tpm_key.policy() {
+                    if cmd.cc() == TpmCc::PolicyAuthorize {
+                        return Err(anyhow!("PolicyAuthorize is not supported for loading"));
+                    }
                     policy_vec.push(vtpm_policy_command_from_parts(cmd.cc(), cmd.body())?);
                 }
                 Some(policy_vec)
