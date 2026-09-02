@@ -18,8 +18,13 @@ macro_rules! tpm_struct {
                 parameters: &[u8],
             ) -> $crate::TpmResult<Self> {
                 let handles = $crate::frame::unmarshal_handle_area::<$count>(handles)?;
-                $(let ($param_field, parameters) =
-                    <$param_type as $crate::TpmUnmarshal>::unmarshal(parameters)?;)*
+                let start = parameters;
+                $(
+                    let offset = start.len() - parameters.len();
+                    let ($param_field, parameters) =
+                        <$param_type as $crate::TpmUnmarshal>::unmarshal(parameters)
+                            .map_err(|e| e.rebase(offset))?;
+                )*
                 $crate::frame::ensure_consumed(parameters)?;
                 Ok(Self {
                     handles,
@@ -406,7 +411,12 @@ macro_rules! tpm_struct {
         {
             #[allow(unused_variables)]
             fn unmarshal(buffer: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                $(let ($field_name, buffer) = <$field_type as $crate::TpmUnmarshal>::unmarshal(buffer)?;)*
+                let start = buffer;
+                $(
+                    let offset = start.len() - buffer.len();
+                    let ($field_name, buffer) = <$field_type as $crate::TpmUnmarshal>::unmarshal(buffer)
+                        .map_err(|e| e.rebase(offset))?;
+                )*
                 Ok((Self { $($field_name,)* }, buffer))
             }
         }
@@ -612,10 +622,12 @@ macro_rules! tpm2b_struct {
                 }
 
                 let (inner_buffer, remainder) = buffer.split_at(size);
-                let (inner, tail) = <$inner_ty as $crate::TpmUnmarshal>::unmarshal(inner_buffer)?;
+                let (inner, tail) = <$inner_ty as $crate::TpmUnmarshal>::unmarshal(inner_buffer)
+                    .map_err(|e| e.rebase(<$crate::basic::TpmUint16 as $crate::TpmSized>::SIZE))?;
                 if !tail.is_empty() {
                     return Err($crate::TpmError::TrailingData {
-                        offset: size.saturating_sub(tail.len()),
+                        offset: <$crate::basic::TpmUint16 as $crate::TpmSized>::SIZE
+                            + size.saturating_sub(tail.len()),
                         actual: tail.len(),
                     });
                 }

@@ -68,12 +68,14 @@ macro_rules! tpm_struct_tagged {
             $value_ty: $crate::TpmUnmarshalTagged<$tag_ty>,
         {
             fn unmarshal(buffer: &[u8]) -> $crate::TpmResult<(Self, &[u8])> {
-                let ($tag_field, buffer) = <$tag_ty as $crate::TpmUnmarshal>::unmarshal(buffer)?;
+                let ($tag_field, rest) = <$tag_ty as $crate::TpmUnmarshal>::unmarshal(buffer)?;
+                let offset = buffer.len() - rest.len();
                 let ($value_field, buffer) =
                     <$value_ty as $crate::TpmUnmarshalTagged<$tag_ty>>::unmarshal_tagged(
                         $tag_field,
-                        buffer,
-                    )?;
+                        rest,
+                    )
+                    .map_err(|e| e.rebase(offset))?;
 
                 Ok((Self { $tag_field, $value_field }, buffer))
             }
