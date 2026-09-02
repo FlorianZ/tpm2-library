@@ -67,8 +67,10 @@ impl fmt::Display for TpmPolicyExpression {
                 let selection_strings: Vec<String> = selections
                     .iter()
                     .map(|tpms| {
-                        let alg_str = TpmHash::try_from(tpms.hash)
-                            .map_or_else(|_| format!("{:?}", tpms.hash), |alg| alg.to_string());
+                        let alg_str = TpmHash::try_from(tpms.hash).map_or_else(
+                            |_| format!("0x{:04x}", tpms.hash.value()),
+                            |alg| alg.to_string(),
+                        );
                         let mut indices = Vec::new();
                         for (byte_index, &byte) in tpms.pcr_select.iter().enumerate() {
                             for bit_index in 0..8 {
@@ -236,7 +238,7 @@ impl TpmPolicyExpression {
     ///
     /// # Errors
     ///
-    /// Returns a [`Error`] variant if the expression tree is invalid for
+    /// Returns a [`TpmPolicyError`] variant if the expression tree is invalid for
     /// command generation (e.g., containing a standalone `Auth` node), if
     /// required context from `TpmPolicyContext` is missing (e.g., a handle name),
     /// or if any part of the TPM command construction fails.
