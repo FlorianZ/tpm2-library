@@ -402,8 +402,13 @@ fn ecc_coord_len(group: &EcGroupRef) -> Result<usize, TpmCryptoError> {
 /// # Errors
 ///
 /// Returns [`Crypto`](crate::TpmCryptoError::Crypto) when libcrypto fails.
+/// Returns [`InvalidRandomRange`](crate::TpmCryptoError::InvalidRandomRange)
+/// when `low >= high`.
 fn gen_biguint_range(low: &BigUint, high: &BigUint) -> Result<BigUint, TpmCryptoError> {
-    debug_assert!(low < high);
+    if low >= high {
+        return Err(TpmCryptoError::InvalidRandomRange);
+    }
+
     let range = high - low;
     let bits = range.bits();
     let byte_len = usize::try_from(bits.div_ceil(8)).unwrap_or(0).max(1);

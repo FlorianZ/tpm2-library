@@ -108,6 +108,9 @@ pub enum TpmCryptoError {
     /// RSA private prime is missing.
     MissingRsaPrivatePrime,
 
+    /// A random sampling range is empty or inverted.
+    InvalidRandomRange,
+
     /// A zero-length key was provided.
     KeyIsEmpty,
 
@@ -188,6 +191,7 @@ impl PartialEq for TpmCryptoError {
             (Self::InvalidEccKey, Self::InvalidEccKey)
             | (Self::InvalidHash, Self::InvalidHash)
             | (Self::InvalidObjectType, Self::InvalidObjectType)
+            | (Self::InvalidRandomRange, Self::InvalidRandomRange)
             | (Self::InvalidRsaKey, Self::InvalidRsaKey)
             | (Self::KeyIsEmpty, Self::KeyIsEmpty)
             | (Self::MissingRsaPrivatePrime, Self::MissingRsaPrivatePrime)
