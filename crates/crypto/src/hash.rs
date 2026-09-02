@@ -267,6 +267,8 @@ impl TpmHash {
         let (key_bytes, key_bits_bytes) = checked_kdf_key_bits(key_bits)?;
         check_output_len(output, key_bytes)?;
 
+        let (label_data, terminator) = split_label_and_terminator(label);
+
         let mut counter: u32 = 1;
 
         let md = (*self).into();
@@ -279,8 +281,8 @@ impl TpmHash {
             let counter_bytes = counter.to_be_bytes();
             let hmac_payload = [
                 counter_bytes.as_slice(),
-                label,
-                &[0u8],
+                label_data,
+                terminator,
                 context_a,
                 context_b,
                 key_bits_bytes.as_slice(),
@@ -352,11 +354,7 @@ impl TpmHash {
         let (key_bytes, _) = checked_kdf_key_bits(key_bits)?;
         check_output_len(output, key_bytes)?;
 
-        let (label_data, terminator) = if label.last() == Some(&0) {
-            (label, &[][..])
-        } else {
-            (label, &[0u8][..])
-        };
+        let (label_data, terminator) = split_label_and_terminator(label);
 
         let mut counter: u32 = 1;
         let md = (*self).into();
@@ -388,6 +386,14 @@ impl TpmHash {
         }
 
         Ok(key_bytes)
+    }
+}
+
+fn split_label_and_terminator(label: &[u8]) -> (&[u8], &[u8]) {
+    if label.last() == Some(&0) {
+        (label, &[][..])
+    } else {
+        (label, &[0u8][..])
     }
 }
 

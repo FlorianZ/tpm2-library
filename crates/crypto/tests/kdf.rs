@@ -352,7 +352,7 @@ fn kdfe_label_null_termination_eq() {
 }
 
 #[test]
-fn kdfa_label_null_termination_diff() {
+fn kdfa_label_null_termination_eq() {
     let alg = TpmHash::Sha256;
     let key = b"K";
     let ctx_a = b"A";
@@ -360,5 +360,5 @@ fn kdfa_label_null_termination_diff() {
 
     let res_a = alg.kdfa(key, b"LAB", ctx_a, ctx_b, 128).expect("LAB");
     let res_b = alg.kdfa(key, b"LAB\0", ctx_a, ctx_b, 128).expect("LAB\\0");
-    assert_ne!(res_a, res_b);
+    assert_eq!(res_a, res_b);
 }
