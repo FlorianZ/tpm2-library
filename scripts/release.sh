@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) Jarkko Sakkinen 2026
+# Copyright (c) 2026 Jarkko Sakkinen
 
 set -euo pipefail
 
