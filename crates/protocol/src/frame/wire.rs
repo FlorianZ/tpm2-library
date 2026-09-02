@@ -163,24 +163,24 @@ impl TpmCommand {
         Ok(&mut self.0[range])
     }
 
-    /// Returns the command authorization area bytes.
+    /// Returns the command authorization area bytes, or an empty slice when the
+    /// command has no sessions.
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmError)` when the command has no sessions or its
-    /// authorization area is malformed.
+    /// Returns `Err(TpmError)` when the command authorization area is malformed.
     pub fn auth_area(&self) -> TpmResult<&[u8]> {
         let (auth_area, _) = self.session_and_parameter_ranges()?;
 
         Ok(&self.0[auth_area])
     }
 
-    /// Returns the mutable command authorization area bytes.
+    /// Returns the mutable command authorization area bytes, or an empty slice
+    /// when the command has no sessions.
     ///
     /// # Errors
     ///
-    /// Returns `Err(TpmError)` when the command has no sessions or its
-    /// authorization area is malformed.
+    /// Returns `Err(TpmError)` when the command authorization area is malformed.
     pub fn auth_area_mut(&mut self) -> TpmResult<&mut [u8]> {
         let (auth_area, _) = self.session_and_parameter_ranges()?;
 
@@ -552,12 +552,23 @@ impl TpmResponse {
     pub fn validate(&self, cc: TpmCc) -> TpmResult<()> {
         Self::validate_envelope(&self.0)?;
         let dispatch = dispatch_for(cc)?;
+        let tag = self.tag()?;
 
         if !matches!(self.rc()?, TpmRc::Fmt0(TpmRcBase::Success)) {
-            return Ok(());
-        }
+            if tag != TpmSt::NoSessions {
+                return Err(TpmError::InvalidTag {
+                    offset: TAG_OFFSET,
+                    value: u64::from(tag.value()),
+                });
+            }
 
-        if self.tag()? != TpmSt::Sessions {
+            if self.0.len() != HEADER_SIZE {
+                return Err(TpmError::TrailingData {
+                    offset: HEADER_SIZE,
+                    actual: self.0.len().saturating_sub(HEADER_SIZE),
+                });
+            }
+
             return Ok(());
         }
 
@@ -569,6 +580,10 @@ impl TpmResponse {
                 needed: handle_area_size,
                 available: body.len(),
             });
+        }
+
+        if tag != TpmSt::Sessions {
+            return Ok(());
         }
 
         let after_handles = &body[handle_area_size..];
@@ -659,10 +674,16 @@ impl TpmResponse {
     fn validate_envelope(buf: &[u8]) -> TpmResult<()> {
         validate_frame_size(buf)?;
         let raw_tag = read_u16(buf, TAG_OFFSET);
-        let _ = TpmSt::try_from(raw_tag).map_err(|_| TpmError::InvalidTag {
+        let tag = TpmSt::try_from(raw_tag).map_err(|_| TpmError::InvalidTag {
             offset: TAG_OFFSET,
             value: u64::from(raw_tag),
         })?;
+        if tag != TpmSt::NoSessions && tag != TpmSt::Sessions {
+            return Err(TpmError::InvalidTag {
+                offset: TAG_OFFSET,
+                value: u64::from(raw_tag),
+            });
+        }
         let raw_rc = read_u32(buf, CODE_OFFSET);
         let _ = TpmRc::try_from(raw_rc).map_err(|_| TpmError::InvalidRc {
             offset: CODE_OFFSET,
@@ -757,6 +778,13 @@ fn frame_prefix_size(buf: &[u8]) -> TpmResult<usize> {
     }
 
     let size = read_u32(buf, SIZE_OFFSET) as usize;
+    if size < HEADER_SIZE {
+        return Err(TpmError::UnexpectedEnd {
+            offset: SIZE_OFFSET,
+            needed: HEADER_SIZE,
+            available: size,
+        });
+    }
     if buf.len() < size {
         return Err(TpmError::UnexpectedEnd {
             offset: buf.len(),
