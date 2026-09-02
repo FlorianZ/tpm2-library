@@ -13,9 +13,9 @@ pub use self::{r#enum::*, tpma::*, tpmi::*, tpms::*, tpmt::*, tpmu::*};
 
 use crate::{
     constant::{
-        MAX_BUFFER_SIZE, MAX_DIGEST_SIZE, MAX_ECC_KEY_BYTES, MAX_EVENT_SIZE, MAX_NV_BUFFER_SIZE,
-        MAX_PRIVATE_SIZE, MAX_RSA_KEY_BYTES, MAX_SENSITIVE_DATA, MAX_SYM_KEY_BYTES,
-        TPM_MAX_COMMAND_SIZE,
+        MAX_BUFFER_SIZE, MAX_DATA_SIZE, MAX_DIGEST_SIZE, MAX_ECC_KEY_BYTES, MAX_EVENT_SIZE,
+        MAX_NV_BUFFER_SIZE, MAX_PRIVATE_SIZE, MAX_RSA_KEY_BYTES, MAX_SENSITIVE_DATA,
+        MAX_SYM_KEY_BYTES, TPM_MAX_COMMAND_SIZE,
     },
     tpm2b, tpm2b_struct, tpml,
 };
@@ -37,7 +37,7 @@ tpm2b!(Tpm2bPrivateKeyRsa, { MAX_RSA_KEY_BYTES / 2 });
 tpm2b!(Tpm2bPublicKeyRsa, MAX_RSA_KEY_BYTES);
 tpm2b!(Tpm2bSensitiveData, MAX_SENSITIVE_DATA);
 tpm2b!(Tpm2bSymKey, MAX_SYM_KEY_BYTES);
-tpm2b!(Tpm2bData, MAX_SENSITIVE_DATA);
+tpm2b!(Tpm2bData, MAX_DATA_SIZE);
 tpm2b!(Tpm2bTimeout, 8);
 tpm2b!(Tpm2bIv, 16);
 

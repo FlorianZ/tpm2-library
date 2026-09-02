@@ -4,6 +4,9 @@
 
 pub const MAX_BUFFER_SIZE: usize = 1024;
 pub const MAX_DIGEST_SIZE: usize = 64;
+/// `sizeof(TPMT_HA)`: a `TPM_ALG_ID` selector plus the largest digest. This is
+/// the capacity Part 2 assigns to `TPM2B_DATA`.
+pub const MAX_DATA_SIZE: usize = MAX_DIGEST_SIZE + 2;
 pub const MAX_ECC_KEY_BYTES: usize = 66;
 pub const MAX_EVENT_SIZE: usize = 1024;
 pub const MAX_HANDLES: usize = 8;
