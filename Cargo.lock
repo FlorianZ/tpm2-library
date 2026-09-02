@@ -1491,7 +1491,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2-crypto"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "hex",
  "num-bigint",
@@ -1504,7 +1504,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2-device"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "hex",
  "log",
@@ -1520,7 +1520,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2-policy-language"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "hex",
  "rstest 0.21.0",
@@ -1531,11 +1531,11 @@ dependencies = [
 
 [[package]]
 name = "tpm2-protocol"
-version = "1.1.1"
+version = "1.2.0"
 
 [[package]]
 name = "tpm2-tpmkey"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "pem",
  "rasn",
@@ -1545,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2-vtpm"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "log",
  "rstest 0.18.2",
@@ -1557,7 +1557,7 @@ dependencies = [
 
 [[package]]
 name = "tpm2sh"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "argh",
