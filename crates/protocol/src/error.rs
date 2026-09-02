@@ -132,6 +132,102 @@ pub enum TpmError {
     },
 }
 
+impl TpmError {
+    /// Returns the byte offset associated with this error.
+    #[must_use]
+    pub const fn offset(&self) -> usize {
+        match *self {
+            Self::BufferOverflow { offset, .. }
+            | Self::IntegerTooLarge { offset, .. }
+            | Self::InvalidBoolean { offset, .. }
+            | Self::InvalidCc { offset, .. }
+            | Self::InvalidMagicNumber { offset, .. }
+            | Self::InvalidRc { offset, .. }
+            | Self::InvalidTag { offset, .. }
+            | Self::TooManyBytes { offset, .. }
+            | Self::TooManyItems { offset, .. }
+            | Self::TrailingData { offset, .. }
+            | Self::UnexpectedEnd { offset, .. }
+            | Self::VariantNotAvailable { offset, .. } => offset,
+        }
+    }
+
+    /// Shifts the byte offset by `delta` bytes.
+    #[must_use]
+    pub const fn rebase(self, delta: usize) -> Self {
+        match self {
+            Self::BufferOverflow {
+                offset,
+                needed,
+                available,
+            } => Self::BufferOverflow {
+                offset: offset.saturating_add(delta),
+                needed,
+                available,
+            },
+            Self::IntegerTooLarge { offset, value } => Self::IntegerTooLarge {
+                offset: offset.saturating_add(delta),
+                value,
+            },
+            Self::InvalidBoolean { offset, value } => Self::InvalidBoolean {
+                offset: offset.saturating_add(delta),
+                value,
+            },
+            Self::InvalidCc { offset, value } => Self::InvalidCc {
+                offset: offset.saturating_add(delta),
+                value,
+            },
+            Self::InvalidMagicNumber { offset, value } => Self::InvalidMagicNumber {
+                offset: offset.saturating_add(delta),
+                value,
+            },
+            Self::InvalidRc { offset, value } => Self::InvalidRc {
+                offset: offset.saturating_add(delta),
+                value,
+            },
+            Self::InvalidTag { offset, value } => Self::InvalidTag {
+                offset: offset.saturating_add(delta),
+                value,
+            },
+            Self::TooManyBytes {
+                offset,
+                limit,
+                actual,
+            } => Self::TooManyBytes {
+                offset: offset.saturating_add(delta),
+                limit,
+                actual,
+            },
+            Self::TooManyItems {
+                offset,
+                limit,
+                actual,
+            } => Self::TooManyItems {
+                offset: offset.saturating_add(delta),
+                limit,
+                actual,
+            },
+            Self::TrailingData { offset, actual } => Self::TrailingData {
+                offset: offset.saturating_add(delta),
+                actual,
+            },
+            Self::UnexpectedEnd {
+                offset,
+                needed,
+                available,
+            } => Self::UnexpectedEnd {
+                offset: offset.saturating_add(delta),
+                needed,
+                available,
+            },
+            Self::VariantNotAvailable { offset, value } => Self::VariantNotAvailable {
+                offset: offset.saturating_add(delta),
+                value,
+            },
+        }
+    }
+}
+
 /// Renders [`TpmError`] as its variant name in lowercase, space-separated words
 /// (e.g. [`BufferOverflow`](Self::BufferOverflow) renders as `buffer overflow`).
 ///
