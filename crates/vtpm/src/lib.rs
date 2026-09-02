@@ -178,15 +178,34 @@ pub enum VtpmError {
 
     /// While unmarshaling, the end of data was reached unexpectedly.
     UnexpectedEnd,
+
+    /// A cache record exceeds the maximum accepted serialized size.
+    RecordTooLarge(usize),
+
+    /// A cache record declares more policy commands than allowed.
+    TooManyPolicies(usize),
 }
 
 impl core::fmt::Display for VtpmError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.as_ref().to_lowercase())
+        for c in self.as_ref().chars() {
+            for lc in c.to_lowercase() {
+                core::fmt::Write::write_char(f, lc)?;
+            }
+        }
+        Ok(())
     }
 }
 
-impl std::error::Error for VtpmError {}
+impl std::error::Error for VtpmError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            Self::Marshal(err) | Self::Unmarshal(err) => Some(err),
+            _ => None,
+        }
+    }
+}
 
 impl From<io::Error> for VtpmError {
     fn from(err: io::Error) -> Self {
