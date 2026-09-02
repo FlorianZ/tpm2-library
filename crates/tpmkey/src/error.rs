@@ -35,6 +35,12 @@ pub enum TpmKeyError {
     /// Importable key is missing its encrypted seed (`secret`).
     MissingSecret,
 
+    /// A loadable key carries a `secret`, which the format forbids.
+    UnexpectedSecret,
+
+    /// The `secret` field is not a well-formed `TPM2B_ENCRYPTED_SECRET`.
+    InvalidSecret,
+
     /// Marshaling a TPM protocol encoded object failed.
     Marshal(tpm2_protocol::TpmError),
 
@@ -47,8 +53,23 @@ pub enum TpmKeyError {
 
 impl core::fmt::Display for TpmKeyError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.as_ref().to_lowercase())
+        for c in self.as_ref().chars() {
+            for lc in c.to_lowercase() {
+                core::fmt::Write::write_char(f, lc)?;
+            }
+        }
+        Ok(())
     }
 }
 
-impl std::error::Error for TpmKeyError {}
+impl std::error::Error for TpmKeyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Asn1DecodingFailed(err) => Some(err),
+            Self::Asn1EncodingFailed(err) => Some(err),
+            Self::PemDecodingFailed(err) => Some(err),
+            Self::Marshal(err) | Self::Unmarshal(err) => Some(err),
+            _ => None,
+        }
+    }
+}
