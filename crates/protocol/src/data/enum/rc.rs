@@ -14,6 +14,13 @@ pub const TPM_RC_WARN: u32 = 0x0900;
 pub const TPM_RC_P_BIT: u32 = 1 << 6;
 pub const TPM_RC_N_SHIFT: u8 = 8;
 pub const TPM_RC_FMT1_ERROR_MASK: u32 = 0x003F;
+pub const TPM_RC_N_MASK: u32 = 0x000F;
+
+/// Bits defined for a Format-1 response code: the format selector, the `P` bit,
+/// the six-bit error number, and the four-bit `N` field. Every other bit is
+/// reserved and must be clear.
+pub const TPM_RC_FMT1_VALID_MASK: u32 =
+    TPM_RC_FMT1 | TPM_RC_P_BIT | TPM_RC_FMT1_ERROR_MASK | (TPM_RC_N_MASK << TPM_RC_N_SHIFT);
 
 const MAX_HANDLE_INDEX: u8 = 7;
 const SESSION_INDEX_OFFSET: u8 = 8;
@@ -170,15 +177,17 @@ impl TpmRc {
                 let mut value = fmt1.base as u32;
                 if let Some(index) = fmt1.index {
                     let (is_parameter, num) = match index {
-                        TpmRcIndex::Parameter(n) => (true, n),
-                        TpmRcIndex::Handle(n) => (false, n),
-                        TpmRcIndex::Session(n) => (false, n + SESSION_INDEX_OFFSET),
+                        TpmRcIndex::Parameter(n) => (true, u32::from(n)),
+                        TpmRcIndex::Handle(n) => (false, u32::from(n)),
+                        TpmRcIndex::Session(n) => {
+                            (false, u32::from(n) + u32::from(SESSION_INDEX_OFFSET))
+                        }
                     };
 
                     if is_parameter {
                         value |= TPM_RC_P_BIT;
                     }
-                    value |= u32::from(num) << TPM_RC_N_SHIFT;
+                    value |= (num & TPM_RC_N_MASK) << TPM_RC_N_SHIFT;
                 }
                 value
             }
@@ -226,30 +235,41 @@ impl<'a> crate::TpmField<'a> for TpmRc {
 impl TryFrom<u32> for TpmRc {
     type Error = TpmError;
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        let base_code = if (value & TPM_RC_FMT1) != 0 {
-            TPM_RC_FMT1 | (value & TPM_RC_FMT1_ERROR_MASK)
-        } else {
-            value
-        };
-
-        let base = TpmRcBase::try_from(base_code).map_err(|_| TpmError::InvalidRc {
+        let invalid_rc = || TpmError::InvalidRc {
             offset: 0,
             value: u64::from(value),
-        })?;
+        };
 
-        if (value & TPM_RC_WARN) == TPM_RC_WARN {
-            Ok(Self::Warn(base))
-        } else if (value & TPM_RC_FMT1) != 0 {
+        // Bit 7 selects the response code format. Only a Format-0 code can
+        // additionally carry the warning severity bit, so the format must be
+        // decided before the `TPM_RC_WARN` test.
+        if (value & TPM_RC_FMT1) != 0 {
+            if (value & !TPM_RC_FMT1_VALID_MASK) != 0 {
+                return Err(invalid_rc());
+            }
+
+            let base = TpmRcBase::try_from(TPM_RC_FMT1 | (value & TPM_RC_FMT1_ERROR_MASK))
+                .map_err(|_| invalid_rc())?;
+
             let is_parameter = (value & TPM_RC_P_BIT) != 0;
-            let n = ((value >> TPM_RC_N_SHIFT) & 0b1111) as u8;
+            let n = ((value >> TPM_RC_N_SHIFT) & TPM_RC_N_MASK) as u8;
 
             let index = match (is_parameter, n) {
-                (_, 0) => None,
+                // `P` set selects a parameter number, which is one-based.
+                (true, 0) => return Err(invalid_rc()),
+                (false, 0) => None,
                 (true, num) => Some(TpmRcIndex::Parameter(num)),
                 (false, num @ 1..=MAX_HANDLE_INDEX) => Some(TpmRcIndex::Handle(num)),
                 (false, num) => Some(TpmRcIndex::Session(num - SESSION_INDEX_OFFSET)),
             };
-            Ok(Self::Fmt1(TpmRcFmt1 { base, index }))
+
+            return Ok(Self::Fmt1(TpmRcFmt1 { base, index }));
+        }
+
+        let base = TpmRcBase::try_from(value).map_err(|_| invalid_rc())?;
+
+        if (value & TPM_RC_WARN) == TPM_RC_WARN {
+            Ok(Self::Warn(base))
         } else {
             Ok(Self::Fmt0(base))
         }
