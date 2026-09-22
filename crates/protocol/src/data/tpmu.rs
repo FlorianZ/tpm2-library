@@ -270,7 +270,7 @@ impl TpmuHa {
         match (self, tag) {
             (Self::Null, TpmAlgId::Null) => true,
             (Self::Digest(digest), tag) => {
-                digest_size(tag).is_some_and(|size| digest.len() == size)
+                digest_size(tag).is_some_and(|size| digest.deref().len() == size)
             }
             _ => false,
         }
